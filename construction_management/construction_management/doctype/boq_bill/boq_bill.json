@@ -1,0 +1,177 @@
+{
+	"actions": [],
+	"allow_rename": 1,
+	"autoname": "naming_series:",
+	"creation": "2024-12-18 10:00:00",
+	"doctype": "DocType",
+	"engine": "InnoDB",
+	"field_order": [
+		"naming_series",
+		"project_boq",
+		"project",
+		"column_break_1",
+		"bill_no",
+		"sequence",
+		"section_details",
+		"description",
+		"section_totals",
+		"total_qty",
+		"total_amount",
+		"column_break_2",
+		"prev_amount",
+		"current_amount",
+		"to_date_amount",
+		"balance_amount"
+	],
+	"fields": [
+		{
+			"fieldname": "naming_series",
+			"fieldtype": "Select",
+			"label": "Naming Series",
+			"options": "BILL-.YYYY.-",
+			"reqd": 1
+		},
+		{
+			"fieldname": "project_boq",
+			"fieldtype": "Link",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+			"label": "Project BOQ",
+			"options": "Project BOQ",
+			"reqd": 1
+		},
+		{
+			"fieldname": "project",
+			"fieldtype": "Link",
+			"label": "Project",
+			"options": "Project",
+			"fetch_from": "project_boq.project",
+			"read_only": 1
+		},
+		{
+			"fieldname": "column_break_1",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "bill_no",
+			"fieldtype": "Data",
+			"in_list_view": 1,
+			"label": "Bill Number",
+			"reqd": 1
+		},
+		{
+			"fieldname": "sequence",
+			"fieldtype": "Int",
+			"label": "Sequence",
+			"default": "0"
+		},
+		{
+			"fieldname": "section_details",
+			"fieldtype": "Section Break",
+			"label": "Details"
+		},
+		{
+			"fieldname": "description",
+			"fieldtype": "Small Text",
+			"label": "Description"
+		},
+		{
+			"fieldname": "section_totals",
+			"fieldtype": "Section Break",
+			"label": "Totals"
+		},
+		{
+			"fieldname": "total_qty",
+			"fieldtype": "Float",
+			"label": "Total Quantity",
+			"read_only": 1,
+			"precision": "3"
+		},
+		{
+			"fieldname": "total_amount",
+			"fieldtype": "Currency",
+			"in_list_view": 1,
+			"label": "Total Amount",
+			"read_only": 1
+		},
+		{
+			"fieldname": "column_break_2",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "prev_amount",
+			"fieldtype": "Currency",
+			"label": "Previous Amount",
+			"read_only": 1
+		},
+		{
+			"fieldname": "current_amount",
+			"fieldtype": "Currency",
+			"label": "Current Amount",
+			"read_only": 1
+		},
+		{
+			"fieldname": "to_date_amount",
+			"fieldtype": "Currency",
+			"label": "To-Date Amount",
+			"read_only": 1
+		},
+		{
+			"fieldname": "balance_amount",
+			"fieldtype": "Currency",
+			"label": "Balance Amount",
+			"read_only": 1
+		}
+	],
+	"index_web_pages_for_search": 1,
+	"links": [
+		{
+			"link_doctype": "BOQ Item",
+			"link_fieldname": "parent_bill"
+		}
+	],
+	"modified": "2024-12-18 10:00:00",
+	"modified_by": "Administrator",
+	"module": "Construction Management",
+	"name": "BOQ Bill",
+	"naming_rule": "By \"Naming Series\" field",
+	"owner": "Administrator",
+	"permissions": [
+		{
+			"create": 1,
+			"delete": 1,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "System Manager",
+			"share": 1,
+			"write": 1
+		},
+		{
+			"create": 1,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "Quantity Surveyor",
+			"share": 1,
+			"write": 1
+		},
+		{
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "Construction Manager",
+			"share": 1
+		}
+	],
+	"sort_field": "sequence",
+	"sort_order": "ASC",
+	"states": [],
+	"track_changes": 1
+}

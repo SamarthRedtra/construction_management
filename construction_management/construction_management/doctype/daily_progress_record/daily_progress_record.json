@@ -1,0 +1,174 @@
+{
+	"actions": [],
+	"allow_rename": 1,
+	"autoname": "naming_series:",
+	"creation": "2024-12-18 10:00:00",
+	"doctype": "DocType",
+	"engine": "InnoDB",
+	"field_order": [
+		"naming_series",
+		"project",
+		"boq_item",
+		"column_break_1",
+		"date",
+		"section_costs",
+		"labour_cost",
+		"material_cost",
+		"column_break_2",
+		"asset_cost",
+		"subcontract_cost",
+		"column_break_3",
+		"expense_cost",
+		"total_cost",
+		"section_remarks",
+		"remarks"
+	],
+	"fields": [
+		{
+			"fieldname": "naming_series",
+			"fieldtype": "Select",
+			"label": "Naming Series",
+			"options": "DPR-.YYYY.-",
+			"reqd": 1
+		},
+		{
+			"fieldname": "project",
+			"fieldtype": "Link",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+			"label": "Project",
+			"options": "Project",
+			"reqd": 1
+		},
+		{
+			"fieldname": "boq_item",
+			"fieldtype": "Link",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+			"label": "BOQ Item",
+			"options": "BOQ Item",
+			"reqd": 1
+		},
+		{
+			"fieldname": "column_break_1",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "date",
+			"fieldtype": "Date",
+			"in_list_view": 1,
+			"label": "Date",
+			"reqd": 1,
+			"default": "Today"
+		},
+		{
+			"fieldname": "section_costs",
+			"fieldtype": "Section Break",
+			"label": "Cost Breakdown"
+		},
+		{
+			"fieldname": "labour_cost",
+			"fieldtype": "Currency",
+			"label": "Labour Cost",
+			"default": "0"
+		},
+		{
+			"fieldname": "material_cost",
+			"fieldtype": "Currency",
+			"label": "Material Cost",
+			"default": "0"
+		},
+		{
+			"fieldname": "column_break_2",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "asset_cost",
+			"fieldtype": "Currency",
+			"label": "Asset Cost",
+			"default": "0"
+		},
+		{
+			"fieldname": "subcontract_cost",
+			"fieldtype": "Currency",
+			"label": "Subcontract Cost",
+			"default": "0"
+		},
+		{
+			"fieldname": "column_break_3",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "expense_cost",
+			"fieldtype": "Currency",
+			"label": "Other Expense",
+			"default": "0"
+		},
+		{
+			"fieldname": "total_cost",
+			"fieldtype": "Currency",
+			"in_list_view": 1,
+			"label": "Total Cost",
+			"read_only": 1
+		},
+		{
+			"fieldname": "section_remarks",
+			"fieldtype": "Section Break",
+			"label": "Remarks",
+			"collapsible": 1
+		},
+		{
+			"fieldname": "remarks",
+			"fieldtype": "Small Text",
+			"label": "Remarks"
+		}
+	],
+	"index_web_pages_for_search": 1,
+	"links": [],
+	"modified": "2024-12-18 10:00:00",
+	"modified_by": "Administrator",
+	"module": "Construction Management",
+	"name": "Daily Progress Record",
+	"naming_rule": "By \"Naming Series\" field",
+	"owner": "Administrator",
+	"permissions": [
+		{
+			"create": 1,
+			"delete": 1,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "System Manager",
+			"share": 1,
+			"write": 1
+		},
+		{
+			"create": 1,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "Quantity Surveyor",
+			"share": 1,
+			"write": 1
+		},
+		{
+			"create": 1,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "Site Engineer",
+			"share": 1,
+			"write": 1
+		}
+	],
+	"sort_field": "date",
+	"sort_order": "DESC",
+	"states": [],
+	"track_changes": 1
+}

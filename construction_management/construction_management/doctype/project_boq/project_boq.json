@@ -1,0 +1,207 @@
+{
+	"actions": [],
+	"allow_rename": 1,
+	"autoname": "naming_series:",
+	"creation": "2024-12-18 10:00:00",
+	"doctype": "DocType",
+	"engine": "InnoDB",
+	"field_order": [
+		"naming_series",
+		"project",
+		"boq_name",
+		"column_break_1",
+		"status",
+		"currency",
+		"section_details",
+		"description",
+		"column_break_2",
+		"prepared_by",
+		"prepared_date",
+		"section_totals",
+		"total_boq_value",
+		"total_billed",
+		"column_break_3",
+		"total_collected",
+		"pending_amount",
+		"section_remarks",
+		"remarks"
+	],
+	"fields": [
+		{
+			"fieldname": "naming_series",
+			"fieldtype": "Select",
+			"label": "Naming Series",
+			"options": "PBOQ-.YYYY.-",
+			"reqd": 1
+		},
+		{
+			"fieldname": "project",
+			"fieldtype": "Link",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+			"label": "Project",
+			"options": "Project",
+			"reqd": 1,
+			"unique": 1
+		},
+		{
+			"fieldname": "boq_name",
+			"fieldtype": "Data",
+			"in_list_view": 1,
+			"label": "BOQ Name",
+			"reqd": 1
+		},
+		{
+			"fieldname": "column_break_1",
+			"fieldtype": "Column Break"
+		},
+		{
+			"default": "Draft",
+			"fieldname": "status",
+			"fieldtype": "Select",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+			"label": "Status",
+			"options": "Draft\nApproved\nClosed"
+		},
+		{
+			"fieldname": "currency",
+			"fieldtype": "Link",
+			"label": "Currency",
+			"options": "Currency",
+			"default": "AED"
+		},
+		{
+			"fieldname": "section_details",
+			"fieldtype": "Section Break",
+			"label": "Details"
+		},
+		{
+			"fieldname": "description",
+			"fieldtype": "Text Editor",
+			"label": "Description"
+		},
+		{
+			"fieldname": "column_break_2",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "prepared_by",
+			"fieldtype": "Link",
+			"label": "Prepared By",
+			"options": "User"
+		},
+		{
+			"fieldname": "prepared_date",
+			"fieldtype": "Date",
+			"label": "Prepared Date"
+		},
+		{
+			"fieldname": "section_totals",
+			"fieldtype": "Section Break",
+			"label": "Summary"
+		},
+		{
+			"fieldname": "total_boq_value",
+			"fieldtype": "Currency",
+			"in_list_view": 1,
+			"label": "Total BOQ Value",
+			"read_only": 1,
+			"options": "currency"
+		},
+		{
+			"fieldname": "total_billed",
+			"fieldtype": "Currency",
+			"label": "Total Billed",
+			"read_only": 1,
+			"options": "currency"
+		},
+		{
+			"fieldname": "column_break_3",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "total_collected",
+			"fieldtype": "Currency",
+			"label": "Total Collected",
+			"read_only": 1,
+			"options": "currency"
+		},
+		{
+			"fieldname": "pending_amount",
+			"fieldtype": "Currency",
+			"label": "Pending Amount",
+			"read_only": 1,
+			"options": "currency"
+		},
+		{
+			"fieldname": "section_remarks",
+			"fieldtype": "Section Break",
+			"label": "Remarks",
+			"collapsible": 1
+		},
+		{
+			"fieldname": "remarks",
+			"fieldtype": "Small Text",
+			"label": "Remarks"
+		}
+	],
+	"index_web_pages_for_search": 1,
+	"links": [
+		{
+			"link_doctype": "BOQ Bill",
+			"link_fieldname": "project_boq"
+		}
+	],
+	"modified": "2024-12-18 10:00:00",
+	"modified_by": "Administrator",
+	"module": "Construction Management",
+	"name": "Project BOQ",
+	"naming_rule": "By \"Naming Series\" field",
+	"owner": "Administrator",
+	"permissions": [
+		{
+			"create": 1,
+			"delete": 1,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "System Manager",
+			"share": 1,
+			"write": 1
+		},
+		{
+			"create": 1,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "Quantity Surveyor",
+			"share": 1,
+			"write": 1
+		},
+		{
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "Construction Manager",
+			"share": 1,
+			"write": 1
+		},
+		{
+			"email": 1,
+			"print": 1,
+			"read": 1,
+			"role": "Consultant"
+		}
+	],
+	"sort_field": "modified",
+	"sort_order": "DESC",
+	"states": [],
+	"track_changes": 1
+}

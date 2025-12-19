@@ -1,0 +1,182 @@
+{
+	"actions": [],
+	"allow_rename": 0,
+	"autoname": "naming_series:",
+	"creation": "2024-12-18 10:00:00",
+	"doctype": "DocType",
+	"engine": "InnoDB",
+	"field_order": [
+		"naming_series",
+		"project",
+		"project_boq",
+		"column_break_1",
+		"bill_no",
+		"boq_item",
+		"section_transaction",
+		"posting_date",
+		"qty",
+		"amount",
+		"column_break_2",
+		"source",
+		"reference_doctype",
+		"reference_name",
+		"section_remarks",
+		"remarks"
+	],
+	"fields": [
+		{
+			"fieldname": "naming_series",
+			"fieldtype": "Select",
+			"label": "Naming Series",
+			"options": "BOQL-.YYYY.-",
+			"reqd": 1,
+			"hidden": 1
+		},
+		{
+			"fieldname": "project",
+			"fieldtype": "Link",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+			"label": "Project",
+			"options": "Project",
+			"reqd": 1,
+			"read_only": 1
+		},
+		{
+			"fieldname": "project_boq",
+			"fieldtype": "Link",
+			"label": "Project BOQ",
+			"options": "Project BOQ",
+			"reqd": 1,
+			"read_only": 1
+		},
+		{
+			"fieldname": "column_break_1",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "bill_no",
+			"fieldtype": "Link",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+			"label": "Bill Number",
+			"options": "BOQ Bill",
+			"reqd": 1,
+			"read_only": 1
+		},
+		{
+			"fieldname": "boq_item",
+			"fieldtype": "Link",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+			"label": "BOQ Item",
+			"options": "BOQ Item",
+			"reqd": 1,
+			"read_only": 1
+		},
+		{
+			"fieldname": "section_transaction",
+			"fieldtype": "Section Break",
+			"label": "Transaction Details"
+		},
+		{
+			"fieldname": "posting_date",
+			"fieldtype": "Date",
+			"in_list_view": 1,
+			"label": "Posting Date",
+			"reqd": 1,
+			"read_only": 1
+		},
+		{
+			"fieldname": "qty",
+			"fieldtype": "Float",
+			"in_list_view": 1,
+			"label": "Quantity",
+			"precision": "3",
+			"reqd": 1,
+			"read_only": 1
+		},
+		{
+			"fieldname": "amount",
+			"fieldtype": "Currency",
+			"in_list_view": 1,
+			"label": "Amount",
+			"reqd": 1,
+			"read_only": 1
+		},
+		{
+			"fieldname": "column_break_2",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "source",
+			"fieldtype": "Select",
+			"in_standard_filter": 1,
+			"label": "Source",
+			"options": "Invoice\nAdjustment\nReversal",
+			"reqd": 1,
+			"read_only": 1
+		},
+		{
+			"fieldname": "reference_doctype",
+			"fieldtype": "Link",
+			"label": "Reference DocType",
+			"options": "DocType",
+			"read_only": 1
+		},
+		{
+			"fieldname": "reference_name",
+			"fieldtype": "Dynamic Link",
+			"label": "Reference Name",
+			"options": "reference_doctype",
+			"read_only": 1
+		},
+		{
+			"fieldname": "section_remarks",
+			"fieldtype": "Section Break",
+			"label": "Remarks",
+			"collapsible": 1
+		},
+		{
+			"fieldname": "remarks",
+			"fieldtype": "Small Text",
+			"label": "Remarks",
+			"read_only": 1
+		}
+	],
+	"hide_toolbar": 1,
+	"in_create": 1,
+	"index_web_pages_for_search": 0,
+	"is_submittable": 0,
+	"links": [],
+	"modified": "2024-12-18 10:00:00",
+	"modified_by": "Administrator",
+	"module": "Construction Management",
+	"name": "BOQ Progress Ledger",
+	"naming_rule": "By \"Naming Series\" field",
+	"owner": "Administrator",
+	"permissions": [
+		{
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "System Manager",
+			"share": 1
+		},
+		{
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "Quantity Surveyor",
+			"share": 1
+		}
+	],
+	"sort_field": "posting_date",
+	"sort_order": "DESC",
+	"states": [],
+	"track_changes": 0
+}
