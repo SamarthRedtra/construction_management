@@ -251,6 +251,7 @@ fixtures = [
 		"dt": "Custom Field",
 		"filters": [["name", "in", [
 			"Project-enable_progressive_boq",
+			"Project-retention_percentage",
 			"Project-construction_dashboard_section",
 			"Project-construction_dashboard"
 		]]]

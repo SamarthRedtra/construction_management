@@ -48,13 +48,13 @@ def get_boq_tree_data(project: str) -> dict:
 @frappe.whitelist()
 def get_boq_kpi(project: str) -> dict:
 	"""
-	Get KPI summary for project BOQ including cost breakdown.
+	Get KPI summary for project BOQ including cost breakdown, advance, and retention.
 	
 	Args:
 		project: Project name
 		
 	Returns:
-		dict with total_boq_value, total_billed, total_collected, pending, and cost breakdown
+		dict with total_boq_value, total_billed, total_collected, pending, cost breakdown, advance, and retention
 	"""
 	# Get Project BOQ total
 	total_boq_value = frappe.db.get_value(
@@ -96,6 +96,12 @@ def get_boq_kpi(project: str) -> dict:
 		WHERE project = %s
 	""", project, as_dict=True)[0]
 	
+	# Get advance payment summary
+	advance_summary = get_advance_summary(project)
+	
+	# Get retention summary
+	retention_summary = get_retention_summary(project)
+	
 	return {
 		"total_boq_value": flt(total_boq_value),
 		"total_billed": flt(total_billed),
@@ -106,7 +112,78 @@ def get_boq_kpi(project: str) -> dict:
 		"total_asset_cost": flt(cost_breakdown.asset),
 		"total_subcontract_cost": flt(cost_breakdown.subcontract),
 		"total_expense_cost": flt(cost_breakdown.expense),
-		"total_cost": flt(cost_breakdown.total)
+		"total_cost": flt(cost_breakdown.total),
+		# Advance tracking
+		"advance_collected": flt(advance_summary.get("total_collected", 0)),
+		"advance_utilized": flt(advance_summary.get("total_utilized", 0)),
+		"advance_balance": flt(advance_summary.get("balance", 0)),
+		# Retention tracking
+		"retention_held": flt(retention_summary.get("total_retained", 0)),
+		"retention_released": flt(retention_summary.get("total_released", 0)),
+		"retention_balance": flt(retention_summary.get("retention_balance", 0))
+	}
+
+
+def get_advance_summary(project: str) -> dict:
+	"""Get advance payment summary for a project"""
+	# Get total advances collected
+	total_advances = frappe.db.sql("""
+		SELECT COALESCE(SUM(amount), 0) as total
+		FROM `tabBOQ Advance Payment`
+		WHERE project = %s AND docstatus = 1
+	""", project, as_dict=True)
+	
+	total_collected = flt(total_advances[0].total) if total_advances else 0
+	
+	# Get total advances already deducted (from invoice items)
+	total_deducted = frappe.db.sql("""
+		SELECT COALESCE(SUM(ABS(sii.amount)), 0) as total
+		FROM `tabSales Invoice Item` sii
+		JOIN `tabSales Invoice` si ON si.name = sii.parent
+		WHERE si.project = %s 
+		AND si.docstatus = 1
+		AND sii.item_code = 'ADVANCE-DEDUCTION'
+	""", project, as_dict=True)
+	
+	total_utilized = flt(total_deducted[0].total) if total_deducted else 0
+	
+	return {
+		"total_collected": total_collected,
+		"total_utilized": total_utilized,
+		"balance": total_collected - total_utilized
+	}
+
+
+def get_retention_summary(project: str) -> dict:
+	"""Get retention summary for a project"""
+	# Get total retention deducted
+	total_retention = frappe.db.sql("""
+		SELECT COALESCE(SUM(ABS(sii.amount)), 0) as total
+		FROM `tabSales Invoice Item` sii
+		JOIN `tabSales Invoice` si ON si.name = sii.parent
+		WHERE si.project = %s 
+		AND si.docstatus = 1
+		AND sii.item_code = 'RETENTION-DEDUCTION'
+	""", project, as_dict=True)
+	
+	total_retained = flt(total_retention[0].total) if total_retention else 0
+	
+	# Get retention released
+	total_released = frappe.db.sql("""
+		SELECT COALESCE(SUM(sii.amount), 0) as total
+		FROM `tabSales Invoice Item` sii
+		JOIN `tabSales Invoice` si ON si.name = sii.parent
+		WHERE si.project = %s 
+		AND si.docstatus = 1
+		AND sii.item_code = 'RETENTION-RELEASE'
+	""", project, as_dict=True)
+	
+	released = flt(total_released[0].total) if total_released else 0
+	
+	return {
+		"total_retained": total_retained,
+		"total_released": released,
+		"retention_balance": total_retained - released
 	}
 
 

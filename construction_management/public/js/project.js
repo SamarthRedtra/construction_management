@@ -177,8 +177,20 @@ function render_action_bar(container, frm) {
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
 				Generate Invoice
 			</button>
+			<button class="btn-modern btn-outline" onclick="record_advance_payment('${frm.doc.name}')">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+				Record Advance
+			</button>
 		</div>
 		<div class="action-bar-right">
+			<button class="btn-modern btn-outline" onclick="print_invoice_till_date('${frm.doc.name}')">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+				Print Till Date
+			</button>
+			<button class="btn-modern btn-outline" onclick="print_monthly_invoice('${frm.doc.name}')">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+				Monthly Invoice
+			</button>
 			<button class="btn-modern btn-outline" onclick="export_boq_excel('${frm.doc.name}')">
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
 				Export Excel
@@ -671,6 +683,128 @@ window.export_boq_excel = function(project) {
 			if (r.message) { window.open(r.message); frappe.show_alert({message: __('Excel exported'), indicator: 'green'}); }
 		}
 	});
+};
+
+window.print_invoice_till_date = function(project) {
+	frappe.call({
+		method: 'construction_management.api.boq_invoice.print_consolidated_invoice',
+		args: { project: project, invoice_type: 'till_date' },
+		callback: function(r) {
+			if (r.message) {
+				const printWindow = window.open('', '_blank');
+				printWindow.document.write(r.message);
+				printWindow.document.close();
+				printWindow.focus();
+				setTimeout(() => printWindow.print(), 500);
+			}
+		}
+	});
+};
+
+window.print_monthly_invoice = function(project) {
+	const currentDate = new Date();
+	const currentMonth = currentDate.getMonth() + 1;
+	const currentYear = currentDate.getFullYear();
+	
+	const d = new frappe.ui.Dialog({
+		title: 'Monthly Invoice',
+		fields: [
+			{
+				fieldname: 'month',
+				label: 'Month',
+				fieldtype: 'Select',
+				options: [
+					{value: '1', label: 'January'},
+					{value: '2', label: 'February'},
+					{value: '3', label: 'March'},
+					{value: '4', label: 'April'},
+					{value: '5', label: 'May'},
+					{value: '6', label: 'June'},
+					{value: '7', label: 'July'},
+					{value: '8', label: 'August'},
+					{value: '9', label: 'September'},
+					{value: '10', label: 'October'},
+					{value: '11', label: 'November'},
+					{value: '12', label: 'December'}
+				],
+				default: currentMonth.toString(),
+				reqd: 1
+			},
+			{
+				fieldname: 'year',
+				label: 'Year',
+				fieldtype: 'Int',
+				default: currentYear,
+				reqd: 1
+			}
+		],
+		primary_action_label: 'Print',
+		primary_action(values) {
+			d.hide();
+			frappe.call({
+				method: 'construction_management.api.boq_invoice.print_consolidated_invoice',
+				args: { 
+					project: project, 
+					invoice_type: 'monthly',
+					month: values.month,
+					year: values.year
+				},
+				callback: function(r) {
+					if (r.message) {
+						const printWindow = window.open('', '_blank');
+						printWindow.document.write(r.message);
+						printWindow.document.close();
+						printWindow.focus();
+						setTimeout(() => printWindow.print(), 500);
+					}
+				}
+			});
+		}
+	});
+	d.show();
+};
+
+window.record_advance_payment = function(project) {
+	const d = new frappe.ui.Dialog({
+		title: 'Record Advance Payment',
+		fields: [
+			{fieldname: 'amount', label: 'Amount', fieldtype: 'Currency', reqd: 1},
+			{fieldname: 'date', label: 'Date', fieldtype: 'Date', default: frappe.datetime.get_today(), reqd: 1},
+			{fieldname: 'reference', label: 'Reference', fieldtype: 'Data', description: 'Payment reference or receipt number'},
+			{fieldname: 'remarks', label: 'Remarks', fieldtype: 'Small Text'}
+		],
+		primary_action_label: 'Record',
+		primary_action(values) {
+			frappe.call({
+				method: 'frappe.client.insert',
+				args: {
+					doc: {
+						doctype: 'BOQ Advance Payment',
+						project: project,
+						amount: values.amount,
+						date: values.date,
+						reference: values.reference,
+						remarks: values.remarks
+					}
+				},
+				callback: function(r) {
+					if (r.message) {
+						d.hide();
+						frappe.show_alert({message: __('Advance payment recorded'), indicator: 'green'});
+						// Submit the advance payment
+						frappe.call({
+							method: 'frappe.client.submit',
+							args: { doc: r.message },
+							callback: function() {
+								cur_frm.reload_doc();
+							}
+						});
+					}
+				}
+			});
+		}
+	});
+	d.show();
 };
 
 function get_modern_styles() {

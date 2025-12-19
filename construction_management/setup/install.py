@@ -37,6 +37,16 @@ def create_boq_custom_fields():
 		},
 		{
 			"dt": "Project",
+			"fieldname": "retention_percentage",
+			"label": "Retention %",
+			"fieldtype": "Percent",
+			"insert_after": "enable_progressive_boq",
+			"default": "0",
+			"description": "Retention percentage to deduct from progressive billing invoices",
+			"depends_on": "eval:doc.enable_progressive_boq"
+		},
+		{
+			"dt": "Project",
 			"fieldname": "construction_dashboard_section",
 			"label": "Construction Management",
 			"fieldtype": "Section Break",
