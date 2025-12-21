@@ -587,45 +587,112 @@ window.view_item_invoices = function(boq_item) {
 
 function show_invoice_dialog(boq_item, data) {
 	const summary = data.summary || {};
-	const invoices = data.invoices || [];
+	const boqItem = data.boq_item || {};
+	const ledgerEntries = data.ledger_entries || [];
 	
-	let invoiceRows = invoices.length > 0 ? invoices.map(inv => `
+	// Build ledger entries table with prev/curr/accumulated columns
+	let ledgerRows = ledgerEntries.length > 0 ? ledgerEntries.map((entry, idx) => {
+		const refLink = entry.reference_doctype === 'Sales Invoice' && entry.reference_name 
+			? `<a href="/app/sales-invoice/${entry.reference_name}" class="invoice-link">${entry.reference_name}</a>`
+			: (entry.reference_name || '-');
+		
+		const statusClass = entry.invoice_status === 'Paid' ? 'status-success' : 
+			(entry.invoice_status === 'Unpaid' || entry.invoice_status === 'Overdue') ? 'status-warning' : 'status-default';
+		
+		return `
 		<tr>
-			<td><a href="/app/sales-invoice/${inv.name}" class="invoice-link">${inv.name}</a></td>
-			<td>${inv.posting_date}</td>
-			<td>${inv.unit || '-'}</td>
-			<td class="text-right">${format_number(inv.qty)}</td>
-			<td class="text-right">${format_currency(inv.rate)}</td>
-			<td class="text-right">${format_currency(inv.amount)}</td>
-			<td class="text-center">${inv.pay_cert || '-'}</td>
-			<td><span class="status-pill ${inv.status === 'Paid' ? 'status-success' : 'status-warning'}">${inv.status}</span></td>
+			<td class="text-center">${idx + 1}</td>
+			<td>${entry.posting_date}</td>
+			<td>${refLink}</td>
+			<td class="text-center">${entry.source || '-'}</td>
+			<td class="text-center">${entry.unit || '-'}</td>
+			<td class="text-right col-prev">${format_number(entry.prev_qty)}</td>
+			<td class="text-right col-curr">${format_number(entry.current_qty)}</td>
+			<td class="text-right col-accum font-bold">${format_number(entry.accumulated_qty)}</td>
+			<td class="text-right col-prev">${format_currency(entry.prev_amount)}</td>
+			<td class="text-right col-curr">${format_currency(entry.current_amount)}</td>
+			<td class="text-right col-accum font-bold">${format_currency(entry.accumulated_amount)}</td>
+			<td class="text-center">${entry.pay_cert || '-'}</td>
+			<td><span class="status-pill ${statusClass}">${entry.invoice_status || entry.source}</span></td>
 		</tr>
-	`).join('') : '<tr><td colspan="8" class="text-center text-muted">No invoices found</td></tr>';
+		`;
+	}).join('') : '<tr><td colspan="13" class="text-center text-muted">No billing history found</td></tr>';
 	
-	const d = new frappe.ui.Dialog({ title: __('Invoice History - Payment Plan'), size: 'extra-large', fields: [{fieldtype: 'HTML', fieldname: 'invoice_html'}] });
+	const d = new frappe.ui.Dialog({ title: __('Invoice History - Progressive Billing'), size: 'extra-large', fields: [{fieldtype: 'HTML', fieldname: 'invoice_html'}] });
 	d.fields_dict.invoice_html.$wrapper.html(`
+		<div class="boq-item-header">
+			<div class="boq-item-desc">${boqItem.description || 'BOQ Item'}</div>
+			<div class="boq-item-meta">
+				<span><strong>Unit:</strong> ${boqItem.unit || '-'}</span>
+				<span><strong>Rate:</strong> ${format_currency(boqItem.rate)}</span>
+				<span><strong>Total Qty:</strong> ${format_number(boqItem.total_qty)}</span>
+				<span><strong>Total Amount:</strong> ${format_currency(boqItem.total_amount)}</span>
+			</div>
+		</div>
 		<div class="invoice-summary-grid">
 			<div class="summary-card"><span class="summary-label">Total Invoices</span><span class="summary-value">${summary.invoice_count || 0}</span></div>
-			<div class="summary-card"><span class="summary-label">Total Invoiced</span><span class="summary-value">${format_currency(summary.total_invoiced)}</span></div>
+			<div class="summary-card info"><span class="summary-label">Accumulated Qty</span><span class="summary-value">${format_number(summary.accumulated_qty)}</span></div>
+			<div class="summary-card info"><span class="summary-label">Accumulated Amount</span><span class="summary-value">${format_currency(summary.accumulated_amount)}</span></div>
 			<div class="summary-card success"><span class="summary-label">Collected</span><span class="summary-value">${format_currency(summary.total_collected)}</span></div>
-			<div class="summary-card warning"><span class="summary-label">Pending</span><span class="summary-value">${format_currency(summary.pending)}</span></div>
+			<div class="summary-card warning"><span class="summary-label">Pending Payment</span><span class="summary-value">${format_currency(summary.pending)}</span></div>
+			<div class="summary-card balance"><span class="summary-label">Balance Qty</span><span class="summary-value">${format_number(summary.balance_qty)}</span></div>
+			<div class="summary-card balance"><span class="summary-label">Balance Amount</span><span class="summary-value">${format_currency(summary.balance_amount)}</span></div>
 		</div>
-		<h4 style="margin: 20px 0 10px; font-size: 14px; font-weight: 600;">Child Payment Plan</h4>
-		<table class="invoice-history-table">
-			<thead><tr><th>Invoice No</th><th>Date</th><th>Unit</th><th class="text-right">Qty</th><th class="text-right">Rate</th><th class="text-right">Amount</th><th class="text-center">Pay Cert</th><th>Status</th></tr></thead>
-			<tbody>${invoiceRows}</tbody>
-		</table>
+		<h4 style="margin: 20px 0 10px; font-size: 14px; font-weight: 600;">📋 BOQ Progress Ledger</h4>
+		<div class="ledger-table-wrapper">
+			<table class="invoice-history-table ledger-table">
+				<thead>
+					<tr>
+						<th rowspan="2" class="text-center">#</th>
+						<th rowspan="2">Date</th>
+						<th rowspan="2">Reference</th>
+						<th rowspan="2" class="text-center">Source</th>
+						<th rowspan="2" class="text-center">Unit</th>
+						<th colspan="3" class="text-center col-group-qty">Quantity</th>
+						<th colspan="3" class="text-center col-group-amt">Amount</th>
+						<th rowspan="2" class="text-center">Pay Cert</th>
+						<th rowspan="2">Status</th>
+					</tr>
+					<tr>
+						<th class="text-right col-prev">Prev</th>
+						<th class="text-right col-curr">Curr</th>
+						<th class="text-right col-accum">Accum</th>
+						<th class="text-right col-prev">Prev</th>
+						<th class="text-right col-curr">Curr</th>
+						<th class="text-right col-accum">Accum</th>
+					</tr>
+				</thead>
+				<tbody>${ledgerRows}</tbody>
+			</table>
+		</div>
 		<style>
-			.invoice-summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
-			.summary-card { background: #f8f9fa; border-radius: 8px; padding: 16px; text-align: center; }
-			.summary-card.success { background: #d4edda; }
-			.summary-card.warning { background: #fff3cd; }
-			.summary-label { display: block; font-size: 11px; color: #6c757d; margin-bottom: 4px; text-transform: uppercase; }
-			.summary-value { display: block; font-size: 20px; font-weight: 600; }
-			.invoice-history-table { width: 100%; border-collapse: collapse; }
-			.invoice-history-table th, .invoice-history-table td { padding: 12px; border-bottom: 1px solid #e9ecef; }
-			.invoice-history-table th { background: #f8f9fa; font-weight: 500; font-size: 11px; text-transform: uppercase; }
+			.boq-item-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px; border-radius: 8px; margin-bottom: 16px; }
+			.boq-item-desc { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+			.boq-item-meta { display: flex; gap: 20px; font-size: 12px; opacity: 0.9; flex-wrap: wrap; }
+			.invoice-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-bottom: 20px; }
+			.summary-card { background: #f8f9fa; border-radius: 8px; padding: 14px; text-align: center; }
+			.summary-card.info { background: #e0f2fe; }
+			.summary-card.success { background: #d1fae5; }
+			.summary-card.warning { background: #fef3c7; }
+			.summary-card.balance { background: #ede9fe; }
+			.summary-label { display: block; font-size: 10px; color: #6c757d; margin-bottom: 4px; text-transform: uppercase; }
+			.summary-value { display: block; font-size: 16px; font-weight: 600; }
+			.ledger-table-wrapper { overflow-x: auto; }
+			.invoice-history-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+			.invoice-history-table th, .invoice-history-table td { padding: 10px 8px; border-bottom: 1px solid #e9ecef; }
+			.invoice-history-table th { background: #f8f9fa; font-weight: 500; font-size: 10px; text-transform: uppercase; white-space: nowrap; }
+			.col-group-qty { background: #eff6ff !important; }
+			.col-group-amt { background: #f0fdf4 !important; }
+			.col-prev { background: #fafafa; }
+			.col-curr { background: #fffbeb; }
+			.col-accum { background: #f0fdf4; }
+			.font-bold { font-weight: 600; }
 			.invoice-link { color: #5e64ff; text-decoration: none; font-weight: 500; }
+			.invoice-link:hover { text-decoration: underline; }
+			.status-pill { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 10px; font-weight: 500; }
+			.status-success { background: #d1fae5; color: #065f46; }
+			.status-warning { background: #fef3c7; color: #92400e; }
+			.status-default { background: #f3f4f6; color: #6b7280; }
 		</style>
 	`);
 	d.show();
@@ -1320,7 +1387,7 @@ window.show_dpr_dialog_enhanced = function(project) {
 	
 	// Add styles and render lists
 	setTimeout(() => {
-		$('<style>.dpr-item-card{display:flex;align-items:center;gap:12px;padding:10px 12px;background:white;border-radius:8px;margin-bottom:8px;border:1px solid #e2e8f0;transition:all 0.2s}.dpr-item-card:hover{border-color:#cbd5e1;box-shadow:0 2px 4px rgba(0,0,0,0.05)}.dpr-item-info{flex:1;min-width:0}.dpr-item-name{font-weight:500;color:#1f2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dpr-item-sub{font-size:12px;color:#6b7280;margin-top:2px}.dpr-item-input{width:70px;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;text-align:right;font-size:13px}.dpr-item-input:focus{outline:none;border-color:#5e64ff;box-shadow:0 0 0 2px rgba(94,100,255,0.1)}.dpr-item-amount{min-width:90px;text-align:right;font-weight:600;color:#059669;font-size:14px}.dpr-remove-btn{background:#fee2e2;color:#dc2626;border:none;width:28px;height:28px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s}.dpr-remove-btn:hover{background:#fecaca}.dpr-empty{text-align:center;padding:24px;color:#9ca3af;font-size:13px;background:#f9fafb;border-radius:8px;border:1px dashed #e2e8f0}</style>').appendTo(d.$wrapper);
+		$('<style>.dpr-item-card{display:flex;align-items:center;gap:12px;padding:10px 12px;background:white;border-radius:8px;margin-bottom:8px;border:1px solid #e2e8f0;transition:all 0.2s}.dpr-item-card:hover{border-color:#cbd5e1;box-shadow:0 2px 4px rgba(0,0,0,0.05)}.dpr-item-info{flex:1;min-width:0}.dpr-item-name{font-weight:500;color:#1f2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dpr-item-sub{font-size:12px;color:#6b7280;margin-top:2px}.dpr-item-input{width:70px;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;text-align:right;font-size:13px}.dpr-item-input:focus{outline:none;border-color:#5e64ff;box-shadow:0 0 0 2px rgba(94,100,255,0.1)}.dpr-item-amount{min-width:90px;text-align:right;font-weight:600;color:#059669;font-size:14px}.dpr-remove-btn{background:#fee2e2;color:#dc2626;border:none;width:28px;height:28px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s}.dpr-remove-btn:hover{background:#fecaca}.dpr-empty{text-align:center;padding:24px;color:#9ca3af;font-size:13px;background:#f9fafb;border-radius:8px;border:1px dashed #e2e8f0}.rate-source-tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:500;background:#e0f2fe;color:#0369a1;margin-left:4px;text-transform:uppercase}</style>').appendTo(d.$wrapper);
 		render_employees_list();
 		render_materials_list();
 		render_assets_list();
@@ -1345,23 +1412,30 @@ function add_employee_to_list(d, employee, project) {
 			if (r.message) {
 				const emp = r.message;
 				const rate = emp.rate_per_day || 0;
+				const source = emp.source || 'unknown';
 				
-				if (!rate) {
+				// If rate is 0 or source is manual_required, ask for manual entry
+				if (!rate || source === 'manual_required') {
 					frappe.prompt([
 						{ fieldname: 'rate', label: __('Daily Rate'), fieldtype: 'Currency', reqd: 1, 
-						  description: __('No salary structure found for this employee. Please enter daily rate manually.') }
+						  description: __('No salary rate found in Salary Structure Assignment or Salary Structure. Please enter daily rate manually.') }
 					], function(values) {
 						dpr_selected_employees.push({
 							employee: employee, employee_name: emp.employee_name, designation: emp.designation || '',
-							hours: 8, rate_per_day: values.rate, amount: values.rate
+							hours: 8, rate_per_day: values.rate, amount: values.rate, source: 'manual'
 						});
 						render_employees_list();
 						update_dpr_totals(d);
 					}, __('Enter Daily Rate for ' + emp.employee_name), __('Add'));
 				} else {
+					// Show source indicator
+					const sourceLabel = source === 'cache' ? 'cached' : 
+						(source === 'salary_structure_assignment' ? 'SSA' : 
+						(source === 'salary_structure' ? 'SS' : source));
+					
 					dpr_selected_employees.push({
 						employee: employee, employee_name: emp.employee_name, designation: emp.designation || '',
-						hours: 8, rate_per_day: rate, amount: rate
+						hours: 8, rate_per_day: rate, amount: rate, source: sourceLabel
 					});
 					render_employees_list();
 					update_dpr_totals(d);
@@ -1481,7 +1555,8 @@ function render_employees_list() {
 		? '<div class="dpr-empty">No employees added. Select an employee above to add.</div>'
 		: '';
 	dpr_selected_employees.forEach((emp, idx) => {
-		html += '<div class="dpr-item-card"><div class="dpr-item-info"><div class="dpr-item-name">' + emp.employee_name + '</div><div class="dpr-item-sub">' + (emp.designation || 'No designation') + ' • ' + format_currency(emp.rate_per_day) + '/day</div></div><div><input type="number" class="dpr-item-input emp-hours" value="' + emp.hours + '" step="0.5" min="0" max="24" data-idx="' + idx + '"> hrs</div><div class="dpr-item-amount">' + format_currency(emp.amount) + '</div><button type="button" class="dpr-remove-btn" onclick="remove_dpr_employee(' + idx + ')">✕</button></div>';
+		const sourceTag = emp.source ? `<span class="rate-source-tag">${emp.source}</span>` : '';
+		html += '<div class="dpr-item-card"><div class="dpr-item-info"><div class="dpr-item-name">' + emp.employee_name + '</div><div class="dpr-item-sub">' + (emp.designation || 'No designation') + ' • ' + format_currency(emp.rate_per_day) + '/day ' + sourceTag + '</div></div><div><input type="number" class="dpr-item-input emp-hours" value="' + emp.hours + '" step="0.5" min="0" max="24" data-idx="' + idx + '"> hrs</div><div class="dpr-item-amount">' + format_currency(emp.amount) + '</div><button type="button" class="dpr-remove-btn" onclick="remove_dpr_employee(' + idx + ')">✕</button></div>';
 	});
 	$('#dpr-employees-list').html(html);
 	$('.emp-hours').off('input').on('input', function() {

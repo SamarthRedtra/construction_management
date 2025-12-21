@@ -152,7 +152,8 @@ doc_events = {
 scheduler_events = {
 	"daily": [
 		"construction_management.tasks.send_task_reminders",
-		"construction_management.tasks.check_overdue_tasks"
+		"construction_management.tasks.check_overdue_tasks",
+		"construction_management.api.employee_rate_cache.daily_refresh_employee_rates"
 	],
 	"weekly": [
 		"construction_management.tasks.send_weekly_report"

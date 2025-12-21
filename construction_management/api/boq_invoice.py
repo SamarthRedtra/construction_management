@@ -313,63 +313,103 @@ def create_invoice_from_multiple_items(project: str, items: list,
 @frappe.whitelist()
 def get_boq_invoice_history(boq_item: str) -> dict:
 	"""
-	Get invoice history for a BOQ Item (Child Payment Plan).
+	Get invoice history for a BOQ Item (Child Payment Plan) with progressive billing details.
 	
 	Args:
 		boq_item: BOQ Item name
 		
 	Returns:
-		dict with invoice summary and details including unit, rate, pay_cert
+		dict with invoice summary, ledger entries with prev/curr/accumulated values
 	"""
-	# Get BOQ Item details for unit
+	# Get BOQ Item details
 	boq_item_doc = frappe.get_doc("BOQ Item", boq_item)
 	
-	# Get all invoices for this BOQ Item
+	# Get all ledger entries for this BOQ Item (ordered by posting_date ASC for progressive tracking)
+	ledger_entries = frappe.db.sql("""
+		SELECT 
+			pl.name,
+			pl.posting_date,
+			pl.source,
+			pl.reference_doctype,
+			pl.reference_name,
+			pl.qty as transaction_qty,
+			pl.amount as transaction_amount,
+			pl.prev_qty,
+			pl.prev_amount,
+			pl.current_qty,
+			pl.current_amount,
+			pl.accumulated_qty,
+			pl.accumulated_amount,
+			pl.remarks,
+			si.status as invoice_status,
+			si.outstanding_amount
+		FROM `tabBOQ Progress Ledger` pl
+		LEFT JOIN `tabSales Invoice` si ON pl.reference_name = si.name AND pl.reference_doctype = 'Sales Invoice'
+		WHERE pl.boq_item = %s
+		ORDER BY pl.posting_date ASC, pl.creation ASC
+	""", boq_item, as_dict=True)
+	
+	# Add payment certificate info and format data
+	for entry in ledger_entries:
+		# Check for payment entries linked to this invoice
+		if entry.reference_doctype == "Sales Invoice" and entry.reference_name:
+			payment_entry = frappe.db.get_value(
+				"Payment Entry Reference",
+				{"reference_name": entry.reference_name, "reference_doctype": "Sales Invoice"},
+				"parent"
+			)
+			entry["pay_cert"] = payment_entry if payment_entry else None
+		else:
+			entry["pay_cert"] = None
+		
+		# Add unit and rate from BOQ Item
+		entry["unit"] = boq_item_doc.unit
+		entry["rate"] = boq_item_doc.rate
+	
+	# Get all invoices for summary calculation
 	invoices = frappe.db.sql("""
 		SELECT 
 			si.name,
-			si.posting_date,
 			si.status,
-			si.grand_total,
-			si.outstanding_amount,
-			sii.qty,
-			sii.rate,
-			sii.amount,
-			sii.uom as unit
+			sii.amount
 		FROM `tabSales Invoice` si
 		JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
 		WHERE sii.boq_item = %s
 		AND si.docstatus = 1
-		ORDER BY si.posting_date DESC
 	""", boq_item, as_dict=True)
-	
-	# Add pay_cert (payment certificate) info - check if invoice is linked to any payment
-	for inv in invoices:
-		# Check for payment entries linked to this invoice
-		payment_entry = frappe.db.get_value(
-			"Payment Entry Reference",
-			{"reference_name": inv.name, "reference_doctype": "Sales Invoice"},
-			"parent"
-		)
-		inv["pay_cert"] = payment_entry if payment_entry else None
-		
-		# Use BOQ Item unit if not set on invoice item
-		if not inv.get("unit"):
-			inv["unit"] = boq_item_doc.unit
 	
 	# Calculate summary
 	total_invoiced = sum(flt(inv.amount) for inv in invoices)
 	total_collected = sum(flt(inv.amount) for inv in invoices if inv.status == "Paid")
-	total_outstanding = sum(flt(inv.outstanding_amount) for inv in invoices)
+	
+	# Get BOQ Item totals for balance calculation
+	total_qty = flt(boq_item_doc.total_qty)
+	total_amount = flt(boq_item_doc.total_qty) * flt(boq_item_doc.rate)
+	
+	# Get latest accumulated values
+	latest_accumulated_qty = flt(ledger_entries[-1].accumulated_qty) if ledger_entries else 0
+	latest_accumulated_amount = flt(ledger_entries[-1].accumulated_amount) if ledger_entries else 0
 	
 	return {
+		"boq_item": {
+			"name": boq_item_doc.name,
+			"description": boq_item_doc.description,
+			"unit": boq_item_doc.unit,
+			"rate": boq_item_doc.rate,
+			"total_qty": total_qty,
+			"total_amount": total_amount
+		},
 		"summary": {
 			"invoice_count": len(invoices),
 			"total_invoiced": total_invoiced,
 			"total_collected": total_collected,
-			"pending": total_invoiced - total_collected
+			"pending": total_invoiced - total_collected,
+			"accumulated_qty": latest_accumulated_qty,
+			"accumulated_amount": latest_accumulated_amount,
+			"balance_qty": total_qty - latest_accumulated_qty,
+			"balance_amount": total_amount - latest_accumulated_amount
 		},
-		"invoices": invoices
+		"ledger_entries": ledger_entries
 	}
 
 

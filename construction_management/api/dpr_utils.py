@@ -9,7 +9,14 @@ from frappe.utils import flt
 @frappe.whitelist()
 def get_employee_daily_rate(employee: str) -> float:
 	"""
-	Get the daily rate for an employee based on their Salary Structure Assignment.
+	Get the daily rate for an employee.
+	Uses cached lookup first, then falls back to calculation.
+	
+	Priority:
+	1. Cache lookup (fastest)
+	2. Salary Structure Assignment (base + variable)
+	3. Salary Structure (sum of fixed earnings)
+	4. Returns 0 (manual entry required)
 	
 	Args:
 		employee: Employee name
@@ -17,23 +24,10 @@ def get_employee_daily_rate(employee: str) -> float:
 	Returns:
 		Daily rate (monthly salary / 30)
 	"""
-	# Get active salary structure assignment
-	ssa = frappe.db.get_value(
-		"Salary Structure Assignment",
-		{
-			"employee": employee,
-			"docstatus": 1
-		},
-		["base", "variable"],
-		as_dict=True,
-		order_by="from_date desc"
-	)
+	from construction_management.api.employee_rate_cache import get_employee_rate_optimized
 	
-	if ssa:
-		monthly_salary = flt(ssa.base) + flt(ssa.variable)
-		return monthly_salary / 30  # Daily rate
-	
-	return 0
+	result = get_employee_rate_optimized(employee)
+	return flt(result.get("rate_per_day", 0))
 
 
 @frappe.whitelist()
@@ -104,16 +98,18 @@ def get_employees_with_rates() -> list:
 
 @frappe.whitelist()
 def get_employee_with_rate(employee: str) -> dict:
-	"""Get single employee with their daily rate"""
-	emp = frappe.get_doc("Employee", employee)
-	rate = get_employee_daily_rate(employee)
+	"""
+	Get single employee with their daily rate.
+	Uses optimized cache lookup with fallback to Salary Structure.
 	
-	return {
-		"name": emp.name,
-		"employee_name": emp.employee_name,
-		"designation": emp.designation,
-		"rate_per_day": rate
-	}
+	Returns source field to indicate where rate came from:
+	- "cache": From daily cache
+	- "salary_structure_assignment": From SSA base+variable
+	- "salary_structure": From SS fixed earnings
+	- "manual_required": No rate found, manual entry needed
+	"""
+	from construction_management.api.employee_rate_cache import get_employee_rate_optimized
+	return get_employee_rate_optimized(employee)
 
 
 @frappe.whitelist()

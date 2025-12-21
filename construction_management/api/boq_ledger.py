@@ -133,7 +133,7 @@ def create_ledger_entry(
 	remarks: str = None
 ) -> str:
 	"""
-	Create a BOQ Progress Ledger entry.
+	Create a BOQ Progress Ledger entry with progressive tracking (prev/curr/accumulated).
 	
 	Args:
 		boq_item: BOQ Item name
@@ -151,18 +151,43 @@ def create_ledger_entry(
 	# Get BOQ Item details
 	item = frappe.get_doc("BOQ Item", boq_item)
 	
+	# Get previous accumulated values (sum of all previous ledger entries)
+	prev_totals = frappe.db.sql("""
+		SELECT 
+			COALESCE(SUM(qty), 0) as prev_qty,
+			COALESCE(SUM(amount), 0) as prev_amount
+		FROM `tabBOQ Progress Ledger`
+		WHERE boq_item = %s
+	""", boq_item, as_dict=True)[0]
+	
+	prev_qty = flt(prev_totals.prev_qty)
+	prev_amount = flt(prev_totals.prev_amount)
+	current_qty = flt(qty)
+	current_amount = flt(amount)
+	accumulated_qty = prev_qty + current_qty
+	accumulated_amount = prev_amount + current_amount
+	
 	ledger = frappe.new_doc("BOQ Progress Ledger")
 	ledger.project = item.project
 	ledger.project_boq = item.project_boq
 	ledger.bill_no = item.parent_bill
 	ledger.boq_item = boq_item
 	ledger.posting_date = posting_date or today()
-	ledger.qty = flt(qty)
-	ledger.amount = flt(amount)
+	ledger.qty = current_qty
+	ledger.amount = current_amount
 	ledger.source = source
 	ledger.reference_doctype = reference_doctype
 	ledger.reference_name = reference_name
 	ledger.remarks = remarks
+	
+	# Set progressive tracking fields
+	ledger.prev_qty = prev_qty
+	ledger.prev_amount = prev_amount
+	ledger.current_qty = current_qty
+	ledger.current_amount = current_amount
+	ledger.accumulated_qty = accumulated_qty
+	ledger.accumulated_amount = accumulated_amount
+	
 	ledger.insert(ignore_permissions=True)
 	
 	return ledger.name
@@ -226,3 +251,67 @@ def rebuild_ledger(project: str = None):
 	
 	frappe.db.commit()
 	frappe.msgprint(_("Ledger rebuild completed"))
+
+
+@frappe.whitelist()
+def recalculate_progressive_values(project: str = None, boq_item: str = None):
+	"""
+	Recalculate prev/curr/accumulated values for existing ledger entries.
+	Useful for data migration or fixing inconsistencies.
+	
+	Args:
+		project: Optional project filter
+		boq_item: Optional specific BOQ Item
+	"""
+	frappe.only_for("System Manager")
+	
+	# Build filters
+	filters = {}
+	if project:
+		filters["project"] = project
+	if boq_item:
+		filters["boq_item"] = boq_item
+	
+	# Get all BOQ Items to process
+	if boq_item:
+		boq_items = [{"name": boq_item}]
+	else:
+		boq_items = frappe.get_all("BOQ Item", filters=filters if project else {}, fields=["name"])
+	
+	updated_count = 0
+	
+	for item in boq_items:
+		# Get all ledger entries for this BOQ Item ordered by date and creation
+		entries = frappe.get_all(
+			"BOQ Progress Ledger",
+			filters={"boq_item": item["name"]},
+			fields=["name", "qty", "amount"],
+			order_by="posting_date ASC, creation ASC"
+		)
+		
+		# Recalculate progressive values
+		running_qty = 0
+		running_amount = 0
+		
+		for entry in entries:
+			prev_qty = running_qty
+			prev_amount = running_amount
+			current_qty = flt(entry.qty)
+			current_amount = flt(entry.amount)
+			running_qty += current_qty
+			running_amount += current_amount
+			
+			# Update the entry
+			frappe.db.set_value("BOQ Progress Ledger", entry.name, {
+				"prev_qty": prev_qty,
+				"prev_amount": prev_amount,
+				"current_qty": current_qty,
+				"current_amount": current_amount,
+				"accumulated_qty": running_qty,
+				"accumulated_amount": running_amount
+			}, update_modified=False)
+			
+			updated_count += 1
+	
+	frappe.db.commit()
+	frappe.msgprint(_("Recalculated progressive values for {0} ledger entries").format(updated_count))
