@@ -35,7 +35,8 @@ function render_construction_dashboard(frm) {
 		method: 'construction_management.api.boq_tree.get_boq_tree_data',
 		args: { project: frm.doc.name },
 		callback: function(r) {
-			if (r.message && r.message.bills && r.message.bills.length > 0) {
+			if (r.message && r.message.has_boq) {
+				// BOQ exists - show dashboard even if no bills yet
 				render_modern_dashboard(wrapper, frm, r.message);
 			} else {
 				render_empty_state(wrapper, frm);
@@ -177,6 +178,10 @@ function render_action_bar(container, frm) {
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
 				Generate Invoice
 			</button>
+			<button class="btn-modern btn-warning-modern" onclick="create_dpr_quick('${frm.doc.name}')">
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+				Add DPR
+			</button>
 			<button class="btn-modern btn-outline" onclick="record_advance_payment('${frm.doc.name}')">
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
 				Record Advance
@@ -300,17 +305,19 @@ function render_items_table(items, frm) {
 				<td class="col-num col-highlight-blue">
 					<input type="number" class="current-qty-input" value="${qty.current || 0}" 
 						data-item="${item.name}" data-max="${qty.balance + (qty.current || 0)}" data-rate="${amount.rate || 0}"
+						data-prev-amount="${amount.prev || 0}"
 						step="0.001" min="0" ${isFullyBilled ? 'disabled' : ''}>
 				</td>
 				<td class="col-num col-highlight-blue">
 					<input type="number" class="current-value-input" value="${amount.current || 0}" 
 						data-item="${item.name}" data-max="${amount.balance + (amount.current || 0)}" data-rate="${amount.rate || 0}"
+						data-prev-amount="${amount.prev || 0}" data-total-amount="${amount.total || 0}"
 						step="0.01" min="0" ${isFullyBilled ? 'disabled' : ''}>
 				</td>
 				<td class="col-num col-highlight-green">${format_currency(amount.prev)}</td>
-				<td class="col-num col-highlight-green">${format_currency(amount.current)}</td>
-				<td class="col-num col-highlight-green font-bold">${format_currency(amount.to_date)}</td>
-				<td class="col-num balance-cell">${format_currency(amount.balance)}</td>
+				<td class="col-num col-highlight-green curr-amount-cell" data-item="${item.name}">${format_currency(amount.current)}</td>
+				<td class="col-num col-highlight-green font-bold accum-amount-cell" data-item="${item.name}">${format_currency(amount.to_date)}</td>
+				<td class="col-num balance-cell" data-item="${item.name}">${format_currency(amount.balance)}</td>
 				<td class="col-status"><span class="status-pill ${statusClass}">${item.billing_status || 'Not Billed'}</span></td>
 				<td class="col-actions">
 					<div class="action-icons">
@@ -338,11 +345,12 @@ function render_items_table(items, frm) {
 
 function attach_item_events(container, frm) {
 	// Handle Qty input change - auto-calculate Value
-	container.find('.current-qty-input').on('change', function() {
+	container.find('.current-qty-input').on('change input', function() {
 		const input = $(this);
 		const itemName = input.data('item');
 		const maxQty = parseFloat(input.data('max')) || 0;
 		const rate = parseFloat(input.data('rate')) || 0;
+		const prevAmount = parseFloat(input.data('prev-amount')) || 0;
 		let newQty = parseFloat(input.val()) || 0;
 		
 		if (newQty < 0) { newQty = 0; input.val(0); }
@@ -353,19 +361,35 @@ function attach_item_events(container, frm) {
 		}
 		
 		// Auto-update value input
-		const valueInput = input.closest('tr').find('.current-value-input');
+		const row = input.closest('tr');
+		const valueInput = row.find('.current-value-input');
 		const newValue = newQty * rate;
 		valueInput.val(newValue.toFixed(2));
 		
-		update_boq_item_current(itemName, newQty, frm);
+		// Update display cells in real-time
+		const totalAmount = parseFloat(valueInput.data('total-amount')) || 0;
+		const accumAmount = prevAmount + newValue;
+		const balanceAmount = totalAmount - accumAmount;
+		
+		row.find('.curr-amount-cell').text(format_currency(newValue));
+		row.find('.accum-amount-cell').text(format_currency(accumAmount));
+		row.find('.balance-cell').text(format_currency(balanceAmount));
+		
+		// Debounce the server update
+		clearTimeout(input.data('timeout'));
+		input.data('timeout', setTimeout(() => {
+			update_boq_item_current(itemName, newQty, frm);
+		}, 500));
 	});
 	
 	// Handle Value input change - auto-calculate Qty
-	container.find('.current-value-input').on('change', function() {
+	container.find('.current-value-input').on('change input', function() {
 		const input = $(this);
 		const itemName = input.data('item');
 		const maxValue = parseFloat(input.data('max')) || 0;
 		const rate = parseFloat(input.data('rate')) || 0;
+		const prevAmount = parseFloat(input.data('prev-amount')) || 0;
+		const totalAmount = parseFloat(input.data('total-amount')) || 0;
 		let newValue = parseFloat(input.val()) || 0;
 		
 		if (newValue < 0) { newValue = 0; input.val(0); }
@@ -376,11 +400,24 @@ function attach_item_events(container, frm) {
 		}
 		
 		// Auto-update qty input
-		const qtyInput = input.closest('tr').find('.current-qty-input');
+		const row = input.closest('tr');
+		const qtyInput = row.find('.current-qty-input');
 		const newQty = rate > 0 ? newValue / rate : 0;
 		qtyInput.val(newQty.toFixed(3));
 		
-		update_boq_item_current(itemName, newQty, frm);
+		// Update display cells in real-time
+		const accumAmount = prevAmount + newValue;
+		const balanceAmount = totalAmount - accumAmount;
+		
+		row.find('.curr-amount-cell').text(format_currency(newValue));
+		row.find('.accum-amount-cell').text(format_currency(accumAmount));
+		row.find('.balance-cell').text(format_currency(balanceAmount));
+		
+		// Debounce the server update
+		clearTimeout(input.data('timeout'));
+		input.data('timeout', setTimeout(() => {
+			update_boq_item_current(itemName, newQty, frm);
+		}, 500));
 	});
 }
 
@@ -432,12 +469,13 @@ function get_status_class(status) {
 
 function format_currency(value) {
 	if (value === null || value === undefined) return '-';
-	return frappe.format(value, { fieldtype: 'Currency' });
+	// Use only_value option to get plain text without HTML wrapper
+	return frappe.format(value, { fieldtype: 'Currency' }, { only_value: true });
 }
 
 function format_number(value) {
 	if (value === null || value === undefined) return '-';
-	return frappe.format(value, { fieldtype: 'Float', precision: 3 });
+	return frappe.format(value, { fieldtype: 'Float', precision: 3 }, { only_value: true });
 }
 
 // Global functions
@@ -488,8 +526,17 @@ window.add_boq_item = function(bill_name, project) {
 			{fieldname: 'description', label: 'Description', fieldtype: 'Text', reqd: 1},
 			{fieldtype: 'Column Break'},
 			{fieldname: 'unit', label: 'Unit', fieldtype: 'Link', options: 'UOM', reqd: 1},
-			{fieldname: 'total_qty', label: 'Total Quantity', fieldtype: 'Float', reqd: 1},
-			{fieldname: 'rate', label: 'Rate', fieldtype: 'Currency', reqd: 1}
+			{fieldname: 'total_qty', label: 'Total Quantity', fieldtype: 'Float', reqd: 1, change: function() {
+				let qty = d.get_value('total_qty') || 0;
+				let rate = d.get_value('rate') || 0;
+				d.set_value('total_amount', qty * rate);
+			}},
+			{fieldname: 'rate', label: 'Rate', fieldtype: 'Currency', reqd: 1, change: function() {
+				let qty = d.get_value('total_qty') || 0;
+				let rate = d.get_value('rate') || 0;
+				d.set_value('total_amount', qty * rate);
+			}},
+			{fieldname: 'total_amount', label: 'Total Amount', fieldtype: 'Currency', read_only: 1}
 		],
 		primary_action_label: 'Create',
 		primary_action(values) {
@@ -618,6 +665,7 @@ function show_cost_dialog(boq_item, data) {
 					<tr><td><span class="cost-badge asset">Asset</span></td><td class="text-right">${format_currency(cost.asset)}</td><td class="text-right">${cost.total > 0 ? ((cost.asset / cost.total) * 100).toFixed(1) : 0}%</td></tr>
 					<tr><td><span class="cost-badge subcontract">Subcontract (S/C)</span></td><td class="text-right">${format_currency(cost.subcontract)}</td><td class="text-right">${cost.total > 0 ? ((cost.subcontract / cost.total) * 100).toFixed(1) : 0}%</td></tr>
 					<tr><td><span class="cost-badge expense">Other Expense</span></td><td class="text-right">${format_currency(cost.expense)}</td><td class="text-right">${cost.total > 0 ? ((cost.expense / cost.total) * 100).toFixed(1) : 0}%</td></tr>
+					<tr><td><span class="cost-badge overhead">Overhead</span></td><td class="text-right">${format_currency(cost.overhead || 0)}</td><td class="text-right">${cost.total > 0 ? (((cost.overhead || 0) / cost.total) * 100).toFixed(1) : 0}%</td></tr>
 					<tr class="total-row"><td><strong>Total</strong></td><td class="text-right"><strong>${format_currency(cost.total)}</strong></td><td class="text-right"><strong>100%</strong></td></tr>
 				</tbody>
 			</table>
@@ -644,6 +692,7 @@ function show_cost_dialog(boq_item, data) {
 			.cost-badge.asset { background: #e0e7ff; color: #3730a3; }
 			.cost-badge.subcontract { background: #d1fae5; color: #065f46; }
 			.cost-badge.expense { background: #fce7f3; color: #9d174d; }
+			.cost-badge.overhead { background: #f3e8ff; color: #7c3aed; }
 		</style>
 	`);
 	d.show();
@@ -830,6 +879,8 @@ function get_modern_styles() {
 		.btn-primary-modern:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(94, 100, 255, 0.4); }
 		.btn-success-modern { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; }
 		.btn-success-modern:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4); }
+		.btn-warning-modern { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; }
+		.btn-warning-modern:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4); }
 		.btn-outline { background: white; border: 1px solid #e2e8f0; color: #4a5568; }
 		.btn-outline:hover { background: #f7fafc; border-color: #cbd5e0; }
 		.btn-sm { padding: 6px 12px; font-size: 12px; }
@@ -927,3 +978,650 @@ function get_modern_styles() {
 		.boq-empty-state p { color: #6b7280; margin-bottom: 24px; max-width: 400px; margin-left: auto; margin-right: auto; }
 	</style>`;
 }
+
+
+// Quick DPR Creation with Modern UI - Multi-select for Employees/Assets
+window.create_dpr_quick = function(project) {
+	// First fetch BOQ items for the project
+	frappe.call({
+		method: 'construction_management.api.dpr_utils.get_boq_items_for_project',
+		args: { project: project },
+		callback: function(r) {
+			if (r.message && r.message.length > 0) {
+				show_dpr_dialog(project, r.message);
+			} else {
+				frappe.msgprint(__('No BOQ Items found for this project. Please create BOQ Items first.'));
+			}
+		}
+	});
+};
+
+function show_dpr_dialog(project, boq_items) {
+	// Build BOQ Item options
+	const boq_options = boq_items.map(item => ({
+		value: item.name,
+		label: `${item.bill_number} - ${item.description.substring(0, 50)}${item.description.length > 50 ? '...' : ''}`
+	}));
+	
+	const d = new frappe.ui.Dialog({
+		title: __('Quick Daily Progress Record'),
+		size: 'large',
+		fields: [
+			{
+				fieldtype: 'HTML',
+				fieldname: 'dpr_header',
+				options: `
+					<div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
+						<h4 style="margin: 0; font-size: 16px;">📋 Record Daily Progress</h4>
+						<p style="margin: 8px 0 0 0; font-size: 13px; opacity: 0.9;">Enter costs for today's work. Select a BOQ Item and add costs below.</p>
+					</div>
+				`
+			},
+			{
+				fieldname: 'date',
+				label: __('Date'),
+				fieldtype: 'Date',
+				default: frappe.datetime.get_today(),
+				reqd: 1
+			},
+			{
+				fieldname: 'boq_item',
+				label: __('BOQ Item'),
+				fieldtype: 'Link',
+				options: 'BOQ Item',
+				reqd: 1,
+				get_query: function() {
+					return {
+						filters: { project: project }
+					};
+				}
+			},
+			{
+				fieldtype: 'Section Break',
+				label: __('Cost Entry'),
+				fieldname: 'cost_section'
+			},
+			{
+				fieldtype: 'HTML',
+				fieldname: 'cost_tabs',
+				options: `
+					<div class="dpr-cost-tabs">
+						<button type="button" class="dpr-tab active" data-tab="labour">👷 Labour</button>
+						<button type="button" class="dpr-tab" data-tab="material">📦 Material</button>
+						<button type="button" class="dpr-tab" data-tab="asset">🚜 Asset</button>
+						<button type="button" class="dpr-tab" data-tab="subcontract">🏗️ Subcontract</button>
+						<button type="button" class="dpr-tab" data-tab="expense">💰 Expense</button>
+					</div>
+					<style>
+						.dpr-cost-tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+						.dpr-tab { padding: 10px 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: white; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+						.dpr-tab:hover { background: #f8fafc; }
+						.dpr-tab.active { background: linear-gradient(135deg, #5e64ff 0%, #7c3aed 100%); color: white; border-color: transparent; }
+						.dpr-cost-panel { display: none; padding: 16px; background: #f8fafc; border-radius: 8px; }
+						.dpr-cost-panel.active { display: block; }
+						.cost-input-row { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+						.cost-input-row label { min-width: 100px; font-size: 13px; color: #4a5568; }
+						.cost-input-row input, .cost-input-row select { flex: 1; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
+						.cost-input-row input:focus, .cost-input-row select:focus { outline: none; border-color: #5e64ff; box-shadow: 0 0 0 3px rgba(94, 100, 255, 0.1); }
+						.total-display { background: white; padding: 12px 16px; border-radius: 8px; margin-top: 16px; display: flex; justify-content: space-between; align-items: center; }
+						.total-label { font-size: 14px; color: #6b7280; }
+						.total-value { font-size: 20px; font-weight: 700; color: #1f2937; }
+					</style>
+				`
+			},
+			{
+				fieldtype: 'HTML',
+				fieldname: 'cost_panels',
+				options: `
+					<div id="labour-panel" class="dpr-cost-panel active">
+						<div class="cost-input-row">
+							<label>Labour Cost</label>
+							<input type="number" id="dpr-labour-cost" placeholder="Enter amount" value="0" step="0.01">
+						</div>
+						<p style="font-size: 12px; color: #6b7280; margin: 0;">💡 For detailed employee-wise entry, use the full DPR form</p>
+					</div>
+					<div id="material-panel" class="dpr-cost-panel">
+						<div class="cost-input-row">
+							<label>Material Cost</label>
+							<input type="number" id="dpr-material-cost" placeholder="Enter amount" value="0" step="0.01">
+						</div>
+						<p style="font-size: 12px; color: #6b7280; margin: 0;">💡 For stock entry with items, use the full DPR form</p>
+					</div>
+					<div id="asset-panel" class="dpr-cost-panel">
+						<div class="cost-input-row">
+							<label>Asset Cost</label>
+							<input type="number" id="dpr-asset-cost" placeholder="Enter amount" value="0" step="0.01">
+						</div>
+						<p style="font-size: 12px; color: #6b7280; margin: 0;">💡 For asset-wise entry with rates, use the full DPR form</p>
+					</div>
+					<div id="subcontract-panel" class="dpr-cost-panel">
+						<div class="cost-input-row">
+							<label>Subcontract Cost</label>
+							<input type="number" id="dpr-subcontract-cost" placeholder="Enter amount" value="0" step="0.01">
+						</div>
+					</div>
+					<div id="expense-panel" class="dpr-cost-panel">
+						<div class="cost-input-row">
+							<label>Other Expense</label>
+							<input type="number" id="dpr-expense-cost" placeholder="Enter amount" value="0" step="0.01">
+						</div>
+						<p style="font-size: 12px; color: #6b7280; margin: 0;">💡 For expense-wise entry with accounts, use the full DPR form</p>
+					</div>
+					<div class="total-display">
+						<span class="total-label">Total Cost</span>
+						<span class="total-value" id="dpr-total-cost">0.00</span>
+					</div>
+				`
+			},
+			{
+				fieldtype: 'Section Break',
+				fieldname: 'remarks_section'
+			},
+			{
+				fieldname: 'remarks',
+				label: __('Remarks'),
+				fieldtype: 'Small Text'
+			}
+		],
+		primary_action_label: __('Create DPR'),
+		primary_action: function() {
+			const values = d.get_values();
+			if (!values) return;
+			
+			const labour_cost = parseFloat($('#dpr-labour-cost').val()) || 0;
+			const material_cost = parseFloat($('#dpr-material-cost').val()) || 0;
+			const asset_cost = parseFloat($('#dpr-asset-cost').val()) || 0;
+			const subcontract_cost = parseFloat($('#dpr-subcontract-cost').val()) || 0;
+			const expense_cost = parseFloat($('#dpr-expense-cost').val()) || 0;
+			const total_cost = labour_cost + material_cost + asset_cost + subcontract_cost + expense_cost;
+			
+			if (total_cost <= 0) {
+				frappe.show_alert({message: __('Please enter at least one cost value'), indicator: 'orange'});
+				return;
+			}
+			
+			frappe.call({
+				method: 'frappe.client.insert',
+				args: {
+					doc: {
+						doctype: 'Daily Progress Record',
+						project: project,
+						boq_item: values.boq_item,
+						date: values.date,
+						labour_cost: labour_cost,
+						material_cost: material_cost,
+						asset_cost: asset_cost,
+						subcontract_cost: subcontract_cost,
+						expense_cost: expense_cost,
+						remarks: values.remarks
+					}
+				},
+				callback: function(r) {
+					if (r.message) {
+						d.hide();
+						frappe.show_alert({message: __('DPR {0} created', [r.message.name]), indicator: 'green'});
+						
+						// Ask if user wants to submit
+						frappe.confirm(
+							__('DPR created successfully. Do you want to submit it now?'),
+							function() {
+								frappe.call({
+									method: 'frappe.client.submit',
+									args: { doc: r.message },
+									callback: function() {
+										frappe.show_alert({message: __('DPR submitted'), indicator: 'green'});
+										cur_frm.reload_doc();
+									}
+								});
+							},
+							function() {
+								cur_frm.reload_doc();
+							}
+						);
+					}
+				}
+			});
+		},
+		secondary_action_label: __('Open Full Form'),
+		secondary_action: function() {
+			d.hide();
+			frappe.new_doc('Daily Progress Record', {
+				project: project
+			});
+		}
+	});
+	
+	d.show();
+	
+	// Attach tab switching logic
+	setTimeout(() => {
+		d.$wrapper.find('.dpr-tab').on('click', function() {
+			const tab = $(this).data('tab');
+			d.$wrapper.find('.dpr-tab').removeClass('active');
+			$(this).addClass('active');
+			d.$wrapper.find('.dpr-cost-panel').removeClass('active');
+			d.$wrapper.find(`#${tab}-panel`).addClass('active');
+		});
+		
+		// Attach cost calculation
+		d.$wrapper.find('input[type="number"]').on('input', function() {
+			const labour = parseFloat($('#dpr-labour-cost').val()) || 0;
+			const material = parseFloat($('#dpr-material-cost').val()) || 0;
+			const asset = parseFloat($('#dpr-asset-cost').val()) || 0;
+			const subcontract = parseFloat($('#dpr-subcontract-cost').val()) || 0;
+			const expense = parseFloat($('#dpr-expense-cost').val()) || 0;
+			const total = labour + material + asset + subcontract + expense;
+			$('#dpr-total-cost').text(format_currency(total));
+		});
+	}, 100);
+}
+
+
+// ============================================
+// Clean DPR Dialog using Frappe Native Fields
+// ============================================
+
+// Store selected items for DPR
+let dpr_selected_employees = [];
+let dpr_selected_assets = [];
+let dpr_selected_materials = [];
+let dpr_selected_expenses = [];
+let dpr_selected_overheads = [];
+
+// Override the show_dpr_dialog function with clean Frappe-native version
+window.show_dpr_dialog_enhanced = function(project) {
+	// Reset selections
+	dpr_selected_employees = [];
+	dpr_selected_assets = [];
+	dpr_selected_materials = [];
+	dpr_selected_expenses = [];
+	dpr_selected_overheads = [];
+	
+	const d = new frappe.ui.Dialog({
+		title: __('Quick Daily Progress Record'),
+		size: 'extra-large',
+		fields: [
+			{
+				fieldtype: 'HTML',
+				fieldname: 'dpr_header',
+				options: '<div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; padding: 16px; border-radius: 8px; margin-bottom: 16px;"><h4 style="margin: 0; font-size: 16px;">📋 Record Daily Progress</h4><p style="margin: 8px 0 0 0; font-size: 13px; opacity: 0.9;">Add employees, materials, assets, expenses and overheads. Rates are auto-fetched from system.</p></div>'
+			},
+			{ fieldname: 'date', label: __('Date'), fieldtype: 'Date', default: frappe.datetime.get_today(), reqd: 1 },
+			{ fieldname: 'boq_item', label: __('BOQ Item'), fieldtype: 'Link', options: 'BOQ Item', reqd: 1, 
+				get_query: () => ({ filters: { project: project } }) 
+			},
+			// Labour Section
+			{ fieldtype: 'Section Break', label: __('👷 Labour Cost') },
+			{ fieldname: 'employee', label: __('Add Employee'), fieldtype: 'Link', options: 'Employee',
+				get_query: () => ({ filters: { status: 'Active' } }),
+				change: function() {
+					const emp = d.get_value('employee');
+					if (emp) add_employee_to_list(d, emp, project);
+				}
+			},
+			{ fieldtype: 'HTML', fieldname: 'employees_list', options: '<div id="dpr-employees-list"></div>' },
+			// Material Section
+			{ fieldtype: 'Section Break', label: __('📦 Material Cost') },
+			{ fieldname: 'item_code', label: __('Add Item'), fieldtype: 'Link', options: 'Item',
+				get_query: () => ({ filters: { is_stock_item: 1 } }),
+				change: function() {
+					const item = d.get_value('item_code');
+					if (item) show_material_qty_dialog(d, item, project);
+				}
+			},
+			{ fieldtype: 'HTML', fieldname: 'materials_list', options: '<div id="dpr-materials-list"></div>' },
+			// Asset Section
+			{ fieldtype: 'Section Break', label: __('🚜 Asset Cost') },
+			{ fieldname: 'asset', label: __('Add Asset'), fieldtype: 'Link', options: 'Asset',
+				get_query: () => ({ filters: { status: ['in', ['Submitted', 'Partially Depreciated']] } }),
+				change: function() {
+					const asset = d.get_value('asset');
+					if (asset) add_asset_to_list(d, asset, project);
+				}
+			},
+			{ fieldtype: 'HTML', fieldname: 'assets_list', options: '<div id="dpr-assets-list"></div>' },
+			// Expense Section
+			{ fieldtype: 'Section Break', label: __('💰 Expenses') },
+			{ fieldname: 'expense_type', label: __('Add Expense'), fieldtype: 'Link', options: 'Expense Claim Type',
+				change: function() {
+					const expType = d.get_value('expense_type');
+					if (expType) show_expense_dialog(d, expType);
+				}
+			},
+			{ fieldtype: 'HTML', fieldname: 'expenses_list', options: '<div id="dpr-expenses-list"></div>' },
+			// Overhead Section
+			{ fieldtype: 'Section Break', label: __('📊 Overheads') },
+			{ fieldname: 'overhead_account', label: __('Add Overhead'), fieldtype: 'Link', options: 'Account',
+				get_query: () => ({ filters: { account_type: ['in', ['Expense Account', 'Cost of Goods Sold']], is_group: 0 } }),
+				change: function() {
+					const acc = d.get_value('overhead_account');
+					if (acc) show_overhead_dialog(d, acc);
+				}
+			},
+			{ fieldtype: 'HTML', fieldname: 'overheads_list', options: '<div id="dpr-overheads-list"></div>' },
+			// Subcontract Section
+			{ fieldtype: 'Section Break', label: __('🏗️ Subcontract') },
+			{ fieldname: 'subcontract_cost', label: __('Subcontract Cost'), fieldtype: 'Currency', default: 0,
+				change: function() { update_dpr_totals(d); }
+			},
+			// Totals Section
+			{ fieldtype: 'Section Break' },
+			{ fieldtype: 'HTML', fieldname: 'totals_display', options: '<div id="dpr-totals" style="background: #f0fdf4; padding: 16px; border-radius: 8px; margin-top: 8px;"><div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 16px;"><div><span style="font-size: 11px; color: #6b7280; text-transform: uppercase;">Labour</span><div id="dpr-labour-total" style="font-size: 16px; font-weight: 600; color: #1f2937;">0.00</div></div><div><span style="font-size: 11px; color: #6b7280; text-transform: uppercase;">Material</span><div id="dpr-material-total" style="font-size: 16px; font-weight: 600; color: #1f2937;">0.00</div></div><div><span style="font-size: 11px; color: #6b7280; text-transform: uppercase;">Asset</span><div id="dpr-asset-total" style="font-size: 16px; font-weight: 600; color: #1f2937;">0.00</div></div><div><span style="font-size: 11px; color: #6b7280; text-transform: uppercase;">Expense</span><div id="dpr-expense-total" style="font-size: 16px; font-weight: 600; color: #1f2937;">0.00</div></div><div><span style="font-size: 11px; color: #6b7280; text-transform: uppercase;">Overhead</span><div id="dpr-overhead-total" style="font-size: 16px; font-weight: 600; color: #1f2937;">0.00</div></div><div><span style="font-size: 11px; color: #6b7280; text-transform: uppercase;">Subcontract</span><div id="dpr-subcontract-total" style="font-size: 16px; font-weight: 600; color: #1f2937;">0.00</div></div><div style="border-left: 2px solid #059669; padding-left: 16px;"><span style="font-size: 11px; color: #059669; font-weight: 600; text-transform: uppercase;">TOTAL COST</span><div id="dpr-grand-total" style="font-size: 22px; font-weight: 700; color: #059669;">0.00</div></div></div></div>' },
+			{ fieldtype: 'Section Break' },
+			{ fieldname: 'remarks', label: __('Remarks'), fieldtype: 'Small Text' }
+		],
+		primary_action_label: __('Create DPR'),
+		primary_action: function() { create_dpr_from_dialog(d, project); },
+		secondary_action_label: __('Open Full Form'),
+		secondary_action: function() { d.hide(); frappe.new_doc('Daily Progress Record', { project: project }); }
+	});
+	
+	d.show();
+	
+	// Add styles and render lists
+	setTimeout(() => {
+		$('<style>.dpr-item-card{display:flex;align-items:center;gap:12px;padding:10px 12px;background:white;border-radius:8px;margin-bottom:8px;border:1px solid #e2e8f0;transition:all 0.2s}.dpr-item-card:hover{border-color:#cbd5e1;box-shadow:0 2px 4px rgba(0,0,0,0.05)}.dpr-item-info{flex:1;min-width:0}.dpr-item-name{font-weight:500;color:#1f2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dpr-item-sub{font-size:12px;color:#6b7280;margin-top:2px}.dpr-item-input{width:70px;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;text-align:right;font-size:13px}.dpr-item-input:focus{outline:none;border-color:#5e64ff;box-shadow:0 0 0 2px rgba(94,100,255,0.1)}.dpr-item-amount{min-width:90px;text-align:right;font-weight:600;color:#059669;font-size:14px}.dpr-remove-btn{background:#fee2e2;color:#dc2626;border:none;width:28px;height:28px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s}.dpr-remove-btn:hover{background:#fecaca}.dpr-empty{text-align:center;padding:24px;color:#9ca3af;font-size:13px;background:#f9fafb;border-radius:8px;border:1px dashed #e2e8f0}</style>').appendTo(d.$wrapper);
+		render_employees_list();
+		render_materials_list();
+		render_assets_list();
+		render_expenses_list();
+		render_overheads_list();
+	}, 100);
+};
+
+// Helper functions for DPR dialog
+
+function add_employee_to_list(d, employee, project) {
+	if (dpr_selected_employees.find(e => e.employee === employee)) {
+		frappe.show_alert({message: __('Employee already added'), indicator: 'orange'});
+		d.set_value('employee', '');
+		return;
+	}
+	
+	frappe.call({
+		method: 'construction_management.api.dpr_utils.get_employee_with_rate',
+		args: { employee: employee },
+		callback: function(r) {
+			if (r.message) {
+				const emp = r.message;
+				const rate = emp.rate_per_day || 0;
+				
+				if (!rate) {
+					frappe.prompt([
+						{ fieldname: 'rate', label: __('Daily Rate'), fieldtype: 'Currency', reqd: 1, 
+						  description: __('No salary structure found for this employee. Please enter daily rate manually.') }
+					], function(values) {
+						dpr_selected_employees.push({
+							employee: employee, employee_name: emp.employee_name, designation: emp.designation || '',
+							hours: 8, rate_per_day: values.rate, amount: values.rate
+						});
+						render_employees_list();
+						update_dpr_totals(d);
+					}, __('Enter Daily Rate for ' + emp.employee_name), __('Add'));
+				} else {
+					dpr_selected_employees.push({
+						employee: employee, employee_name: emp.employee_name, designation: emp.designation || '',
+						hours: 8, rate_per_day: rate, amount: rate
+					});
+					render_employees_list();
+					update_dpr_totals(d);
+				}
+			}
+			d.set_value('employee', '');
+		}
+	});
+}
+
+function add_asset_to_list(d, asset, project) {
+	if (dpr_selected_assets.find(a => a.asset === asset)) {
+		frappe.show_alert({message: __('Asset already added'), indicator: 'orange'});
+		d.set_value('asset', '');
+		return;
+	}
+	
+	frappe.call({
+		method: 'construction_management.api.dpr_utils.get_asset_with_rate',
+		args: { asset: asset, project: project, date: d.get_value('date') },
+		callback: function(r) {
+			if (r.message) {
+				const assetData = r.message;
+				const rate = assetData.rate_per_day || 0;
+				
+				if (!rate) {
+					frappe.prompt([
+						{ fieldname: 'rate', label: __('Daily Rate'), fieldtype: 'Currency', reqd: 1,
+						  description: __('No rate configured in Project Asset Billing. Please enter daily rate manually.') }
+					], function(values) {
+						dpr_selected_assets.push({
+							asset: asset, asset_name: assetData.asset_name, hours: 8, rate_per_day: values.rate, amount: values.rate
+						});
+						render_assets_list();
+						update_dpr_totals(d);
+					}, __('Enter Daily Rate for ' + assetData.asset_name), __('Add'));
+				} else {
+					dpr_selected_assets.push({
+						asset: asset, asset_name: assetData.asset_name, hours: 8, rate_per_day: rate, amount: rate
+					});
+					render_assets_list();
+					update_dpr_totals(d);
+				}
+			}
+			d.set_value('asset', '');
+		}
+	});
+}
+
+function show_material_qty_dialog(d, item_code, project) {
+	if (dpr_selected_materials.find(m => m.item_code === item_code)) {
+		frappe.show_alert({message: __('Item already added'), indicator: 'orange'});
+		d.set_value('item_code', '');
+		return;
+	}
+	
+	frappe.call({
+		method: 'construction_management.api.dpr_utils.get_item_details',
+		args: { item_code: item_code },
+		callback: function(r) {
+			if (r.message) {
+				const item = r.message;
+				frappe.prompt([
+					{ fieldname: 'qty', label: __('Quantity'), fieldtype: 'Float', reqd: 1, default: 1 },
+					{ fieldname: 'warehouse', label: __('Source Warehouse'), fieldtype: 'Link', options: 'Warehouse', reqd: 1,
+					  description: __('Stock will be transferred from this warehouse on submit') },
+					{ fieldname: 'rate', label: __('Rate'), fieldtype: 'Currency', default: item.rate || item.valuation_rate || 0,
+					  description: item.rate ? __('Rate from Price List') : __('Valuation Rate') }
+				], function(values) {
+					const amount = flt(values.qty) * flt(values.rate);
+					dpr_selected_materials.push({
+						item_code: item_code, item_name: item.item_name, warehouse: values.warehouse,
+						qty: values.qty, uom: item.stock_uom, rate: values.rate, amount: amount
+					});
+					render_materials_list();
+					update_dpr_totals(d);
+				}, __('Add Material: ' + item.item_name), __('Add'));
+			}
+			d.set_value('item_code', '');
+		}
+	});
+}
+
+function show_expense_dialog(d, expense_type) {
+	frappe.prompt([
+		{ fieldname: 'description', label: __('Description'), fieldtype: 'Small Text' },
+		{ fieldname: 'amount', label: __('Amount'), fieldtype: 'Currency', reqd: 1 }
+	], function(values) {
+		dpr_selected_expenses.push({
+			expense_type: expense_type, description: values.description || '', amount: values.amount
+		});
+		render_expenses_list();
+		update_dpr_totals(d);
+	}, __('Add Expense: ' + expense_type), __('Add'));
+	d.set_value('expense_type', '');
+}
+
+function show_overhead_dialog(d, account) {
+	frappe.db.get_value('Account', account, 'account_name', (r) => {
+		const account_name = r ? r.account_name : account;
+		frappe.prompt([
+			{ fieldname: 'description', label: __('Description'), fieldtype: 'Small Text' },
+			{ fieldname: 'amount', label: __('Amount'), fieldtype: 'Currency', reqd: 1 }
+		], function(values) {
+			dpr_selected_overheads.push({
+				account: account, account_name: account_name, description: values.description || '', amount: values.amount
+			});
+			render_overheads_list();
+			update_dpr_totals(d);
+		}, __('Add Overhead: ' + account_name), __('Add'));
+	});
+	d.set_value('overhead_account', '');
+}
+
+function render_employees_list() {
+	let html = dpr_selected_employees.length === 0 
+		? '<div class="dpr-empty">No employees added. Select an employee above to add.</div>'
+		: '';
+	dpr_selected_employees.forEach((emp, idx) => {
+		html += '<div class="dpr-item-card"><div class="dpr-item-info"><div class="dpr-item-name">' + emp.employee_name + '</div><div class="dpr-item-sub">' + (emp.designation || 'No designation') + ' • ' + format_currency(emp.rate_per_day) + '/day</div></div><div><input type="number" class="dpr-item-input emp-hours" value="' + emp.hours + '" step="0.5" min="0" max="24" data-idx="' + idx + '"> hrs</div><div class="dpr-item-amount">' + format_currency(emp.amount) + '</div><button type="button" class="dpr-remove-btn" onclick="remove_dpr_employee(' + idx + ')">✕</button></div>';
+	});
+	$('#dpr-employees-list').html(html);
+	$('.emp-hours').off('input').on('input', function() {
+		const idx = $(this).data('idx');
+		const hours = parseFloat($(this).val()) || 8;
+		dpr_selected_employees[idx].hours = hours;
+		dpr_selected_employees[idx].amount = dpr_selected_employees[idx].rate_per_day * (hours / 8);
+		render_employees_list();
+		update_dpr_totals();
+	});
+}
+
+function render_materials_list() {
+	let html = dpr_selected_materials.length === 0 
+		? '<div class="dpr-empty">No materials added. Select an item above to add.</div>'
+		: '';
+	dpr_selected_materials.forEach((mat, idx) => {
+		html += '<div class="dpr-item-card"><div class="dpr-item-info"><div class="dpr-item-name">' + mat.item_name + '</div><div class="dpr-item-sub">' + mat.item_code + ' • ' + mat.warehouse + ' • ' + mat.qty + ' ' + mat.uom + ' @ ' + format_currency(mat.rate) + '</div></div><div class="dpr-item-amount">' + format_currency(mat.amount) + '</div><button type="button" class="dpr-remove-btn" onclick="remove_dpr_material(' + idx + ')">✕</button></div>';
+	});
+	$('#dpr-materials-list').html(html);
+}
+
+function render_assets_list() {
+	let html = dpr_selected_assets.length === 0 
+		? '<div class="dpr-empty">No assets added. Select an asset above to add.</div>'
+		: '';
+	dpr_selected_assets.forEach((asset, idx) => {
+		html += '<div class="dpr-item-card"><div class="dpr-item-info"><div class="dpr-item-name">' + asset.asset_name + '</div><div class="dpr-item-sub">' + asset.asset + ' • ' + format_currency(asset.rate_per_day) + '/day</div></div><div><input type="number" class="dpr-item-input asset-hours" value="' + asset.hours + '" step="0.5" min="0" max="24" data-idx="' + idx + '"> hrs</div><div class="dpr-item-amount">' + format_currency(asset.amount) + '</div><button type="button" class="dpr-remove-btn" onclick="remove_dpr_asset(' + idx + ')">✕</button></div>';
+	});
+	$('#dpr-assets-list').html(html);
+	$('.asset-hours').off('input').on('input', function() {
+		const idx = $(this).data('idx');
+		const hours = parseFloat($(this).val()) || 8;
+		dpr_selected_assets[idx].hours = hours;
+		dpr_selected_assets[idx].amount = dpr_selected_assets[idx].rate_per_day * (hours / 8);
+		render_assets_list();
+		update_dpr_totals();
+	});
+}
+
+function render_expenses_list() {
+	let html = dpr_selected_expenses.length === 0 
+		? '<div class="dpr-empty">No expenses added. Select an expense type above to add.</div>'
+		: '';
+	dpr_selected_expenses.forEach((exp, idx) => {
+		html += '<div class="dpr-item-card"><div class="dpr-item-info"><div class="dpr-item-name">' + exp.expense_type + '</div>' + (exp.description ? '<div class="dpr-item-sub">' + exp.description + '</div>' : '') + '</div><div class="dpr-item-amount">' + format_currency(exp.amount) + '</div><button type="button" class="dpr-remove-btn" onclick="remove_dpr_expense(' + idx + ')">✕</button></div>';
+	});
+	$('#dpr-expenses-list').html(html);
+}
+
+function render_overheads_list() {
+	let html = dpr_selected_overheads.length === 0 
+		? '<div class="dpr-empty">No overheads added. Select an account above to add.</div>'
+		: '';
+	dpr_selected_overheads.forEach((ovh, idx) => {
+		html += '<div class="dpr-item-card"><div class="dpr-item-info"><div class="dpr-item-name">' + ovh.account_name + '</div>' + (ovh.description ? '<div class="dpr-item-sub">' + ovh.description + '</div>' : '') + '</div><div class="dpr-item-amount">' + format_currency(ovh.amount) + '</div><button type="button" class="dpr-remove-btn" onclick="remove_dpr_overhead(' + idx + ')">✕</button></div>';
+	});
+	$('#dpr-overheads-list').html(html);
+}
+
+window.remove_dpr_employee = function(idx) { dpr_selected_employees.splice(idx, 1); render_employees_list(); update_dpr_totals(); };
+window.remove_dpr_material = function(idx) { dpr_selected_materials.splice(idx, 1); render_materials_list(); update_dpr_totals(); };
+window.remove_dpr_asset = function(idx) { dpr_selected_assets.splice(idx, 1); render_assets_list(); update_dpr_totals(); };
+window.remove_dpr_expense = function(idx) { dpr_selected_expenses.splice(idx, 1); render_expenses_list(); update_dpr_totals(); };
+window.remove_dpr_overhead = function(idx) { dpr_selected_overheads.splice(idx, 1); render_overheads_list(); update_dpr_totals(); };
+
+function update_dpr_totals(d) {
+	const labourTotal = dpr_selected_employees.reduce((sum, e) => sum + flt(e.amount), 0);
+	const materialTotal = dpr_selected_materials.reduce((sum, m) => sum + flt(m.amount), 0);
+	const assetTotal = dpr_selected_assets.reduce((sum, a) => sum + flt(a.amount), 0);
+	const expenseTotal = dpr_selected_expenses.reduce((sum, e) => sum + flt(e.amount), 0);
+	const overheadTotal = dpr_selected_overheads.reduce((sum, o) => sum + flt(o.amount), 0);
+	const subcontractTotal = d ? flt(d.get_value('subcontract_cost')) : flt($('[data-fieldname="subcontract_cost"] input').val());
+	const grandTotal = labourTotal + materialTotal + assetTotal + expenseTotal + overheadTotal + subcontractTotal;
+	
+	// Use simple number formatting for totals display (not HTML)
+	const fmt = (val) => frappe.format(val, {fieldtype: 'Currency'}, {only_value: true});
+	
+	$('#dpr-labour-total').text(fmt(labourTotal));
+	$('#dpr-material-total').text(fmt(materialTotal));
+	$('#dpr-asset-total').text(fmt(assetTotal));
+	$('#dpr-expense-total').text(fmt(expenseTotal));
+	$('#dpr-overhead-total').text(fmt(overheadTotal));
+	$('#dpr-subcontract-total').text(fmt(subcontractTotal));
+	$('#dpr-grand-total').text(fmt(grandTotal));
+}
+
+function create_dpr_from_dialog(d, project) {
+	const values = d.get_values();
+	if (!values) return;
+	
+	const labourTotal = dpr_selected_employees.reduce((sum, e) => sum + flt(e.amount), 0);
+	const materialTotal = dpr_selected_materials.reduce((sum, m) => sum + flt(m.amount), 0);
+	const assetTotal = dpr_selected_assets.reduce((sum, a) => sum + flt(a.amount), 0);
+	const expenseTotal = dpr_selected_expenses.reduce((sum, e) => sum + flt(e.amount), 0);
+	const overheadTotal = dpr_selected_overheads.reduce((sum, o) => sum + flt(o.amount), 0);
+	const total = labourTotal + materialTotal + assetTotal + expenseTotal + overheadTotal + flt(values.subcontract_cost);
+	
+	if (total <= 0) {
+		frappe.show_alert({message: __('Please add at least one cost entry'), indicator: 'orange'});
+		return;
+	}
+	
+	frappe.call({
+		method: 'construction_management.api.dpr_utils.create_dpr_with_details',
+		args: {
+			project: project, 
+			boq_item: values.boq_item, 
+			date: values.date,
+			employees: JSON.stringify(dpr_selected_employees),
+			assets: JSON.stringify(dpr_selected_assets),
+			materials: JSON.stringify(dpr_selected_materials),
+			expenses: JSON.stringify(dpr_selected_expenses),
+			overheads: JSON.stringify(dpr_selected_overheads),
+			subcontract_cost: values.subcontract_cost || 0,
+			remarks: values.remarks
+		},
+		callback: function(r) {
+			if (r.message) {
+				d.hide();
+				frappe.show_alert({message: __('DPR {0} created successfully!', [r.message.name]), indicator: 'green'});
+				frappe.confirm(__('DPR created. Submit now to create Stock Entries for materials?'), 
+					function() {
+						frappe.call({
+							method: 'frappe.client.submit',
+							args: { doctype: 'Daily Progress Record', name: r.message.name },
+							callback: function() {
+								frappe.show_alert({message: __('DPR submitted. Stock entries created.'), indicator: 'green'});
+								cur_frm.reload_doc();
+							}
+						});
+					},
+					function() { cur_frm.reload_doc(); }
+				);
+			}
+		}
+	});
+}
+
+// Override the original create_dpr_quick to use clean version
+window.create_dpr_quick = function(project) {
+	window.show_dpr_dialog_enhanced(project);
+};

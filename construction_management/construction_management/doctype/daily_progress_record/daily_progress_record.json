@@ -9,19 +9,34 @@
 		"naming_series",
 		"project",
 		"boq_item",
+		"bill_no",
 		"column_break_1",
 		"date",
-		"section_costs",
-		"labour_cost",
-		"material_cost",
-		"column_break_2",
+		"status",
+		"section_assets",
+		"assets",
 		"asset_cost",
-		"subcontract_cost",
-		"column_break_3",
+		"section_employees",
+		"employees",
+		"labour_cost",
+		"section_materials",
+		"materials",
+		"material_cost",
+		"section_overheads",
+		"overheads",
+		"overhead_cost",
+		"section_expenses",
+		"expenses",
 		"expense_cost",
+		"section_subcontract",
+		"subcontract_cost",
+		"section_totals",
 		"total_cost",
 		"section_remarks",
-		"remarks"
+		"remarks",
+		"section_accounting",
+		"stock_entries",
+		"journal_entries"
 	],
 	"fields": [
 		{
@@ -50,6 +65,14 @@
 			"reqd": 1
 		},
 		{
+			"fetch_from": "boq_item.parent_bill",
+			"fieldname": "bill_no",
+			"fieldtype": "Link",
+			"label": "Bill No",
+			"options": "BOQ Bill",
+			"read_only": 1
+		},
+		{
 			"fieldname": "column_break_1",
 			"fieldtype": "Column Break"
 		},
@@ -62,31 +85,108 @@
 			"default": "Today"
 		},
 		{
-			"fieldname": "section_costs",
+			"default": "Draft",
+			"fieldname": "status",
+			"fieldtype": "Select",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+			"label": "Status",
+			"options": "Draft\nSubmitted\nCancelled"
+		},
+		{
+			"fieldname": "section_assets",
 			"fieldtype": "Section Break",
-			"label": "Cost Breakdown"
+			"label": "Assets"
 		},
 		{
-			"fieldname": "labour_cost",
-			"fieldtype": "Currency",
-			"label": "Labour Cost",
-			"default": "0"
-		},
-		{
-			"fieldname": "material_cost",
-			"fieldtype": "Currency",
-			"label": "Material Cost",
-			"default": "0"
-		},
-		{
-			"fieldname": "column_break_2",
-			"fieldtype": "Column Break"
+			"fieldname": "assets",
+			"fieldtype": "Table",
+			"label": "Assets",
+			"options": "DPR Asset"
 		},
 		{
 			"fieldname": "asset_cost",
 			"fieldtype": "Currency",
-			"label": "Asset Cost",
+			"label": "Total Asset Cost",
+			"read_only": 1,
 			"default": "0"
+		},
+		{
+			"fieldname": "section_employees",
+			"fieldtype": "Section Break",
+			"label": "Labour / Employees"
+		},
+		{
+			"fieldname": "employees",
+			"fieldtype": "Table",
+			"label": "Employees",
+			"options": "DPR Employee"
+		},
+		{
+			"fieldname": "labour_cost",
+			"fieldtype": "Currency",
+			"label": "Total Labour Cost",
+			"read_only": 1,
+			"default": "0"
+		},
+		{
+			"fieldname": "section_materials",
+			"fieldtype": "Section Break",
+			"label": "Materials / Stock"
+		},
+		{
+			"fieldname": "materials",
+			"fieldtype": "Table",
+			"label": "Materials",
+			"options": "DPR Material"
+		},
+		{
+			"fieldname": "material_cost",
+			"fieldtype": "Currency",
+			"label": "Total Material Cost",
+			"read_only": 1,
+			"default": "0"
+		},
+		{
+			"fieldname": "section_overheads",
+			"fieldtype": "Section Break",
+			"label": "Overheads"
+		},
+		{
+			"fieldname": "overheads",
+			"fieldtype": "Table",
+			"label": "Overheads",
+			"options": "DPR Overhead"
+		},
+		{
+			"fieldname": "overhead_cost",
+			"fieldtype": "Currency",
+			"label": "Total Overhead Cost",
+			"read_only": 1,
+			"default": "0"
+		},
+		{
+			"fieldname": "section_expenses",
+			"fieldtype": "Section Break",
+			"label": "Other Expenses"
+		},
+		{
+			"fieldname": "expenses",
+			"fieldtype": "Table",
+			"label": "Expenses",
+			"options": "DPR Expense"
+		},
+		{
+			"fieldname": "expense_cost",
+			"fieldtype": "Currency",
+			"label": "Total Expense Cost",
+			"read_only": 1,
+			"default": "0"
+		},
+		{
+			"fieldname": "section_subcontract",
+			"fieldtype": "Section Break",
+			"label": "Subcontract"
 		},
 		{
 			"fieldname": "subcontract_cost",
@@ -95,14 +195,9 @@
 			"default": "0"
 		},
 		{
-			"fieldname": "column_break_3",
-			"fieldtype": "Column Break"
-		},
-		{
-			"fieldname": "expense_cost",
-			"fieldtype": "Currency",
-			"label": "Other Expense",
-			"default": "0"
+			"fieldname": "section_totals",
+			"fieldtype": "Section Break",
+			"label": "Totals"
 		},
 		{
 			"fieldname": "total_cost",
@@ -121,11 +216,32 @@
 			"fieldname": "remarks",
 			"fieldtype": "Small Text",
 			"label": "Remarks"
+		},
+		{
+			"fieldname": "section_accounting",
+			"fieldtype": "Section Break",
+			"label": "Accounting References",
+			"collapsible": 1
+		},
+		{
+			"fieldname": "stock_entries",
+			"fieldtype": "Small Text",
+			"label": "Stock Entries",
+			"read_only": 1,
+			"description": "Comma-separated list of Stock Entry names created"
+		},
+		{
+			"fieldname": "journal_entries",
+			"fieldtype": "Small Text",
+			"label": "Journal Entries",
+			"read_only": 1,
+			"description": "Comma-separated list of Journal Entry names created"
 		}
 	],
 	"index_web_pages_for_search": 1,
+	"is_submittable": 1,
 	"links": [],
-	"modified": "2024-12-18 10:00:00",
+	"modified": "2024-12-22 10:00:00",
 	"modified_by": "Administrator",
 	"module": "Construction Management",
 	"name": "Daily Progress Record",
@@ -142,6 +258,8 @@
 			"report": 1,
 			"role": "System Manager",
 			"share": 1,
+			"submit": 1,
+			"cancel": 1,
 			"write": 1
 		},
 		{
@@ -153,6 +271,7 @@
 			"report": 1,
 			"role": "Quantity Surveyor",
 			"share": 1,
+			"submit": 1,
 			"write": 1
 		},
 		{
@@ -164,6 +283,7 @@
 			"report": 1,
 			"role": "Site Engineer",
 			"share": 1,
+			"submit": 1,
 			"write": 1
 		}
 	],

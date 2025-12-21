@@ -30,7 +30,7 @@ def get_boq_tree_data(project: str) -> dict:
 	)
 	
 	if not project_boq:
-		return {"kpi": None, "bills": []}
+		return {"kpi": None, "bills": [], "project_boq": None, "has_boq": False}
 	
 	# Get KPI data
 	kpi = get_boq_kpi(project)
@@ -41,7 +41,8 @@ def get_boq_tree_data(project: str) -> dict:
 	return {
 		"project_boq": project_boq,
 		"kpi": kpi,
-		"bills": bills
+		"bills": bills,
+		"has_boq": True
 	}
 
 
@@ -418,6 +419,7 @@ def is_progressive_boq_enabled(project: str) -> bool:
 def get_boq_item_cost_details(boq_item: str) -> dict:
 	"""
 	Get detailed cost breakdown for a BOQ item.
+	Same breakdown as shown at project level for consistency.
 	
 	Args:
 		boq_item: BOQ Item name
@@ -428,7 +430,7 @@ def get_boq_item_cost_details(boq_item: str) -> dict:
 	# Get BOQ Item
 	item = frappe.get_doc("BOQ Item", boq_item)
 	
-	# Get cost breakdown from Daily Progress Records
+	# Get cost breakdown from Daily Progress Records - same categories as project level
 	cost_breakdown = frappe.db.sql("""
 		SELECT 
 			COALESCE(SUM(labour_cost), 0) as labour,
@@ -436,6 +438,7 @@ def get_boq_item_cost_details(boq_item: str) -> dict:
 			COALESCE(SUM(asset_cost), 0) as asset,
 			COALESCE(SUM(subcontract_cost), 0) as subcontract,
 			COALESCE(SUM(expense_cost), 0) as expense,
+			COALESCE(SUM(overhead_cost), 0) as overhead,
 			COALESCE(SUM(total_cost), 0) as total
 		FROM `tabDaily Progress Record`
 		WHERE boq_item = %s
@@ -457,6 +460,7 @@ def get_boq_item_cost_details(boq_item: str) -> dict:
 			"asset": flt(cost_breakdown.asset),
 			"subcontract": flt(cost_breakdown.subcontract),
 			"expense": flt(cost_breakdown.expense),
+			"overhead": flt(cost_breakdown.overhead),
 			"total": flt(cost_breakdown.total)
 		},
 		"revenue": {
@@ -465,4 +469,53 @@ def get_boq_item_cost_details(boq_item: str) -> dict:
 			"to_date": flt(to_date_amount) + flt(current_amount),
 			"total": flt(item.total_amount)
 		}
+	}
+
+
+@frappe.whitelist()
+def get_boq_item_cost_breakdown(boq_item: str) -> dict:
+	"""
+	Get detailed cost breakdown for a BOQ item with DPR details.
+	Returns same structure as project-level costs for consistency.
+	
+	Args:
+		boq_item: BOQ Item name
+		
+	Returns:
+		dict with detailed cost breakdown including DPR list
+	"""
+	# Get cost summary
+	cost_summary = frappe.db.sql("""
+		SELECT 
+			COALESCE(SUM(labour_cost), 0) as labour,
+			COALESCE(SUM(material_cost), 0) as material,
+			COALESCE(SUM(asset_cost), 0) as asset,
+			COALESCE(SUM(subcontract_cost), 0) as subcontract,
+			COALESCE(SUM(expense_cost), 0) as expense,
+			COALESCE(SUM(overhead_cost), 0) as overhead,
+			COALESCE(SUM(total_cost), 0) as total
+		FROM `tabDaily Progress Record`
+		WHERE boq_item = %s AND docstatus = 1
+	""", boq_item, as_dict=True)[0]
+	
+	# Get DPR list
+	dprs = frappe.get_all(
+		"Daily Progress Record",
+		filters={"boq_item": boq_item, "docstatus": 1},
+		fields=["name", "date", "labour_cost", "material_cost", "asset_cost", 
+				"subcontract_cost", "expense_cost", "overhead_cost", "total_cost"],
+		order_by="date desc"
+	)
+	
+	return {
+		"summary": {
+			"labour": flt(cost_summary.labour),
+			"material": flt(cost_summary.material),
+			"asset": flt(cost_summary.asset),
+			"subcontract": flt(cost_summary.subcontract),
+			"expense": flt(cost_summary.expense),
+			"overhead": flt(cost_summary.overhead),
+			"total": flt(cost_summary.total)
+		},
+		"dprs": dprs
 	}

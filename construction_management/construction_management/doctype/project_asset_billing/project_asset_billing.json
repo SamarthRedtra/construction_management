@@ -1,0 +1,127 @@
+{
+	"actions": [],
+	"allow_rename": 1,
+	"autoname": "format:{project}-{asset}",
+	"creation": "2024-12-22 10:00:00",
+	"doctype": "DocType",
+	"engine": "InnoDB",
+	"field_order": [
+		"project",
+		"asset",
+		"column_break_1",
+		"asset_name",
+		"value_per_day",
+		"section_break_2",
+		"effective_from",
+		"effective_to",
+		"remarks"
+	],
+	"fields": [
+		{
+			"fieldname": "project",
+			"fieldtype": "Link",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+			"label": "Project",
+			"options": "Project",
+			"reqd": 1
+		},
+		{
+			"fieldname": "asset",
+			"fieldtype": "Link",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+			"label": "Asset",
+			"options": "Asset",
+			"reqd": 1
+		},
+		{
+			"fieldname": "column_break_1",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fetch_from": "asset.asset_name",
+			"fieldname": "asset_name",
+			"fieldtype": "Data",
+			"in_list_view": 1,
+			"label": "Asset Name",
+			"read_only": 1
+		},
+		{
+			"fieldname": "value_per_day",
+			"fieldtype": "Currency",
+			"in_list_view": 1,
+			"label": "Value Per Day",
+			"reqd": 1
+		},
+		{
+			"fieldname": "section_break_2",
+			"fieldtype": "Section Break",
+			"label": "Validity"
+		},
+		{
+			"default": "Today",
+			"fieldname": "effective_from",
+			"fieldtype": "Date",
+			"label": "Effective From"
+		},
+		{
+			"fieldname": "effective_to",
+			"fieldtype": "Date",
+			"label": "Effective To"
+		},
+		{
+			"fieldname": "remarks",
+			"fieldtype": "Small Text",
+			"label": "Remarks"
+		}
+	],
+	"index_web_pages_for_search": 1,
+	"links": [],
+	"modified": "2024-12-22 10:00:00",
+	"modified_by": "Administrator",
+	"module": "Construction Management",
+	"name": "Project Asset Billing",
+	"naming_rule": "Expression",
+	"owner": "Administrator",
+	"permissions": [
+		{
+			"create": 1,
+			"delete": 1,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "System Manager",
+			"share": 1,
+			"write": 1
+		},
+		{
+			"create": 1,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "Accounts User",
+			"share": 1,
+			"write": 1
+		},
+		{
+			"create": 1,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "Quantity Surveyor",
+			"share": 1,
+			"write": 1
+		}
+	],
+	"sort_field": "modified",
+	"sort_order": "DESC",
+	"states": [],
+	"track_changes": 1
+}

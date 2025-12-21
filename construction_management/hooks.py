@@ -47,7 +47,8 @@ doctype_js = {
 	"BOQ": "public/js/boq.js",
 	"Bid": "public/js/bid.js",
 	"Interim Payment Certificate": "public/js/ipc.js",
-	"Project": "public/js/project.js"
+	"Project": "public/js/project.js",
+	"Daily Progress Record": "public/js/daily_progress_record.js"
 }
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
@@ -253,7 +254,9 @@ fixtures = [
 			"Project-enable_progressive_boq",
 			"Project-retention_percentage",
 			"Project-construction_dashboard_section",
-			"Project-construction_dashboard"
+			"Project-construction_dashboard",
+			"Stock Entry Detail-boq_item",
+			"Stock Entry Detail-bill_no"
 		]]]
 	}
 ]
