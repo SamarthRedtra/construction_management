@@ -27,6 +27,14 @@ def on_submit(doc, method):
 		if item.get("boq_item"):
 			create_boq_ledger_entry(doc, item)
 			update_boq_item_after_invoice(item.boq_item)
+	
+	# Update project completion percentage
+	if doc.project:
+		from construction_management.api.project_completion import update_project_completion
+		try:
+			update_project_completion(doc.project)
+		except Exception as e:
+			frappe.log_error(f"Error updating project completion: {str(e)}")
 
 
 def on_cancel(doc, method):
@@ -35,6 +43,14 @@ def on_cancel(doc, method):
 		if item.get("boq_item"):
 			create_boq_reversal_entry(doc, item)
 			update_boq_item_after_invoice(item.boq_item)
+	
+	# Update project completion percentage
+	if doc.project:
+		from construction_management.api.project_completion import update_project_completion
+		try:
+			update_project_completion(doc.project)
+		except Exception as e:
+			frappe.log_error(f"Error updating project completion: {str(e)}")
 
 
 def create_boq_ledger_entry(invoice, item):

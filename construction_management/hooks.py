@@ -48,7 +48,8 @@ doctype_js = {
 	"Bid": "public/js/bid.js",
 	"Interim Payment Certificate": "public/js/ipc.js",
 	"Project": "public/js/project.js",
-	"Daily Progress Record": "public/js/daily_progress_record.js"
+	"Daily Progress Record": "public/js/daily_progress_record.js",
+	"Purchase Receipt": "public/js/purchase_receipt.js"
 }
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}

@@ -55,7 +55,8 @@ def get_boq_kpi(project: str) -> dict:
 		project: Project name
 		
 	Returns:
-		dict with total_boq_value, total_billed, total_collected, pending, cost breakdown, advance, and retention
+		dict with total_boq_value, total_billed, total_collected (combined), 
+		invoice_collected, advance_collected, pending, cost breakdown, and retention
 	"""
 	# Get Project BOQ total
 	total_boq_value = frappe.db.get_value(
@@ -71,8 +72,8 @@ def get_boq_kpi(project: str) -> dict:
 		WHERE project = %s AND source = 'Invoice'
 	""", project)[0][0] or 0
 	
-	# Get total collected from paid invoices
-	total_collected = frappe.db.sql("""
+	# Get total collected from paid invoices (Invoice Collected)
+	invoice_collected = frappe.db.sql("""
 		SELECT COALESCE(SUM(si.grand_total), 0) as total
 		FROM `tabSales Invoice` si
 		WHERE si.project = %s 
@@ -99,23 +100,30 @@ def get_boq_kpi(project: str) -> dict:
 	
 	# Get advance payment summary
 	advance_summary = get_advance_summary(project)
+	advance_collected = flt(advance_summary.get("total_collected", 0))
 	
 	# Get retention summary
 	retention_summary = get_retention_summary(project)
 	
+	# Total Collected = Advance Collected + Invoice Collected
+	total_collected = flt(advance_collected) + flt(invoice_collected)
+	
 	return {
 		"total_boq_value": flt(total_boq_value),
 		"total_billed": flt(total_billed),
+		# Combined total collected (advance + invoice)
 		"total_collected": flt(total_collected),
-		"pending": flt(total_billed) - flt(total_collected),
+		# Breakdown of collected amounts
+		"invoice_collected": flt(invoice_collected),
+		"advance_collected": flt(advance_collected),
+		"pending": flt(total_billed) - flt(invoice_collected),
 		"total_labour_cost": flt(cost_breakdown.labour),
 		"total_material_cost": flt(cost_breakdown.material),
 		"total_asset_cost": flt(cost_breakdown.asset),
 		"total_subcontract_cost": flt(cost_breakdown.subcontract),
 		"total_expense_cost": flt(cost_breakdown.expense),
 		"total_cost": flt(cost_breakdown.total),
-		# Advance tracking
-		"advance_collected": flt(advance_summary.get("total_collected", 0)),
+		# Advance tracking (detailed)
 		"advance_utilized": flt(advance_summary.get("total_utilized", 0)),
 		"advance_balance": flt(advance_summary.get("balance", 0)),
 		# Retention tracking

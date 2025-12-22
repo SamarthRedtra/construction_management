@@ -129,6 +129,8 @@ function render_modern_dashboard(wrapper, frm, data) {
 function render_kpi_grid(container, kpi, progress, collectionRate) {
 	const totalCost = (kpi.total_labour_cost || 0) + (kpi.total_material_cost || 0) + (kpi.total_asset_cost || 0) + (kpi.total_subcontract_cost || 0) + (kpi.total_expense_cost || 0);
 	const margin = (kpi.total_billed || 0) - totalCost;
+	const advanceCollected = kpi.advance_collected || 0;
+	const invoiceCollected = kpi.invoice_collected || 0;
 	
 	container.html(`
 		<div class="kpi-card kpi-primary">
@@ -153,7 +155,11 @@ function render_kpi_grid(container, kpi, progress, collectionRate) {
 				<span class="kpi-label">Collected</span>
 				<span class="kpi-value">${format_currency(kpi.total_collected || 0)}</span>
 				<div class="kpi-progress"><div class="kpi-progress-bar" style="width: ${collectionRate}%"></div></div>
-				<span class="kpi-sub">${collectionRate}% collected</span>
+				<span class="kpi-sub kpi-breakdown">
+					<span class="breakdown-item advance">Adv: ${format_currency(advanceCollected)}</span>
+					<span class="breakdown-divider">|</span>
+					<span class="breakdown-item invoice">Inv: ${format_currency(invoiceCollected)}</span>
+				</span>
 			</div>
 		</div>
 		<div class="kpi-card kpi-warning">
@@ -185,6 +191,10 @@ function render_action_bar(container, frm) {
 			<button class="btn-modern btn-info-modern" onclick="view_all_dprs('${frm.doc.name}')">
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
 				View DPRs
+			</button>
+			<button class="btn-modern btn-outline" onclick="open_resource_planner('${frm.doc.name}')">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+				Resources
 			</button>
 			<button class="btn-modern btn-outline" onclick="record_advance_payment('${frm.doc.name}')">
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
@@ -330,6 +340,9 @@ function render_items_table(items, frm) {
 						</button>
 						<button class="action-icon-btn action-history" onclick="view_item_invoices('${item.name}')" title="View Invoice History">
 							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+						</button>
+						<button class="action-icon-btn action-tasks" onclick="view_boq_tasks('${item.name}')" title="View Tasks">
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
 						</button>
 						<button class="action-icon-btn action-cost" onclick="view_cost_details('${item.name}')" title="View Cost Details">
 							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
@@ -540,15 +553,39 @@ window.add_boq_item = function(bill_name, project) {
 				let rate = d.get_value('rate') || 0;
 				d.set_value('total_amount', qty * rate);
 			}},
-			{fieldname: 'total_amount', label: 'Total Amount', fieldtype: 'Currency', read_only: 1}
+			{fieldname: 'total_amount', label: 'Total Amount', fieldtype: 'Currency', read_only: 1},
+			{fieldtype: 'Section Break', label: 'Task Options'},
+			{fieldname: 'is_task', label: 'Create as Task', fieldtype: 'Check', 
+				description: 'Create a Group Task linked to this BOQ Item'},
+			{fieldname: 'start_date', label: 'Start Date', fieldtype: 'Date', depends_on: 'is_task'},
+			{fieldtype: 'Column Break'},
+			{fieldname: 'end_date', label: 'End Date', fieldtype: 'Date', depends_on: 'is_task'}
 		],
 		primary_action_label: 'Create',
 		primary_action(values) {
 			frappe.call({
-				method: 'frappe.client.insert',
-				args: { doc: { doctype: 'BOQ Item', parent_bill: bill_name, item_code: values.item_code, description: values.description, unit: values.unit, total_qty: values.total_qty, rate: values.rate }},
+				method: 'construction_management.api.boq_tasks.create_boq_item_with_task',
+				args: {
+					parent_bill: bill_name,
+					item_code: values.item_code,
+					description: values.description,
+					unit: values.unit,
+					total_qty: values.total_qty,
+					rate: values.rate,
+					is_task: values.is_task ? 1 : 0,
+					start_date: values.start_date,
+					end_date: values.end_date
+				},
 				callback: function(r) {
-					if (r.message) { d.hide(); frappe.show_alert({message: __('BOQ Item created'), indicator: 'green'}); cur_frm.reload_doc(); }
+					if (r.message) {
+						d.hide();
+						let msg = __('BOQ Item created');
+						if (r.message.task) {
+							msg += __('. Task {0} also created', [r.message.task]);
+						}
+						frappe.show_alert({message: msg, indicator: 'green'});
+						cur_frm.reload_doc();
+					}
 				}
 			});
 		}
@@ -1104,6 +1141,11 @@ function get_modern_styles() {
 		.kpi-info .kpi-progress-bar { background: linear-gradient(90deg, #3b82f6, #2563eb); }
 		.kpi-success .kpi-progress-bar { background: linear-gradient(90deg, #10b981, #059669); }
 		.kpi-sub { display: block; font-size: 11px; color: #9ca3af; margin-top: 4px; }
+		.kpi-breakdown { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+		.breakdown-item { font-size: 10px; }
+		.breakdown-item.advance { color: #7c3aed; }
+		.breakdown-item.invoice { color: #059669; }
+		.breakdown-divider { color: #d1d5db; font-size: 10px; }
 		
 		/* Action Bar */
 		.action-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 12px 16px; background: #f8fafc; border-radius: 10px; flex-wrap: wrap; gap: 12px; }
@@ -1860,4 +1902,854 @@ function create_dpr_from_dialog(d, project) {
 // Override the original create_dpr_quick to use clean version
 window.create_dpr_quick = function(project) {
 	window.show_dpr_dialog_enhanced(project);
+};
+
+
+// ============================================
+// BOQ Task Management Functions
+// ============================================
+
+window.view_boq_tasks = function(boq_item) {
+	frappe.call({
+		method: 'construction_management.api.boq_tasks.get_boq_item_tasks',
+		args: { boq_item: boq_item },
+		callback: function(r) {
+			if (r.message) {
+				show_task_tree_dialog(boq_item, r.message);
+			}
+		}
+	});
+};
+
+function show_task_tree_dialog(boq_item, data) {
+	const boqItemData = data.boq_item || {};
+	const hasTasks = data.has_tasks;
+	const tasks = data.tasks || [];
+	
+	const d = new frappe.ui.Dialog({
+		title: __('Tasks - {0}', [boqItemData.description?.substring(0, 50) || boq_item]),
+		size: 'large',
+		fields: [{fieldtype: 'HTML', fieldname: 'task_html'}]
+	});
+	
+	function renderTaskTree() {
+		let content = `
+			<div class="task-tree-container">
+				<div class="task-header">
+					<div class="task-header-info">
+						<h4>${boqItemData.description || 'BOQ Item'}</h4>
+						<div class="task-meta">
+							<span><strong>Qty:</strong> ${format_number(boqItemData.total_qty)} ${boqItemData.unit || ''}</span>
+							<span><strong>Amount:</strong> ${format_currency(boqItemData.total_amount)}</span>
+						</div>
+					</div>
+					<div class="task-header-actions">
+						${!hasTasks ? `
+							<button class="btn btn-primary btn-sm" onclick="create_task_for_boq('${boq_item}', this)">
+								<i class="fa fa-plus"></i> Create Task
+							</button>
+						` : `
+							<button class="btn btn-success btn-sm" onclick="add_child_task('${data.linked_task}', '${boqItemData.project}', this)">
+								<i class="fa fa-plus"></i> Add Sub-Task
+							</button>
+						`}
+					</div>
+				</div>
+		`;
+		
+		if (hasTasks && tasks.length > 0) {
+			content += `<div class="task-tree">${renderTaskNodes(tasks)}</div>`;
+		} else {
+			content += `
+				<div class="no-tasks-message">
+					<i class="fa fa-tasks" style="font-size: 48px; color: #ccc; margin-bottom: 15px;"></i>
+					<p>No tasks linked to this BOQ Item yet.</p>
+					<p class="text-muted">Click "Create Task" to create a group task for this BOQ Item.</p>
+				</div>
+			`;
+		}
+		
+		content += `</div>${getTaskTreeStyles()}`;
+		d.fields_dict.task_html.$wrapper.html(content);
+	}
+	
+	function renderTaskNodes(nodes, level = 0) {
+		let html = '';
+		for (const task of nodes) {
+			const statusClass = getTaskStatusClass(task.status);
+			const progressWidth = Math.min(100, Math.max(0, task.progress || 0));
+			const hasChildren = task.children && task.children.length > 0;
+			
+			html += `
+				<div class="task-node" data-task="${task.name}" data-level="${level}">
+					<div class="task-node-content" style="padding-left: ${level * 24 + 12}px;">
+						${hasChildren ? `
+							<span class="task-toggle" onclick="toggleTaskChildren(this)">
+								<i class="fa fa-chevron-down"></i>
+							</span>
+						` : `<span class="task-toggle-placeholder"></span>`}
+						<div class="task-info">
+							<div class="task-subject">
+								<a href="/app/task/${task.name}" target="_blank">${task.subject}</a>
+								${task.is_group ? '<span class="badge badge-info">Group</span>' : ''}
+							</div>
+							<div class="task-details">
+								${task.exp_start_date ? `<span><i class="fa fa-calendar"></i> ${task.exp_start_date}</span>` : ''}
+								${task.exp_end_date ? `<span>→ ${task.exp_end_date}</span>` : ''}
+							</div>
+						</div>
+						<div class="task-progress-container">
+							<div class="progress-bar-wrapper">
+								<div class="progress-bar-mini">
+									<div class="progress-fill" data-task="${task.name}" style="width: ${progressWidth}%"></div>
+								</div>
+								<input type="range" class="progress-slider" data-task="${task.name}" 
+									min="0" max="100" value="${progressWidth}" 
+									onchange="updateTaskProgress('${task.name}', this.value, this)"
+									oninput="previewTaskProgress('${task.name}', this.value, this)">
+							</div>
+							<input type="number" class="progress-input" data-task="${task.name}" 
+								min="0" max="100" value="${progressWidth}" 
+								onchange="updateTaskProgress('${task.name}', this.value, this)">
+							<span class="progress-percent">%</span>
+						</div>
+						<div class="task-status">
+							<select class="status-select ${statusClass}" onchange="updateTaskStatusWithProgress('${task.name}', this.value, this)">
+								<option value="Open" ${task.status === 'Open' ? 'selected' : ''}>Open</option>
+								<option value="Working" ${task.status === 'Working' ? 'selected' : ''}>Working</option>
+								<option value="Pending Review" ${task.status === 'Pending Review' ? 'selected' : ''}>Pending Review</option>
+								<option value="Overdue" ${task.status === 'Overdue' ? 'selected' : ''}>Overdue</option>
+								<option value="Completed" ${task.status === 'Completed' ? 'selected' : ''}>Completed</option>
+								<option value="Cancelled" ${task.status === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
+							</select>
+						</div>
+						<div class="task-actions">
+							<button class="btn btn-xs btn-default" onclick="add_child_task('${task.name}', '${boqItemData.project}', this)" title="Add Sub-Task">
+								<i class="fa fa-plus"></i>
+							</button>
+							<button class="btn btn-xs btn-default" onclick="window.open('/app/task/${task.name}', '_blank')" title="Open Task">
+								<i class="fa fa-external-link"></i>
+							</button>
+						</div>
+					</div>
+					${hasChildren ? `<div class="task-children">${renderTaskNodes(task.children, level + 1)}</div>` : ''}
+				</div>
+			`;
+		}
+		return html;
+	}
+	
+	renderTaskTree();
+	d.show();
+	
+	// Store dialog reference for refresh
+	window._current_task_dialog = d;
+	window._current_boq_item = boq_item;
+}
+
+function getTaskStatusClass(status) {
+	switch(status) {
+		case 'Completed': return 'status-completed';
+		case 'Working': return 'status-working';
+		case 'Pending Review': return 'status-pending';
+		case 'Overdue': return 'status-overdue';
+		case 'Cancelled': return 'status-cancelled';
+		default: return 'status-open';
+	}
+}
+
+function getTaskTreeStyles() {
+	return `<style>
+		.task-tree-container { padding: 0; }
+		.task-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px; margin-bottom: 16px; }
+		.task-header h4 { margin: 0 0 8px 0; font-size: 15px; }
+		.task-meta { font-size: 12px; opacity: 0.9; }
+		.task-meta span { margin-right: 16px; }
+		.task-tree { border: 1px solid #e9ecef; border-radius: 8px; overflow: hidden; }
+		.task-node { border-bottom: 1px solid #f0f0f0; }
+		.task-node:last-child { border-bottom: none; }
+		.task-node-content { display: flex; align-items: center; padding: 12px; gap: 12px; transition: background 0.2s; }
+		.task-node-content:hover { background: #f8f9fa; }
+		.task-toggle { cursor: pointer; width: 20px; text-align: center; color: #6c757d; }
+		.task-toggle-placeholder { width: 20px; }
+		.task-toggle i { transition: transform 0.2s; }
+		.task-node.collapsed .task-toggle i { transform: rotate(-90deg); }
+		.task-node.collapsed .task-children { display: none; }
+		.task-info { flex: 1; min-width: 0; }
+		.task-subject { font-weight: 500; margin-bottom: 2px; }
+		.task-subject a { color: #333; text-decoration: none; }
+		.task-subject a:hover { color: #5e64ff; }
+		.task-subject .badge { font-size: 10px; margin-left: 8px; padding: 2px 6px; }
+		.task-details { font-size: 11px; color: #6c757d; }
+		.task-details span { margin-right: 8px; }
+		.task-progress-container { display: flex; align-items: center; gap: 6px; width: 140px; }
+		.progress-bar-wrapper { position: relative; flex: 1; }
+		.progress-bar-mini { height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden; }
+		.progress-fill { height: 100%; background: linear-gradient(90deg, #28a745, #20c997); transition: width 0.2s; }
+		.progress-slider { position: absolute; top: 0; left: 0; width: 100%; height: 8px; opacity: 0; cursor: pointer; margin: 0; }
+		.progress-input { width: 40px; padding: 2px 4px; border: 1px solid #ddd; border-radius: 4px; font-size: 11px; text-align: center; }
+		.progress-input:focus { outline: none; border-color: #5e64ff; }
+		.progress-percent { font-size: 11px; color: #6c757d; }
+		.task-status { width: 130px; }
+		.status-select { width: 100%; padding: 4px 8px; border-radius: 4px; border: 1px solid #ddd; font-size: 12px; cursor: pointer; }
+		.status-select.status-completed { background: #d4edda; border-color: #28a745; }
+		.status-select.status-working { background: #cce5ff; border-color: #007bff; }
+		.status-select.status-pending { background: #fff3cd; border-color: #ffc107; }
+		.status-select.status-overdue { background: #f8d7da; border-color: #dc3545; }
+		.status-select.status-cancelled { background: #e2e3e5; border-color: #6c757d; }
+		.task-actions { display: flex; gap: 4px; }
+		.task-children { background: #fafafa; }
+		.no-tasks-message { text-align: center; padding: 40px 20px; color: #6c757d; }
+	</style>`;
+}
+
+window.toggleTaskChildren = function(el) {
+	const node = $(el).closest('.task-node');
+	node.toggleClass('collapsed');
+};
+
+// Preview progress while dragging slider (no server call)
+window.previewTaskProgress = function(task, progress, sliderEl) {
+	const $node = $(sliderEl).closest('.task-node');
+	const progressValue = Math.min(100, Math.max(0, parseInt(progress) || 0));
+	
+	// Update visual elements
+	$node.find(`.progress-fill[data-task="${task}"]`).css('width', progressValue + '%');
+	$node.find(`.progress-input[data-task="${task}"]`).val(progressValue);
+};
+
+// Update progress on server
+window.updateTaskProgress = function(task, progress, inputEl) {
+	const progressValue = Math.min(100, Math.max(0, parseInt(progress) || 0));
+	const $node = $(inputEl).closest('.task-node');
+	
+	// Update all visual elements immediately
+	$node.find(`.progress-fill[data-task="${task}"]`).css('width', progressValue + '%');
+	$node.find(`.progress-slider[data-task="${task}"]`).val(progressValue);
+	$node.find(`.progress-input[data-task="${task}"]`).val(progressValue);
+	
+	// Determine status based on progress
+	let newStatus = null;
+	if (progressValue === 100) {
+		newStatus = 'Completed';
+	} else if (progressValue > 0) {
+		// Only change to Working if currently Open
+		const currentStatus = $node.find('.status-select').val();
+		if (currentStatus === 'Open') {
+			newStatus = 'Working';
+		}
+	}
+	
+	frappe.call({
+		method: 'construction_management.api.boq_tasks.update_task_status',
+		args: { 
+			task: task, 
+			status: newStatus,
+			progress: progressValue 
+		},
+		callback: function(r) {
+			if (r.message) {
+				frappe.show_alert({message: __('Progress updated to {0}%', [progressValue]), indicator: 'green'});
+				
+				// Update status dropdown if status changed
+				if (r.message.status) {
+					const $select = $node.find('.status-select');
+					$select.val(r.message.status);
+					$select.removeClass('status-open status-working status-pending status-overdue status-completed status-cancelled');
+					$select.addClass(getTaskStatusClass(r.message.status));
+				}
+			}
+		}
+	});
+};
+
+// Update status with automatic progress adjustment
+window.updateTaskStatusWithProgress = function(task, status, selectEl) {
+	const $node = $(selectEl).closest('.task-node');
+	let progress = null;
+	
+	// Auto-set progress based on status
+	if (status === 'Completed') {
+		progress = 100;
+	} else if (status === 'Open') {
+		progress = 0;
+	} else if (status === 'Cancelled') {
+		progress = 0;
+	}
+	
+	frappe.call({
+		method: 'construction_management.api.boq_tasks.update_task_status',
+		args: { task: task, status: status, progress: progress },
+		callback: function(r) {
+			if (r.message) {
+				frappe.show_alert({message: __('Task status updated'), indicator: 'green'});
+				
+				// Update select styling
+				const $select = $(selectEl);
+				$select.removeClass('status-open status-working status-pending status-overdue status-completed status-cancelled');
+				$select.addClass(getTaskStatusClass(status));
+				
+				// Update progress display
+				const newProgress = r.message.progress || 0;
+				$node.find(`.progress-fill[data-task="${task}"]`).css('width', newProgress + '%');
+				$node.find(`.progress-slider[data-task="${task}"]`).val(newProgress);
+				$node.find(`.progress-input[data-task="${task}"]`).val(newProgress);
+			}
+		}
+	});
+};
+
+// Keep old function for backward compatibility
+window.updateTaskStatus = function(task, status, selectEl) {
+	window.updateTaskStatusWithProgress(task, status, selectEl);
+};
+
+window.create_task_for_boq = function(boq_item, btnEl) {
+	const d = new frappe.ui.Dialog({
+		title: __('Create Task for BOQ Item'),
+		fields: [
+			{fieldname: 'start_date', label: 'Start Date', fieldtype: 'Date'},
+			{fieldname: 'end_date', label: 'End Date', fieldtype: 'Date'}
+		],
+		primary_action_label: __('Create'),
+		primary_action: function(values) {
+			frappe.call({
+				method: 'construction_management.api.boq_tasks.create_task_for_existing_boq_item',
+				args: {
+					boq_item: boq_item,
+					start_date: values.start_date,
+					end_date: values.end_date
+				},
+				callback: function(r) {
+					if (r.message) {
+						d.hide();
+						frappe.show_alert({message: __('Task {0} created', [r.message.task]), indicator: 'green'});
+						// Refresh the task dialog
+						if (window._current_task_dialog) {
+							window._current_task_dialog.hide();
+							view_boq_tasks(boq_item);
+						}
+					}
+				}
+			});
+		}
+	});
+	d.show();
+};
+
+window.add_child_task = function(parent_task, project, btnEl) {
+	const d = new frappe.ui.Dialog({
+		title: __('Add Sub-Task'),
+		fields: [
+			{fieldname: 'subject', label: 'Task Name', fieldtype: 'Data', reqd: 1},
+			{fieldtype: 'Column Break'},
+			{fieldname: 'start_date', label: 'Start Date', fieldtype: 'Date'},
+			{fieldname: 'end_date', label: 'End Date', fieldtype: 'Date'}
+		],
+		primary_action_label: __('Create'),
+		primary_action: function(values) {
+			frappe.call({
+				method: 'construction_management.api.boq_tasks.create_child_task',
+				args: {
+					parent_task: parent_task,
+					subject: values.subject,
+					project: project,
+					start_date: values.start_date,
+					end_date: values.end_date
+				},
+				callback: function(r) {
+					if (r.message) {
+						d.hide();
+						frappe.show_alert({message: __('Sub-task created'), indicator: 'green'});
+						// Refresh the task dialog
+						if (window._current_task_dialog && window._current_boq_item) {
+							window._current_task_dialog.hide();
+							view_boq_tasks(window._current_boq_item);
+						}
+					}
+				}
+			});
+		}
+	});
+	d.show();
+};
+
+// ============================================
+// Resource Planner Functions
+// ============================================
+
+window.open_resource_planner = function(project, filters = {}) {
+	// Store current filters globally for the dialog
+	window._rpFilters = filters;
+	window._rpProject = project;
+	
+	frappe.call({
+		method: 'construction_management.api.resource_planner.get_project_resource_summary',
+		args: { 
+			project: project,
+			employee: filters.employee || '',
+			start_date: filters.start_date || '',
+			end_date: filters.end_date || '',
+			page: filters.page || 1,
+			page_size: filters.page_size || 10
+		},
+		callback: function(r) {
+			if (r.message) {
+				show_resource_planner_dialog(project, r.message, filters);
+			}
+		}
+	});
+};
+
+function show_resource_planner_dialog(project, data, filters = {}) {
+	// Close existing dialog if open
+	if (window._resourcePlannerDialog) {
+		window._resourcePlannerDialog.hide();
+	}
+	
+	const d = new frappe.ui.Dialog({
+		title: __('Resource Planner - {0}', [project]),
+		size: 'extra-large',
+		fields: [
+			{
+				fieldname: 'filter_section',
+				fieldtype: 'Section Break',
+				label: 'Filters'
+			},
+			{
+				fieldname: 'filter_employee',
+				fieldtype: 'Link',
+				label: 'Employee',
+				options: 'Employee',
+				default: filters.employee || ''
+			},
+			{
+				fieldtype: 'Column Break'
+			},
+			{
+				fieldname: 'filter_start_date',
+				fieldtype: 'Date',
+				label: 'Start Date',
+				default: filters.start_date || ''
+			},
+			{
+				fieldtype: 'Column Break'
+			},
+			{
+				fieldname: 'filter_end_date',
+				fieldtype: 'Date',
+				label: 'End Date',
+				default: filters.end_date || ''
+			},
+			{
+				fieldtype: 'Column Break'
+			},
+			{
+				fieldname: 'filter_page_size',
+				fieldtype: 'Select',
+				label: 'Page Size',
+				options: '5\n10\n20\n50\n100',
+				default: String(filters.page_size || 10)
+			},
+			{
+				fieldname: 'data_section',
+				fieldtype: 'Section Break',
+				label: 'Resource Allocations'
+			},
+			{
+				fieldtype: 'HTML',
+				fieldname: 'planner_html'
+			}
+		],
+		primary_action_label: __('Apply Filters'),
+		primary_action: function() {
+			const newFilters = {
+				employee: d.get_value('filter_employee') || '',
+				start_date: d.get_value('filter_start_date') || '',
+				end_date: d.get_value('filter_end_date') || '',
+				page_size: parseInt(d.get_value('filter_page_size')) || 10,
+				page: 1
+			};
+			d.hide();
+			open_resource_planner(project, newFilters);
+		},
+		secondary_action_label: __('Clear Filters'),
+		secondary_action: function() {
+			d.hide();
+			open_resource_planner(project, { page: 1, page_size: 10 });
+		}
+	});
+	
+	const pagination = data.pagination || {};
+	const currentPage = pagination.page || 1;
+	const totalPages = pagination.total_pages || 1;
+	const pageSize = filters.page_size || 10;
+	
+	let employeeRows = '';
+	if (data.by_employee && data.by_employee.length > 0) {
+		employeeRows = data.by_employee.map(emp => `
+			<tr>
+				<td>
+					<strong>${emp.employee_name || emp.employee}</strong>
+					<br><small class="text-muted">${emp.designation || ''}</small>
+				</td>
+				<td class="text-right">${emp.total_hours.toFixed(1)} hrs</td>
+				<td>${emp.assignments.map(a => `
+					<div class="assignment-chip">
+						<span class="assignment-dates">${a.start_date} → ${a.end_date}</span>
+						${a.bill_no ? `<span class="assignment-bill">${a.bill_no}</span>` : ''}
+						<button class="assignment-delete" data-name="${a.name}" data-project="${project}" title="Delete">×</button>
+					</div>
+				`).join('')}</td>
+			</tr>
+		`).join('');
+	} else {
+		employeeRows = '<tr><td colspan="3" class="text-center text-muted py-4">No resources allocated yet</td></tr>';
+	}
+	
+	// Build pagination controls - always show
+	const paginationHtml = `
+		<div class="pagination-footer">
+			<div class="pagination-info-left">
+				Showing ${data.by_employee.length} of ${data.total_employees} employees
+			</div>
+			<div class="pagination-controls">
+				<button class="btn btn-xs btn-default pagination-btn" data-page="${currentPage - 1}" ${currentPage <= 1 ? 'disabled' : ''}>
+					<i class="fa fa-chevron-left"></i> Prev
+				</button>
+				<span class="pagination-info">Page ${currentPage} of ${totalPages}</span>
+				<button class="btn btn-xs btn-default pagination-btn" data-page="${currentPage + 1}" ${currentPage >= totalPages ? 'disabled' : ''}>
+					Next <i class="fa fa-chevron-right"></i>
+				</button>
+			</div>
+		</div>
+	`;
+	
+	d.fields_dict.planner_html.$wrapper.html(`
+		<div class="resource-planner-container">
+			<div class="planner-header">
+				<div class="planner-stats">
+					<div class="stat-card">
+						<span class="stat-value">${data.total_employees}</span>
+						<span class="stat-label">Total Employees</span>
+					</div>
+					<div class="stat-card">
+						<span class="stat-value">${data.total_hours.toFixed(0)}</span>
+						<span class="stat-label">Total Hours</span>
+					</div>
+				</div>
+				<div class="planner-actions">
+					<button class="btn btn-primary btn-sm add-resource-btn">
+						<i class="fa fa-plus"></i> Add Resource
+					</button>
+					<button class="btn btn-default btn-sm view-all-btn">
+						<i class="fa fa-list"></i> View All
+					</button>
+				</div>
+			</div>
+			
+			<div class="resource-table-wrapper">
+				<table class="table table-bordered resource-table">
+					<thead>
+						<tr>
+							<th style="width: 200px;">Employee</th>
+							<th class="text-right" style="width: 100px;">Hours</th>
+							<th>Assignments</th>
+						</tr>
+					</thead>
+					<tbody>${employeeRows}</tbody>
+				</table>
+			</div>
+			
+			${paginationHtml}
+		</div>
+		<style>
+			.resource-planner-container { padding: 0; }
+			.planner-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; color: white; }
+			.planner-stats { display: flex; gap: 32px; }
+			.stat-card { text-align: center; }
+			.stat-value { display: block; font-size: 28px; font-weight: 700; }
+			.stat-label { font-size: 12px; opacity: 0.9; }
+			.planner-actions { display: flex; gap: 8px; }
+			.planner-actions .btn { border: 1px solid rgba(255,255,255,0.3); }
+			.planner-actions .btn-primary { background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.3); }
+			.planner-actions .btn-default { background: rgba(255,255,255,0.1); color: white; }
+			.resource-table-wrapper { max-height: 350px; overflow-y: auto; border: 1px solid #e9ecef; border-radius: 8px; margin-bottom: 16px; }
+			.resource-table { margin: 0; }
+			.resource-table thead th { position: sticky; top: 0; background: #f8f9fa; z-index: 1; border-bottom: 2px solid #dee2e6; }
+			.resource-table tbody tr:hover { background: #f8f9fa; }
+			.assignment-chip { display: inline-flex; align-items: center; background: #e9ecef; padding: 6px 10px; border-radius: 6px; margin: 3px; font-size: 12px; gap: 8px; }
+			.assignment-dates { color: #495057; font-weight: 500; }
+			.assignment-bill { background: #5e64ff; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+			.assignment-delete { background: none; border: none; color: #dc3545; cursor: pointer; font-size: 16px; padding: 0 4px; line-height: 1; font-weight: bold; }
+			.assignment-delete:hover { color: #a71d2a; transform: scale(1.2); }
+			.pagination-footer { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef; }
+			.pagination-info-left { font-size: 13px; color: #6c757d; }
+			.pagination-controls { display: flex; align-items: center; gap: 12px; }
+			.pagination-info { font-size: 13px; color: #495057; font-weight: 500; }
+			.pagination-btn { min-width: 70px; }
+			.py-4 { padding-top: 24px !important; padding-bottom: 24px !important; }
+		</style>
+	`);
+	
+	// Attach event handlers using jQuery delegation
+	const $wrapper = d.fields_dict.planner_html.$wrapper;
+	
+	$wrapper.find('.add-resource-btn').on('click', function() {
+		d.hide();
+		add_resource_allocation(project);
+	});
+	
+	$wrapper.find('.view-all-btn').on('click', function() {
+		d.hide();
+		frappe.set_route('List', 'Resource Planner', {project: project});
+	});
+	
+	$wrapper.find('.assignment-delete').on('click', function() {
+		const name = $(this).data('name');
+		const proj = $(this).data('project');
+		frappe.confirm(__('Delete this resource allocation?'), function() {
+			frappe.call({
+				method: 'construction_management.api.resource_planner.delete_resource_allocation',
+				args: { name: name },
+				callback: function(r) {
+					if (r.message && r.message.success) {
+						frappe.show_alert({ message: __('Resource allocation deleted'), indicator: 'green' });
+						d.hide();
+						open_resource_planner(proj, filters);
+					}
+				}
+			});
+		});
+	});
+	
+	$wrapper.find('.pagination-btn').on('click', function() {
+		if ($(this).prop('disabled')) return;
+		const newPage = parseInt($(this).data('page'));
+		const newFilters = Object.assign({}, filters, { page: newPage });
+		d.hide();
+		open_resource_planner(project, newFilters);
+	});
+	
+	// Store dialog reference
+	window._resourcePlannerDialog = d;
+	
+	d.show();
+}
+
+window.add_resource_allocation = function(project) {
+	// Store selected employees
+	let selectedEmployees = [];
+	
+	const d = new frappe.ui.Dialog({
+		title: __('Add Resource Allocation'),
+		size: 'large',
+		fields: [
+			{
+				fieldname: 'employees_section',
+				fieldtype: 'Section Break',
+				label: 'Select Employees'
+			},
+			{
+				fieldname: 'selected_employees_html',
+				fieldtype: 'HTML',
+				label: 'Selected Employees'
+			},
+			{
+				fieldname: 'employee_search',
+				label: 'Search & Add Employee',
+				fieldtype: 'Link',
+				options: 'Employee',
+				get_query: () => ({ filters: { status: 'Active' } }),
+				change: function() {
+					const emp = d.get_value('employee_search');
+					if (emp && !selectedEmployees.find(e => e.name === emp)) {
+						// Fetch employee details
+						frappe.db.get_value('Employee', emp, ['employee_name', 'designation'])
+							.then(r => {
+								if (r.message) {
+									selectedEmployees.push({
+										name: emp,
+										employee_name: r.message.employee_name,
+										designation: r.message.designation || ''
+									});
+									updateSelectedEmployeesDisplay();
+									d.set_value('employee_search', '');
+								}
+							});
+					}
+				}
+			},
+			{
+				fieldname: 'assignment_section',
+				fieldtype: 'Section Break',
+				label: 'Assignment Details'
+			},
+			{
+				fieldname: 'bill_no',
+				label: 'Bill No',
+				fieldtype: 'Link',
+				options: 'BOQ Bill',
+				get_query: () => ({
+					query: 'construction_management.api.resource_planner.get_bills_for_project',
+					filters: { project: project }
+				})
+			},
+			{
+				fieldname: 'boq_item',
+				label: 'BOQ Item',
+				fieldtype: 'Link',
+				options: 'BOQ Item',
+				depends_on: 'bill_no',
+				get_query: function() {
+					return {
+						query: 'construction_management.api.resource_planner.get_boq_items_for_bill',
+						filters: { bill_no: d.get_value('bill_no') }
+					};
+				}
+			},
+			{fieldtype: 'Column Break'},
+			{
+				fieldname: 'start_date',
+				label: 'Start Date',
+				fieldtype: 'Date',
+				reqd: 1,
+				default: frappe.datetime.get_today()
+			},
+			{
+				fieldname: 'end_date',
+				label: 'End Date',
+				fieldtype: 'Date',
+				reqd: 1
+			},
+			{
+				fieldname: 'hours_per_day',
+				label: 'Hours Per Day',
+				fieldtype: 'Float',
+				default: 8
+			},
+			{
+				fieldname: 'notes_section',
+				fieldtype: 'Section Break',
+				label: 'Notes'
+			},
+			{
+				fieldname: 'notes',
+				label: 'Notes',
+				fieldtype: 'Small Text'
+			}
+		],
+		primary_action_label: __('Create'),
+		primary_action: function(values) {
+			if (selectedEmployees.length === 0) {
+				frappe.msgprint(__('Please select at least one employee'));
+				return;
+			}
+			
+			const employeeIds = selectedEmployees.map(e => e.name);
+			
+			frappe.call({
+				method: 'construction_management.api.resource_planner.create_multiple_resource_allocations',
+				args: {
+					project: project,
+					employees: JSON.stringify(employeeIds),
+					start_date: values.start_date,
+					end_date: values.end_date,
+					bill_no: values.bill_no,
+					boq_item: values.boq_item,
+					hours_per_day: values.hours_per_day,
+					notes: values.notes
+				},
+				callback: function(r) {
+					if (r.message) {
+						d.hide();
+						frappe.show_alert({
+							message: __('Created {0} resource allocation(s)', [r.message.count]),
+							indicator: 'green'
+						});
+						// Refresh the resource planner dialog
+						open_resource_planner(project);
+					}
+				}
+			});
+		}
+	});
+	
+	function updateSelectedEmployeesDisplay() {
+		const container = d.fields_dict.selected_employees_html.$wrapper;
+		
+		if (selectedEmployees.length === 0) {
+			container.html(`
+				<div class="selected-employees-empty">
+					<p class="text-muted">No employees selected. Use the search field above to add employees.</p>
+				</div>
+			`);
+		} else {
+			const chips = selectedEmployees.map((emp, idx) => `
+				<div class="employee-chip" data-idx="${idx}">
+					<div class="chip-content">
+						<span class="chip-name">${emp.employee_name}</span>
+						<span class="chip-designation">${emp.designation || 'No Designation'}</span>
+						<span class="chip-id">${emp.name}</span>
+					</div>
+					<button class="chip-remove" onclick="removeSelectedEmployee(${idx})" title="Remove">
+						<i class="fa fa-times"></i>
+					</button>
+				</div>
+			`).join('');
+			
+			container.html(`
+				<div class="selected-employees-container">
+					<div class="selected-count">${selectedEmployees.length} employee(s) selected</div>
+					<div class="employee-chips">${chips}</div>
+				</div>
+				<style>
+					.selected-employees-container { margin-bottom: 10px; }
+					.selected-count { font-size: 12px; color: #6c757d; margin-bottom: 8px; font-weight: 500; }
+					.employee-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+					.employee-chip { 
+						display: flex; 
+						align-items: center; 
+						background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
+						border: 1px solid #a5b4fc;
+						border-radius: 8px; 
+						padding: 8px 12px;
+						gap: 10px;
+					}
+					.chip-content { display: flex; flex-direction: column; }
+					.chip-name { font-weight: 600; font-size: 13px; color: #1e40af; }
+					.chip-designation { font-size: 11px; color: #6366f1; }
+					.chip-id { font-size: 10px; color: #9ca3af; }
+					.chip-remove { 
+						background: none; 
+						border: none; 
+						color: #dc2626; 
+						cursor: pointer; 
+						padding: 4px;
+						border-radius: 4px;
+						transition: background 0.2s;
+					}
+					.chip-remove:hover { background: #fee2e2; }
+					.selected-employees-empty { 
+						padding: 20px; 
+						text-align: center; 
+						background: #f8fafc; 
+						border-radius: 8px;
+						border: 1px dashed #e2e8f0;
+					}
+				</style>
+			`);
+		}
+	}
+	
+	// Make remove function globally accessible
+	window.removeSelectedEmployee = function(idx) {
+		selectedEmployees.splice(idx, 1);
+		updateSelectedEmployeesDisplay();
+	};
+	
+	d.show();
+	
+	// Initial display
+	updateSelectedEmployeesDisplay();
 };
