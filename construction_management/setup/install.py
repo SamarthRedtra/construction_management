@@ -5,6 +5,17 @@ import frappe
 from frappe import _
 
 
+
+def before_install():
+	""" delete Project Estimation Custom Field In Project if exists"""
+	if frappe.db.exists("Custom Field","Project-custom_project_estimation"):
+		frappe.db.delete("Custom Field","Project-custom_project_estimation")
+		frappe.db.commit()
+		print("Project Estimation Custom Field deleted successfully")
+
+	else:
+		print("Project Estimation Custom Field does not exist")
+
 def after_install():
 	"""Setup custom fields and configurations after app installation"""
 	create_boq_custom_fields()

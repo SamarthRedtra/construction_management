@@ -89,7 +89,7 @@ doctype_js = {
 # Installation
 # ------------
 
-# before_install = "construction_management.install.before_install"
+before_install = "construction_management.setup.install.before_install"
 after_install = "construction_management.setup.install.after_install"
 
 # Uninstallation
