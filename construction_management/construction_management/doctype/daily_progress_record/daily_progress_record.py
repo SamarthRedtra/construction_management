@@ -38,43 +38,32 @@ class DailyProgressRecord(Document):
 		"""Calculate asset costs from child table"""
 		total = 0
 		for row in self.assets or []:
-			# Fetch rate from Project Asset Billing if not set
 			if not row.rate_per_day and row.asset:
 				row.rate_per_day = get_asset_daily_rate(self.project, row.asset, self.date)
-			
-			# Calculate amount based on hours (8 hours = full day)
 			hours = flt(row.hours) or 8
 			row.amount = flt(row.rate_per_day) * (hours / 8)
 			total += flt(row.amount)
-		
 		self.asset_cost = total
 	
 	def calculate_employee_costs(self):
 		"""Calculate employee costs from child table"""
 		total = 0
 		for row in self.employees or []:
-			# Fetch rate from Salary Structure Assignment if not set
 			if not row.rate_per_day and row.employee:
 				row.rate_per_day = get_employee_daily_rate(row.employee)
-			
-			# Calculate amount based on hours (8 hours = full day)
 			hours = flt(row.hours) or 8
 			row.amount = flt(row.rate_per_day) * (hours / 8)
 			total += flt(row.amount)
-		
 		self.labour_cost = total
 	
 	def calculate_material_costs(self):
 		"""Calculate material costs from child table"""
 		total = 0
 		for row in self.materials or []:
-			# Fetch rate from Item if not set
 			if not row.rate and row.item_code:
 				row.rate = get_item_valuation_rate(row.item_code, row.warehouse)
-			
 			row.amount = flt(row.qty) * flt(row.rate)
 			total += flt(row.amount)
-		
 		self.material_cost = total
 	
 	def calculate_overhead_costs(self):
@@ -82,7 +71,6 @@ class DailyProgressRecord(Document):
 		total = 0
 		for row in self.overheads or []:
 			total += flt(row.amount)
-		
 		self.overhead_cost = total
 	
 	def calculate_expense_costs(self):
@@ -90,7 +78,6 @@ class DailyProgressRecord(Document):
 		total = 0
 		for row in self.expenses or []:
 			total += flt(row.amount)
-		
 		self.expense_cost = total
 	
 	def calculate_total_cost(self):
@@ -109,12 +96,23 @@ class DailyProgressRecord(Document):
 		self.create_stock_entries()
 		self.create_journal_entries()
 		self.update_boq_item_costs()
+		self.update_project_costs()
 	
 	def on_cancel(self):
 		"""Cancel linked accounting entries"""
 		self.cancel_stock_entries()
 		self.cancel_journal_entries()
 		self.update_boq_item_costs()
+		self.update_project_costs()
+	
+	def get_company(self):
+		"""Get company from project or default"""
+		company = frappe.db.get_value("Project", self.project, "company")
+		if not company:
+			company = frappe.defaults.get_user_default("Company")
+		if not company:
+			company = frappe.db.get_single_value("Global Defaults", "default_company")
+		return company
 	
 	def create_stock_entries(self):
 		"""Create Stock Entries for materials"""
@@ -124,101 +122,116 @@ class DailyProgressRecord(Document):
 		stock_entry_names = []
 		
 		for row in self.materials:
-			if not row.item_code or not row.qty:
+			if not row.item_code or not row.qty or flt(row.qty) <= 0:
 				continue
 			
-			# Create Material Issue stock entry
-			se = frappe.new_doc("Stock Entry")
-			se.stock_entry_type = "Material Issue"
-			se.posting_date = self.date
-			se.project = self.project
-			
-			se.append("items", {
-				"item_code": row.item_code,
-				"qty": row.qty,
-				"s_warehouse": row.warehouse,
-				"project": self.project,
-				"boq_item": self.boq_item,
-				"bill_no": self.bill_no
-			})
+			if not row.warehouse:
+				frappe.msgprint(_("Skipping material {0} - no warehouse specified").format(row.item_code), indicator="orange")
+				continue
 			
 			try:
+				se = frappe.new_doc("Stock Entry")
+				se.stock_entry_type = "Material Issue"
+				se.posting_date = self.date
+				se.project = self.project
+				se.company = self.get_company()
+				
+				se.append("items", {
+					"item_code": row.item_code,
+					"qty": row.qty,
+					"s_warehouse": row.warehouse,
+					"project": self.project
+				})
+				
 				se.insert()
 				se.submit()
-				row.stock_entry = se.name
+				row.db_set("stock_entry", se.name)
 				stock_entry_names.append(se.name)
+				
 			except Exception as e:
-				frappe.log_error(f"Error creating Stock Entry for DPR {self.name}: {str(e)}")
+				frappe.log_error(f"Error creating Stock Entry for DPR {self.name}, Item {row.item_code}: {str(e)}")
 				frappe.msgprint(_("Could not create Stock Entry for {0}: {1}").format(row.item_code, str(e)), indicator="orange")
 		
 		if stock_entry_names:
-			self.stock_entries = ", ".join(stock_entry_names)
-			self.db_update()
-	
+			self.db_set("stock_entries", ", ".join(stock_entry_names))
+
 	def create_journal_entries(self):
 		"""Create Journal Entries for overheads and expenses"""
 		journal_entry_names = []
 		
 		# Create JE for overheads
-		if self.overheads:
+		if self.overheads and flt(self.overhead_cost) > 0:
 			je = self._create_overhead_journal_entry()
 			if je:
 				journal_entry_names.append(je)
 				for row in self.overheads:
-					row.journal_entry = je
+					row.db_set("journal_entry", je)
 		
 		# Create JE for expenses
-		if self.expenses:
+		if self.expenses and flt(self.expense_cost) > 0:
 			je = self._create_expense_journal_entry()
 			if je:
 				journal_entry_names.append(je)
 				for row in self.expenses:
-					row.journal_entry = je
+					row.db_set("journal_entry", je)
 		
 		if journal_entry_names:
-			self.journal_entries = ", ".join(journal_entry_names)
-			self.db_update()
+			self.db_set("journal_entries", ", ".join(journal_entry_names))
 	
 	def _create_overhead_journal_entry(self):
 		"""Create Journal Entry for overhead costs"""
 		if not self.overheads or flt(self.overhead_cost) <= 0:
 			return None
 		
-		company = frappe.db.get_value("Project", self.project, "company")
+		company = self.get_company()
 		if not company:
-			company = frappe.defaults.get_user_default("Company")
+			frappe.msgprint(_("Cannot create Journal Entry - no company found"), indicator="orange")
+			return None
 		
 		# Get default payable account
 		default_payable = frappe.db.get_value("Company", company, "default_payable_account")
+		if not default_payable:
+			default_payable = frappe.db.get_value(
+				"Account",
+				{"company": company, "account_type": "Payable", "is_group": 0},
+				"name"
+			)
 		
-		je = frappe.new_doc("Journal Entry")
-		je.voucher_type = "Journal Entry"
-		je.posting_date = self.date
-		je.company = company
-		je.user_remark = f"Overhead costs for DPR {self.name}"
-		
-		# Debit entries for each overhead account
-		for row in self.overheads:
-			if flt(row.amount) > 0:
-				je.append("accounts", {
-					"account": row.account,
-					"debit_in_account_currency": flt(row.amount),
-					"project": self.project,
-					"boq_item": self.boq_item,
-					"bill_no": self.bill_no
-				})
-		
-		# Credit entry to payable account
-		je.append("accounts", {
-			"account": default_payable,
-			"credit_in_account_currency": flt(self.overhead_cost),
-			"project": self.project
-		})
+		if not default_payable:
+			frappe.msgprint(_("Cannot create Overhead JE - no payable account found for company {0}").format(company), indicator="orange")
+			return None
 		
 		try:
+			je = frappe.new_doc("Journal Entry")
+			je.voucher_type = "Journal Entry"
+			je.posting_date = self.date
+			je.company = company
+			je.user_remark = f"Overhead costs for DPR {self.name}"
+			
+			cost_center = frappe.db.get_value("Company", company, "cost_center")
+			
+			# Debit entries for each overhead account
+			for row in self.overheads:
+				if flt(row.amount) > 0 and row.account:
+					je.append("accounts", {
+						"account": row.account,
+						"debit_in_account_currency": flt(row.amount),
+						"project": self.project,
+						"cost_center": cost_center
+					})
+			
+			# Credit entry to payable account
+			je.append("accounts", {
+				"account": default_payable,
+				"credit_in_account_currency": flt(self.overhead_cost),
+				"project": self.project,
+				"cost_center": cost_center
+			})
+			
 			je.insert()
 			je.submit()
 			return je.name
+			
 		except Exception as e:
 			frappe.log_error(f"Error creating Overhead JE for DPR {self.name}: {str(e)}")
 			frappe.msgprint(_("Could not create Journal Entry for overheads: {0}").format(str(e)), indicator="orange")
@@ -229,52 +242,76 @@ class DailyProgressRecord(Document):
 		if not self.expenses or flt(self.expense_cost) <= 0:
 			return None
 		
-		company = frappe.db.get_value("Project", self.project, "company")
+		company = self.get_company()
 		if not company:
-			company = frappe.defaults.get_user_default("Company")
+			frappe.msgprint(_("Cannot create Journal Entry - no company found"), indicator="orange")
+			return None
 		
 		# Get default payable account
 		default_payable = frappe.db.get_value("Company", company, "default_payable_account")
+		if not default_payable:
+			default_payable = frappe.db.get_value(
+				"Account",
+				{"company": company, "account_type": "Payable", "is_group": 0},
+				"name"
+			)
 		
-		je = frappe.new_doc("Journal Entry")
-		je.voucher_type = "Journal Entry"
-		je.posting_date = self.date
-		je.company = company
-		je.user_remark = f"Expense costs for DPR {self.name}"
+		if not default_payable:
+			frappe.msgprint(_("Cannot create Expense JE - no payable account found for company {0}").format(company), indicator="orange")
+			return None
 		
-		# Debit entries for each expense type
-		for row in self.expenses:
-			if flt(row.amount) > 0:
-				# Get expense account from Expense Claim Type
-				expense_account = frappe.db.get_value(
-					"Expense Claim Account",
-					{"parent": row.expense_type, "company": company},
-					"default_account"
-				)
-				if not expense_account:
-					# Fallback to a default expense account
-					expense_account = frappe.db.get_value("Company", company, "default_expense_account")
-				
-				if expense_account:
-					je.append("accounts", {
-						"account": expense_account,
-						"debit_in_account_currency": flt(row.amount),
-						"project": self.project,
-						"boq_item": self.boq_item,
-						"bill_no": self.bill_no
-					})
-		
-		# Credit entry to payable account
-		je.append("accounts", {
-			"account": default_payable,
-			"credit_in_account_currency": flt(self.expense_cost),
-			"project": self.project
-		})
+		# Get default expense account
+		default_expense = frappe.db.get_value("Company", company, "default_expense_account")
+		if not default_expense:
+			default_expense = frappe.db.get_value(
+				"Account",
+				{"company": company, "account_type": "Expense Account", "is_group": 0},
+				"name"
+			)
 		
 		try:
+			je = frappe.new_doc("Journal Entry")
+			je.voucher_type = "Journal Entry"
+			je.posting_date = self.date
+			je.company = company
+			je.user_remark = f"Expense costs for DPR {self.name}"
+			
+			cost_center = frappe.db.get_value("Company", company, "cost_center")
+			
+			# Debit entries for each expense type
+			for row in self.expenses:
+				if flt(row.amount) > 0:
+					expense_account = None
+					if row.expense_type:
+						expense_account = frappe.db.get_value(
+							"Expense Claim Account",
+							{"parent": row.expense_type, "company": company},
+							"default_account"
+						)
+					
+					if not expense_account:
+						expense_account = default_expense
+					
+					if expense_account:
+						je.append("accounts", {
+							"account": expense_account,
+							"debit_in_account_currency": flt(row.amount),
+							"project": self.project,
+							"cost_center": cost_center
+						})
+			
+			# Credit entry to payable account
+			je.append("accounts", {
+				"account": default_payable,
+				"credit_in_account_currency": flt(self.expense_cost),
+				"project": self.project,
+				"cost_center": cost_center
+			})
+			
 			je.insert()
 			je.submit()
 			return je.name
+			
 		except Exception as e:
 			frappe.log_error(f"Error creating Expense JE for DPR {self.name}: {str(e)}")
 			frappe.msgprint(_("Could not create Journal Entry for expenses: {0}").format(str(e)), indicator="orange")
@@ -282,33 +319,101 @@ class DailyProgressRecord(Document):
 	
 	def cancel_stock_entries(self):
 		"""Cancel linked Stock Entries"""
-		if not self.stock_entries:
-			return
+		cancelled_entries = []
 		
-		for se_name in self.stock_entries.split(", "):
-			se_name = se_name.strip()
-			if se_name and frappe.db.exists("Stock Entry", se_name):
-				try:
-					se = frappe.get_doc("Stock Entry", se_name)
-					if se.docstatus == 1:
-						se.cancel()
-				except Exception as e:
-					frappe.log_error(f"Error cancelling Stock Entry {se_name}: {str(e)}")
+		# Cancel from comma-separated list in parent
+		if self.stock_entries:
+			for se_name in self.stock_entries.split(", "):
+				se_name = se_name.strip()
+				if se_name and frappe.db.exists("Stock Entry", se_name):
+					try:
+						se = frappe.get_doc("Stock Entry", se_name)
+						if se.docstatus == 1:
+							se.cancel()
+							cancelled_entries.append(se_name)
+					except Exception as e:
+						frappe.log_error(f"Error cancelling Stock Entry {se_name}: {str(e)}")
+						frappe.msgprint(_("Could not cancel Stock Entry {0}: {1}").format(se_name, str(e)), indicator="orange")
+		
+		# Also cancel from individual material rows
+		for row in self.materials or []:
+			if row.stock_entry and row.stock_entry not in cancelled_entries:
+				se_name = row.stock_entry
+				if frappe.db.exists("Stock Entry", se_name):
+					try:
+						se = frappe.get_doc("Stock Entry", se_name)
+						if se.docstatus == 1:
+							se.cancel()
+							cancelled_entries.append(se_name)
+					except Exception as e:
+						frappe.log_error(f"Error cancelling Stock Entry {se_name}: {str(e)}")
+						frappe.msgprint(_("Could not cancel Stock Entry {0}: {1}").format(se_name, str(e)), indicator="orange")
+				# Clear the reference
+				row.db_set("stock_entry", None)
+		
+		# Clear the parent reference
+		if self.stock_entries:
+			self.db_set("stock_entries", None)
+		
+		if cancelled_entries:
+			frappe.msgprint(_("Cancelled Stock Entries: {0}").format(", ".join(cancelled_entries)), indicator="blue")
 	
 	def cancel_journal_entries(self):
 		"""Cancel linked Journal Entries"""
-		if not self.journal_entries:
-			return
+		cancelled_entries = []
 		
-		for je_name in self.journal_entries.split(", "):
-			je_name = je_name.strip()
-			if je_name and frappe.db.exists("Journal Entry", je_name):
-				try:
-					je = frappe.get_doc("Journal Entry", je_name)
-					if je.docstatus == 1:
-						je.cancel()
-				except Exception as e:
-					frappe.log_error(f"Error cancelling Journal Entry {je_name}: {str(e)}")
+		# Cancel from comma-separated list in parent
+		if self.journal_entries:
+			for je_name in self.journal_entries.split(", "):
+				je_name = je_name.strip()
+				if je_name and frappe.db.exists("Journal Entry", je_name):
+					try:
+						je = frappe.get_doc("Journal Entry", je_name)
+						if je.docstatus == 1:
+							je.cancel()
+							cancelled_entries.append(je_name)
+					except Exception as e:
+						frappe.log_error(f"Error cancelling Journal Entry {je_name}: {str(e)}")
+						frappe.msgprint(_("Could not cancel Journal Entry {0}: {1}").format(je_name, str(e)), indicator="orange")
+		
+		# Also cancel from individual overhead rows
+		for row in self.overheads or []:
+			if row.journal_entry and row.journal_entry not in cancelled_entries:
+				je_name = row.journal_entry
+				if frappe.db.exists("Journal Entry", je_name):
+					try:
+						je = frappe.get_doc("Journal Entry", je_name)
+						if je.docstatus == 1:
+							je.cancel()
+							cancelled_entries.append(je_name)
+					except Exception as e:
+						frappe.log_error(f"Error cancelling Journal Entry {je_name}: {str(e)}")
+						frappe.msgprint(_("Could not cancel Journal Entry {0}: {1}").format(je_name, str(e)), indicator="orange")
+				# Clear the reference
+				row.db_set("journal_entry", None)
+		
+		# Also cancel from individual expense rows
+		for row in self.expenses or []:
+			if row.journal_entry and row.journal_entry not in cancelled_entries:
+				je_name = row.journal_entry
+				if frappe.db.exists("Journal Entry", je_name):
+					try:
+						je = frappe.get_doc("Journal Entry", je_name)
+						if je.docstatus == 1:
+							je.cancel()
+							cancelled_entries.append(je_name)
+					except Exception as e:
+						frappe.log_error(f"Error cancelling Journal Entry {je_name}: {str(e)}")
+						frappe.msgprint(_("Could not cancel Journal Entry {0}: {1}").format(je_name, str(e)), indicator="orange")
+				# Clear the reference
+				row.db_set("journal_entry", None)
+		
+		# Clear the parent reference
+		if self.journal_entries:
+			self.db_set("journal_entries", None)
+		
+		if cancelled_entries:
+			frappe.msgprint(_("Cancelled Journal Entries: {0}").format(", ".join(cancelled_entries)), indicator="blue")
 	
 	def update_boq_item_costs(self):
 		"""Update the BOQ Item's cost tracking fields"""
@@ -321,31 +426,49 @@ class DailyProgressRecord(Document):
 			boq_item.db_update()
 		except frappe.DoesNotExistError:
 			pass
+	
+	def update_project_costs(self):
+		"""Update the Project's estimated cost field with DPR totals"""
+		if not self.project:
+			return
+		
+		try:
+			# Calculate total DPR costs for this project
+			total_dpr_cost = frappe.db.sql("""
+				SELECT COALESCE(SUM(total_cost), 0) as total
+				FROM `tabDaily Progress Record`
+				WHERE project = %s AND docstatus = 1
+			""", self.project)[0][0]
+			
+			# Update project's estimated_costing field
+			frappe.db.set_value("Project", self.project, "estimated_costing", flt(total_dpr_cost))
+			
+		except Exception as e:
+			frappe.log_error(f"Error updating project costs for {self.project}: {str(e)}")
 
 
 def get_asset_daily_rate(project: str, asset: str, date: str = None) -> float:
 	"""Get the daily rate for an asset in a project"""
-	from construction_management.construction_management.doctype.project_asset_billing.project_asset_billing import get_asset_daily_rate as _get_rate
-	return _get_rate(project, asset, date)
+	from frappe.utils import today
+	
+	rate = frappe.db.get_value(
+		"Project Asset Billing",
+		{
+			"project": project,
+			"asset": asset,
+			"effective_from": ["<=", date or today()]
+		},
+		"value_per_day",
+		order_by="effective_from desc"
+	)
+	return flt(rate) if rate else 0
 
 
 def get_employee_daily_rate(employee: str) -> float:
-	"""
-	Get the daily rate for an employee based on their Salary Structure Assignment.
-	
-	Args:
-		employee: Employee name
-		
-	Returns:
-		Daily rate (monthly salary / 30)
-	"""
-	# Get active salary structure assignment
+	"""Get the daily rate for an employee based on their Salary Structure Assignment."""
 	ssa = frappe.db.get_value(
 		"Salary Structure Assignment",
-		{
-			"employee": employee,
-			"docstatus": 1
-		},
+		{"employee": employee, "docstatus": 1},
 		["base", "variable"],
 		as_dict=True,
 		order_by="from_date desc"
@@ -353,22 +476,13 @@ def get_employee_daily_rate(employee: str) -> float:
 	
 	if ssa:
 		monthly_salary = flt(ssa.base) + flt(ssa.variable)
-		return monthly_salary / 30  # Daily rate
+		return monthly_salary / 30
 	
 	return 0
 
 
 def get_item_valuation_rate(item_code: str, warehouse: str = None) -> float:
-	"""
-	Get the valuation rate for an item.
-	
-	Args:
-		item_code: Item code
-		warehouse: Warehouse (optional)
-		
-	Returns:
-		Valuation rate
-	"""
+	"""Get the valuation rate for an item."""
 	if warehouse:
 		rate = frappe.db.get_value(
 			"Bin",
@@ -378,5 +492,4 @@ def get_item_valuation_rate(item_code: str, warehouse: str = None) -> float:
 		if rate:
 			return flt(rate)
 	
-	# Fallback to item's valuation rate
 	return flt(frappe.db.get_value("Item", item_code, "valuation_rate"))

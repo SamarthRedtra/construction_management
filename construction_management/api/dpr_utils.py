@@ -140,22 +140,34 @@ def get_asset_with_rate(asset: str, project: str, date: str = None) -> dict:
 
 @frappe.whitelist()
 def get_item_details(item_code: str, price_list: str = None) -> dict:
-	"""Get item details including rate from price list or valuation rate"""
+	"""
+	Get item details including:
+	- item_price_rate: Rate from Item Price (for DPR display/costing)
+	- valuation_rate: Rate from Item (for Stock Entry)
+	
+	Args:
+		item_code: Item code
+		price_list: Optional price list to check
+		
+	Returns:
+		dict with item details and both rates
+	"""
 	item = frappe.get_doc("Item", item_code)
 	
-	rate = 0
-	# Try to get rate from price list first
+	item_price_rate = 0
+	
+	# Try to get rate from specified price list first
 	if price_list:
 		price = frappe.db.get_value(
 			"Item Price",
-			{"item_code": item_code, "price_list": price_list, "selling": 0},
+			{"item_code": item_code, "price_list": price_list},
 			"price_list_rate"
 		)
 		if price:
-			rate = flt(price)
+			item_price_rate = flt(price)
 	
 	# Fallback to buying price list
-	if not rate:
+	if not item_price_rate:
 		buying_price_list = frappe.db.get_single_value("Buying Settings", "buying_price_list")
 		if buying_price_list:
 			price = frappe.db.get_value(
@@ -164,18 +176,33 @@ def get_item_details(item_code: str, price_list: str = None) -> dict:
 				"price_list_rate"
 			)
 			if price:
-				rate = flt(price)
+				item_price_rate = flt(price)
 	
-	# Fallback to valuation rate
-	if not rate:
-		rate = flt(item.valuation_rate)
+	# Try standard buying price list
+	if not item_price_rate:
+		price = frappe.db.get_value(
+			"Item Price",
+			{"item_code": item_code, "buying": 1},
+			"price_list_rate"
+		)
+		if price:
+			item_price_rate = flt(price)
+	
+	# Get valuation rate from Item
+	valuation_rate = flt(item.valuation_rate)
+	
+	# For display rate: prefer item_price_rate, fallback to valuation_rate
+	display_rate = item_price_rate if item_price_rate > 0 else valuation_rate
+	rate_source = "Item Price" if item_price_rate > 0 else "Valuation Rate"
 	
 	return {
 		"item_code": item.name,
 		"item_name": item.item_name,
 		"stock_uom": item.stock_uom,
-		"rate": rate,
-		"valuation_rate": flt(item.valuation_rate)
+		"rate": display_rate,  # For DPR display/costing
+		"item_price_rate": item_price_rate,  # From Item Price
+		"valuation_rate": valuation_rate,  # For Stock Entry
+		"rate_source": rate_source
 	}
 
 
@@ -205,6 +232,52 @@ def get_assets_with_rates(project: str, date: str = None) -> list:
 		asset["rate_per_day"] = flt(rate) if rate else 0
 	
 	return assets
+
+
+@frappe.whitelist()
+def get_project_dprs(project: str) -> list:
+	"""
+	Get all Daily Progress Records for a project with summary info.
+	
+	Args:
+		project: Project name
+		
+	Returns:
+		List of DPRs with details
+	"""
+	dprs = frappe.db.sql("""
+		SELECT 
+			dpr.name,
+			dpr.date,
+			dpr.boq_item,
+			bi.description as boq_item_description,
+			bb.bill_no,
+			dpr.labour_cost,
+			dpr.material_cost,
+			dpr.asset_cost,
+			dpr.subcontract_cost,
+			dpr.expense_cost,
+			dpr.overhead_cost,
+			dpr.total_cost,
+			dpr.docstatus,
+			dpr.remarks
+		FROM `tabDaily Progress Record` dpr
+		LEFT JOIN `tabBOQ Item` bi ON bi.name = dpr.boq_item
+		LEFT JOIN `tabBOQ Bill` bb ON bb.name = bi.parent_bill
+		WHERE dpr.project = %s
+		ORDER BY dpr.date DESC, dpr.creation DESC
+	""", project, as_dict=True)
+	
+	# Add status label
+	for dpr in dprs:
+		if dpr.docstatus == 0:
+			dpr['status'] = 'Draft'
+		elif dpr.docstatus == 1:
+			dpr['status'] = 'Submitted'
+		else:
+			dpr['status'] = 'Cancelled'
+	
+	return dprs
 
 
 @frappe.whitelist()
