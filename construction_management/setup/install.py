@@ -21,6 +21,9 @@ def after_install():
 	create_boq_custom_fields()
 	create_stock_entry_custom_fields()
 	create_purchase_receipt_split_fields()
+	create_warehouse_custom_fields()
+	create_dpr_quantity_fields()
+	create_payment_certificate_fields()
 	setup_accounting_dimensions()
 	frappe.db.commit()
 
@@ -200,3 +203,173 @@ def create_custom_field_if_not_exists(field_def):
 	doc.flags.ignore_validate = True
 	doc.insert(ignore_permissions=True)
 	frappe.logger().info(f"Created custom field {dt}-{fieldname}")
+
+
+def create_warehouse_custom_fields():
+	"""Create custom fields for Warehouse to link to Project (site-level tracking)"""
+	
+	fields_to_create = [
+		{
+			"dt": "Warehouse",
+			"fieldname": "custom_project",
+			"label": "Project",
+			"fieldtype": "Link",
+			"options": "Project",
+			"insert_after": "company",
+			"description": "Link this warehouse/site to a specific project for material tracking"
+		}
+	]
+	
+	for field_def in fields_to_create:
+		try:
+			create_custom_field_if_not_exists(field_def)
+		except Exception as e:
+			frappe.logger().error(f"Error creating custom field {field_def.get('fieldname')}: {str(e)}")
+	
+	frappe.logger().info("Warehouse custom fields created successfully")
+
+
+def create_dpr_quantity_fields():
+	"""
+	Create quantity summary fields on Daily Progress Record.
+	(Task 3.1: Add quantity fields to DPR DocType)
+	"""
+	
+	fields_to_create = [
+		{
+			"dt": "Daily Progress Record",
+			"fieldname": "total_labour_hours",
+			"label": "Total Labour Hours",
+			"fieldtype": "Float",
+			"insert_after": "labour_cost",
+			"read_only": 1,
+			"precision": "2"
+		},
+		{
+			"dt": "Daily Progress Record",
+			"fieldname": "total_material_qty",
+			"label": "Total Material Qty",
+			"fieldtype": "Float",
+			"insert_after": "material_cost",
+			"read_only": 1,
+			"precision": "2"
+		},
+		{
+			"dt": "Daily Progress Record",
+			"fieldname": "total_asset_hours",
+			"label": "Total Asset Hours",
+			"fieldtype": "Float",
+			"insert_after": "asset_cost",
+			"read_only": 1,
+			"precision": "2"
+		},
+		{
+			"dt": "Daily Progress Record",
+			"fieldname": "total_subcontract_qty",
+			"label": "Total Subcontract Qty",
+			"fieldtype": "Float",
+			"insert_after": "subcontract_cost",
+			"read_only": 1,
+			"precision": "2"
+		},
+		{
+			"dt": "Daily Progress Record",
+			"fieldname": "total_expense_count",
+			"label": "Total Expense Count",
+			"fieldtype": "Int",
+			"insert_after": "expense_cost",
+			"read_only": 1
+		}
+	]
+	
+	for field_def in fields_to_create:
+		try:
+			create_custom_field_if_not_exists(field_def)
+		except Exception as e:
+			frappe.logger().error(f"Error creating custom field {field_def.get('fieldname')}: {str(e)}")
+	
+	frappe.logger().info("DPR quantity summary fields created successfully")
+
+
+def create_payment_certificate_fields():
+	"""
+	Create custom fields for Payment Certificate workflow.
+	(Tasks 9.6-9.10: Proforma invoice and Payment Certificate integration)
+	"""
+	
+	fields_to_create = [
+		# Sales Invoice fields for proforma workflow
+		{
+			"dt": "Sales Invoice",
+			"fieldname": "custom_is_proforma",
+			"label": "Is Proforma",
+			"fieldtype": "Check",
+			"insert_after": "is_return",
+			"default": "0",
+			"description": "Mark as proforma/draft invoice awaiting customer approval"
+		},
+		{
+			"dt": "Sales Invoice",
+			"fieldname": "custom_payment_certificate",
+			"label": "Payment Certificate",
+			"fieldtype": "Link",
+			"options": "Payment Certificate",
+			"insert_after": "custom_is_proforma",
+			"read_only": 1,
+			"description": "Linked Payment Certificate"
+		},
+		{
+			"dt": "Sales Invoice",
+			"fieldname": "custom_converted_to_tax_invoice",
+			"label": "Converted to Tax Invoice",
+			"fieldtype": "Link",
+			"options": "Sales Invoice",
+			"insert_after": "custom_payment_certificate",
+			"read_only": 1,
+			"description": "Tax invoice created from this proforma",
+			"depends_on": "eval:doc.custom_is_proforma"
+		},
+		# BOQ Item fields for task/gantt
+		{
+			"dt": "BOQ Item",
+			"fieldname": "is_task",
+			"label": "Is Task",
+			"fieldtype": "Check",
+			"insert_after": "linked_task",
+			"default": "0",
+			"description": "Include this item in Gantt chart as a task"
+		},
+		{
+			"dt": "BOQ Item",
+			"fieldname": "start_date",
+			"label": "Start Date",
+			"fieldtype": "Date",
+			"insert_after": "is_task",
+			"depends_on": "eval:doc.is_task"
+		},
+		{
+			"dt": "BOQ Item",
+			"fieldname": "end_date",
+			"label": "End Date",
+			"fieldtype": "Date",
+			"insert_after": "start_date",
+			"depends_on": "eval:doc.is_task"
+		},
+		{
+			"dt": "BOQ Item",
+			"fieldname": "completed_qty",
+			"label": "Completed Qty",
+			"fieldtype": "Float",
+			"insert_after": "qty",
+			"default": "0",
+			"description": "Quantity completed (for progress tracking)"
+		}
+	]
+	
+	for field_def in fields_to_create:
+		try:
+			create_custom_field_if_not_exists(field_def)
+		except Exception as e:
+			frappe.logger().error(f"Error creating custom field {field_def.get('fieldname')}: {str(e)}")
+	
+	frappe.logger().info("Payment Certificate workflow fields created successfully")

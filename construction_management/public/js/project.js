@@ -192,6 +192,10 @@ function render_action_bar(container, frm) {
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
 				View DPRs
 			</button>
+			<button class="btn-modern btn-outline" style="background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%); color: white; border: none;" onclick="view_gantt_chart('${frm.doc.name}')">
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="4" rx="1"></rect><rect x="3" y="9" width="12" height="4" rx="1"></rect><rect x="3" y="15" width="16" height="4" rx="1"></rect></svg>
+				View Gantt Chart
+			</button>
 			<button class="btn-modern btn-outline" onclick="open_resource_planner('${frm.doc.name}')">
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
 				Resources
@@ -199,6 +203,10 @@ function render_action_bar(container, frm) {
 			<button class="btn-modern btn-outline" onclick="record_advance_payment('${frm.doc.name}')">
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
 				Record Advance
+			</button>
+			<button class="btn-modern btn-outline" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none;" onclick="view_payment_certificates('${frm.doc.name}')">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+				Payment Certificates
 			</button>
 		</div>
 		<div class="action-bar-right">
@@ -230,6 +238,7 @@ function render_bills_accordion(container, frm, bills) {
 		const qty = totals.qty || {};
 		const amount = totals.amount || {};
 		const isExpanded = idx === 0;
+		const advanceAmount = bill.advance_amount || 0;
 		
 		html += `
 			<div class="bill-card ${isExpanded ? 'expanded' : ''}" data-bill="${bill.name}">
@@ -245,6 +254,7 @@ function render_bills_accordion(container, frm, bills) {
 						<div class="bill-stat"><span class="stat-label">Items</span><span class="stat-value">${(bill.items || []).length}</span></div>
 						<div class="bill-stat"><span class="stat-label">Total</span><span class="stat-value">${format_currency(amount.total)}</span></div>
 						<div class="bill-stat"><span class="stat-label">Revenue</span><span class="stat-value">${format_currency(amount.to_date)}</span></div>
+						${advanceAmount > 0 ? `<div class="bill-stat advance-stat"><span class="stat-label">Advance</span><span class="stat-value advance-value">${format_currency(advanceAmount)}</span></div>` : ''}
 						<div class="bill-stat"><span class="stat-label">Balance</span><span class="stat-value balance-value">${format_currency(amount.balance)}</span></div>
 					</div>
 				</div>
@@ -253,6 +263,10 @@ function render_bills_accordion(container, frm, bills) {
 						<button class="btn-modern btn-sm btn-outline" onclick="add_boq_item('${bill.name}', '${frm.doc.name}'); event.stopPropagation();">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
 							Add Item
+						</button>
+						<button class="btn-modern btn-sm btn-outline" onclick="view_bill_advances('${bill.name}'); event.stopPropagation();" title="View Advances">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+							Advances
 						</button>
 					</div>
 					<div class="items-table-wrapper">
@@ -604,18 +618,41 @@ window.create_item_invoice = function(boq_item) {
 		return;
 	}
 	
-	frappe.confirm(__('Create invoice for {0} units?', [currentQty]), function() {
-		frappe.call({
-			method: 'construction_management.api.boq_invoice.create_invoice_from_boq_item',
-			args: { project: cur_frm.doc.name, boq_item: boq_item, current_qty: currentQty },
-			callback: function(r) {
-				if (r.message) {
-					frappe.show_alert({message: __('Invoice {0} created', [r.message.invoice]), indicator: 'green'});
-					frappe.set_route('Form', 'Sales Invoice', r.message.invoice);
+	// Show dialog with proforma option
+	const d = new frappe.ui.Dialog({
+		title: __('Create Invoice'),
+		fields: [
+			{fieldname: 'qty', label: 'Quantity', fieldtype: 'Float', read_only: 1, default: currentQty},
+			{fieldname: 'is_proforma', label: 'Create as Proforma', fieldtype: 'Check', default: 0,
+				description: 'Proforma invoices remain in Draft status for customer approval'},
+			{fieldtype: 'Section Break'},
+			{fieldname: 'apply_retention', label: 'Apply Retention', fieldtype: 'Check', default: 1},
+			{fieldname: 'advance_deduction', label: 'Advance Deduction', fieldtype: 'Currency', default: 0}
+		],
+		primary_action_label: __('Create Invoice'),
+		primary_action: function(values) {
+			frappe.call({
+				method: 'construction_management.api.boq_invoice.create_invoice_from_boq_item',
+				args: { 
+					project: cur_frm.doc.name, 
+					boq_item: boq_item, 
+					current_qty: currentQty,
+					apply_retention: values.apply_retention ? 1 : 0,
+					advance_deduction: values.advance_deduction || 0,
+					is_proforma: values.is_proforma ? 1 : 0
+				},
+				callback: function(r) {
+					if (r.message) {
+						d.hide();
+						const invoiceType = values.is_proforma ? 'Proforma Invoice' : 'Invoice';
+						frappe.show_alert({message: __(`${invoiceType} {0} created`, [r.message.invoice]), indicator: 'green'});
+						frappe.set_route('Form', 'Sales Invoice', r.message.invoice);
+					}
 				}
-			}
-		});
+			});
+		}
 	});
+	d.show();
 };
 
 window.view_item_invoices = function(boq_item) {
@@ -806,6 +843,125 @@ function show_cost_dialog(boq_item, data) {
 	d.show();
 }
 
+// ============================================
+// Bill Advances View (Task 9.3)
+// ============================================
+
+window.view_bill_advances = function(bill_no) {
+	frappe.call({
+		method: 'construction_management.api.boq_invoice.get_bill_advances',
+		args: { bill_no: bill_no },
+		callback: function(r) {
+			if (r.message) {
+				show_bill_advances_dialog(bill_no, r.message);
+			} else {
+				frappe.msgprint(__('No advances found for this bill.'));
+			}
+		}
+	});
+};
+
+function show_bill_advances_dialog(bill_no, data) {
+	const summary = data;
+	const advances = data.advances || [];
+	
+	// Build advances table
+	let advancesHtml = '';
+	if (advances.length > 0) {
+		advancesHtml = `
+			<table class="table table-bordered" style="font-size: 12px;">
+				<thead>
+					<tr>
+						<th>Advance #</th>
+						<th>Date</th>
+						<th>BOQ Item</th>
+						<th class="text-right">Amount</th>
+						<th class="text-right">Allocated</th>
+						<th class="text-right">Unallocated</th>
+						<th>Status</th>
+						<th>Reference</th>
+					</tr>
+				</thead>
+				<tbody>
+					${advances.map(adv => `
+						<tr>
+							<td><a href="/app/boq-advance-payment/${adv.name}">${adv.name}</a></td>
+							<td>${adv.date}</td>
+							<td>${adv.boq_item || '-'}</td>
+							<td class="text-right">${format_currency(adv.amount)}</td>
+							<td class="text-right">${format_currency(adv.allocated_amount)}</td>
+							<td class="text-right">${format_currency(adv.unallocated_amount)}</td>
+							<td><span class="indicator-pill ${get_advance_status_color(adv.status)}">${adv.status}</span></td>
+							<td>${adv.reference || '-'}</td>
+						</tr>
+					`).join('')}
+				</tbody>
+			</table>
+		`;
+	} else {
+		advancesHtml = '<p class="text-muted text-center">No advances recorded for this bill</p>';
+	}
+	
+	const d = new frappe.ui.Dialog({
+		title: __('Advances - {0}', [bill_no]),
+		size: 'large',
+		fields: [
+			{
+				fieldtype: 'HTML',
+				fieldname: 'content',
+				options: `
+					<style>
+						.advance-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+						.advance-summary-card { background: #f8f9fa; padding: 16px; border-radius: 8px; text-align: center; }
+						.advance-summary-card.total { background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%); color: white; }
+						.advance-summary-card.allocated { background: #d1fae5; }
+						.advance-summary-card.unallocated { background: #fef3c7; }
+						.advance-summary-label { font-size: 10px; text-transform: uppercase; opacity: 0.8; margin-bottom: 4px; }
+						.advance-summary-value { font-size: 20px; font-weight: 600; }
+						.indicator-pill { padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+						.indicator-pill.green { background: #d1fae5; color: #065f46; }
+						.indicator-pill.blue { background: #dbeafe; color: #1e40af; }
+						.indicator-pill.orange { background: #fef3c7; color: #92400e; }
+						.indicator-pill.gray { background: #f3f4f6; color: #4b5563; }
+					</style>
+					<div class="advance-summary">
+						<div class="advance-summary-card">
+							<div class="advance-summary-label">Count</div>
+							<div class="advance-summary-value">${summary.count || 0}</div>
+						</div>
+						<div class="advance-summary-card total">
+							<div class="advance-summary-label">Total Advances</div>
+							<div class="advance-summary-value">${format_currency(summary.total_advances)}</div>
+						</div>
+						<div class="advance-summary-card allocated">
+							<div class="advance-summary-label">Allocated</div>
+							<div class="advance-summary-value">${format_currency(summary.allocated)}</div>
+						</div>
+						<div class="advance-summary-card unallocated">
+							<div class="advance-summary-label">Unallocated</div>
+							<div class="advance-summary-value">${format_currency(summary.unallocated)}</div>
+						</div>
+					</div>
+					<div class="advances-table-wrapper">
+						${advancesHtml}
+					</div>
+				`
+			}
+		]
+	});
+	
+	d.show();
+}
+
+function get_advance_status_color(status) {
+	switch(status) {
+		case 'Fully Utilized': return 'green';
+		case 'Partially Utilized': return 'blue';
+		case 'Active': return 'orange';
+		default: return 'gray';
+	}
+}
+
 window.generate_invoice_for_all = function(project) {
 	const items = [];
 	$('.current-qty-input').each(function() {
@@ -856,10 +1012,175 @@ window.view_all_dprs = function(project) {
 	});
 };
 
+// ============================================
+// Gantt Chart View (Task 7.3-7.4)
+// ============================================
+
+window.view_gantt_chart = function(project) {
+	frappe.call({
+		method: 'construction_management.api.gantt.get_boq_gantt_data',
+		args: { project: project },
+		callback: function(r) {
+			if (r.message && r.message.length > 0) {
+				show_gantt_chart_dialog(project, r.message);
+			} else {
+				frappe.msgprint({
+					title: __('No Tasks Found'),
+					message: __('No BOQ Items marked as tasks with dates found. To show items on the Gantt chart:<br><br>1. Edit BOQ Items<br>2. Enable "Is Task" checkbox<br>3. Set Start Date and End Date'),
+					indicator: 'orange'
+				});
+			}
+		}
+	});
+};
+
+function show_gantt_chart_dialog(project, tasks) {
+	const d = new frappe.ui.Dialog({
+		title: __('Gantt Chart - {0}', [project]),
+		size: 'extra-large',
+		fields: [
+			{
+				fieldtype: 'HTML',
+				fieldname: 'gantt_container',
+				options: `
+					<style>
+						.gantt-wrapper { padding: 20px; background: #fff; min-height: 400px; }
+						.gantt-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+						.gantt-header h4 { margin: 0; color: #374151; }
+						.gantt-legend { display: flex; gap: 16px; font-size: 12px; }
+						.gantt-legend-item { display: flex; align-items: center; gap: 6px; }
+						.gantt-legend-color { width: 16px; height: 16px; border-radius: 4px; }
+						.gantt-controls { display: flex; gap: 8px; margin-bottom: 16px; }
+						.gantt-controls button { padding: 6px 12px; border: 1px solid #d1d5db; border-radius: 4px; background: white; cursor: pointer; font-size: 12px; }
+						.gantt-controls button:hover { background: #f3f4f6; }
+						.gantt-controls button.active { background: #8b5cf6; color: white; border-color: #8b5cf6; }
+						#gantt-chart-container { border: 1px solid #e5e7eb; border-radius: 8px; overflow: auto; }
+						.gantt-task-row { display: flex; align-items: center; padding: 8px 12px; border-bottom: 1px solid #f3f4f6; }
+						.gantt-task-row:hover { background: #f9fafb; }
+						.gantt-task-name { flex: 1; font-size: 13px; color: #374151; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
+						.gantt-task-dates { font-size: 11px; color: #6b7280; width: 180px; text-align: center; }
+						.gantt-task-bar-container { flex: 2; min-width: 300px; }
+						.gantt-task-bar { height: 24px; border-radius: 4px; position: relative; }
+						.gantt-task-progress { height: 100%; border-radius: 4px; opacity: 0.7; }
+						.gantt-task-bar.gantt-completed { background: #10b981; }
+						.gantt-task-bar.gantt-near-complete { background: #34d399; }
+						.gantt-task-bar.gantt-half-done { background: #fbbf24; }
+						.gantt-task-bar.gantt-started { background: #60a5fa; }
+						.gantt-task-bar.gantt-not-started { background: #9ca3af; }
+						.gantt-empty { text-align: center; padding: 60px 20px; color: #9ca3af; }
+						.gantt-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+						.gantt-stat { background: #f9fafb; padding: 12px; border-radius: 8px; text-align: center; }
+						.gantt-stat-value { font-size: 24px; font-weight: 600; color: #8b5cf6; }
+						.gantt-stat-label { font-size: 11px; color: #6b7280; text-transform: uppercase; margin-top: 4px; }
+					</style>
+					<div class="gantt-wrapper">
+						<div class="gantt-header">
+							<h4>📊 Project Tasks Timeline</h4>
+							<div class="gantt-legend">
+								<div class="gantt-legend-item"><div class="gantt-legend-color" style="background: #10b981;"></div> Completed (100%)</div>
+								<div class="gantt-legend-item"><div class="gantt-legend-color" style="background: #fbbf24;"></div> In Progress</div>
+								<div class="gantt-legend-item"><div class="gantt-legend-color" style="background: #9ca3af;"></div> Not Started</div>
+							</div>
+						</div>
+						<div class="gantt-stats" id="gantt-stats"></div>
+						<div id="gantt-chart-container"></div>
+					</div>
+				`
+			}
+		]
+	});
+	
+	d.show();
+	
+	// Render Gantt chart after dialog shows
+	setTimeout(() => {
+		render_gantt_chart(tasks);
+	}, 100);
+}
+
+function render_gantt_chart(tasks) {
+	// Calculate stats
+	const total = tasks.length;
+	const completed = tasks.filter(t => t.progress >= 100).length;
+	const inProgress = tasks.filter(t => t.progress > 0 && t.progress < 100).length;
+	const notStarted = tasks.filter(t => t.progress === 0).length;
+	
+	// Render stats
+	$('#gantt-stats').html(`
+		<div class="gantt-stat">
+			<div class="gantt-stat-value">${total}</div>
+			<div class="gantt-stat-label">Total Tasks</div>
+		</div>
+		<div class="gantt-stat">
+			<div class="gantt-stat-value" style="color: #10b981;">${completed}</div>
+			<div class="gantt-stat-label">Completed</div>
+		</div>
+		<div class="gantt-stat">
+			<div class="gantt-stat-value" style="color: #fbbf24;">${inProgress}</div>
+			<div class="gantt-stat-label">In Progress</div>
+		</div>
+		<div class="gantt-stat">
+			<div class="gantt-stat-value" style="color: #9ca3af;">${notStarted}</div>
+			<div class="gantt-stat-label">Not Started</div>
+		</div>
+	`);
+	
+	// Find date range
+	let minDate = null, maxDate = null;
+	tasks.forEach(task => {
+		const start = new Date(task.start);
+		const end = new Date(task.end);
+		if (!minDate || start < minDate) minDate = start;
+		if (!maxDate || end > maxDate) maxDate = end;
+	});
+	
+	if (!minDate || !maxDate) {
+		$('#gantt-chart-container').html('<div class="gantt-empty">No valid date range found</div>');
+		return;
+	}
+	
+	const totalDays = Math.ceil((maxDate - minDate) / (1000 * 60 * 60 * 24)) + 1;
+	
+	// Render task rows
+	let html = '';
+	tasks.forEach(task => {
+		const start = new Date(task.start);
+		const end = new Date(task.end);
+		const startOffset = Math.ceil((start - minDate) / (1000 * 60 * 60 * 24));
+		const duration = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
+		const widthPercent = (duration / totalDays) * 100;
+		const leftPercent = (startOffset / totalDays) * 100;
+		
+		html += `
+			<div class="gantt-task-row" data-task-id="${task.id}">
+				<div class="gantt-task-name" title="${task.name}">${task.name}</div>
+				<div class="gantt-task-dates">${task.start} → ${task.end}</div>
+				<div class="gantt-task-bar-container">
+					<div class="gantt-task-bar ${task.custom_class}" style="width: ${widthPercent}%; margin-left: ${leftPercent}%;">
+						<div class="gantt-task-progress" style="width: ${task.progress}%;"></div>
+					</div>
+				</div>
+			</div>
+		`;
+	});
+	
+	$('#gantt-chart-container').html(html || '<div class="gantt-empty">No tasks to display</div>');
+	
+	// Add click handler to open BOQ Item
+	$('.gantt-task-row').on('click', function() {
+		const taskId = $(this).data('task-id');
+		if (taskId) {
+			frappe.set_route('Form', 'BOQ Item', taskId);
+		}
+	});
+}
+
 function show_dprs_dialog(project, dprs) {
-	// Calculate totals
+	// Calculate totals including quantities (Task 3.3: Display Quantities in DPR Totals)
 	const totals = {
-		labour: 0, material: 0, asset: 0, subcontract: 0, expense: 0, overhead: 0, total: 0
+		labour: 0, material: 0, asset: 0, subcontract: 0, expense: 0, overhead: 0, total: 0,
+		// Quantity totals
+		labour_hours: 0, material_qty: 0, asset_hours: 0, subcontract_qty: 0, expense_count: 0
 	};
 	dprs.forEach(dpr => {
 		if (dpr.docstatus === 1) { // Only count submitted
@@ -870,8 +1191,20 @@ function show_dprs_dialog(project, dprs) {
 			totals.expense += flt(dpr.expense_cost);
 			totals.overhead += flt(dpr.overhead_cost);
 			totals.total += flt(dpr.total_cost);
+			// Quantity totals
+			totals.labour_hours += flt(dpr.total_labour_hours);
+			totals.material_qty += flt(dpr.total_material_qty);
+			totals.asset_hours += flt(dpr.total_asset_hours);
+			totals.subcontract_qty += flt(dpr.total_subcontract_qty);
+			totals.expense_count += flt(dpr.total_expense_count);
 		}
 	});
+	
+	// Format quantity with unit display
+	const formatQtyAmt = (qty, unit, amt) => {
+		const qtyStr = qty > 0 ? `<span class="qty-display">${flt(qty, 2)} ${unit}</span> | ` : '';
+		return `${qtyStr}${format_currency(amt)}`;
+	};
 	
 	// Build table rows
 	let tableRows = dprs.length > 0 ? dprs.map((dpr, idx) => {
@@ -906,13 +1239,17 @@ function show_dprs_dialog(project, dprs) {
 	});
 	
 	d.fields_dict.dprs_html.$wrapper.html(`
+		<style>
+			.qty-display { font-size: 0.85em; color: #6366f1; font-weight: 500; }
+			.summary-card .summary-value { display: flex; flex-direction: column; align-items: flex-end; }
+		</style>
 		<div class="dprs-summary-grid">
 			<div class="summary-card"><span class="summary-label">Total DPRs</span><span class="summary-value">${dprs.length}</span></div>
-			<div class="summary-card labour"><span class="summary-label">Labour Cost</span><span class="summary-value">${format_currency(totals.labour)}</span></div>
-			<div class="summary-card material"><span class="summary-label">Material Cost</span><span class="summary-value">${format_currency(totals.material)}</span></div>
-			<div class="summary-card asset"><span class="summary-label">Asset Cost</span><span class="summary-value">${format_currency(totals.asset)}</span></div>
-			<div class="summary-card subcontract"><span class="summary-label">Subcontract</span><span class="summary-value">${format_currency(totals.subcontract)}</span></div>
-			<div class="summary-card expense"><span class="summary-label">Expense</span><span class="summary-value">${format_currency(totals.expense)}</span></div>
+			<div class="summary-card labour"><span class="summary-label">Labour</span><span class="summary-value">${formatQtyAmt(totals.labour_hours, 'hrs', totals.labour)}</span></div>
+			<div class="summary-card material"><span class="summary-label">Material</span><span class="summary-value">${formatQtyAmt(totals.material_qty, 'units', totals.material)}</span></div>
+			<div class="summary-card asset"><span class="summary-label">Asset</span><span class="summary-value">${formatQtyAmt(totals.asset_hours, 'hrs', totals.asset)}</span></div>
+			<div class="summary-card subcontract"><span class="summary-label">Subcontract</span><span class="summary-value">${formatQtyAmt(totals.subcontract_qty, 'items', totals.subcontract)}</span></div>
+			<div class="summary-card expense"><span class="summary-label">Expense</span><span class="summary-value">${formatQtyAmt(totals.expense_count, 'items', totals.expense)}</span></div>
 			<div class="summary-card overhead"><span class="summary-label">Overhead</span><span class="summary-value">${format_currency(totals.overhead)}</span></div>
 			<div class="summary-card total"><span class="summary-label">Total Cost</span><span class="summary-value">${format_currency(totals.total)}</span></div>
 		</div>
@@ -1052,8 +1389,39 @@ window.record_advance_payment = function(project) {
 	const d = new frappe.ui.Dialog({
 		title: 'Record Advance Payment',
 		fields: [
+			{
+				fieldname: 'bill_no', 
+				label: 'Bill No', 
+				fieldtype: 'Link', 
+				options: 'BOQ Bill',
+				get_query: function() {
+					return {
+						filters: {
+							project: project
+						}
+					};
+				},
+				description: 'Optional: Link advance to a specific bill'
+			},
+			{
+				fieldname: 'boq_item', 
+				label: 'BOQ Item', 
+				fieldtype: 'Link', 
+				options: 'BOQ Item',
+				depends_on: 'bill_no',
+				get_query: function() {
+					return {
+						filters: {
+							parent_bill: d.get_value('bill_no')
+						}
+					};
+				},
+				description: 'Optional: Link advance to a specific BOQ item'
+			},
+			{fieldtype: 'Section Break'},
 			{fieldname: 'amount', label: 'Amount', fieldtype: 'Currency', reqd: 1},
 			{fieldname: 'date', label: 'Date', fieldtype: 'Date', default: frappe.datetime.get_today(), reqd: 1},
+			{fieldtype: 'Column Break'},
 			{fieldname: 'reference', label: 'Reference', fieldtype: 'Data', description: 'Payment reference or receipt number'},
 			{fieldname: 'remarks', label: 'Remarks', fieldtype: 'Small Text'}
 		],
@@ -1065,6 +1433,8 @@ window.record_advance_payment = function(project) {
 					doc: {
 						doctype: 'BOQ Advance Payment',
 						project: project,
+						bill_no: values.bill_no || null,
+						boq_item: values.boq_item || null,
 						amount: values.amount,
 						date: values.date,
 						reference: values.reference,
@@ -1090,6 +1460,251 @@ window.record_advance_payment = function(project) {
 	});
 	d.show();
 };
+
+// ============================================
+// Payment Certificate Functions
+// ============================================
+
+window.view_payment_certificates = function(project) {
+	// Fetch pending proformas and existing payment certificates
+	frappe.call({
+		method: 'construction_management.construction_management.doctype.payment_certificate.payment_certificate.get_pending_proformas',
+		args: { project: project },
+		callback: function(proformaRes) {
+			frappe.call({
+				method: 'frappe.client.get_list',
+				args: {
+					doctype: 'Payment Certificate',
+					filters: { project: project },
+					fields: ['name', 'posting_date', 'proforma_amount', 'accepted_amount', 'variance', 'status', 'tax_invoice'],
+					order_by: 'posting_date desc',
+					limit_page_length: 50
+				},
+				callback: function(pcRes) {
+					show_payment_certificates_dialog(project, proformaRes.message || [], pcRes.message || []);
+				}
+			});
+		}
+	});
+};
+
+function show_payment_certificates_dialog(project, pendingProformas, paymentCertificates) {
+	// Build pending proformas table
+	let proformasHtml = '';
+	if (pendingProformas.length > 0) {
+		proformasHtml = `
+			<table class="table table-bordered" style="font-size: 12px;">
+				<thead>
+					<tr>
+						<th>Invoice</th>
+						<th>Date</th>
+						<th>Customer</th>
+						<th class="text-right">Amount</th>
+						<th class="text-center">Age (Days)</th>
+						<th>Action</th>
+					</tr>
+				</thead>
+				<tbody>
+					${pendingProformas.map(p => `
+						<tr>
+							<td><a href="/app/sales-invoice/${p.name}">${p.name}</a></td>
+							<td>${p.posting_date}</td>
+							<td>${p.customer_name || p.customer || '-'}</td>
+							<td class="text-right">${format_currency(p.grand_total)}</td>
+							<td class="text-center">${p.age_days || 0}</td>
+							<td>
+								<button class="btn btn-xs btn-primary" onclick="create_payment_certificate_from_dialog('${p.name}', ${p.grand_total}, '${project}')">
+									Create PC
+								</button>
+							</td>
+						</tr>
+					`).join('')}
+				</tbody>
+			</table>
+		`;
+	} else {
+		proformasHtml = '<p class="text-muted">No pending proforma invoices</p>';
+	}
+	
+	// Build payment certificates table
+	let pcsHtml = '';
+	if (paymentCertificates.length > 0) {
+		pcsHtml = `
+			<table class="table table-bordered" style="font-size: 12px;">
+				<thead>
+					<tr>
+						<th>PC #</th>
+						<th>Date</th>
+						<th class="text-right">Proforma</th>
+						<th class="text-right">Accepted</th>
+						<th class="text-right">Variance</th>
+						<th>Status</th>
+						<th>Tax Invoice</th>
+					</tr>
+				</thead>
+				<tbody>
+					${paymentCertificates.map(pc => `
+						<tr>
+							<td><a href="/app/payment-certificate/${pc.name}">${pc.name}</a></td>
+							<td>${pc.posting_date}</td>
+							<td class="text-right">${format_currency(pc.proforma_amount)}</td>
+							<td class="text-right">${format_currency(pc.accepted_amount)}</td>
+							<td class="text-right ${pc.variance > 0 ? 'text-danger' : ''}">${format_currency(pc.variance)}</td>
+							<td><span class="indicator-pill ${get_pc_status_color(pc.status)}">${pc.status}</span></td>
+							<td>${pc.tax_invoice ? `<a href="/app/sales-invoice/${pc.tax_invoice}">${pc.tax_invoice}</a>` : '-'}</td>
+						</tr>
+					`).join('')}
+				</tbody>
+			</table>
+		`;
+	} else {
+		pcsHtml = '<p class="text-muted">No payment certificates yet</p>';
+	}
+	
+	const d = new frappe.ui.Dialog({
+		title: __('Payment Certificates - {0}', [project]),
+		size: 'extra-large',
+		fields: [
+			{
+				fieldtype: 'HTML',
+				fieldname: 'content',
+				options: `
+					<style>
+						.pc-tabs { display: flex; border-bottom: 1px solid #d1d5db; margin-bottom: 16px; }
+						.pc-tab { padding: 10px 20px; cursor: pointer; border-bottom: 2px solid transparent; }
+						.pc-tab.active { border-bottom-color: #5e64ff; color: #5e64ff; font-weight: 500; }
+						.pc-tab-content { display: none; }
+						.pc-tab-content.active { display: block; }
+						.indicator-pill { padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+						.indicator-pill.green { background: #d1fae5; color: #065f46; }
+						.indicator-pill.blue { background: #dbeafe; color: #1e40af; }
+						.indicator-pill.orange { background: #fef3c7; color: #92400e; }
+						.indicator-pill.gray { background: #f3f4f6; color: #4b5563; }
+					</style>
+					<div class="pc-tabs">
+						<div class="pc-tab active" data-tab="pending">Pending Proformas (${pendingProformas.length})</div>
+						<div class="pc-tab" data-tab="certificates">Payment Certificates (${paymentCertificates.length})</div>
+					</div>
+					<div class="pc-tab-content active" data-content="pending">
+						${proformasHtml}
+					</div>
+					<div class="pc-tab-content" data-content="certificates">
+						${pcsHtml}
+					</div>
+				`
+			}
+		],
+		primary_action_label: __('Create Proforma Invoice'),
+		primary_action: function() {
+			create_proforma_invoice_dialog(project);
+		}
+	});
+	
+	d.show();
+	
+	// Tab switching
+	d.$wrapper.find('.pc-tab').on('click', function() {
+		const tab = $(this).data('tab');
+		d.$wrapper.find('.pc-tab').removeClass('active');
+		$(this).addClass('active');
+		d.$wrapper.find('.pc-tab-content').removeClass('active');
+		d.$wrapper.find(`.pc-tab-content[data-content="${tab}"]`).addClass('active');
+	});
+}
+
+function get_pc_status_color(status) {
+	switch(status) {
+		case 'Paid': return 'green';
+		case 'Invoiced': return 'blue';
+		case 'Submitted': return 'blue';
+		case 'Draft': return 'orange';
+		default: return 'gray';
+	}
+}
+
+window.create_payment_certificate_from_dialog = function(proforma_invoice, proforma_amount, project) {
+	const d = new frappe.ui.Dialog({
+		title: __('Create Payment Certificate'),
+		fields: [
+			{fieldname: 'proforma_invoice', label: 'Proforma Invoice', fieldtype: 'Link', options: 'Sales Invoice', read_only: 1, default: proforma_invoice},
+			{fieldname: 'proforma_amount', label: 'Proforma Amount', fieldtype: 'Currency', read_only: 1, default: proforma_amount},
+			{fieldtype: 'Column Break'},
+			{fieldname: 'accepted_amount', label: 'Accepted Amount', fieldtype: 'Currency', reqd: 1, default: proforma_amount,
+				description: 'Amount approved by customer'},
+			{fieldtype: 'Section Break'},
+			{fieldname: 'remarks', label: 'Remarks', fieldtype: 'Small Text'}
+		],
+		primary_action_label: __('Create'),
+		primary_action: function(values) {
+			frappe.call({
+				method: 'construction_management.construction_management.doctype.payment_certificate.payment_certificate.create_payment_certificate_from_proforma',
+				args: {
+					proforma_invoice: proforma_invoice,
+					accepted_amount: values.accepted_amount,
+					remarks: values.remarks
+				},
+				callback: function(r) {
+					if (r.message) {
+						d.hide();
+						frappe.show_alert({message: __('Payment Certificate {0} created', [r.message.name]), indicator: 'green'});
+						frappe.set_route('Form', 'Payment Certificate', r.message.name);
+					}
+				}
+			});
+		}
+	});
+	d.show();
+};
+
+function create_proforma_invoice_dialog(project) {
+	frappe.call({
+		method: 'frappe.client.get_value',
+		args: {
+			doctype: 'Project',
+			filters: { name: project },
+			fieldname: ['customer']
+		},
+		callback: function(r) {
+			const customer = r.message ? r.message.customer : null;
+			
+			const d = new frappe.ui.Dialog({
+				title: __('Create Proforma Invoice'),
+				fields: [
+					{fieldname: 'bill_no', label: 'Bill No', fieldtype: 'Link', options: 'BOQ Bill',
+						get_query: () => ({ filters: { project: project } })},
+					{fieldname: 'boq_item', label: 'BOQ Item', fieldtype: 'Link', options: 'BOQ Item',
+						depends_on: 'bill_no',
+						get_query: function() { return { filters: { parent_bill: d.get_value('bill_no') } }; }},
+					{fieldtype: 'Column Break'},
+					{fieldname: 'amount', label: 'Amount', fieldtype: 'Currency', reqd: 1},
+					{fieldname: 'description', label: 'Description', fieldtype: 'Small Text'}
+				],
+				primary_action_label: __('Create Proforma'),
+				primary_action: function(values) {
+					frappe.call({
+						method: 'construction_management.construction_management.doctype.payment_certificate.payment_certificate.create_proforma_invoice',
+						args: {
+							project: project,
+							customer: customer,
+							amount: values.amount,
+							bill_no: values.bill_no,
+							boq_item: values.boq_item,
+							description: values.description
+						},
+						callback: function(r) {
+							if (r.message) {
+								d.hide();
+								frappe.show_alert({message: __('Proforma Invoice {0} created', [r.message.name]), indicator: 'green'});
+								frappe.set_route('Form', 'Sales Invoice', r.message.name);
+							}
+						}
+					});
+				}
+			});
+			d.show();
+		}
+	});
+}
 
 function get_modern_styles() {
 	return `<style>
@@ -1169,6 +1784,8 @@ function get_modern_styles() {
 		.stat-label { font-size: 10px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; }
 		.stat-value { font-size: 14px; font-weight: 600; color: #374151; }
 		.balance-value { color: #059669; }
+		.advance-stat { background: linear-gradient(135deg, #f3e8ff 0%, #ede9fe 100%); border-radius: 6px; padding: 4px 8px; }
+		.advance-value { color: #7c3aed; }
 		.bill-content { border-top: 1px solid #e2e8f0; }
 		.bill-toolbar { padding: 12px 20px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
 		.no-bills-message, .no-items-message { text-align: center; padding: 40px 20px; color: #9ca3af; font-size: 14px; }
@@ -1634,22 +2251,40 @@ function add_asset_to_list(d, asset, project) {
 		callback: function(r) {
 			if (r.message) {
 				const assetData = r.message;
-				const rate = assetData.rate_per_day || 0;
+				// Use hourly rate (Task 1.4: Handle missing asset rate)
+				const rate_per_hour = assetData.rate_per_hour || 0;
+				const default_hours = 8;
 				
-				if (!rate) {
+				if (!rate_per_hour) {
+					// Prompt for manual rate entry when no Project Asset Billing exists
 					frappe.prompt([
-						{ fieldname: 'rate', label: __('Daily Rate'), fieldtype: 'Currency', reqd: 1,
-						  description: __('No rate configured in Project Asset Billing. Please enter daily rate manually.') }
+						{ fieldname: 'rate_per_hour', label: __('Hourly Rate'), fieldtype: 'Currency', reqd: 1,
+						  description: __('No hourly rate configured in Project Asset Billing. Please enter rate per hour manually.') },
+						{ fieldname: 'hours', label: __('Hours'), fieldtype: 'Float', default: default_hours,
+						  description: __('Number of hours the asset was used') }
 					], function(values) {
+						const hours = flt(values.hours) || default_hours;
+						const amount = flt(values.rate_per_hour) * hours;
 						dpr_selected_assets.push({
-							asset: asset, asset_name: assetData.asset_name, hours: 8, rate_per_day: values.rate, amount: values.rate
+							asset: asset, 
+							asset_name: assetData.asset_name, 
+							hours: hours, 
+							rate_per_hour: values.rate_per_hour,
+							rate_per_day: values.rate_per_hour * 8, // For backward compat
+							amount: amount
 						});
 						render_assets_list();
 						update_dpr_totals(d);
-					}, __('Enter Daily Rate for ' + assetData.asset_name), __('Add'));
+					}, __('Enter Hourly Rate for ' + assetData.asset_name), __('Add'));
 				} else {
+					const amount = rate_per_hour * default_hours;
 					dpr_selected_assets.push({
-						asset: asset, asset_name: assetData.asset_name, hours: 8, rate_per_day: rate, amount: rate
+						asset: asset, 
+						asset_name: assetData.asset_name, 
+						hours: default_hours, 
+						rate_per_hour: rate_per_hour,
+						rate_per_day: rate_per_hour * 8, // For backward compat
+						amount: amount
 					});
 					render_assets_list();
 					update_dpr_totals(d);
@@ -1771,14 +2406,22 @@ function render_assets_list() {
 		? '<div class="dpr-empty">No assets added. Select an asset above to add.</div>'
 		: '';
 	dpr_selected_assets.forEach((asset, idx) => {
-		html += '<div class="dpr-item-card"><div class="dpr-item-info"><div class="dpr-item-name">' + asset.asset_name + '</div><div class="dpr-item-sub">' + asset.asset + ' • ' + format_currency(asset.rate_per_day) + '/day</div></div><div><input type="number" class="dpr-item-input asset-hours" value="' + asset.hours + '" step="0.5" min="0" max="24" data-idx="' + idx + '"> hrs</div><div class="dpr-item-amount">' + format_currency(asset.amount) + '</div><button type="button" class="dpr-remove-btn" onclick="remove_dpr_asset(' + idx + ')">✕</button></div>';
+		// Use hourly rate for display (Task 1.3: Asset cost = rate_per_hour × hours)
+		const rateDisplay = asset.rate_per_hour ? format_currency(asset.rate_per_hour) + '/hr' : format_currency(asset.rate_per_day) + '/day';
+		html += '<div class="dpr-item-card"><div class="dpr-item-info"><div class="dpr-item-name">' + asset.asset_name + '</div><div class="dpr-item-sub">' + asset.asset + ' • ' + rateDisplay + '</div></div><div><input type="number" class="dpr-item-input asset-hours" value="' + asset.hours + '" step="0.5" min="0" max="24" data-idx="' + idx + '"> hrs</div><div class="dpr-item-amount">' + format_currency(asset.amount) + '</div><button type="button" class="dpr-remove-btn" onclick="remove_dpr_asset(' + idx + ')">✕</button></div>';
 	});
 	$('#dpr-assets-list').html(html);
 	$('.asset-hours').off('input').on('input', function() {
 		const idx = $(this).data('idx');
 		const hours = parseFloat($(this).val()) || 8;
 		dpr_selected_assets[idx].hours = hours;
-		dpr_selected_assets[idx].amount = dpr_selected_assets[idx].rate_per_day * (hours / 8);
+		// Calculate using hourly rate: cost = rate_per_hour × hours
+		if (dpr_selected_assets[idx].rate_per_hour) {
+			dpr_selected_assets[idx].amount = dpr_selected_assets[idx].rate_per_hour * hours;
+		} else {
+			// Fallback for backward compat
+			dpr_selected_assets[idx].amount = dpr_selected_assets[idx].rate_per_day * (hours / 8);
+		}
 		render_assets_list();
 		update_dpr_totals();
 	});

@@ -8,6 +8,7 @@
 	"field_order": [
 		"naming_series",
 		"project",
+		"site",
 		"bill_no",
 		"boq_item",
 		"boq_item_desc",
@@ -41,6 +42,16 @@
 			"label": "Project",
 			"options": "Project",
 			"reqd": 1
+		},
+		{
+			"depends_on": "project",
+			"fieldname": "site",
+			"fieldtype": "Link",
+			"in_list_view": 1,
+			"label": "Site",
+			"options": "Warehouse",
+			"description": "Project site (warehouse linked to project)",
+			"get_query": "construction_management.api.resource_planner.get_project_sites"
 		},
 		{
 			"fieldname": "bill_no",

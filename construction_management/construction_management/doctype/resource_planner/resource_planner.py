@@ -27,7 +27,11 @@ class ResourcePlanner(Document):
 			self.total_hours = flt(days) * flt(self.hours_per_day or 8)
 	
 	def set_calendar_title(self):
-		"""Set calendar title combining employee, project, bill and item info"""
+		"""
+		Set calendar title combining employee, project, site, bill and item info.
+		Format: {employee} | [{project}] | Site: {site} | Bill: {bill_no}
+		(Task 6.2: Update Resource Planner calendar title)
+		"""
 		parts = []
 		
 		# Employee name
@@ -39,6 +43,14 @@ class ResourcePlanner(Document):
 		# Project
 		if self.project:
 			parts.append(f"[{self.project}]")
+		
+		# Site (Warehouse)
+		if self.site:
+			warehouse_name = frappe.db.get_value("Warehouse", self.site, "warehouse_name")
+			if warehouse_name:
+				parts.append(f"Site: {warehouse_name}")
+			else:
+				parts.append(f"Site: {self.site}")
 		
 		# Bill No - get the bill_no field value from BOQ Bill
 		if self.bill_no:

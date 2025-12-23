@@ -7,13 +7,18 @@
  "field_order": [
   "naming_series",
   "project",
+  "bill_no",
+  "boq_item",
   "column_break_1",
   "date",
   "status",
   "section_break_2",
   "amount",
+  "allocated_amount",
+  "unallocated_amount",
   "column_break_3",
   "reference",
+  "linked_invoice",
   "section_break_4",
   "remarks"
  ],
@@ -35,6 +40,23 @@
    "reqd": 1
   },
   {
+   "depends_on": "project",
+   "fieldname": "bill_no",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Bill No",
+   "options": "BOQ Bill"
+  },
+  {
+   "depends_on": "bill_no",
+   "fieldname": "boq_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "BOQ Item",
+   "options": "BOQ Item"
+  },
+  {
    "fieldname": "column_break_1",
    "fieldtype": "Column Break"
   },
@@ -53,7 +75,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Active\nFully Utilized\nCancelled"
+   "options": "Active\nPartially Utilized\nFully Utilized\nCancelled"
   },
   {
    "fieldname": "section_break_2",
@@ -67,6 +89,21 @@
    "reqd": 1
   },
   {
+   "default": "0",
+   "fieldname": "allocated_amount",
+   "fieldtype": "Currency",
+   "label": "Allocated Amount",
+   "read_only": 1,
+   "description": "Amount allocated to invoices"
+  },
+  {
+   "fieldname": "unallocated_amount",
+   "fieldtype": "Currency",
+   "label": "Unallocated Amount",
+   "read_only": 1,
+   "description": "Remaining amount available for allocation"
+  },
+  {
    "fieldname": "column_break_3",
    "fieldtype": "Column Break"
   },
@@ -75,6 +112,14 @@
    "fieldtype": "Data",
    "label": "Reference",
    "description": "Payment reference number or receipt"
+  },
+  {
+   "fieldname": "linked_invoice",
+   "fieldtype": "Link",
+   "label": "Linked Invoice",
+   "options": "Sales Invoice",
+   "read_only": 1,
+   "description": "Invoice this advance was allocated to"
   },
   {
    "fieldname": "section_break_4",

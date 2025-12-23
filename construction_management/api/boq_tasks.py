@@ -58,8 +58,22 @@ def create_boq_item_with_task(
 		"task": None
 	}
 	
-	# Create linked task if requested
+	# Set task-related fields after insert using db.set_value for custom fields
 	if int(is_task):
+		# Update custom fields for Gantt chart display
+		update_fields = {"is_task": 1}
+		if start_date:
+			update_fields["start_date"] = getdate(start_date)
+		if end_date:
+			update_fields["end_date"] = getdate(end_date)
+		
+		# Use db.set_value to update custom fields
+		for field, value in update_fields.items():
+			frappe.db.set_value("BOQ Item", boq_item.name, field, value, update_modified=False)
+		
+		frappe.db.commit()
+		
+		# Create linked task
 		task = create_group_task_for_boq_item(
 			boq_item_name=boq_item.name,
 			project=project,

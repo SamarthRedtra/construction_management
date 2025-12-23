@@ -114,7 +114,7 @@ def get_employee_with_rate(employee: str) -> dict:
 
 @frappe.whitelist()
 def get_asset_with_rate(asset: str, project: str, date: str = None) -> dict:
-	"""Get single asset with its daily rate for a project"""
+	"""Get single asset with its hourly rate for a project"""
 	from frappe.utils import today
 	
 	asset_doc = frappe.get_doc("Asset", asset)
@@ -127,14 +127,15 @@ def get_asset_with_rate(asset: str, project: str, date: str = None) -> dict:
 			"asset": asset,
 			"effective_from": ["<=", date or today()]
 		},
-		"value_per_day",
+		"value_per_hour",
 		order_by="effective_from desc"
 	)
 	
 	return {
 		"name": asset_doc.name,
 		"asset_name": asset_doc.asset_name,
-		"rate_per_day": flt(rate) if rate else 0
+		"rate_per_hour": flt(rate) if rate else 0,
+		"rate_per_day": flt(rate) * 8 if rate else 0  # For backward compatibility
 	}
 
 
@@ -208,7 +209,7 @@ def get_item_details(item_code: str, price_list: str = None) -> dict:
 
 @frappe.whitelist()
 def get_assets_with_rates(project: str, date: str = None) -> list:
-	"""Get all assets with their daily rates for a project"""
+	"""Get all assets with their hourly rates for a project"""
 	from frappe.utils import today
 	
 	assets = frappe.get_all(
@@ -226,10 +227,11 @@ def get_assets_with_rates(project: str, date: str = None) -> list:
 				"asset": asset.name,
 				"effective_from": ["<=", date or today()]
 			},
-			"value_per_day",
+			"value_per_hour",
 			order_by="effective_from desc"
 		)
-		asset["rate_per_day"] = flt(rate) if rate else 0
+		asset["rate_per_hour"] = flt(rate) if rate else 0
+		asset["rate_per_day"] = flt(rate) * 8 if rate else 0  # For backward compatibility
 	
 	return assets
 
@@ -238,12 +240,14 @@ def get_assets_with_rates(project: str, date: str = None) -> list:
 def get_project_dprs(project: str) -> list:
 	"""
 	Get all Daily Progress Records for a project with summary info.
+	Includes quantity totals for DPR summary display.
+	(Task 3.3: Display Quantities in DPR Totals)
 	
 	Args:
 		project: Project name
 		
 	Returns:
-		List of DPRs with details
+		List of DPRs with details including quantities
 	"""
 	dprs = frappe.db.sql("""
 		SELECT 
@@ -260,7 +264,12 @@ def get_project_dprs(project: str) -> list:
 			dpr.overhead_cost,
 			dpr.total_cost,
 			dpr.docstatus,
-			dpr.remarks
+			dpr.remarks,
+			COALESCE(dpr.total_labour_hours, 0) as total_labour_hours,
+			COALESCE(dpr.total_material_qty, 0) as total_material_qty,
+			COALESCE(dpr.total_asset_hours, 0) as total_asset_hours,
+			COALESCE(dpr.total_subcontract_qty, 0) as total_subcontract_qty,
+			COALESCE(dpr.total_expense_count, 0) as total_expense_count
 		FROM `tabDaily Progress Record` dpr
 		LEFT JOIN `tabBOQ Item` bi ON bi.name = dpr.boq_item
 		LEFT JOIN `tabBOQ Bill` bb ON bb.name = bi.parent_bill
@@ -389,3 +398,128 @@ def create_dpr_with_details(
 		"name": dpr.name,
 		"total_cost": dpr.total_cost
 	}
+
+
+@frappe.whitelist()
+def get_project_warehouses(project: str) -> list:
+	"""
+	Get warehouses linked to a specific project.
+	
+	Args:
+		project: Project name
+		
+	Returns:
+		List of warehouses with custom_project = project
+	"""
+	warehouses = frappe.get_all(
+		"Warehouse",
+		filters={"custom_project": project},
+		fields=["name", "warehouse_name", "is_group", "parent_warehouse"]
+	)
+	return warehouses
+
+
+@frappe.whitelist()
+def get_warehouse_items_with_stock(warehouse: str) -> list:
+	"""
+	Get items with available stock in a warehouse.
+	
+	Args:
+		warehouse: Warehouse name
+		
+	Returns:
+		List of items with actual_qty > 0
+	"""
+	items = frappe.db.sql("""
+		SELECT 
+			b.item_code,
+			i.item_name,
+			i.stock_uom,
+			b.actual_qty,
+			b.valuation_rate
+		FROM `tabBin` b
+		JOIN `tabItem` i ON i.name = b.item_code
+		WHERE b.warehouse = %s
+		AND b.actual_qty > 0
+		ORDER BY i.item_name
+	""", warehouse, as_dict=True)
+	
+	return items
+
+
+@frappe.whitelist()
+def validate_material_stock(warehouse: str, item_code: str, qty: float) -> dict:
+	"""
+	Validate if sufficient stock is available for a material.
+	
+	Args:
+		warehouse: Warehouse name
+		item_code: Item code
+		qty: Requested quantity
+		
+	Returns:
+		dict with is_valid, available_qty, message
+	"""
+	qty = flt(qty)
+	
+	available_qty = frappe.db.get_value(
+		"Bin",
+		{"warehouse": warehouse, "item_code": item_code},
+		"actual_qty"
+	) or 0
+	
+	is_valid = flt(available_qty) >= qty
+	
+	return {
+		"is_valid": is_valid,
+		"available_qty": flt(available_qty),
+		"requested_qty": qty,
+		"message": "" if is_valid else _("Insufficient stock. Available: {0}, Requested: {1}").format(
+			flt(available_qty), qty
+		)
+	}
+
+
+@frappe.whitelist()
+def get_warehouse_items_query(doctype, txt, searchfield, start, page_len, filters):
+	"""
+	Query function for item selection filtered by warehouse stock.
+	Used in DPR Material child table to show only items with stock.
+	
+	Args:
+		doctype: Item
+		txt: Search text
+		searchfield: Field to search
+		start: Start index
+		page_len: Page length
+		filters: Must contain 'warehouse'
+		
+	Returns:
+		List of items with stock in the warehouse
+	"""
+	warehouse = filters.get("warehouse")
+	if not warehouse:
+		return []
+	
+	return frappe.db.sql("""
+		SELECT 
+			b.item_code,
+			i.item_name,
+			b.actual_qty,
+			b.valuation_rate
+		FROM `tabBin` b
+		JOIN `tabItem` i ON i.name = b.item_code
+		WHERE b.warehouse = %(warehouse)s
+		AND b.actual_qty > 0
+		AND (
+			b.item_code LIKE %(txt)s
+			OR i.item_name LIKE %(txt)s
+		)
+		ORDER BY i.item_name
+		LIMIT %(start)s, %(page_len)s
+	""", {
+		"warehouse": warehouse,
+		"txt": "%%%s%%" % txt,
+		"start": start,
+		"page_len": page_len
+	})

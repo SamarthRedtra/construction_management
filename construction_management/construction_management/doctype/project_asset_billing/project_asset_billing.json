@@ -10,7 +10,7 @@
 		"asset",
 		"column_break_1",
 		"asset_name",
-		"value_per_day",
+		"value_per_hour",
 		"section_break_2",
 		"effective_from",
 		"effective_to",
@@ -48,10 +48,11 @@
 			"read_only": 1
 		},
 		{
-			"fieldname": "value_per_day",
+			"description": "Hourly rate for this asset on this project",
+			"fieldname": "value_per_hour",
 			"fieldtype": "Currency",
 			"in_list_view": 1,
-			"label": "Value Per Day",
+			"label": "Rate Per Hour",
 			"reqd": 1
 		},
 		{
@@ -78,7 +79,7 @@
 	],
 	"index_web_pages_for_search": 1,
 	"links": [],
-	"modified": "2024-12-22 10:00:00",
+	"modified": "2024-12-23 12:00:00",
 	"modified_by": "Administrator",
 	"module": "Construction Management",
 	"name": "Project Asset Billing",

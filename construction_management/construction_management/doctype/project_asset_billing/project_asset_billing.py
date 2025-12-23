@@ -42,9 +42,9 @@ class ProjectAssetBilling(Document):
 
 
 @frappe.whitelist()
-def get_asset_daily_rate(project: str, asset: str, date: str = None) -> float:
+def get_asset_hourly_rate(project: str, asset: str, date: str = None) -> float:
 	"""
-	Get the daily rate for an asset in a project.
+	Get the hourly rate for an asset in a project.
 	
 	Args:
 		project: Project name
@@ -52,13 +52,13 @@ def get_asset_daily_rate(project: str, asset: str, date: str = None) -> float:
 		date: Date to check (defaults to today)
 		
 	Returns:
-		Daily rate value
+		Hourly rate value
 	"""
 	check_date = getdate(date) if date else getdate(today())
 	
 	# Find applicable rate
 	rate = frappe.db.sql("""
-		SELECT value_per_day
+		SELECT value_per_hour
 		FROM `tabProject Asset Billing`
 		WHERE project = %s AND asset = %s
 		AND (effective_from IS NULL OR effective_from <= %s)
@@ -68,3 +68,21 @@ def get_asset_daily_rate(project: str, asset: str, date: str = None) -> float:
 	""", (project, asset, check_date, check_date))
 	
 	return flt(rate[0][0]) if rate else 0
+
+
+@frappe.whitelist()
+def get_asset_daily_rate(project: str, asset: str, date: str = None) -> float:
+	"""
+	Get the daily rate for an asset in a project (backward compatibility).
+	Calculates as hourly_rate × 8 hours.
+	
+	Args:
+		project: Project name
+		asset: Asset name
+		date: Date to check (defaults to today)
+		
+	Returns:
+		Daily rate value (hourly × 8)
+	"""
+	hourly_rate = get_asset_hourly_rate(project, asset, date)
+	return flt(hourly_rate) * 8

@@ -10,6 +10,17 @@ frappe.ui.form.on('Daily Progress Record', {
 				fetch_all_rates(frm);
 			});
 		}
+		
+		// Set warehouse filter by project for materials
+		if (frm.doc.project) {
+			frm.set_query('warehouse', 'materials', function() {
+				return {
+					filters: {
+						custom_project: frm.doc.project
+					}
+				};
+			});
+		}
 	},
 	
 	project(frm) {
@@ -24,6 +35,17 @@ frappe.ui.form.on('Daily Progress Record', {
 				}
 			};
 		});
+		
+		// Update warehouse filter for materials
+		if (frm.doc.project) {
+			frm.set_query('warehouse', 'materials', function() {
+				return {
+					filters: {
+						custom_project: frm.doc.project
+					}
+				};
+			});
+		}
 	},
 	
 	boq_item(frm) {
@@ -43,18 +65,23 @@ frappe.ui.form.on('DPR Asset', {
 	asset(frm, cdt, cdn) {
 		let row = locals[cdt][cdn];
 		if (row.asset && frm.doc.project) {
-			// Fetch rate from Project Asset Billing
+			// Fetch hourly rate from Project Asset Billing
 			frappe.call({
-				method: 'construction_management.construction_management.doctype.project_asset_billing.project_asset_billing.get_asset_daily_rate',
+				method: 'construction_management.construction_management.doctype.project_asset_billing.project_asset_billing.get_asset_hourly_rate',
 				args: {
 					project: frm.doc.project,
 					asset: row.asset,
 					date: frm.doc.date
 				},
 				callback: function(r) {
-					if (r.message) {
-						frappe.model.set_value(cdt, cdn, 'rate_per_day', r.message);
+					let rate = flt(r.message);
+					if (rate > 0) {
+						frappe.model.set_value(cdt, cdn, 'rate_per_hour', rate);
+						frappe.model.set_value(cdt, cdn, 'rate_per_day', rate * 8);
 						calculate_asset_amount(frm, cdt, cdn);
+					} else {
+						// No rate found - prompt for manual entry
+						prompt_manual_asset_rate(frm, cdt, cdn, row.asset);
 					}
 				}
 			});
@@ -62,6 +89,13 @@ frappe.ui.form.on('DPR Asset', {
 	},
 	
 	hours(frm, cdt, cdn) {
+		calculate_asset_amount(frm, cdt, cdn);
+	},
+	
+	rate_per_hour(frm, cdt, cdn) {
+		let row = locals[cdt][cdn];
+		// Update rate_per_day for backward compatibility
+		frappe.model.set_value(cdt, cdn, 'rate_per_day', flt(row.rate_per_hour) * 8);
 		calculate_asset_amount(frm, cdt, cdn);
 	},
 	
@@ -74,11 +108,51 @@ frappe.ui.form.on('DPR Asset', {
 	}
 });
 
+function prompt_manual_asset_rate(frm, cdt, cdn, asset) {
+	frappe.prompt([
+		{
+			fieldname: 'rate_per_hour',
+			fieldtype: 'Currency',
+			label: __('Hourly Rate'),
+			reqd: 1,
+			description: __('No rate found in Project Asset Billing for this asset. Please enter the hourly rate manually.')
+		}
+	], function(values) {
+		frappe.model.set_value(cdt, cdn, 'rate_per_hour', values.rate_per_hour);
+		frappe.model.set_value(cdt, cdn, 'rate_per_day', flt(values.rate_per_hour) * 8);
+		calculate_asset_amount(frm, cdt, cdn);
+		
+		// Offer to create Project Asset Billing entry
+		frappe.confirm(
+			__('Would you like to save this rate to Project Asset Billing for future use?'),
+			function() {
+				frappe.call({
+					method: 'frappe.client.insert',
+					args: {
+						doc: {
+							doctype: 'Project Asset Billing',
+							project: frm.doc.project,
+							asset: asset,
+							value_per_hour: values.rate_per_hour
+						}
+					},
+					callback: function(r) {
+						if (r.message) {
+							frappe.show_alert({message: __('Project Asset Billing created'), indicator: 'green'});
+						}
+					}
+				});
+			}
+		);
+	}, __('Enter Asset Hourly Rate'), __('Set Rate'));
+}
+
 function calculate_asset_amount(frm, cdt, cdn) {
 	let row = locals[cdt][cdn];
 	let hours = flt(row.hours) || 8;
-	let rate = flt(row.rate_per_day);
-	let amount = rate * (hours / 8);
+	let rate = flt(row.rate_per_hour);
+	// Calculate: hourly_rate × hours
+	let amount = rate * hours;
 	frappe.model.set_value(cdt, cdn, 'amount', amount);
 	calculate_total_asset_cost(frm);
 }
@@ -142,23 +216,71 @@ function calculate_total_labour_cost(frm) {
 	frm.set_value('labour_cost', total);
 }
 
-// Material child table events
+// Material child table events - Warehouse First Flow
 frappe.ui.form.on('DPR Material', {
-	item_code(frm, cdt, cdn) {
+	warehouse(frm, cdt, cdn) {
 		let row = locals[cdt][cdn];
-		if (row.item_code && row.warehouse) {
-			fetch_item_rate(frm, cdt, cdn);
+		// Clear item when warehouse changes
+		frappe.model.set_value(cdt, cdn, 'item_code', '');
+		frappe.model.set_value(cdt, cdn, 'rate', 0);
+		frappe.model.set_value(cdt, cdn, 'amount', 0);
+		
+		// Set item filter based on warehouse stock
+		if (row.warehouse) {
+			frm.fields_dict.materials.grid.update_docfield_property(
+				'item_code', 'get_query', function() {
+					return {
+						query: 'construction_management.api.dpr_utils.get_warehouse_items_query',
+						filters: {
+							warehouse: row.warehouse
+						}
+					};
+				}
+			);
 		}
 	},
 	
-	warehouse(frm, cdt, cdn) {
+	item_code(frm, cdt, cdn) {
 		let row = locals[cdt][cdn];
 		if (row.item_code && row.warehouse) {
-			fetch_item_rate(frm, cdt, cdn);
+			// Fetch valuation rate and make it read-only
+			frappe.call({
+				method: 'construction_management.api.dpr_utils.get_item_valuation_rate',
+				args: {
+					item_code: row.item_code,
+					warehouse: row.warehouse
+				},
+				callback: function(r) {
+					if (r.message) {
+						frappe.model.set_value(cdt, cdn, 'rate', r.message);
+						calculate_material_amount(frm, cdt, cdn);
+					}
+				}
+			});
 		}
 	},
 	
 	qty(frm, cdt, cdn) {
+		let row = locals[cdt][cdn];
+		// Validate stock availability
+		if (row.warehouse && row.item_code && row.qty > 0) {
+			frappe.call({
+				method: 'construction_management.api.dpr_utils.validate_material_stock',
+				args: {
+					warehouse: row.warehouse,
+					item_code: row.item_code,
+					qty: row.qty
+				},
+				callback: function(r) {
+					if (r.message && !r.message.is_valid) {
+						frappe.show_alert({
+							message: r.message.message,
+							indicator: 'orange'
+						});
+					}
+				}
+			});
+		}
 		calculate_material_amount(frm, cdt, cdn);
 	},
 	
@@ -168,6 +290,21 @@ frappe.ui.form.on('DPR Material', {
 	
 	materials_remove(frm) {
 		calculate_total_material_cost(frm);
+	},
+	
+	materials_add(frm, cdt, cdn) {
+		// Set warehouse filter by project when adding new row
+		if (frm.doc.project) {
+			frm.fields_dict.materials.grid.update_docfield_property(
+				'warehouse', 'get_query', function() {
+					return {
+						filters: {
+							custom_project: frm.doc.project
+						}
+					};
+				}
+			);
+		}
 	}
 });
 
@@ -243,11 +380,11 @@ function calculate_total_expense_cost(frm) {
 
 // Utility function to fetch all rates
 function fetch_all_rates(frm) {
-	// Fetch asset rates
-	(frm.doc.assets || []).forEach((row, idx) => {
+	// Fetch asset rates (hourly)
+	(frm.doc.assets || []).forEach((row) => {
 		if (row.asset && frm.doc.project) {
 			frappe.call({
-				method: 'construction_management.construction_management.doctype.project_asset_billing.project_asset_billing.get_asset_daily_rate',
+				method: 'construction_management.construction_management.doctype.project_asset_billing.project_asset_billing.get_asset_hourly_rate',
 				args: {
 					project: frm.doc.project,
 					asset: row.asset,
@@ -256,7 +393,8 @@ function fetch_all_rates(frm) {
 				async: false,
 				callback: function(r) {
 					if (r.message) {
-						frappe.model.set_value('DPR Asset', row.name, 'rate_per_day', r.message);
+						frappe.model.set_value('DPR Asset', row.name, 'rate_per_hour', r.message);
+						frappe.model.set_value('DPR Asset', row.name, 'rate_per_day', flt(r.message) * 8);
 					}
 				}
 			});
@@ -264,7 +402,7 @@ function fetch_all_rates(frm) {
 	});
 	
 	// Fetch employee rates
-	(frm.doc.employees || []).forEach((row, idx) => {
+	(frm.doc.employees || []).forEach((row) => {
 		if (row.employee) {
 			frappe.call({
 				method: 'construction_management.api.dpr_utils.get_employee_daily_rate',
@@ -282,7 +420,7 @@ function fetch_all_rates(frm) {
 	});
 	
 	// Fetch material rates
-	(frm.doc.materials || []).forEach((row, idx) => {
+	(frm.doc.materials || []).forEach((row) => {
 		if (row.item_code && row.warehouse) {
 			frappe.call({
 				method: 'construction_management.api.dpr_utils.get_item_valuation_rate',

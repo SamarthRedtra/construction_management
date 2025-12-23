@@ -209,8 +209,20 @@ def get_bills_with_items(project_boq: str) -> list:
 		bill["items"] = get_boq_items(bill.name)
 		# Calculate bill totals from items
 		bill["totals"] = calculate_bill_totals(bill["items"])
+		# Get advance amount for this bill (Task 9.3)
+		bill["advance_amount"] = get_bill_advance_amount(bill.name)
 	
 	return bills
+
+
+def get_bill_advance_amount(bill_no: str) -> float:
+	"""Get total advance amount for a bill"""
+	result = frappe.db.sql("""
+		SELECT COALESCE(SUM(amount), 0) as total
+		FROM `tabBOQ Advance Payment`
+		WHERE bill_no = %s AND docstatus = 1
+	""", bill_no)
+	return flt(result[0][0]) if result else 0
 
 
 def get_boq_items(bill_name: str) -> list:

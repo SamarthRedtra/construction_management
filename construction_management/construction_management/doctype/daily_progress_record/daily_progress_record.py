@@ -11,12 +11,14 @@ class DailyProgressRecord(Document):
 	def validate(self):
 		self.validate_boq_item()
 		self.fetch_bill_no()
+		self.validate_material_stock()
 		self.calculate_asset_costs()
 		self.calculate_employee_costs()
 		self.calculate_material_costs()
 		self.calculate_overhead_costs()
 		self.calculate_expense_costs()
 		self.calculate_total_cost()
+		self.calculate_quantity_totals()
 	
 	def fetch_bill_no(self):
 		"""Fetch Bill No from BOQ Item"""
@@ -34,14 +36,63 @@ class DailyProgressRecord(Document):
 					)
 				)
 	
+	def validate_material_stock(self):
+		"""
+		Validate that sufficient stock is available for each material entry.
+		Throws an error if any material has insufficient stock in its warehouse.
+		(Requirement 2.6: Prevent submission if stock is insufficient)
+		"""
+		if not self.materials:
+			return
+		
+		errors = []
+		
+		for row in self.materials:
+			if not row.item_code or not row.qty or flt(row.qty) <= 0:
+				continue
+			
+			if not row.warehouse:
+				continue
+			
+			# Get available stock in warehouse
+			available_qty = frappe.db.get_value(
+				"Bin",
+				{"warehouse": row.warehouse, "item_code": row.item_code},
+				"actual_qty"
+			) or 0
+			
+			requested_qty = flt(row.qty)
+			
+			if flt(available_qty) < requested_qty:
+				errors.append(
+					_("Insufficient stock for item <b>{0}</b> in warehouse <b>{1}</b>. "
+					  "Available: {2}, Requested: {3}").format(
+						row.item_code,
+						row.warehouse,
+						flt(available_qty),
+						requested_qty
+					)
+				)
+		
+		if errors:
+			frappe.throw(
+				_("Cannot save DPR due to insufficient stock:") + "<br><br>" + "<br>".join(errors),
+				title=_("Insufficient Stock")
+			)
+	
 	def calculate_asset_costs(self):
-		"""Calculate asset costs from child table"""
+		"""Calculate asset costs from child table using hourly rate"""
 		total = 0
 		for row in self.assets or []:
-			if not row.rate_per_day and row.asset:
-				row.rate_per_day = get_asset_daily_rate(self.project, row.asset, self.date)
+			# Fetch hourly rate if not set
+			if not row.rate_per_hour and row.asset:
+				row.rate_per_hour = get_asset_hourly_rate(self.project, row.asset, self.date)
+			# For backward compatibility, also set rate_per_day
+			if row.rate_per_hour and not row.rate_per_day:
+				row.rate_per_day = flt(row.rate_per_hour) * 8
 			hours = flt(row.hours) or 8
-			row.amount = flt(row.rate_per_day) * (hours / 8)
+			# Calculate: hourly_rate × hours
+			row.amount = flt(row.rate_per_hour) * hours
 			total += flt(row.amount)
 		self.asset_cost = total
 	
@@ -90,6 +141,47 @@ class DailyProgressRecord(Document):
 			flt(self.overhead_cost) +
 			flt(self.expense_cost)
 		)
+	
+	def calculate_quantity_totals(self):
+		"""
+		Calculate quantity totals for DPR summary display.
+		(Task 3.2: Display Quantities in DPR Totals)
+		"""
+		# Total labour hours
+		total_labour_hours = 0
+		for row in self.employees or []:
+			total_labour_hours += flt(row.hours) or 8
+		
+		# Total material quantity
+		total_material_qty = 0
+		for row in self.materials or []:
+			total_material_qty += flt(row.qty)
+		
+		# Total asset hours
+		total_asset_hours = 0
+		for row in self.assets or []:
+			total_asset_hours += flt(row.hours) or 8
+		
+		# Total subcontract quantity (count of entries if no qty field)
+		total_subcontract_qty = 0
+		if hasattr(self, 'subcontracts') and self.subcontracts:
+			for row in self.subcontracts:
+				total_subcontract_qty += flt(row.qty) if hasattr(row, 'qty') else 1
+		
+		# Total expense count
+		total_expense_count = len(self.expenses or [])
+		
+		# Set fields if they exist
+		if hasattr(self, 'total_labour_hours'):
+			self.total_labour_hours = total_labour_hours
+		if hasattr(self, 'total_material_qty'):
+			self.total_material_qty = total_material_qty
+		if hasattr(self, 'total_asset_hours'):
+			self.total_asset_hours = total_asset_hours
+		if hasattr(self, 'total_subcontract_qty'):
+			self.total_subcontract_qty = total_subcontract_qty
+		if hasattr(self, 'total_expense_count'):
+			self.total_expense_count = total_expense_count
 	
 	def on_submit(self):
 		"""Create accounting entries on submit"""
@@ -447,8 +539,8 @@ class DailyProgressRecord(Document):
 			frappe.log_error(f"Error updating project costs for {self.project}: {str(e)}")
 
 
-def get_asset_daily_rate(project: str, asset: str, date: str = None) -> float:
-	"""Get the daily rate for an asset in a project"""
+def get_asset_hourly_rate(project: str, asset: str, date: str = None) -> float:
+	"""Get the hourly rate for an asset in a project"""
 	from frappe.utils import today
 	
 	rate = frappe.db.get_value(
@@ -458,10 +550,16 @@ def get_asset_daily_rate(project: str, asset: str, date: str = None) -> float:
 			"asset": asset,
 			"effective_from": ["<=", date or today()]
 		},
-		"value_per_day",
+		"value_per_hour",
 		order_by="effective_from desc"
 	)
 	return flt(rate) if rate else 0
+
+
+def get_asset_daily_rate(project: str, asset: str, date: str = None) -> float:
+	"""Get the daily rate for an asset in a project (backward compatibility)"""
+	hourly_rate = get_asset_hourly_rate(project, asset, date)
+	return flt(hourly_rate) * 8
 
 
 def get_employee_daily_rate(employee: str) -> float:

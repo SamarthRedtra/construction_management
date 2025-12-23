@@ -12,6 +12,27 @@ from frappe.utils import flt, getdate, add_days, date_diff, today
 
 
 @frappe.whitelist()
+def get_project_sites(doctype, txt, searchfield, start, page_len, filters):
+	"""
+	Get warehouses linked to a project for site field.
+	(Task 6.1: Resource Planner site field linked to Warehouse)
+	"""
+	project = filters.get("project")
+	if not project:
+		return []
+	
+	return frappe.db.sql("""
+		SELECT name, warehouse_name
+		FROM `tabWarehouse`
+		WHERE custom_project = %s
+		AND is_group = 0
+		AND (name LIKE %s OR warehouse_name LIKE %s)
+		ORDER BY warehouse_name
+		LIMIT %s, %s
+	""", (project, f"%{txt}%", f"%{txt}%", start, page_len))
+
+
+@frappe.whitelist()
 def get_bills_for_project(doctype, txt, searchfield, start, page_len, filters):
 	"""Get BOQ Bills for a project (for Link field query)"""
 	project = filters.get("project")

@@ -8,7 +8,8 @@ from frappe.utils import flt, today, getdate
 
 @frappe.whitelist()
 def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float, 
-                                  apply_retention: int = 1, advance_deduction: float = 0) -> dict:
+                                  apply_retention: int = 1, advance_deduction: float = 0,
+                                  is_proforma: int = 0) -> dict:
 	"""
 	Create a Sales Invoice from a BOQ Item with the specified current quantity.
 	
@@ -18,6 +19,7 @@ def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float
 		current_qty: Quantity to bill
 		apply_retention: Whether to apply retention (1=yes, 0=no)
 		advance_deduction: Amount to deduct from advance
+		is_proforma: Whether to create as proforma invoice (1=yes, 0=no)
 		
 	Returns:
 		dict with invoice details
@@ -25,6 +27,7 @@ def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float
 	current_qty = flt(current_qty)
 	apply_retention = int(apply_retention)
 	advance_deduction = flt(advance_deduction)
+	is_proforma = int(is_proforma)
 	
 	# Validate
 	if current_qty <= 0:
@@ -79,7 +82,11 @@ def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float
 	invoice.posting_date = today()
 	invoice.due_date = today()
 	
-	# Add item - use linked_item for item_code
+	# Set proforma flag if requested
+	if is_proforma:
+		invoice.custom_is_proforma = 1
+	
+	# Add item - use linked_item for item_code with accounting dimensions
 	invoice.append("items", {
 		"item_code": invoice_item_code,
 		"item_name": item.description[:140] if item.description else "BOQ Item",
@@ -89,12 +96,13 @@ def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float
 		"amount": current_amount,
 		"uom": item.unit,
 		"boq_item": boq_item,
-		"bill_no": item.parent_bill
+		"bill_no": item.parent_bill,
+		"project": project  # Set project on item level for accounting dimension
 	})
 	
 	# Calculate retention
 	retention_amount = 0
-	if apply_retention and retention_percentage > 0:
+	if apply_retention and retention_percentage > 0 and not is_proforma:
 		retention_amount = flt(current_amount * retention_percentage / 100, 2)
 		# Add retention as a negative line item (deduction)
 		if retention_amount > 0:
@@ -106,11 +114,12 @@ def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float
 				"description": f"Retention deduction at {retention_percentage}%",
 				"qty": 1,
 				"rate": -retention_amount,
-				"amount": -retention_amount
+				"amount": -retention_amount,
+				"project": project  # Set project on item level
 			})
 	
 	# Handle advance deduction
-	if advance_deduction > 0:
+	if advance_deduction > 0 and not is_proforma:
 		# Validate advance balance
 		advance_balance = get_advance_balance(project)
 		if advance_deduction > advance_balance:
@@ -129,7 +138,8 @@ def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float
 			"description": "Deduction from advance payment",
 			"qty": 1,
 			"rate": -advance_deduction,
-			"amount": -advance_deduction
+			"amount": -advance_deduction,
+			"project": project  # Set project on item level
 		})
 	
 	invoice.insert()
@@ -149,7 +159,8 @@ def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float
 		"retention_amount": retention_amount,
 		"advance_deduction": advance_deduction,
 		"net_amount": net_amount,
-		"status": "Draft"
+		"status": "Draft",
+		"is_proforma": is_proforma
 	}
 
 
@@ -247,7 +258,8 @@ def create_invoice_from_multiple_items(project: str, items: list,
 			"amount": current_amount,
 			"uom": item.unit,
 			"boq_item": boq_item_name,
-			"bill_no": item.parent_bill
+			"bill_no": item.parent_bill,
+			"project": project  # Set project on item level for accounting dimension
 		})
 	
 	if not invoice.items:
@@ -265,7 +277,8 @@ def create_invoice_from_multiple_items(project: str, items: list,
 				"description": f"Retention deduction at {retention_percentage}%",
 				"qty": 1,
 				"rate": -retention_amount,
-				"amount": -retention_amount
+				"amount": -retention_amount,
+				"project": project  # Set project on item level
 			})
 	
 	# Handle advance deduction
@@ -286,7 +299,8 @@ def create_invoice_from_multiple_items(project: str, items: list,
 			"description": "Deduction from advance payment",
 			"qty": 1,
 			"rate": -advance_deduction,
-			"amount": -advance_deduction
+			"amount": -advance_deduction,
+			"project": project  # Set project on item level
 		})
 	
 	invoice.insert()
@@ -962,3 +976,270 @@ def format_currency_value(value):
 def format_number(value):
 	"""Format number with 3 decimal places"""
 	return "{:,.3f}".format(flt(value))
+
+
+# ============================================
+# Advance Aggregation APIs (Task 9.1)
+# ============================================
+
+@frappe.whitelist()
+def get_bill_item_advances(boq_item: str) -> dict:
+	"""
+	Get advance payments linked to a specific BOQ Item.
+	
+	Args:
+		boq_item: BOQ Item name
+		
+	Returns:
+		dict with total_advances, allocated, unallocated, and list of advances
+	"""
+	advances = frappe.db.sql("""
+		SELECT 
+			name,
+			date,
+			amount,
+			allocated_amount,
+			unallocated_amount,
+			status,
+			reference,
+			linked_invoice
+		FROM `tabBOQ Advance Payment`
+		WHERE boq_item = %s AND docstatus = 1
+		ORDER BY date DESC
+	""", boq_item, as_dict=True)
+	
+	total_amount = sum(flt(a.amount) for a in advances)
+	total_allocated = sum(flt(a.allocated_amount) for a in advances)
+	total_unallocated = sum(flt(a.unallocated_amount) for a in advances)
+	
+	return {
+		"boq_item": boq_item,
+		"total_advances": total_amount,
+		"allocated": total_allocated,
+		"unallocated": total_unallocated,
+		"count": len(advances),
+		"advances": advances
+	}
+
+
+@frappe.whitelist()
+def get_bill_advances(bill_no: str) -> dict:
+	"""
+	Get advance payments linked to a specific Bill No.
+	
+	Args:
+		bill_no: BOQ Bill name
+		
+	Returns:
+		dict with total_advances, allocated, unallocated, and list of advances
+	"""
+	advances = frappe.db.sql("""
+		SELECT 
+			name,
+			boq_item,
+			date,
+			amount,
+			allocated_amount,
+			unallocated_amount,
+			status,
+			reference,
+			linked_invoice
+		FROM `tabBOQ Advance Payment`
+		WHERE bill_no = %s AND docstatus = 1
+		ORDER BY date DESC
+	""", bill_no, as_dict=True)
+	
+	total_amount = sum(flt(a.amount) for a in advances)
+	total_allocated = sum(flt(a.allocated_amount) for a in advances)
+	total_unallocated = sum(flt(a.unallocated_amount) for a in advances)
+	
+	return {
+		"bill_no": bill_no,
+		"total_advances": total_amount,
+		"allocated": total_allocated,
+		"unallocated": total_unallocated,
+		"count": len(advances),
+		"advances": advances
+	}
+
+
+@frappe.whitelist()
+def get_available_advances(boq_item: str = None, bill_no: str = None, project: str = None) -> list:
+	"""
+	Get available (unallocated) advances for allocation to invoices.
+	Can filter by BOQ Item, Bill No, or Project.
+	
+	Args:
+		boq_item: Optional BOQ Item filter
+		bill_no: Optional Bill No filter
+		project: Optional Project filter
+		
+	Returns:
+		List of advances with unallocated amounts
+	"""
+	conditions = ["docstatus = 1", "unallocated_amount > 0"]
+	values = {}
+	
+	if boq_item:
+		conditions.append("boq_item = %(boq_item)s")
+		values["boq_item"] = boq_item
+	elif bill_no:
+		conditions.append("bill_no = %(bill_no)s")
+		values["bill_no"] = bill_no
+	elif project:
+		conditions.append("project = %(project)s")
+		values["project"] = project
+	else:
+		return []
+	
+	advances = frappe.db.sql("""
+		SELECT 
+			name,
+			project,
+			bill_no,
+			boq_item,
+			date,
+			amount,
+			allocated_amount,
+			unallocated_amount,
+			status,
+			reference
+		FROM `tabBOQ Advance Payment`
+		WHERE {conditions}
+		ORDER BY date ASC
+	""".format(conditions=" AND ".join(conditions)), values, as_dict=True)
+	
+	return advances
+
+
+@frappe.whitelist()
+def get_project_advances(project: str) -> dict:
+	"""
+	Get aggregated advance payment summary for a project.
+	Includes breakdown by bill and item.
+	
+	Args:
+		project: Project name
+		
+	Returns:
+		dict with project totals and breakdown by bill/item
+	"""
+	# Get all advances for project
+	advances = frappe.db.sql("""
+		SELECT 
+			name,
+			bill_no,
+			boq_item,
+			date,
+			amount,
+			allocated_amount,
+			unallocated_amount,
+			status,
+			reference
+		FROM `tabBOQ Advance Payment`
+		WHERE project = %s AND docstatus = 1
+		ORDER BY date DESC
+	""", project, as_dict=True)
+	
+	# Calculate project totals
+	total_amount = sum(flt(a.amount) for a in advances)
+	total_allocated = sum(flt(a.allocated_amount) for a in advances)
+	total_unallocated = sum(flt(a.unallocated_amount) for a in advances)
+	
+	# Group by bill
+	by_bill = {}
+	for adv in advances:
+		bill = adv.bill_no or "Unassigned"
+		if bill not in by_bill:
+			by_bill[bill] = {
+				"bill_no": bill,
+				"total": 0,
+				"allocated": 0,
+				"unallocated": 0,
+				"count": 0,
+				"items": {}
+			}
+		by_bill[bill]["total"] += flt(adv.amount)
+		by_bill[bill]["allocated"] += flt(adv.allocated_amount)
+		by_bill[bill]["unallocated"] += flt(adv.unallocated_amount)
+		by_bill[bill]["count"] += 1
+		
+		# Group by item within bill
+		item = adv.boq_item or "Unassigned"
+		if item not in by_bill[bill]["items"]:
+			by_bill[bill]["items"][item] = {
+				"boq_item": item,
+				"total": 0,
+				"allocated": 0,
+				"unallocated": 0,
+				"count": 0
+			}
+		by_bill[bill]["items"][item]["total"] += flt(adv.amount)
+		by_bill[bill]["items"][item]["allocated"] += flt(adv.allocated_amount)
+		by_bill[bill]["items"][item]["unallocated"] += flt(adv.unallocated_amount)
+		by_bill[bill]["items"][item]["count"] += 1
+	
+	# Convert items dict to list for each bill
+	for bill in by_bill.values():
+		bill["items"] = list(bill["items"].values())
+	
+	return {
+		"project": project,
+		"summary": {
+			"total_advances": total_amount,
+			"allocated": total_allocated,
+			"unallocated": total_unallocated,
+			"count": len(advances)
+		},
+		"by_bill": list(by_bill.values()),
+		"advances": advances
+	}
+
+
+@frappe.whitelist()
+def allocate_advance_to_invoice(advance_name: str, invoice_name: str, amount: float = None) -> dict:
+	"""
+	Allocate an advance payment to a sales invoice.
+	
+	Args:
+		advance_name: BOQ Advance Payment name
+		invoice_name: Sales Invoice name
+		amount: Amount to allocate (defaults to full unallocated amount)
+		
+	Returns:
+		dict with allocation details
+	"""
+	advance = frappe.get_doc("BOQ Advance Payment", advance_name)
+	
+	if advance.docstatus != 1:
+		frappe.throw(_("Advance payment must be submitted before allocation"))
+	
+	available = flt(advance.unallocated_amount)
+	if available <= 0:
+		frappe.throw(_("No unallocated amount available in this advance"))
+	
+	allocation_amount = flt(amount) if amount else available
+	if allocation_amount > available:
+		frappe.throw(_("Allocation amount ({0}) exceeds available amount ({1})").format(
+			allocation_amount, available
+		))
+	
+	# Update advance
+	advance.allocated_amount = flt(advance.allocated_amount) + allocation_amount
+	advance.unallocated_amount = flt(advance.amount) - flt(advance.allocated_amount)
+	advance.linked_invoice = invoice_name
+	
+	if advance.unallocated_amount <= 0:
+		advance.status = "Fully Utilized"
+	else:
+		advance.status = "Partially Utilized"
+	
+	advance.save()
+	
+	return {
+		"advance": advance_name,
+		"invoice": invoice_name,
+		"allocated_amount": allocation_amount,
+		"remaining_unallocated": advance.unallocated_amount,
+		"status": advance.status
+	}
