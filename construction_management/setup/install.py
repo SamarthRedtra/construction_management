@@ -21,6 +21,7 @@ def after_install():
 	create_boq_custom_fields()
 	create_stock_entry_custom_fields()
 	create_purchase_receipt_split_fields()
+	create_purchase_receipt_po_project_fields()
 	create_warehouse_custom_fields()
 	create_dpr_quantity_fields()
 	create_payment_certificate_fields()
@@ -203,6 +204,55 @@ def create_custom_field_if_not_exists(field_def):
 	doc.flags.ignore_validate = True
 	doc.insert(ignore_permissions=True)
 	frappe.logger().info(f"Created custom field {dt}-{fieldname}")
+
+
+def create_purchase_receipt_po_project_fields():
+	"""Create custom fields for Purchase Order mapping and Project-Warehouse linking on Purchase Receipt"""
+	
+	fields_to_create = [
+		# Purchase Receipt - Parent Level
+		{
+			"dt": "Purchase Receipt",
+			"fieldname": "custom_purchase_order",
+			"label": "Purchase Order",
+			"fieldtype": "Link",
+			"options": "Purchase Order",
+			"insert_after": "supplier",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+			"description": "Link to the Purchase Order for this receipt"
+		},
+		# Purchase Receipt Item - Child Level
+		{
+			"dt": "Purchase Receipt Item",
+			"fieldname": "custom_purchase_order",
+			"label": "Purchase Order",
+			"fieldtype": "Link",
+			"options": "Purchase Order",
+			"insert_after": "item_code",
+			"read_only": 1,
+			"fetch_from": "",
+			"description": "Copied from parent Purchase Receipt"
+		},
+		{
+			"dt": "Purchase Receipt Item",
+			"fieldname": "custom_project",
+			"label": "Project",
+			"fieldtype": "Link",
+			"options": "Project",
+			"insert_after": "warehouse",
+			"in_list_view": 1,
+			"description": "Project linked to the warehouse"
+		}
+	]
+	
+	for field_def in fields_to_create:
+		try:
+			create_custom_field_if_not_exists(field_def)
+		except Exception as e:
+			frappe.logger().error(f"Error creating custom field {field_def.get('fieldname')}: {str(e)}")
+	
+	frappe.logger().info("Purchase Receipt PO and Project fields created successfully")
 
 
 def create_warehouse_custom_fields():

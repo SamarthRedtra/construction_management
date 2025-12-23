@@ -6,18 +6,47 @@ frappe.ui.form.on('Project', {
 	refresh(frm) {
 		if (frm.doc.enable_progressive_boq) {
 			render_construction_dashboard(frm);
+			
+			// Set up a mutation observer to watch for dashboard changes
+			setup_dashboard_protection();
 		}
 	},
 	
 	enable_progressive_boq(frm) {
 		if (frm.doc.enable_progressive_boq) {
 			render_construction_dashboard(frm);
+			setup_dashboard_protection();
 		} else {
 			const wrapper = frm.fields_dict.construction_dashboard?.$wrapper;
 			if (wrapper) wrapper.html('');
 		}
 	}
 });
+
+// Set up protection to prevent dashboard from disappearing
+function setup_dashboard_protection() {
+	// Watch for modal-open class changes
+	const observer = new MutationObserver((mutations) => {
+		mutations.forEach((mutation) => {
+			if (mutation.attributeName === 'class') {
+				const body = document.body;
+				if (body.classList.contains('modal-open')) {
+					// Modal just opened, ensure dashboard stays visible
+					ensure_dashboard_visible();
+				}
+			}
+		});
+	});
+	
+	// Start observing body class changes
+	observer.observe(document.body, {
+		attributes: true,
+		attributeFilter: ['class']
+	});
+	
+	// Store observer reference to disconnect later if needed
+	window._dashboard_observer = observer;
+}
 
 function render_construction_dashboard(frm) {
 	const wrapper = frm.fields_dict.construction_dashboard?.$wrapper;
@@ -50,11 +79,123 @@ function render_construction_dashboard(frm) {
 
 function get_dashboard_styles() {
 	return `<style>
-		.boq-dashboard-modern { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+		/* Ensure dashboard container doesn't collapse and stays visible */
+		.frappe-control[data-fieldname="construction_dashboard"] { 
+			min-height: 100px !important; 
+			position: relative !important; 
+			z-index: 1 !important;
+			display: block !important;
+		}
+		.frappe-control[data-fieldname="construction_dashboard"] .like-disabled-input { display: none !important; }
+		.frappe-control[data-fieldname="construction_dashboard"] .control-value { 
+			display: block !important; 
+			visibility: visible !important; 
+			opacity: 1 !important;
+			height: auto !important;
+			overflow: visible !important;
+		}
+		.boq-dashboard-modern { 
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+			min-height: 200px !important; 
+			display: block !important; 
+			visibility: visible !important;
+			position: relative !important;
+			z-index: 1 !important;
+		}
+		/* Prevent modal from affecting form content */
+		body.modal-open .frappe-control[data-fieldname="construction_dashboard"] {
+			display: block !important;
+			visibility: visible !important;
+		}
+		body.modal-open .boq-dashboard-modern {
+			display: block !important;
+			visibility: visible !important;
+		}
 		.boq-dashboard-loading { text-align: center; padding: 60px 20px; color: #6c757d; }
 		.loading-spinner { width: 40px; height: 40px; border: 3px solid #f3f3f3; border-top: 3px solid #5e64ff; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 15px; }
 		@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 	</style>`;
+}
+
+// Helper function to cleanup modal and restore dashboard visibility
+function cleanup_modal_and_restore_dashboard() {
+	// Remove any lingering modal backdrops
+	$('.modal-backdrop').remove();
+	// Restore body scroll
+	$('body').removeClass('modal-open').css('overflow', '');
+	
+	// Restore dashboard HTML and visibility
+	const wrapper = $('.frappe-control[data-fieldname="construction_dashboard"]');
+	const controlValue = wrapper.find('.control-value');
+	
+	// Restore HTML if it's empty but we have a backup
+	if (window._dashboard_html_backup && (!controlValue.html() || controlValue.html().trim() === '')) {
+		controlValue.html(window._dashboard_html_backup);
+	}
+	
+	// Ensure dashboard stays visible
+	wrapper.css({
+		'display': 'block',
+		'visibility': 'visible',
+		'opacity': '1'
+	});
+	controlValue.css({
+		'display': 'block',
+		'visibility': 'visible'
+	});
+	$('.boq-dashboard-modern').css({
+		'display': 'block',
+		'visibility': 'visible'
+	});
+}
+
+// Lightweight backdrop cleanup used by dialogs
+function cleanup_modal_backdrop() {
+	$('.modal-backdrop').remove();
+	$('body').removeClass('modal-open');
+	frappe.dom.unfreeze && frappe.dom.unfreeze();
+}
+
+// Helper function to ensure dashboard stays visible when modal opens
+function ensure_dashboard_visible() {
+	// Store the current dashboard HTML if not already stored
+	const wrapper = $('.frappe-control[data-fieldname="construction_dashboard"] .control-value');
+	if (wrapper.length && wrapper.html() && wrapper.html().trim()) {
+		if (!window._dashboard_html_backup) {
+			window._dashboard_html_backup = wrapper.html();
+		}
+	}
+	
+	setTimeout(() => {
+		const wrapper = $('.frappe-control[data-fieldname="construction_dashboard"]');
+		const controlValue = wrapper.find('.control-value');
+		
+		// Restore HTML if it's empty but we have a backup
+		if (window._dashboard_html_backup && (!controlValue.html() || controlValue.html().trim() === '')) {
+			controlValue.html(window._dashboard_html_backup);
+		}
+		
+		// Force visibility
+		wrapper.css({
+			'display': 'block',
+			'visibility': 'visible',
+			'opacity': '1',
+			'position': 'relative',
+			'z-index': '1'
+		});
+		controlValue.css({
+			'display': 'block',
+			'visibility': 'visible',
+			'height': 'auto',
+			'overflow': 'visible'
+		});
+		$('.boq-dashboard-modern').css({
+			'display': 'block',
+			'visibility': 'visible',
+			'position': 'relative',
+			'z-index': '1'
+		});
+	}, 50);
 }
 
 function render_empty_state(wrapper, frm) {
@@ -124,6 +265,14 @@ function render_modern_dashboard(wrapper, frm, data) {
 	render_kpi_grid(wrapper.find('#kpi-grid'), kpi, progress, collectionRate);
 	render_action_bar(wrapper.find('#action-bar'), frm);
 	render_bills_accordion(wrapper.find('#bills-container'), frm, data.bills);
+	
+	// Store the dashboard HTML for restoration if needed
+	setTimeout(() => {
+		const dashboardHtml = wrapper.html();
+		if (dashboardHtml && dashboardHtml.trim()) {
+			window._dashboard_html_backup = dashboardHtml;
+		}
+	}, 100);
 }
 
 function render_kpi_grid(container, kpi, progress, collectionRate) {
@@ -242,7 +391,7 @@ function render_bills_accordion(container, frm, bills) {
 		
 		html += `
 			<div class="bill-card ${isExpanded ? 'expanded' : ''}" data-bill="${bill.name}">
-				<div class="bill-header" onclick="toggleBill(this)">
+				<div class="bill-header" onclick="toggleBill(this, event)">
 					<div class="bill-header-left">
 						<svg class="chevron-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
 						<div class="bill-info">
@@ -476,18 +625,27 @@ function update_boq_item_current(itemName, newQty, frm) {
 	});
 }
 
-window.toggleBill = function(header) {
+window.toggleBill = function(header, event) {
+	// Stop event propagation to prevent any parent handlers
+	if (event) {
+		event.stopPropagation();
+		event.preventDefault();
+	}
+	
 	const card = $(header).closest('.bill-card');
 	const content = card.find('.bill-content');
 	const isExpanded = card.hasClass('expanded');
 	
 	if (isExpanded) {
-		content.slideUp(200);
-		card.removeClass('expanded');
+		content.stop(true, true).slideUp(200, function() {
+			card.removeClass('expanded');
+		});
 	} else {
-		content.slideDown(200);
 		card.addClass('expanded');
+		content.stop(true, true).slideDown(200);
 	}
+	
+	return false; // Prevent default behavior
 };
 
 function get_status_class(status) {
@@ -667,6 +825,9 @@ function show_invoice_dialog(boq_item, data) {
 	const summary = data.summary || {};
 	const boqItem = data.boq_item || {};
 	const ledgerEntries = data.ledger_entries || [];
+	const paymentCertificates = data.payment_certificates || [];
+	const pendingProformas = data.pending_proformas || [];
+	const pcSummary = data.pc_summary || {};
 	
 	// Build ledger entries table with prev/curr/accumulated columns
 	let ledgerRows = ledgerEntries.length > 0 ? ledgerEntries.map((entry, idx) => {
@@ -677,12 +838,14 @@ function show_invoice_dialog(boq_item, data) {
 		const statusClass = entry.invoice_status === 'Paid' ? 'status-success' : 
 			(entry.invoice_status === 'Unpaid' || entry.invoice_status === 'Overdue') ? 'status-warning' : 'status-default';
 		
+		const typeLabel = entry.is_proforma ? '<span class="type-badge proforma">Proforma</span>' : '<span class="type-badge tax">Tax Inv</span>';
+		
 		return `
 		<tr>
 			<td class="text-center">${idx + 1}</td>
 			<td>${entry.posting_date}</td>
 			<td>${refLink}</td>
-			<td class="text-center">${entry.source || '-'}</td>
+			<td class="text-center">${typeLabel}</td>
 			<td class="text-center">${entry.unit || '-'}</td>
 			<td class="text-right col-prev">${format_number(entry.prev_qty)}</td>
 			<td class="text-right col-curr">${format_number(entry.current_qty)}</td>
@@ -690,12 +853,71 @@ function show_invoice_dialog(boq_item, data) {
 			<td class="text-right col-prev">${format_currency(entry.prev_amount)}</td>
 			<td class="text-right col-curr">${format_currency(entry.current_amount)}</td>
 			<td class="text-right col-accum font-bold">${format_currency(entry.accumulated_amount)}</td>
-			<td class="text-center">${entry.pay_cert || '-'}</td>
+			<td class="text-center">${entry.pay_cert ? `<a href="/app/payment-certificate/${entry.pay_cert}">${entry.pay_cert}</a>` : '-'}</td>
 			<td><span class="status-pill ${statusClass}">${entry.invoice_status || entry.source}</span></td>
 		</tr>
 		`;
 	}).join('') : '<tr><td colspan="13" class="text-center text-muted">No billing history found</td></tr>';
 	
+	// Build payment certificates table with cumulative columns
+	let cumulativeProforma = 0;
+	let cumulativeTaxInvoice = 0;
+	let pcRows = paymentCertificates.length > 0 ? paymentCertificates.map((pc, idx) => {
+		const statusClass = pc.status === 'Paid' ? 'status-success' : 
+			(pc.status === 'Invoiced' || pc.status === 'Submitted') ? 'status-info' : 'status-warning';
+		const varianceClass = pc.variance > 0 ? 'text-danger' : (pc.variance < 0 ? 'text-success' : '');
+		
+		// Calculate cumulative values
+		cumulativeProforma += parseFloat(pc.proforma_amount) || 0;
+		cumulativeTaxInvoice += parseFloat(pc.accepted_amount) || 0;
+		
+		// Determine if Submit button should be shown
+		const canSubmit = pc.status === 'Draft' && pc.docstatus === 0;
+		const submitButton = canSubmit ? 
+			`<button class="btn btn-xs btn-success" onclick="submit_payment_certificate('${pc.name}', '${boq_item}')">Submit</button>` : 
+			'-';
+		
+		return `
+		<tr>
+			<td class="text-center">${idx + 1}</td>
+			<td>${pc.posting_date}</td>
+			<td><a href="/app/payment-certificate/${pc.name}" class="invoice-link">${pc.name}</a></td>
+			<td>${pc.proforma_invoice ? `<a href="/app/sales-invoice/${pc.proforma_invoice}">${pc.proforma_invoice}</a>` : '-'}</td>
+			<td class="text-right">${format_currency(pc.proforma_amount)}</td>
+			<td class="text-right col-accum font-bold">${format_currency(cumulativeProforma)}</td>
+			<td class="text-right font-bold">${format_currency(pc.accepted_amount)}</td>
+			<td class="text-right col-accum font-bold">${format_currency(cumulativeTaxInvoice)}</td>
+			<td class="text-right ${varianceClass}">${format_currency(pc.variance)}</td>
+			<td>${pc.tax_invoice ? `<a href="/app/sales-invoice/${pc.tax_invoice}">${pc.tax_invoice}</a>` : '-'}</td>
+			<td class="text-right">${format_currency(pc.payment_received || 0)}</td>
+			<td><span class="status-pill ${statusClass}">${pc.status}</span></td>
+			<td class="text-center">${submitButton}</td>
+		</tr>
+		`;
+	}).join('') : '<tr><td colspan="13" class="text-center text-muted">No payment certificates found</td></tr>';
+	
+	// Build pending proformas table
+	let proformaRows = pendingProformas.length > 0 ? pendingProformas.map((p, idx) => {
+		const ageClass = p.age_days > 30 ? 'text-danger' : (p.age_days > 14 ? 'text-warning' : '');
+		return `
+		<tr>
+			<td class="text-center">${idx + 1}</td>
+			<td>${p.posting_date}</td>
+			<td><a href="/app/sales-invoice/${p.name}" class="invoice-link">${p.name}</a></td>
+			<td class="text-right">${format_currency(p.grand_total)}</td>
+			<td class="text-center ${ageClass}">${p.age_days} days</td>
+			<td>
+				<button class="btn btn-xs btn-primary" onclick="create_pc_from_history('${p.name}', ${p.grand_total}, '${boq_item}')">
+					Create PC
+				</button>
+			</td>
+		</tr>
+		`;
+	}).join('') : '<tr><td colspan="6" class="text-center text-muted">No pending proformas</td></tr>';
+	
+	// Aggressive cleanup of any stale backdrops before opening
+	cleanup_modal_backdrop();
+
 	const d = new frappe.ui.Dialog({ title: __('Invoice History - Progressive Billing'), size: 'extra-large', fields: [{fieldtype: 'HTML', fieldname: 'invoice_html'}] });
 	d.fields_dict.invoice_html.$wrapper.html(`
 		<div class="boq-item-header">
@@ -716,33 +938,104 @@ function show_invoice_dialog(boq_item, data) {
 			<div class="summary-card balance"><span class="summary-label">Balance Qty</span><span class="summary-value">${format_number(summary.balance_qty)}</span></div>
 			<div class="summary-card balance"><span class="summary-label">Balance Amount</span><span class="summary-value">${format_currency(summary.balance_amount)}</span></div>
 		</div>
-		<h4 style="margin: 20px 0 10px; font-size: 14px; font-weight: 600;">📋 BOQ Progress Ledger</h4>
-		<div class="ledger-table-wrapper">
-			<table class="invoice-history-table ledger-table">
-				<thead>
-					<tr>
-						<th rowspan="2" class="text-center">#</th>
-						<th rowspan="2">Date</th>
-						<th rowspan="2">Reference</th>
-						<th rowspan="2" class="text-center">Source</th>
-						<th rowspan="2" class="text-center">Unit</th>
-						<th colspan="3" class="text-center col-group-qty">Quantity</th>
-						<th colspan="3" class="text-center col-group-amt">Amount</th>
-						<th rowspan="2" class="text-center">Pay Cert</th>
-						<th rowspan="2">Status</th>
-					</tr>
-					<tr>
-						<th class="text-right col-prev">Prev</th>
-						<th class="text-right col-curr">Curr</th>
-						<th class="text-right col-accum">Accum</th>
-						<th class="text-right col-prev">Prev</th>
-						<th class="text-right col-curr">Curr</th>
-						<th class="text-right col-accum">Accum</th>
-					</tr>
-				</thead>
-				<tbody>${ledgerRows}</tbody>
-			</table>
+		
+		<!-- Payment Certificate Summary -->
+		<div class="pc-summary-section">
+			<h4 style="margin: 20px 0 10px; font-size: 14px; font-weight: 600;">📋 Payment Certificate Summary</h4>
+			<div class="pc-summary-grid">
+				<div class="pc-stat proforma"><span class="pc-stat-label">Total Proforma</span><span class="pc-stat-value">${format_currency(pcSummary.total_proforma || 0)}</span></div>
+				<div class="pc-stat accepted"><span class="pc-stat-label">Total Accepted</span><span class="pc-stat-value">${format_currency(pcSummary.total_accepted || 0)}</span></div>
+				<div class="pc-stat variance"><span class="pc-stat-label">Total Variance</span><span class="pc-stat-value">${format_currency(pcSummary.total_variance || 0)}</span></div>
+				<div class="pc-stat received"><span class="pc-stat-label">Total Received</span><span class="pc-stat-value">${format_currency(pcSummary.total_received || 0)}</span></div>
+				<div class="pc-stat pending-proforma"><span class="pc-stat-label">Pending Proformas</span><span class="pc-stat-value">${pcSummary.pending_proforma_count || 0} (${format_currency(pcSummary.pending_proforma_amount || 0)})</span></div>
+			</div>
 		</div>
+		
+		<!-- Tabs for different views -->
+		<div class="invoice-tabs">
+			<div class="tab-buttons">
+				<button class="tab-btn active" data-tab="ledger">📊 Progress Ledger</button>
+				<button class="tab-btn" data-tab="certificates">📜 Payment Certificates (${paymentCertificates.length})</button>
+				<button class="tab-btn ${pendingProformas.length > 0 ? 'has-pending' : ''}" data-tab="proformas">⏳ Pending Proformas (${pendingProformas.length})</button>
+			</div>
+			
+			<div class="tab-content active" data-content="ledger">
+				<div class="ledger-table-wrapper">
+					<table class="invoice-history-table ledger-table">
+						<thead>
+							<tr>
+								<th rowspan="2" class="text-center">#</th>
+								<th rowspan="2">Date</th>
+								<th rowspan="2">Reference</th>
+								<th rowspan="2" class="text-center">Type</th>
+								<th rowspan="2" class="text-center">Unit</th>
+								<th colspan="3" class="text-center col-group-qty">Quantity</th>
+								<th colspan="3" class="text-center col-group-amt">Amount</th>
+								<th rowspan="2" class="text-center">Pay Cert</th>
+								<th rowspan="2">Status</th>
+							</tr>
+							<tr>
+								<th class="text-right col-prev">Prev</th>
+								<th class="text-right col-curr">Curr</th>
+								<th class="text-right col-accum">Accum</th>
+								<th class="text-right col-prev">Prev</th>
+								<th class="text-right col-curr">Curr</th>
+								<th class="text-right col-accum">Accum</th>
+							</tr>
+						</thead>
+						<tbody>${ledgerRows}</tbody>
+					</table>
+				</div>
+			</div>
+			
+			<div class="tab-content" data-content="certificates">
+				<div class="ledger-table-wrapper">
+					<table class="invoice-history-table">
+						<thead>
+							<tr>
+								<th rowspan="2" class="text-center">#</th>
+								<th rowspan="2">Date</th>
+								<th rowspan="2">PC Number</th>
+								<th rowspan="2">Proforma Invoice</th>
+								<th colspan="2" class="text-center col-group-proforma">Proforma Amount</th>
+								<th colspan="2" class="text-center col-group-tax">Tax Invoice Amount</th>
+								<th rowspan="2" class="text-right">Variance</th>
+								<th rowspan="2">Tax Invoice</th>
+								<th rowspan="2" class="text-right">Received</th>
+								<th rowspan="2">Status</th>
+								<th rowspan="2" class="text-center">Actions</th>
+							</tr>
+							<tr>
+								<th class="text-right col-curr">Current</th>
+								<th class="text-right col-accum">Cumulative</th>
+								<th class="text-right col-curr">Current</th>
+								<th class="text-right col-accum">Cumulative</th>
+							</tr>
+						</thead>
+						<tbody>${pcRows}</tbody>
+					</table>
+				</div>
+			</div>
+			
+			<div class="tab-content" data-content="proformas">
+				<div class="ledger-table-wrapper">
+					<table class="invoice-history-table">
+						<thead>
+							<tr>
+								<th class="text-center">#</th>
+								<th>Date</th>
+								<th>Proforma Invoice</th>
+								<th class="text-right">Amount</th>
+								<th class="text-center">Age</th>
+								<th>Action</th>
+							</tr>
+						</thead>
+						<tbody>${proformaRows}</tbody>
+					</table>
+				</div>
+			</div>
+		</div>
+		
 		<style>
 			.boq-item-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px; border-radius: 8px; margin-bottom: 16px; }
 			.boq-item-desc { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
@@ -755,12 +1048,42 @@ function show_invoice_dialog(boq_item, data) {
 			.summary-card.balance { background: #ede9fe; }
 			.summary-label { display: block; font-size: 10px; color: #6c757d; margin-bottom: 4px; text-transform: uppercase; }
 			.summary-value { display: block; font-size: 16px; font-weight: 600; }
+			
+			/* PC Summary */
+			.pc-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 16px; }
+			.pc-stat { background: #f8f9fa; border-radius: 6px; padding: 10px; text-align: center; border-left: 3px solid #6b7280; }
+			.pc-stat.proforma { border-left-color: #8b5cf6; background: #f5f3ff; }
+			.pc-stat.accepted { border-left-color: #10b981; background: #ecfdf5; }
+			.pc-stat.variance { border-left-color: #f59e0b; background: #fffbeb; }
+			.pc-stat.received { border-left-color: #3b82f6; background: #eff6ff; }
+			.pc-stat.pending-proforma { border-left-color: #ef4444; background: #fef2f2; }
+			.pc-stat-label { display: block; font-size: 9px; color: #6b7280; text-transform: uppercase; margin-bottom: 2px; }
+			.pc-stat-value { display: block; font-size: 13px; font-weight: 600; }
+			
+			/* Tabs */
+			.invoice-tabs { margin-top: 16px; }
+			.tab-buttons { display: flex; gap: 8px; border-bottom: 2px solid #e5e7eb; padding-bottom: 0; margin-bottom: 16px; }
+			.tab-btn { padding: 10px 16px; border: none; background: none; cursor: pointer; font-size: 13px; font-weight: 500; color: #6b7280; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.2s; }
+			.tab-btn:hover { color: #374151; }
+			.tab-btn.active { color: #5e64ff; border-bottom-color: #5e64ff; }
+			.tab-btn.has-pending { color: #ef4444; }
+			.tab-btn.has-pending.active { border-bottom-color: #ef4444; }
+			.tab-content { display: none; }
+			.tab-content.active { display: block; }
+			
+			/* Type badges */
+			.type-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 600; text-transform: uppercase; }
+			.type-badge.proforma { background: #f5f3ff; color: #7c3aed; }
+			.type-badge.tax { background: #ecfdf5; color: #059669; }
+			
 			.ledger-table-wrapper { overflow-x: auto; }
 			.invoice-history-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 			.invoice-history-table th, .invoice-history-table td { padding: 10px 8px; border-bottom: 1px solid #e9ecef; }
 			.invoice-history-table th { background: #f8f9fa; font-weight: 500; font-size: 10px; text-transform: uppercase; white-space: nowrap; }
 			.col-group-qty { background: #eff6ff !important; }
 			.col-group-amt { background: #f0fdf4 !important; }
+			.col-group-proforma { background: #f5f3ff !important; }
+			.col-group-tax { background: #ecfdf5 !important; }
 			.col-prev { background: #fafafa; }
 			.col-curr { background: #fffbeb; }
 			.col-accum { background: #f0fdf4; }
@@ -770,11 +1093,111 @@ function show_invoice_dialog(boq_item, data) {
 			.status-pill { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 10px; font-weight: 500; }
 			.status-success { background: #d1fae5; color: #065f46; }
 			.status-warning { background: #fef3c7; color: #92400e; }
+			.status-info { background: #dbeafe; color: #1e40af; }
 			.status-default { background: #f3f4f6; color: #6b7280; }
+			.text-danger { color: #dc2626; }
+			.text-success { color: #059669; }
+			.text-warning { color: #d97706; }
 		</style>
 	`);
+	
+	// Tab switching
+	d.$wrapper.find('.tab-btn').on('click', function() {
+		const tab = $(this).data('tab');
+		d.$wrapper.find('.tab-btn').removeClass('active');
+		$(this).addClass('active');
+		d.$wrapper.find('.tab-content').removeClass('active');
+		d.$wrapper.find(`.tab-content[data-content="${tab}"]`).addClass('active');
+	});
+	
+	// Fix: Ensure proper cleanup when dialog is closed
+	d.onhide = function() {
+		cleanup_modal_and_restore_dashboard();
+	};
+	
 	d.show();
+	
+	// Ensure dashboard stays visible when modal opens
+	ensure_dashboard_visible();
 }
+
+// Helper function to create payment certificate from invoice history dialog
+window.create_pc_from_history = function(proforma_invoice, proforma_amount, boq_item) {
+	const d = new frappe.ui.Dialog({
+		title: __('Create Payment Certificate'),
+		fields: [
+			{fieldname: 'proforma_invoice', label: 'Proforma Invoice', fieldtype: 'Link', options: 'Sales Invoice', read_only: 1, default: proforma_invoice},
+			{fieldname: 'proforma_amount', label: 'Proforma Amount', fieldtype: 'Currency', read_only: 1, default: proforma_amount},
+			{fieldtype: 'Column Break'},
+			{fieldname: 'accepted_amount', label: 'Accepted Amount', fieldtype: 'Currency', reqd: 1, default: proforma_amount,
+				description: 'Amount approved by customer'},
+			{fieldtype: 'Section Break'},
+			{fieldname: 'remarks', label: 'Remarks', fieldtype: 'Small Text'}
+		],
+		primary_action_label: __('Create'),
+		primary_action: function(values) {
+			frappe.call({
+				method: 'construction_management.construction_management.doctype.payment_certificate.payment_certificate.create_payment_certificate_from_proforma',
+				args: {
+					proforma_invoice: proforma_invoice,
+					accepted_amount: values.accepted_amount,
+					remarks: values.remarks
+				},
+				callback: function(r) {
+					if (r.message) {
+						d.hide();
+						frappe.show_alert({message: __('Payment Certificate {0} created', [r.message.name]), indicator: 'green'});
+						// Refresh the invoice history dialog
+						view_item_invoices(boq_item);
+					}
+				}
+			});
+		}
+	});
+	// Fix: Ensure proper cleanup when dialog is closed
+	d.onhide = function() {
+		cleanup_modal_and_restore_dashboard();
+	};
+	d.show();
+	ensure_dashboard_visible();
+};
+
+// Helper function to submit payment certificate from invoice history dialog
+window.submit_payment_certificate = function(pc_name, boq_item) {
+	frappe.confirm(
+		__('Are you sure you want to submit Payment Certificate {0}? This will create a Tax Invoice.', [pc_name]),
+		function() {
+			frappe.call({
+				method: 'frappe.client.submit',
+				args: {
+					doc: {
+						doctype: 'Payment Certificate',
+						name: pc_name
+					}
+				},
+				callback: function(r) {
+					if (r.message) {
+						frappe.show_alert({
+							message: __('Payment Certificate {0} submitted successfully', [pc_name]),
+							indicator: 'green'
+						});
+						// Refresh the invoice history dialog to show updated status
+						setTimeout(() => {
+							view_item_invoices(boq_item);
+						}, 500);
+					}
+				},
+				error: function(r) {
+					frappe.msgprint({
+						title: __('Submission Failed'),
+						message: r.message || __('Could not submit Payment Certificate'),
+						indicator: 'red'
+					});
+				}
+			});
+		}
+	);
+};
 
 window.view_cost_details = function(boq_item) {
 	frappe.call({
@@ -840,7 +1263,12 @@ function show_cost_dialog(boq_item, data) {
 			.cost-badge.overhead { background: #f3e8ff; color: #7c3aed; }
 		</style>
 	`);
+	// Fix: Ensure proper cleanup when dialog is closed
+	d.onhide = function() {
+		cleanup_modal_and_restore_dashboard();
+	};
 	d.show();
+	ensure_dashboard_visible();
 }
 
 // ============================================
@@ -950,7 +1378,12 @@ function show_bill_advances_dialog(bill_no, data) {
 		]
 	});
 	
+	// Fix: Ensure proper cleanup when dialog is closed
+	d.onhide = function() {
+		cleanup_modal_and_restore_dashboard();
+	};
 	d.show();
+	ensure_dashboard_visible();
 }
 
 function get_advance_status_color(status) {
@@ -1090,6 +1523,10 @@ function show_gantt_chart_dialog(project, tasks) {
 		]
 	});
 	
+	// Fix: Ensure proper cleanup when dialog is closed
+	d.onhide = function() {
+		cleanup_modal_and_restore_dashboard();
+	};
 	d.show();
 	
 	// Render Gantt chart after dialog shows
@@ -1303,7 +1740,12 @@ function show_dprs_dialog(project, dprs) {
 		</style>
 	`);
 	
+	// Fix: Ensure proper cleanup when dialog is closed
+	d.onhide = function() {
+		cleanup_modal_and_restore_dashboard();
+	};
 	d.show();
+	ensure_dashboard_visible();
 }
 
 window.print_invoice_till_date = function(project) {
@@ -1600,6 +2042,10 @@ function show_payment_certificates_dialog(project, pendingProformas, paymentCert
 		}
 	});
 	
+	// Fix: Ensure proper cleanup when dialog is closed
+	d.onhide = function() {
+		cleanup_modal_and_restore_dashboard();
+	};
 	d.show();
 	
 	// Tab switching
@@ -1702,6 +2148,11 @@ function create_proforma_invoice_dialog(project) {
 				}
 			});
 			d.show();
+			
+			// Ensure backdrop/body classes are cleared on close (fixes background staying hidden)
+			d.$wrapper.on('hide.bs.modal hidden.bs.modal', () => {
+				cleanup_modal_backdrop();
+			});
 		}
 	});
 }
@@ -2050,6 +2501,10 @@ function show_dpr_dialog(project, boq_items) {
 		}
 	});
 	
+	// Fix: Ensure proper cleanup when dialog is closed
+	d.onhide = function() {
+		cleanup_modal_and_restore_dashboard();
+	};
 	d.show();
 	
 	// Attach tab switching logic
@@ -2175,6 +2630,10 @@ window.show_dpr_dialog_enhanced = function(project) {
 		secondary_action: function() { d.hide(); frappe.new_doc('Daily Progress Record', { project: project }); }
 	});
 	
+	// Fix: Ensure proper cleanup when dialog is closed
+	d.onhide = function() {
+		cleanup_modal_and_restore_dashboard();
+	};
 	d.show();
 	
 	// Add styles and render lists
@@ -2683,6 +3142,11 @@ function show_task_tree_dialog(boq_item, data) {
 	}
 	
 	renderTaskTree();
+	
+	// Fix: Ensure proper cleanup when dialog is closed
+	d.onhide = function() {
+		cleanup_modal_and_restore_dashboard();
+	};
 	d.show();
 	
 	// Store dialog reference for refresh
@@ -3177,7 +3641,12 @@ function show_resource_planner_dialog(project, data, filters = {}) {
 	// Store dialog reference
 	window._resourcePlannerDialog = d;
 	
+	// Fix: Ensure proper cleanup when dialog is closed
+	d.onhide = function() {
+		cleanup_modal_and_restore_dashboard();
+	};
 	d.show();
+	ensure_dashboard_visible();
 }
 
 window.add_resource_allocation = function(project) {
@@ -3391,6 +3860,10 @@ window.add_resource_allocation = function(project) {
 		updateSelectedEmployeesDisplay();
 	};
 	
+	// Fix: Ensure proper cleanup when dialog is closed
+	d.onhide = function() {
+		cleanup_modal_and_restore_dashboard();
+	};
 	d.show();
 	
 	// Initial display

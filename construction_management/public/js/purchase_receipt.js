@@ -7,6 +7,16 @@ frappe.ui.form.on('Purchase Receipt', {
 		setup_split_button(frm);
 	},
 	
+	// When Purchase Order is set at parent level, copy to all existing items
+	custom_purchase_order: function(frm) {
+		if (frm.doc.custom_purchase_order && frm.doc.items) {
+			frm.doc.items.forEach(item => {
+				frappe.model.set_value(item.doctype, item.name, 'custom_purchase_order', frm.doc.custom_purchase_order);
+			});
+			frm.refresh_field('items');
+		}
+	},
+	
 	split_item_by_project: function(frm) {
 		if (!frm.doc.split_item_by_project) {
 			frm.set_value('split_quantity', 0);
@@ -26,6 +36,142 @@ frappe.ui.form.on('Purchase Receipt', {
 		split_selected_items(frm);
 	}
 });
+
+// ============================================
+// Purchase Receipt Item - Child Table Events
+// ============================================
+
+frappe.ui.form.on('Purchase Receipt Item', {
+	// When a new row is added, copy Purchase Order from parent
+	items_add: function(frm, cdt, cdn) {
+		let row = frappe.get_doc(cdt, cdn);
+		if (frm.doc.custom_purchase_order) {
+			frappe.model.set_value(cdt, cdn, 'custom_purchase_order', frm.doc.custom_purchase_order);
+		}
+	},
+	
+	// When Item Code is selected, validate it exists in linked Purchase Order
+	item_code: function(frm, cdt, cdn) {
+		let row = frappe.get_doc(cdt, cdn);
+		
+		// Only validate if Purchase Order is set at parent level
+		if (!frm.doc.custom_purchase_order || !row.item_code) {
+			return;
+		}
+		
+		// Check if item exists in the linked Purchase Order
+		frappe.call({
+			method: 'frappe.client.get_list',
+			args: {
+				doctype: 'Purchase Order Item',
+				filters: {
+					'parent': frm.doc.custom_purchase_order,
+					'item_code': row.item_code
+				},
+				fields: ['name', 'item_code', 'qty'],
+				limit_page_length: 1
+			},
+			callback: function(r) {
+				if (!r.message || r.message.length === 0) {
+					// Item not found in Purchase Order - show error and clear the item
+					frappe.msgprint({
+						title: __('Item Not in Purchase Order'),
+						message: __('Item <b>{0}</b> is not present in Purchase Order <b>{1}</b>. Please select an item from the linked Purchase Order.', 
+							[row.item_code, frm.doc.custom_purchase_order]),
+						indicator: 'red'
+					});
+					
+					// Clear the item code
+					frappe.model.set_value(cdt, cdn, 'item_code', '');
+					frappe.model.set_value(cdt, cdn, 'item_name', '');
+					frappe.model.set_value(cdt, cdn, 'description', '');
+					frappe.model.set_value(cdt, cdn, 'qty', 0);
+				}
+			}
+		});
+	},
+	
+	// When Warehouse (Accepted Warehouse) is selected, fetch linked Project
+	warehouse: function(frm, cdt, cdn) {
+		fetch_project_from_warehouse(frm, cdt, cdn, 'warehouse');
+	},
+	
+	// Also handle rejected warehouse if needed
+	rejected_warehouse: function(frm, cdt, cdn) {
+		// Optional: fetch project from rejected warehouse too
+	},
+	
+	// When Project is selected, suggest linked Warehouse
+	custom_project: function(frm, cdt, cdn) {
+		let row = frappe.get_doc(cdt, cdn);
+		// Only auto-fill warehouse if not already set
+		if (row.custom_project && !row.warehouse) {
+			frappe.call({
+				method: 'frappe.client.get_list',
+				args: {
+					doctype: 'Warehouse',
+					filters: { 'custom_project': row.custom_project },
+					fields: ['name', 'warehouse_name'],
+					limit_page_length: 1
+				},
+				callback: function(r) {
+					if (r.message && r.message.length > 0) {
+						frappe.model.set_value(cdt, cdn, 'warehouse', r.message[0].name);
+						frappe.show_alert({
+							message: __('Warehouse {0} auto-selected based on Project', [r.message[0].warehouse_name || r.message[0].name]),
+							indicator: 'blue'
+						}, 3);
+					}
+				}
+			});
+		}
+	}
+});
+
+// ============================================
+// Helper: Fetch Project from Warehouse
+// ============================================
+
+function fetch_project_from_warehouse(frm, cdt, cdn, warehouse_field) {
+	let row = frappe.get_doc(cdt, cdn);
+	let warehouse = row[warehouse_field];
+	
+	console.log('fetch_project_from_warehouse called:', {warehouse_field, warehouse, row_name: row.name});
+	
+	if (!warehouse) {
+		// Clear project if warehouse is cleared
+		console.log('Clearing custom_project as warehouse is empty');
+		frappe.model.set_value(cdt, cdn, 'custom_project', '');
+		frappe.model.set_value(cdt, cdn, 'project', '');
+		return;
+	}
+	
+	// Use server-side method for more reliable fetching
+	console.log('Calling server method to get warehouse project');
+	frappe.call({
+		method: 'construction_management.api.purchase_receipt_utils.get_warehouse_project',
+		args: {
+			warehouse: warehouse
+	},
+	callback: function(r) {
+		console.log('Server response:', r);
+		if (r.message) {
+			console.log('Setting project/custom_project to:', r.message);
+			frappe.model.set_value(cdt, cdn, 'custom_project', r.message);
+			frappe.model.set_value(cdt, cdn, 'project', r.message);
+			frappe.show_alert({
+				message: __('Project {0} linked from Warehouse and set on the item', [r.message]),
+				indicator: 'green'
+			}, 3);
+		} else {
+			console.log('No project linked to this warehouse');
+		}
+		},
+		error: function(err) {
+			console.error('Error fetching warehouse project:', err);
+		}
+	});
+}
 
 function setup_split_button(frm) {
 	// The button field will trigger the split_button event

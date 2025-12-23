@@ -328,12 +328,13 @@ def create_invoice_from_multiple_items(project: str, items: list,
 def get_boq_invoice_history(boq_item: str) -> dict:
 	"""
 	Get invoice history for a BOQ Item (Child Payment Plan) with progressive billing details.
+	Includes proforma invoices, payment certificates, and tax invoices tracking.
 	
 	Args:
 		boq_item: BOQ Item name
 		
 	Returns:
-		dict with invoice summary, ledger entries with prev/curr/accumulated values
+		dict with invoice summary, ledger entries, payment certificates with prev/curr/accumulated values
 	"""
 	# Get BOQ Item details
 	boq_item_doc = frappe.get_doc("BOQ Item", boq_item)
@@ -356,7 +357,8 @@ def get_boq_invoice_history(boq_item: str) -> dict:
 			pl.accumulated_amount,
 			pl.remarks,
 			si.status as invoice_status,
-			si.outstanding_amount
+			si.outstanding_amount,
+			si.custom_is_proforma as is_proforma
 		FROM `tabBOQ Progress Ledger` pl
 		LEFT JOIN `tabSales Invoice` si ON pl.reference_name = si.name AND pl.reference_doctype = 'Sales Invoice'
 		WHERE pl.boq_item = %s
@@ -385,6 +387,7 @@ def get_boq_invoice_history(boq_item: str) -> dict:
 		SELECT 
 			si.name,
 			si.status,
+			si.custom_is_proforma as is_proforma,
 			sii.amount
 		FROM `tabSales Invoice` si
 		JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
@@ -403,6 +406,56 @@ def get_boq_invoice_history(boq_item: str) -> dict:
 	# Get latest accumulated values
 	latest_accumulated_qty = flt(ledger_entries[-1].accumulated_qty) if ledger_entries else 0
 	latest_accumulated_amount = flt(ledger_entries[-1].accumulated_amount) if ledger_entries else 0
+	
+	# Get payment certificates for this BOQ Item
+	payment_certificates = frappe.db.sql("""
+		SELECT 
+			pc.name,
+			pc.posting_date,
+			pc.proforma_invoice,
+			pc.proforma_amount,
+			pc.accepted_amount,
+			pc.variance,
+			pc.tax_invoice,
+			pc.status,
+			pc.payment_received,
+			pc.invoice_status
+		FROM `tabPayment Certificate` pc
+		WHERE pc.boq_item = %s
+		AND pc.docstatus != 2
+		ORDER BY pc.posting_date DESC
+	""", boq_item, as_dict=True)
+	
+	# Get pending proformas (proforma invoices without payment certificate)
+	pending_proformas = frappe.db.sql("""
+		SELECT 
+			si.name,
+			si.posting_date,
+			si.grand_total,
+			si.customer,
+			DATEDIFF(CURDATE(), si.posting_date) as age_days
+		FROM `tabSales Invoice` si
+		JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
+		WHERE sii.boq_item = %s
+		AND si.docstatus = 0
+		AND si.custom_is_proforma = 1
+		AND NOT EXISTS (
+			SELECT 1 FROM `tabPayment Certificate` pc 
+			WHERE pc.proforma_invoice = si.name 
+			AND pc.docstatus != 2
+		)
+		ORDER BY si.posting_date DESC
+	""", boq_item, as_dict=True)
+	
+	# Calculate payment certificate summary
+	pc_summary = {
+		"total_proforma": sum(flt(pc.proforma_amount) for pc in payment_certificates),
+		"total_accepted": sum(flt(pc.accepted_amount) for pc in payment_certificates),
+		"total_variance": sum(flt(pc.variance) for pc in payment_certificates),
+		"total_received": sum(flt(pc.payment_received) for pc in payment_certificates),
+		"pending_proforma_count": len(pending_proformas),
+		"pending_proforma_amount": sum(flt(p.grand_total) for p in pending_proformas)
+	}
 	
 	return {
 		"boq_item": {
@@ -423,7 +476,10 @@ def get_boq_invoice_history(boq_item: str) -> dict:
 			"balance_qty": total_qty - latest_accumulated_qty,
 			"balance_amount": total_amount - latest_accumulated_amount
 		},
-		"ledger_entries": ledger_entries
+		"ledger_entries": ledger_entries,
+		"payment_certificates": payment_certificates,
+		"pending_proformas": pending_proformas,
+		"pc_summary": pc_summary
 	}
 
 

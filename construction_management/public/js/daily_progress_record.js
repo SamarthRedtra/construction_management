@@ -11,12 +11,34 @@ frappe.ui.form.on('Daily Progress Record', {
 			});
 		}
 		
-		// Set warehouse filter by project for materials
+		// Set warehouse filter by project for materials (Site field)
 		if (frm.doc.project) {
 			frm.set_query('warehouse', 'materials', function() {
 				return {
 					filters: {
 						custom_project: frm.doc.project
+					}
+				};
+			});
+			
+			// Set item_code query to filter by warehouse stock
+			frm.set_query('item_code', 'materials', function(doc, cdt, cdn) {
+				let row = locals[cdt][cdn];
+				if (!row.warehouse) {
+					frappe.show_alert({
+						message: __('Please select a Site/Warehouse first'),
+						indicator: 'orange'
+					});
+					return {
+						filters: {
+							name: ['in', []]  // Return empty to prevent selection
+						}
+					};
+				}
+				return {
+					query: 'construction_management.api.dpr_utils.get_warehouse_items_query',
+					filters: {
+						warehouse: row.warehouse
 					}
 				};
 			});
@@ -42,6 +64,24 @@ frappe.ui.form.on('Daily Progress Record', {
 				return {
 					filters: {
 						custom_project: frm.doc.project
+					}
+				};
+			});
+			
+			// Set item_code query to filter by warehouse stock
+			frm.set_query('item_code', 'materials', function(doc, cdt, cdn) {
+				let row = locals[cdt][cdn];
+				if (!row.warehouse) {
+					return {
+						filters: {
+							name: ['in', []]  // Return empty to prevent selection
+						}
+					};
+				}
+				return {
+					query: 'construction_management.api.dpr_utils.get_warehouse_items_query',
+					filters: {
+						warehouse: row.warehouse
 					}
 				};
 			});
@@ -225,23 +265,36 @@ frappe.ui.form.on('DPR Material', {
 		frappe.model.set_value(cdt, cdn, 'rate', 0);
 		frappe.model.set_value(cdt, cdn, 'amount', 0);
 		
-		// Set item filter based on warehouse stock
+		// Check if warehouse has stock
 		if (row.warehouse) {
-			frm.fields_dict.materials.grid.update_docfield_property(
-				'item_code', 'get_query', function() {
-					return {
-						query: 'construction_management.api.dpr_utils.get_warehouse_items_query',
-						filters: {
-							warehouse: row.warehouse
-						}
-					};
+			frappe.call({
+				method: 'construction_management.api.dpr_utils.get_warehouse_items_with_stock',
+				args: { warehouse: row.warehouse },
+				callback: function(r) {
+					if (!r.message || r.message.length === 0) {
+						frappe.show_alert({
+							message: __('No items with stock found in this warehouse/site. Please select a different site or add stock first.'),
+							indicator: 'orange'
+						});
+					}
 				}
-			);
+			});
 		}
 	},
 	
 	item_code(frm, cdt, cdn) {
 		let row = locals[cdt][cdn];
+		
+		// Validate warehouse is selected first
+		if (row.item_code && !row.warehouse) {
+			frappe.model.set_value(cdt, cdn, 'item_code', '');
+			frappe.show_alert({
+				message: __('Please select a Site/Warehouse first before selecting an item'),
+				indicator: 'red'
+			});
+			return;
+		}
+		
 		if (row.item_code && row.warehouse) {
 			// Fetch valuation rate and make it read-only
 			frappe.call({
@@ -254,6 +307,24 @@ frappe.ui.form.on('DPR Material', {
 					if (r.message) {
 						frappe.model.set_value(cdt, cdn, 'rate', r.message);
 						calculate_material_amount(frm, cdt, cdn);
+					}
+				}
+			});
+			
+			// Also validate stock availability
+			frappe.call({
+				method: 'construction_management.api.dpr_utils.validate_material_stock',
+				args: {
+					warehouse: row.warehouse,
+					item_code: row.item_code,
+					qty: row.qty || 1
+				},
+				callback: function(r) {
+					if (r.message && !r.message.is_valid) {
+						frappe.show_alert({
+							message: __('Warning: {0}', [r.message.message]),
+							indicator: 'orange'
+						});
 					}
 				}
 			});
@@ -293,17 +364,20 @@ frappe.ui.form.on('DPR Material', {
 	},
 	
 	materials_add(frm, cdt, cdn) {
-		// Set warehouse filter by project when adding new row
+		// Check if project has warehouses
 		if (frm.doc.project) {
-			frm.fields_dict.materials.grid.update_docfield_property(
-				'warehouse', 'get_query', function() {
-					return {
-						filters: {
-							custom_project: frm.doc.project
-						}
-					};
+			frappe.call({
+				method: 'construction_management.api.dpr_utils.get_project_warehouses',
+				args: { project: frm.doc.project },
+				callback: function(r) {
+					if (!r.message || r.message.length === 0) {
+						frappe.show_alert({
+							message: __('No warehouses/sites linked to this project. Please create a warehouse and link it to the project first.'),
+							indicator: 'orange'
+						});
+					}
 				}
-			);
+			});
 		}
 	}
 });

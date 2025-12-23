@@ -4,9 +4,9 @@
 	"doctype": "DocType",
 	"engine": "InnoDB",
 	"field_order": [
+		"warehouse",
 		"item_code",
 		"item_name",
-		"warehouse",
 		"qty",
 		"uom",
 		"rate",
@@ -15,12 +15,23 @@
 	],
 	"fields": [
 		{
+			"fieldname": "warehouse",
+			"fieldtype": "Link",
+			"in_list_view": 1,
+			"label": "Site",
+			"options": "Warehouse",
+			"reqd": 1,
+			"description": "Select site/warehouse first to see available items"
+		},
+		{
 			"fieldname": "item_code",
 			"fieldtype": "Link",
 			"in_list_view": 1,
 			"label": "Item Code",
 			"options": "Item",
-			"reqd": 1
+			"reqd": 1,
+			"depends_on": "warehouse",
+			"mandatory_depends_on": "warehouse"
 		},
 		{
 			"fetch_from": "item_code.item_name",
@@ -29,14 +40,6 @@
 			"in_list_view": 1,
 			"label": "Item Name",
 			"read_only": 1
-		},
-		{
-			"fieldname": "warehouse",
-			"fieldtype": "Link",
-			"in_list_view": 1,
-			"label": "Warehouse",
-			"options": "Warehouse",
-			"reqd": 1
 		},
 		{
 			"fieldname": "qty",
@@ -57,7 +60,9 @@
 			"fieldname": "rate",
 			"fieldtype": "Currency",
 			"in_list_view": 1,
-			"label": "Rate"
+			"label": "Rate",
+			"read_only": 1,
+			"description": "Auto-fetched from stock valuation rate"
 		},
 		{
 			"fieldname": "amount",
@@ -76,7 +81,7 @@
 	],
 	"istable": 1,
 	"links": [],
-	"modified": "2024-12-22 10:00:00",
+	"modified": "2024-12-23 10:00:00",
 	"modified_by": "Administrator",
 	"module": "Construction Management",
 	"name": "DPR Material",
