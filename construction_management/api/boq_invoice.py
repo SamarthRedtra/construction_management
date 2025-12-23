@@ -357,16 +357,27 @@ def get_boq_invoice_history(boq_item: str) -> dict:
 			pl.accumulated_amount,
 			pl.remarks,
 			si.status as invoice_status,
+			si.docstatus as invoice_docstatus,
 			si.outstanding_amount,
 			si.custom_is_proforma as is_proforma
 		FROM `tabBOQ Progress Ledger` pl
-		LEFT JOIN `tabSales Invoice` si ON pl.reference_name = si.name AND pl.reference_doctype = 'Sales Invoice'
+		LEFT JOIN `tabSales Invoice` si 
+			ON pl.reference_name = si.name 
+			AND pl.reference_doctype = 'Sales Invoice'
+			AND si.docstatus != 2
 		WHERE pl.boq_item = %s
 		ORDER BY pl.posting_date ASC, pl.creation ASC
 	""", boq_item, as_dict=True)
 	
 	# Add payment certificate info and format data
+	filtered_entries = []
+	acc_qty = 0
+	acc_amount = 0
 	for entry in ledger_entries:
+		# Skip cancelled invoices explicitly
+		if entry.reference_doctype == "Sales Invoice" and entry.invoice_docstatus == 2:
+			continue
+		
 		# Check for payment entries linked to this invoice
 		if entry.reference_doctype == "Sales Invoice" and entry.reference_name:
 			payment_entry = frappe.db.get_value(
@@ -381,6 +392,14 @@ def get_boq_invoice_history(boq_item: str) -> dict:
 		# Add unit and rate from BOQ Item
 		entry["unit"] = boq_item_doc.unit
 		entry["rate"] = boq_item_doc.rate
+		
+		# Recompute progressive accumulated values excluding cancelled invoices
+		acc_qty += flt(entry.current_qty)
+		acc_amount += flt(entry.current_amount)
+		entry["accumulated_qty"] = acc_qty
+		entry["accumulated_amount"] = acc_amount
+		
+		filtered_entries.append(entry)
 	
 	# Get all invoices for summary calculation
 	invoices = frappe.db.sql("""
@@ -404,8 +423,8 @@ def get_boq_invoice_history(boq_item: str) -> dict:
 	total_amount = flt(boq_item_doc.total_qty) * flt(boq_item_doc.rate)
 	
 	# Get latest accumulated values
-	latest_accumulated_qty = flt(ledger_entries[-1].accumulated_qty) if ledger_entries else 0
-	latest_accumulated_amount = flt(ledger_entries[-1].accumulated_amount) if ledger_entries else 0
+	latest_accumulated_qty = flt(filtered_entries[-1].accumulated_qty) if filtered_entries else 0
+	latest_accumulated_amount = flt(filtered_entries[-1].accumulated_amount) if filtered_entries else 0
 	
 	# Get payment certificates for this BOQ Item
 	payment_certificates = frappe.db.sql("""
@@ -476,7 +495,7 @@ def get_boq_invoice_history(boq_item: str) -> dict:
 			"balance_qty": total_qty - latest_accumulated_qty,
 			"balance_amount": total_amount - latest_accumulated_amount
 		},
-		"ledger_entries": ledger_entries,
+		"ledger_entries": filtered_entries,
 		"payment_certificates": payment_certificates,
 		"pending_proformas": pending_proformas,
 		"pc_summary": pc_summary
