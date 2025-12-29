@@ -103,6 +103,7 @@ function render_comprehensive_items_table(items, frm) {
 						<th rowspan="2" class="col-checkbox sticky-col"><input type="checkbox" class="select-all-items"></th>
 						<th rowspan="2" class="col-desc sticky-col">Description</th>
 						<th rowspan="2" class="col-unit sticky-col">Unit</th>
+						<th rowspan="2" class="col-total-qty sticky-col">Qty</th>
 						<th rowspan="2" class="col-rate sticky-col sticky-col-last">Rate</th>
 						<th colspan="3" class="col-group col-group-qty">Qty Breakdown</th>
 						<th colspan="3" class="col-group col-group-value">Value Breakdown</th>
@@ -180,6 +181,7 @@ function render_item_row(item, frm) {
 	const actual = item.actual_costs || {};
 	const profitability = item.profitability || {};
 	const isFullyBilled = item.billing_status === 'Fully Billed';
+	const totalQty = item.total_qty ?? qty.total ?? 0;
 
 	const varianceClass = revenue.variance > 0 ? 'text-danger' : '';
 
@@ -222,6 +224,7 @@ function render_item_row(item, frm) {
 				</div>
 			</td>
 			<td class="col-unit sticky-col">${item.unit || '-'}</td>
+			<td class="col-total-qty sticky-col">${format_number(totalQty)}</td>
 			<td class="col-rate sticky-col sticky-col-last">${format_currency(amount.rate || 0)}</td>
 			
 			<!-- Qty Breakdown (moved before Value) -->
@@ -2134,6 +2137,7 @@ function get_table_styles() {
 		.col-rate { width: 80px; min-width: 80px; text-align: right; }
 		.col-num { width: 80px; min-width: 70px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 		.col-actions { width: 160px; min-width: 160px; text-align: center; padding: 4px 2px !important; }
+		.col-total-qty { width: 50px; min-width: 50px; text-align: right; }
 		
 		/* Sticky Columns - Requirements: 2.1, 2.2, 2.3, 2.4 */
 		.sticky-col { position: sticky; background: #fff; z-index: 2; }
@@ -2145,7 +2149,8 @@ function get_table_styles() {
 		.col-checkbox.sticky-col { left: 36px; }
 		.col-desc.sticky-col { left: 68px; }
 		.col-unit.sticky-col { left: 248px; }
-		.col-rate.sticky-col { left: 298px; }
+		.col-total-qty.sticky-col { left: 298px; }
+		.col-rate.sticky-col { left: 348px; }
 		
 		/* Visual separation for last sticky column - Requirements: 2.1, 2.2, 2.3, 2.4 */
 		.sticky-col-last { 
