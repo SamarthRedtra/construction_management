@@ -15,9 +15,19 @@
 		"section_transaction",
 		"posting_date",
 		"source",
+		"entry_type",
 		"column_break_2",
 		"reference_doctype",
 		"reference_name",
+		"section_invoices",
+		"proforma_invoice",
+		"proforma_amount",
+		"column_break_inv",
+		"payment_certificate",
+		"certified_amount",
+		"column_break_inv2",
+		"tax_invoice",
+		"tax_invoice_amount",
 		"section_current",
 		"qty",
 		"amount",
@@ -102,9 +112,16 @@
 			"fieldtype": "Select",
 			"in_standard_filter": 1,
 			"label": "Source",
-			"options": "Invoice\nAdjustment\nReversal",
+			"options": "Invoice\nProforma\nProforma Reversal\nAdjustment\nReversal",
 			"reqd": 1,
 			"read_only": 1
+		},
+		{
+			"fieldname": "entry_type",
+			"fieldtype": "Data",
+			"label": "Entry Type",
+			"read_only": 1,
+			"description": "Type of ledger entry"
 		},
 		{
 			"fieldname": "column_break_2",
@@ -122,6 +139,58 @@
 			"fieldtype": "Dynamic Link",
 			"label": "Reference Name",
 			"options": "reference_doctype",
+			"read_only": 1
+		},
+		{
+			"fieldname": "section_invoices",
+			"fieldtype": "Section Break",
+			"label": "Invoice Details"
+		},
+		{
+			"fieldname": "proforma_invoice",
+			"fieldtype": "Link",
+			"label": "Proforma Invoice",
+			"options": "Proforma Invoice",
+			"read_only": 1
+		},
+		{
+			"fieldname": "proforma_amount",
+			"fieldtype": "Currency",
+			"label": "Proforma Amount",
+			"read_only": 1
+		},
+		{
+			"fieldname": "column_break_inv",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "payment_certificate",
+			"fieldtype": "Link",
+			"label": "Payment Certificate",
+			"options": "Payment Certificate",
+			"read_only": 1
+		},
+		{
+			"fieldname": "certified_amount",
+			"fieldtype": "Currency",
+			"label": "Certified Amount",
+			"read_only": 1
+		},
+		{
+			"fieldname": "column_break_inv2",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "tax_invoice",
+			"fieldtype": "Link",
+			"label": "Tax Invoice",
+			"options": "Sales Invoice",
+			"read_only": 1
+		},
+		{
+			"fieldname": "tax_invoice_amount",
+			"fieldtype": "Currency",
+			"label": "Tax Invoice Amount",
 			"read_only": 1
 		},
 		{

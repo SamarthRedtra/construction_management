@@ -20,6 +20,10 @@ class DailyProgressRecord(Document):
 		self.calculate_total_cost()
 		self.calculate_quantity_totals()
 	
+	def before_submit(self):
+		"""Validate costs against BOQ estimates before submission"""
+		self.validate_cost_against_estimates()
+	
 	def fetch_bill_no(self):
 		"""Fetch Bill No from BOQ Item"""
 		if self.boq_item and not self.bill_no:
@@ -81,18 +85,40 @@ class DailyProgressRecord(Document):
 			)
 	
 	def calculate_asset_costs(self):
-		"""Calculate asset costs from child table using hourly rate"""
+		"""Calculate asset costs from child table based on billing frequency"""
+		from construction_management.api.asset_billing import (
+			get_billing_rate, 
+			calculate_cost,
+			get_prorated_monthly_cost
+		)
+		
 		total = 0
 		for row in self.assets or []:
-			# Fetch hourly rate if not set
-			if not row.rate_per_hour and row.asset:
-				row.rate_per_hour = get_asset_hourly_rate(self.project, row.asset, self.date)
-			# For backward compatibility, also set rate_per_day
-			if row.rate_per_hour and not row.rate_per_day:
-				row.rate_per_day = flt(row.rate_per_hour) * 8
+			if not row.asset:
+				continue
+			
+			# Get billing configuration
+			billing = get_billing_rate(self.project, row.asset, self.date)
 			hours = flt(row.hours) or 8
-			# Calculate: hourly_rate × hours
-			row.amount = flt(row.rate_per_hour) * hours
+			
+			# Set rate fields based on frequency
+			row.rate_per_hour = billing.value_per_hour
+			row.rate_per_day = billing.value_per_day or (billing.value_per_hour * 8)
+			
+			# Calculate cost based on frequency
+			if billing.frequency == "Hourly":
+				row.amount = calculate_cost(billing.rate, "Hourly", hours)
+			elif billing.frequency == "Daily":
+				# Convert hours to days (8 hours = 1 day)
+				days = hours / 8
+				row.amount = calculate_cost(billing.rate, "Daily", days)
+			elif billing.frequency == "Monthly":
+				# For monthly, calculate prorated cost for 1 day per DPR entry
+				row.amount = get_prorated_monthly_cost(billing.rate, 1, self.date)
+			else:
+				# Default to hourly calculation
+				row.amount = flt(row.rate_per_hour) * hours
+			
 			total += flt(row.amount)
 		self.asset_cost = total
 	
@@ -182,6 +208,50 @@ class DailyProgressRecord(Document):
 			self.total_subcontract_qty = total_subcontract_qty
 		if hasattr(self, 'total_expense_count'):
 			self.total_expense_count = total_expense_count
+	
+	def validate_cost_against_estimates(self):
+		"""
+		Validate DPR costs against BOQ Item estimated costs.
+		
+		Property 5: Block submission if total cost exceeds estimate
+		Property 6: Warn if component costs exceed estimates
+		
+		Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
+		"""
+		if not self.boq_item:
+			return  # No BOQ Item linked, skip validation
+		
+		from construction_management.api.cost_validation import validate_dpr_costs
+		
+		# Prepare DPR costs dict
+		dpr_costs = {
+			"material_cost": flt(self.material_cost),
+			"labour_cost": flt(self.labour_cost),
+			"subcontract_cost": flt(self.subcontract_cost),
+			"asset_cost": flt(self.asset_cost),
+			"expense_cost": flt(self.expense_cost),
+			"total_cost": flt(self.total_cost)
+		}
+		
+		# Validate costs (exclude current DPR if updating)
+		exclude_dpr = self.name if not self.is_new() else None
+		result = validate_dpr_costs(self.boq_item, dpr_costs, exclude_dpr)
+		
+		# Block submission on total cost overrun (Requirement 3.3)
+		if result.has_errors:
+			frappe.throw(
+				"<br>".join(result.errors),
+				title=_("Cost Validation Failed")
+			)
+		
+		# Show warnings for component overruns (Requirement 3.4)
+		if result.has_warnings:
+			for warning in result.warnings:
+				frappe.msgprint(
+					warning,
+					title=_("Cost Warning"),
+					indicator="orange"
+				)
 	
 	def on_submit(self):
 		"""Create accounting entries on submit"""

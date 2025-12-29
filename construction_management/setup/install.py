@@ -64,6 +64,17 @@ def create_boq_custom_fields():
 		},
 		{
 			"dt": "Project",
+			"fieldname": "site_location",
+			"label": "Site Location",
+			"fieldtype": "Link",
+			"options": "Warehouse",
+			"insert_after": "retention_percentage",
+			"description": "Site warehouse for material tracking. Required when Progressive BOQ is enabled.",
+			"depends_on": "eval:doc.enable_progressive_boq",
+			"mandatory_depends_on": "eval:doc.enable_progressive_boq"
+		},
+		{
+			"dt": "Project",
 			"fieldname": "construction_dashboard_section",
 			"label": "BOQ Management",
 			"fieldtype": "Section Break",

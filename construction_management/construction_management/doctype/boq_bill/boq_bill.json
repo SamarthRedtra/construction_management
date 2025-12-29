@@ -21,7 +21,15 @@
 		"prev_amount",
 		"current_amount",
 		"to_date_amount",
-		"balance_amount"
+		"balance_amount",
+		"section_estimated_costs",
+		"estimated_material_cost",
+		"estimated_labour_cost",
+		"estimated_subcontract_cost",
+		"column_break_estimated",
+		"estimated_asset_cost",
+		"estimated_other_cost",
+		"total_estimated_cost"
 	],
 	"fields": [
 		{
@@ -120,6 +128,58 @@
 			"fieldname": "balance_amount",
 			"fieldtype": "Currency",
 			"label": "Balance Amount",
+			"read_only": 1
+		},
+		{
+			"collapsible": 1,
+			"fieldname": "section_estimated_costs",
+			"fieldtype": "Section Break",
+			"label": "Estimated Costs (Aggregated)"
+		},
+		{
+			"description": "Sum of estimated material costs from all BOQ Items",
+			"fieldname": "estimated_material_cost",
+			"fieldtype": "Currency",
+			"label": "Estimated Material Cost",
+			"read_only": 1
+		},
+		{
+			"description": "Sum of estimated labour costs from all BOQ Items",
+			"fieldname": "estimated_labour_cost",
+			"fieldtype": "Currency",
+			"label": "Estimated Labour Cost",
+			"read_only": 1
+		},
+		{
+			"description": "Sum of estimated subcontracting costs from all BOQ Items",
+			"fieldname": "estimated_subcontract_cost",
+			"fieldtype": "Currency",
+			"label": "Estimated Subcontracting Cost",
+			"read_only": 1
+		},
+		{
+			"fieldname": "column_break_estimated",
+			"fieldtype": "Column Break"
+		},
+		{
+			"description": "Sum of estimated asset costs from all BOQ Items",
+			"fieldname": "estimated_asset_cost",
+			"fieldtype": "Currency",
+			"label": "Estimated Asset Cost",
+			"read_only": 1
+		},
+		{
+			"description": "Sum of other estimated costs from all BOQ Items",
+			"fieldname": "estimated_other_cost",
+			"fieldtype": "Currency",
+			"label": "Estimated Other Costs",
+			"read_only": 1
+		},
+		{
+			"description": "Total estimated cost (sum of all components)",
+			"fieldname": "total_estimated_cost",
+			"fieldtype": "Currency",
+			"label": "Total Estimated Cost",
 			"read_only": 1
 		}
 	],

@@ -21,7 +21,14 @@ def create_boq_item_with_task(
 	item_code: str = None,
 	is_task: int = 0,
 	start_date: str = None,
-	end_date: str = None
+	end_date: str = None,
+	estimated_material_cost: float = 0,
+	estimated_labour_cost: float = 0,
+	estimated_subcontract_cost: float = 0,
+	estimated_asset_cost: float = 0,
+	estimated_other_cost: float = 0,
+	total_estimated_cost: float = 0,
+	materials: str | list = None
 ) -> dict:
 	"""
 	Create a BOQ Item and optionally create a linked Group Task.
@@ -36,10 +43,23 @@ def create_boq_item_with_task(
 		is_task: Whether to create a linked task (1 or 0)
 		start_date: Optional task start date
 		end_date: Optional task end date
+		estimated_material_cost: Estimated material cost
+		estimated_labour_cost: Estimated labour cost
+		estimated_subcontract_cost: Estimated subcontract cost
+		estimated_asset_cost: Estimated asset cost
+		estimated_other_cost: Estimated other costs
+		total_estimated_cost: Total estimated cost (when using Total Cost Only mode)
+		materials: List of material items [{item_code, qty, rate}]
 		
 	Returns:
 		dict with boq_item and task names
 	"""
+	import json
+	
+	# Parse materials if string
+	if materials and isinstance(materials, str):
+		materials = json.loads(materials)
+	
 	# Get project from bill
 	project = frappe.db.get_value("BOQ Bill", parent_bill, "project")
 	
@@ -51,6 +71,42 @@ def create_boq_item_with_task(
 	boq_item.unit = unit
 	boq_item.total_qty = flt(total_qty)
 	boq_item.rate = flt(rate)
+	
+	# Add materials if provided and field exists
+	if materials and hasattr(boq_item, 'materials'):
+		for mat in materials:
+			if mat.get("item_code") and flt(mat.get("qty")) > 0:
+				boq_item.append("materials", {
+					"item_code": mat.get("item_code"),
+					"qty": flt(mat.get("qty")),
+					"rate": flt(mat.get("rate", 0)),
+					"amount": flt(mat.get("qty")) * flt(mat.get("rate", 0))
+				})
+	
+	# Set estimated costs
+	# If total_estimated_cost is provided (Total Cost Only mode), use it
+	# Otherwise use the breakdown values
+	if flt(total_estimated_cost) > 0:
+		boq_item.total_estimated_cost = flt(total_estimated_cost)
+		# Clear breakdown fields when using total cost only
+		boq_item.estimated_material_cost = 0
+		boq_item.estimated_labour_cost = 0
+		boq_item.estimated_subcontract_cost = 0
+		boq_item.estimated_asset_cost = 0
+		boq_item.estimated_other_cost = 0
+	else:
+		boq_item.estimated_material_cost = flt(estimated_material_cost)
+		boq_item.estimated_labour_cost = flt(estimated_labour_cost)
+		boq_item.estimated_subcontract_cost = flt(estimated_subcontract_cost)
+		boq_item.estimated_asset_cost = flt(estimated_asset_cost)
+		boq_item.estimated_other_cost = flt(estimated_other_cost)
+		# Calculate total from breakdown
+		boq_item.total_estimated_cost = (
+			flt(estimated_material_cost) + flt(estimated_labour_cost) + 
+			flt(estimated_subcontract_cost) + flt(estimated_asset_cost) + 
+			flt(estimated_other_cost)
+		)
+	
 	boq_item.insert()
 	
 	result = {

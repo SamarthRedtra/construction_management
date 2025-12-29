@@ -153,7 +153,8 @@ class TestValuationRateConsistency(FrappeTestCase):
 		from construction_management.api.dpr_utils import get_item_valuation_rate
 		
 		# Get rate from API
-		api_rate = get_item_valuation_rate(self.test_item, self.test_warehouse)
+		api_result = get_item_valuation_rate(self.test_item, self.test_warehouse)
+		api_rate = api_result.get("valuation_rate", 0)
 		
 		# Get rate directly from Bin
 		bin_rate = frappe.db.get_value(
@@ -168,7 +169,8 @@ class TestValuationRateConsistency(FrappeTestCase):
 		"""Property: Valuation rate is positive when stock exists"""
 		from construction_management.api.dpr_utils import get_item_valuation_rate
 		
-		rate = get_item_valuation_rate(self.test_item, self.test_warehouse)
+		result = get_item_valuation_rate(self.test_item, self.test_warehouse)
+		rate = result.get("valuation_rate", 0)
 		self.assertGreater(flt(rate), 0, "Valuation rate should be positive when stock exists")
 
 

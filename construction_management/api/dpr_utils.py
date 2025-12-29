@@ -31,7 +31,7 @@ def get_employee_daily_rate(employee: str) -> float:
 
 
 @frappe.whitelist()
-def get_item_valuation_rate(item_code: str, warehouse: str = None) -> float:
+def get_item_valuation_rate(item_code: str, warehouse: str = None) -> dict:
 	"""
 	Get the valuation rate for an item.
 	
@@ -40,19 +40,25 @@ def get_item_valuation_rate(item_code: str, warehouse: str = None) -> float:
 		warehouse: Warehouse (optional)
 		
 	Returns:
-		Valuation rate
+		Dict with valuation_rate
 	"""
+	rate = 0
 	if warehouse:
 		rate = frappe.db.get_value(
 			"Bin",
 			{"item_code": item_code, "warehouse": warehouse},
 			"valuation_rate"
 		)
-		if rate:
-			return flt(rate)
 	
-	# Fallback to item's valuation rate
-	return flt(frappe.db.get_value("Item", item_code, "valuation_rate"))
+	if not rate:
+		# Fallback to item's valuation rate
+		rate = frappe.db.get_value("Item", item_code, "valuation_rate")
+	
+	if not rate:
+		# Fallback to standard rate
+		rate = frappe.db.get_value("Item", item_code, "standard_rate")
+	
+	return {"valuation_rate": flt(rate)}
 
 
 @frappe.whitelist()
@@ -420,16 +426,27 @@ def get_project_warehouses(project: str) -> list:
 
 
 @frappe.whitelist()
-def get_warehouse_items_with_stock(warehouse: str) -> list:
+def get_warehouse_items_with_stock(warehouse: str, project: str = None) -> list:
 	"""
 	Get items with available stock in a warehouse.
 	
+	Property 10: Only items with actual_qty > 0 in the project's site_location 
+	warehouse SHALL be available for selection.
+	
 	Args:
-		warehouse: Warehouse name
+		warehouse: Warehouse name (optional if project provided)
+		project: Project name (to get site_location warehouse)
 		
 	Returns:
 		List of items with actual_qty > 0
 	"""
+	# If project provided, get site_location warehouse
+	if project and not warehouse:
+		warehouse = frappe.db.get_value("Project", project, "site_location")
+	
+	if not warehouse:
+		return []
+	
 	items = frappe.db.sql("""
 		SELECT 
 			b.item_code,
@@ -448,19 +465,35 @@ def get_warehouse_items_with_stock(warehouse: str) -> list:
 
 
 @frappe.whitelist()
-def validate_material_stock(warehouse: str, item_code: str, qty: float) -> dict:
+def validate_material_stock(warehouse: str, item_code: str, qty: float, project: str = None) -> dict:
 	"""
 	Validate if sufficient stock is available for a material.
 	
+	Property 11: The requested quantity SHALL NOT exceed the available stock 
+	in the site_location warehouse.
+	
 	Args:
-		warehouse: Warehouse name
+		warehouse: Warehouse name (optional if project provided)
 		item_code: Item code
 		qty: Requested quantity
+		project: Project name (to get site_location warehouse)
 		
 	Returns:
 		dict with is_valid, available_qty, message
 	"""
 	qty = flt(qty)
+	
+	# If project provided, get site_location warehouse
+	if project and not warehouse:
+		warehouse = frappe.db.get_value("Project", project, "site_location")
+	
+	if not warehouse:
+		return {
+			"is_valid": False,
+			"available_qty": 0,
+			"requested_qty": qty,
+			"message": _("No warehouse specified")
+		}
 	
 	available_qty = frappe.db.get_value(
 		"Bin",
@@ -486,18 +519,26 @@ def get_warehouse_items_query(doctype, txt, searchfield, start, page_len, filter
 	Query function for item selection filtered by warehouse stock.
 	Used in DPR Material child table to show only items with stock.
 	
+	Property 10: Only items with actual_qty > 0 SHALL be available for selection.
+	
 	Args:
 		doctype: Item
 		txt: Search text
 		searchfield: Field to search
 		start: Start index
 		page_len: Page length
-		filters: Must contain 'warehouse'
+		filters: Must contain 'warehouse' or 'project'
 		
 	Returns:
 		List of items with stock in the warehouse
 	"""
 	warehouse = filters.get("warehouse")
+	project = filters.get("project")
+	
+	# If project provided, get site_location warehouse
+	if project and not warehouse:
+		warehouse = frappe.db.get_value("Project", project, "site_location")
+	
 	if not warehouse:
 		return []
 	

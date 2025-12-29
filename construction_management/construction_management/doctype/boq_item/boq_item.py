@@ -11,8 +11,37 @@ class BOQItem(Document):
 	def validate(self):
 		self.validate_boq_status()
 		self.validate_current_qty()
+		self.calculate_estimated_costs()
 		self.calculate_amounts()
 		self.update_billing_status()
+	
+	def calculate_estimated_costs(self):
+		"""Calculate total estimated cost as sum of all cost components.
+		
+		If materials child table has items, calculate estimated_material_cost from it.
+		If breakdown costs are provided, calculate total from them.
+		If total_estimated_cost is set but no breakdown, preserve it (Total Cost Only mode).
+		"""
+		# Calculate material cost from child table if materials exist
+		if hasattr(self, 'materials') and self.materials:
+			materials_total = sum(flt(m.amount) for m in self.materials)
+			if materials_total > 0:
+				self.estimated_material_cost = materials_total
+		
+		breakdown_total = (
+			flt(self.estimated_material_cost) +
+			flt(self.estimated_labour_cost) +
+			flt(self.estimated_subcontract_cost) +
+			flt(self.estimated_asset_cost) +
+			flt(self.estimated_other_cost)
+		)
+		
+		# If breakdown costs exist, use their sum
+		# Otherwise preserve the manually entered total_estimated_cost
+		if breakdown_total > 0:
+			self.total_estimated_cost = breakdown_total
+		elif not self.total_estimated_cost:
+			self.total_estimated_cost = 0
 	
 	def validate_boq_status(self):
 		"""Prevent modifications to qty/rate when parent BOQ is locked"""
@@ -274,3 +303,67 @@ class BOQItem(Document):
 		
 		frappe.msgprint(_("Task {0} created and linked").format(task.name))
 		return {"task": task.name}
+	
+	@frappe.whitelist()
+	def get_cost_progress(self):
+		"""
+		Get cost progress comparing estimated vs incurred costs.
+		
+		Returns:
+			dict with progress percentage, breakup by category, and variance
+		"""
+		# Get incurred costs from DPR
+		incurred = frappe.db.sql("""
+			SELECT 
+				COALESCE(SUM(material_cost), 0) as material,
+				COALESCE(SUM(labour_cost), 0) as labour,
+				COALESCE(SUM(subcontract_cost), 0) as subcontract,
+				COALESCE(SUM(asset_cost), 0) as asset,
+				COALESCE(SUM(expense_cost), 0) as other,
+				COALESCE(SUM(total_cost), 0) as total
+			FROM `tabDaily Progress Record`
+			WHERE boq_item = %s AND docstatus = 1
+		""", self.name, as_dict=True)[0]
+		
+		# Get estimated costs
+		estimated = {
+			"material": flt(self.estimated_material_cost),
+			"labour": flt(self.estimated_labour_cost),
+			"subcontract": flt(self.estimated_subcontract_cost),
+			"asset": flt(self.estimated_asset_cost),
+			"other": flt(self.estimated_other_cost),
+			"total": flt(self.total_estimated_cost)
+		}
+		
+		# Calculate progress percentage
+		total_estimated = flt(estimated["total"])
+		total_incurred = flt(incurred.total)
+		
+		if total_estimated > 0:
+			progress_percentage = (total_incurred / total_estimated) * 100
+		else:
+			progress_percentage = 0 if total_incurred == 0 else 100  # 100% if incurred but no estimate
+		
+		# Calculate variance for each category
+		variance = {}
+		for category in ["material", "labour", "subcontract", "asset", "other", "total"]:
+			variance[category] = flt(estimated[category]) - flt(incurred.get(category, 0))
+		
+		# Determine if overrun
+		is_overrun = total_incurred > total_estimated and total_estimated > 0
+		
+		return {
+			"estimated": estimated,
+			"incurred": {
+				"material": flt(incurred.material),
+				"labour": flt(incurred.labour),
+				"subcontract": flt(incurred.subcontract),
+				"asset": flt(incurred.asset),
+				"other": flt(incurred.other),
+				"total": flt(incurred.total)
+			},
+			"variance": variance,
+			"progress_percentage": round(progress_percentage, 2),
+			"is_overrun": is_overrun,
+			"has_estimates": total_estimated > 0
+		}

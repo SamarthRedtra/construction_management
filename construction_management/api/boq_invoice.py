@@ -325,6 +325,233 @@ def create_invoice_from_multiple_items(project: str, items: list,
 
 
 @frappe.whitelist()
+def create_invoice_from_selected_bills(project: str, bill_names: list, 
+                                        apply_retention: int = 1, advance_deduction: float = 0,
+                                        is_proforma: int = 0) -> dict:
+	"""
+	Create a single Sales Invoice from all items with current_qty > 0 in selected bills.
+	
+	Args:
+		project: Project name
+		bill_names: List of BOQ Bill names to include
+		apply_retention: Whether to apply retention (1=yes, 0=no)
+		advance_deduction: Amount to deduct from advance
+		is_proforma: Whether to create as proforma invoice (1=yes, 0=no)
+		
+	Returns:
+		dict with invoice details
+	"""
+	if isinstance(bill_names, str):
+		import json
+		bill_names = json.loads(bill_names)
+	
+	if not bill_names:
+		frappe.throw(_("No bills selected"))
+	
+	apply_retention = int(apply_retention)
+	advance_deduction = flt(advance_deduction)
+	is_proforma = int(is_proforma)
+	
+	# Get project details
+	project_doc = frappe.get_doc("Project", project)
+	customer = project_doc.customer if hasattr(project_doc, 'customer') and project_doc.customer else None
+	retention_percentage = flt(project_doc.retention_percentage) if hasattr(project_doc, 'retention_percentage') else 0
+	
+	if not customer:
+		frappe.throw(_("Project must have a customer assigned to create invoice"))
+	
+	# Get all BOQ Items with current_qty > 0 from selected bills
+	items_to_bill = frappe.db.sql("""
+		SELECT 
+			bi.name as boq_item,
+			bi.description,
+			bi.unit,
+			bi.rate,
+			bi.total_qty,
+			bi.current_qty,
+			bi.linked_item,
+			bi.item_code,
+			bi.parent_bill,
+			bb.bill_no
+		FROM `tabBOQ Item` bi
+		JOIN `tabBOQ Bill` bb ON bb.name = bi.parent_bill
+		WHERE bi.parent_bill IN %s
+		AND bi.current_qty > 0
+		ORDER BY bb.bill_no, bi.name
+	""", (tuple(bill_names),), as_dict=True)
+	
+	if not items_to_bill:
+		frappe.throw(_("No items with current quantity found in selected bills"))
+	
+	# Create Sales Invoice
+	invoice = frappe.new_doc("Sales Invoice")
+	invoice.customer = customer
+	invoice.project = project
+	invoice.posting_date = today()
+	invoice.due_date = today()
+	
+	# Set proforma flag if requested
+	if is_proforma:
+		invoice.custom_is_proforma = 1
+	
+	total_amount = 0
+	items_added = 0
+	bills_included = set()
+	
+	for item_data in items_to_bill:
+		current_qty = flt(item_data.current_qty)
+		
+		if current_qty <= 0:
+			continue
+		
+		# Validate balance
+		from construction_management.api.boq_ledger import get_to_date_qty
+		to_date_qty = get_to_date_qty(item_data.boq_item)
+		balance_qty = flt(item_data.total_qty) - flt(to_date_qty)
+		
+		if current_qty > balance_qty:
+			frappe.throw(
+				_("Quantity ({0}) exceeds available balance ({1}) for item in {2}: {3}").format(
+					current_qty, balance_qty, item_data.bill_no, item_data.description[:50]
+				),
+				title=_("Over-Billing Error")
+			)
+		
+		current_amount = flt(current_qty) * flt(item_data.rate)
+		total_amount += current_amount
+		
+		# Get the item_code to use - prefer linked_item, fallback to item_code
+		invoice_item_code = item_data.linked_item or item_data.item_code
+		
+		# Ensure linked_item exists - create if not
+		if not invoice_item_code:
+			item_doc = frappe.get_doc("BOQ Item", item_data.boq_item)
+			item_doc.create_linked_item()
+			item_doc.reload()
+			invoice_item_code = item_doc.linked_item
+		
+		# Skip if no valid item
+		if not invoice_item_code or not frappe.db.exists("Item", invoice_item_code):
+			frappe.msgprint(
+				_("Skipping BOQ Item in {0}: {1} - no valid linked Item found").format(
+					item_data.bill_no, item_data.description[:50]
+				),
+				indicator="orange"
+			)
+			continue
+		
+		# Add item to invoice
+		invoice.append("items", {
+			"item_code": invoice_item_code,
+			"item_name": item_data.description[:140] if item_data.description else "BOQ Item",
+			"description": f"[{item_data.bill_no}] {item_data.description}",
+			"qty": current_qty,
+			"rate": item_data.rate,
+			"amount": current_amount,
+			"uom": item_data.unit,
+			"boq_item": item_data.boq_item,
+			"bill_no": item_data.parent_bill,
+			"project": project
+		})
+		
+		items_added += 1
+		bills_included.add(item_data.bill_no)
+	
+	if not invoice.items:
+		frappe.throw(_("No valid items to invoice"))
+	
+	# Calculate retention
+	retention_amount = 0
+	if apply_retention and retention_percentage > 0 and not is_proforma:
+		retention_amount = flt(total_amount * retention_percentage / 100, 2)
+		if retention_amount > 0:
+			retention_item = get_or_create_retention_item()
+			invoice.append("items", {
+				"item_code": retention_item,
+				"item_name": f"Retention ({retention_percentage}%)",
+				"description": f"Retention deduction at {retention_percentage}%",
+				"qty": 1,
+				"rate": -retention_amount,
+				"amount": -retention_amount,
+				"project": project
+			})
+	
+	# Handle advance deduction
+	if advance_deduction > 0 and not is_proforma:
+		advance_balance = get_advance_balance(project)
+		if advance_deduction > advance_balance:
+			frappe.throw(
+				_("Advance deduction ({0}) exceeds available advance balance ({1})").format(
+					advance_deduction, advance_balance
+				),
+				title=_("Advance Deduction Error")
+			)
+		
+		advance_item = get_or_create_advance_item()
+		invoice.append("items", {
+			"item_code": advance_item,
+			"item_name": "Advance Deduction",
+			"description": "Deduction from advance payment",
+			"qty": 1,
+			"rate": -advance_deduction,
+			"amount": -advance_deduction,
+			"project": project
+		})
+	
+	invoice.insert()
+	
+	# Reset current_qty on all BOQ Items that were billed
+	for item_data in items_to_bill:
+		if flt(item_data.current_qty) > 0:
+			frappe.db.set_value("BOQ Item", item_data.boq_item, "current_qty", 0)
+	
+	net_amount = total_amount - retention_amount - advance_deduction
+	
+	return {
+		"invoice": invoice.name,
+		"customer": customer,
+		"item_count": items_added,
+		"bills_included": list(bills_included),
+		"gross_amount": total_amount,
+		"retention_amount": retention_amount,
+		"advance_deduction": advance_deduction,
+		"net_amount": net_amount,
+		"status": "Draft",
+		"is_proforma": is_proforma
+	}
+
+
+@frappe.whitelist()
+def get_bills_with_billable_items(project: str) -> list:
+	"""
+	Get all bills that have items with current_qty > 0 (ready to bill).
+	
+	Args:
+		project: Project name
+		
+	Returns:
+		list of bills with billable item counts and amounts
+	"""
+	bills = frappe.db.sql("""
+		SELECT 
+			bb.name,
+			bb.bill_no,
+			bb.description,
+			COUNT(bi.name) as item_count,
+			SUM(bi.current_qty) as total_qty,
+			SUM(bi.current_qty * bi.rate) as total_amount
+		FROM `tabBOQ Bill` bb
+		JOIN `tabBOQ Item` bi ON bi.parent_bill = bb.name
+		WHERE bb.project = %s
+		AND bi.current_qty > 0
+		GROUP BY bb.name, bb.bill_no, bb.description
+		ORDER BY bb.bill_no
+	""", project, as_dict=True)
+	
+	return bills
+
+
+@frappe.whitelist()
 def get_boq_invoice_history(boq_item: str) -> dict:
 	"""
 	Get invoice history for a BOQ Item (Child Payment Plan) with progressive billing details.
@@ -1317,4 +1544,306 @@ def allocate_advance_to_invoice(advance_name: str, invoice_name: str, amount: fl
 		"allocated_amount": allocation_amount,
 		"remaining_unallocated": advance.unallocated_amount,
 		"status": advance.status
+	}
+
+
+@frappe.whitelist()
+def get_billable_items_by_bill(project: str) -> list:
+	"""
+	Get all billable items grouped by bill with their details.
+	This is used for the enhanced Generate Invoice dialog that allows
+	selecting individual BOQ items.
+	
+	Args:
+		project: Project name
+		
+	Returns:
+		list of bills with their billable items
+	"""
+	# Get all bills with billable items
+	bills_data = frappe.db.sql("""
+		SELECT 
+			bb.name as bill_name,
+			bb.bill_no,
+			bb.description as bill_description
+		FROM `tabBOQ Bill` bb
+		WHERE bb.project = %s
+		AND EXISTS (
+			SELECT 1 FROM `tabBOQ Item` bi 
+			WHERE bi.parent_bill = bb.name 
+			AND bi.current_qty > 0
+		)
+		ORDER BY bb.bill_no
+	""", project, as_dict=True)
+	
+	result = []
+	
+	for bill in bills_data:
+		# Get billable items for this bill
+		items = frappe.db.sql("""
+			SELECT 
+				bi.name as boq_item,
+				bi.item_code,
+				bi.description,
+				bi.unit,
+				bi.rate,
+				bi.total_qty,
+				bi.current_qty,
+				bi.current_qty * bi.rate as current_amount,
+				bi.balance_qty,
+				bi.balance_amount,
+				bi.billing_status
+			FROM `tabBOQ Item` bi
+			WHERE bi.parent_bill = %s
+			AND bi.current_qty > 0
+			ORDER BY bi.name
+		""", bill.bill_name, as_dict=True)
+		
+		if items:
+			bill_total = sum(flt(item.current_amount) for item in items)
+			result.append({
+				"bill_name": bill.bill_name,
+				"bill_no": bill.bill_no,
+				"bill_description": bill.bill_description,
+				"items": items,
+				"item_count": len(items),
+				"total_amount": bill_total
+			})
+	
+	return result
+
+
+@frappe.whitelist()
+def get_all_bills_with_items(project: str) -> list:
+	"""
+	Get ALL bills and ALL BOQ items for a project (regardless of current_qty).
+	Shows items with balance_qty > 0 that can still be billed.
+	
+	Args:
+		project: Project name
+		
+	Returns:
+		list of all bills with their items that have balance to bill
+	"""
+	# Get all bills for the project
+	bills_data = frappe.db.sql("""
+		SELECT 
+			bb.name as bill_name,
+			bb.bill_no,
+			bb.description as bill_description
+		FROM `tabBOQ Bill` bb
+		WHERE bb.project = %s
+		ORDER BY bb.bill_no
+	""", project, as_dict=True)
+	
+	result = []
+	
+	for bill in bills_data:
+		# Get ALL items for this bill that have balance to bill
+		items = frappe.db.sql("""
+			SELECT 
+				bi.name as boq_item,
+				bi.item_code,
+				bi.description,
+				bi.unit,
+				bi.rate,
+				bi.total_qty,
+				bi.to_date_qty,
+				bi.balance_qty,
+				bi.balance_amount,
+				bi.billing_status
+			FROM `tabBOQ Item` bi
+			WHERE bi.parent_bill = %s
+			AND bi.balance_qty > 0
+			ORDER BY bi.name
+		""", bill.bill_name, as_dict=True)
+		
+		if items:
+			bill_balance = sum(flt(item.balance_amount) for item in items)
+			result.append({
+				"bill_name": bill.bill_name,
+				"bill_no": bill.bill_no,
+				"bill_description": bill.bill_description,
+				"items": items,
+				"item_count": len(items),
+				"total_balance": bill_balance
+			})
+	
+	return result
+
+
+@frappe.whitelist()
+def create_invoice_from_selected_items(project: str, items: str | list, 
+                                        apply_retention: int = 1, 
+                                        advance_deduction: float = 0,
+                                        is_proforma: int = 0) -> dict:
+	"""
+	Create a Sales Invoice from selected BOQ Items with custom quantities.
+	
+	Args:
+		project: Project name
+		items: List of dicts with boq_item, qty, and amount
+		apply_retention: Whether to apply retention (1=yes, 0=no)
+		advance_deduction: Amount to deduct from advance
+		is_proforma: Whether to create as proforma invoice (1=yes, 0=no)
+		
+	Returns:
+		dict with invoice details
+	"""
+	import json
+	
+	if isinstance(items, str):
+		items = json.loads(items)
+	
+	if not items:
+		frappe.throw(_("No items provided"))
+	
+	apply_retention = int(apply_retention)
+	advance_deduction = flt(advance_deduction)
+	is_proforma = int(is_proforma)
+	
+	# Get project details
+	project_doc = frappe.get_doc("Project", project)
+	customer = project_doc.customer if hasattr(project_doc, 'customer') and project_doc.customer else None
+	retention_percentage = flt(project_doc.retention_percentage) if hasattr(project_doc, 'retention_percentage') else 0
+	
+	if not customer:
+		frappe.throw(_("Project must have a customer assigned to create invoice"))
+	
+	# Create Sales Invoice
+	invoice = frappe.new_doc("Sales Invoice")
+	invoice.customer = customer
+	invoice.project = project
+	invoice.posting_date = today()
+	invoice.due_date = today()
+	
+	# Set proforma flag if requested
+	if is_proforma:
+		invoice.custom_is_proforma = 1
+	
+	total_amount = 0
+	items_added = 0
+	bills_included = set()
+	
+	for item_data in items:
+		boq_item_name = item_data.get("boq_item")
+		current_qty = flt(item_data.get("qty", 0))
+		
+		if current_qty <= 0:
+			continue
+		
+		# Get BOQ Item
+		item = frappe.get_doc("BOQ Item", boq_item_name)
+		
+		# Validate balance
+		from construction_management.api.boq_ledger import get_to_date_qty
+		to_date_qty = get_to_date_qty(boq_item_name)
+		balance_qty = flt(item.total_qty) - flt(to_date_qty)
+		
+		if current_qty > balance_qty:
+			frappe.throw(
+				_("Quantity ({0}) exceeds available balance ({1}) for item {2}").format(
+					current_qty, balance_qty, item.description[:50]
+				),
+				title=_("Over-Billing Error")
+			)
+		
+		current_amount = flt(current_qty) * flt(item.rate)
+		total_amount += current_amount
+		
+		# Ensure linked_item exists - create if not
+		if not item.linked_item:
+			item.create_linked_item()
+			item.reload()
+		
+		# Get the item_code to use - prefer linked_item, fallback to item_code
+		invoice_item_code = item.linked_item or item.item_code
+		
+		# Skip if no valid item
+		if not invoice_item_code or not frappe.db.exists("Item", invoice_item_code):
+			frappe.msgprint(
+				_("Skipping BOQ Item {0} - no valid linked Item found").format(item.description[:50]),
+				indicator="orange"
+			)
+			continue
+		
+		# Get bill_no for reference
+		bill_no = frappe.db.get_value("BOQ Bill", item.parent_bill, "bill_no")
+		
+		# Add item to invoice
+		invoice.append("items", {
+			"item_code": invoice_item_code,
+			"item_name": item.description[:140] if item.description else "BOQ Item",
+			"description": f"[{bill_no}] {item.description}" if bill_no else item.description,
+			"qty": current_qty,
+			"rate": item.rate,
+			"amount": current_amount,
+			"uom": item.unit,
+			"boq_item": boq_item_name,
+			"bill_no": item.parent_bill,
+			"project": project
+		})
+		
+		items_added += 1
+		bills_included.add(bill_no or item.parent_bill)
+		
+		# Update BOQ Item current_qty to the invoiced amount
+		frappe.db.set_value("BOQ Item", boq_item_name, "current_qty", 0)
+	
+	if not invoice.items:
+		frappe.throw(_("No valid items to invoice"))
+	
+	# Calculate retention
+	retention_amount = 0
+	if apply_retention and retention_percentage > 0 and not is_proforma:
+		retention_amount = flt(total_amount * retention_percentage / 100, 2)
+		if retention_amount > 0:
+			retention_item = get_or_create_retention_item()
+			invoice.append("items", {
+				"item_code": retention_item,
+				"item_name": f"Retention ({retention_percentage}%)",
+				"description": f"Retention deduction at {retention_percentage}%",
+				"qty": 1,
+				"rate": -retention_amount,
+				"amount": -retention_amount,
+				"project": project
+			})
+	
+	# Handle advance deduction
+	if advance_deduction > 0 and not is_proforma:
+		advance_balance = get_advance_balance(project)
+		if advance_deduction > advance_balance:
+			frappe.throw(
+				_("Advance deduction ({0}) exceeds available advance balance ({1})").format(
+					advance_deduction, advance_balance
+				),
+				title=_("Advance Deduction Error")
+			)
+		
+		advance_item = get_or_create_advance_item()
+		invoice.append("items", {
+			"item_code": advance_item,
+			"item_name": "Advance Deduction",
+			"description": "Deduction from advance payment",
+			"qty": 1,
+			"rate": -advance_deduction,
+			"amount": -advance_deduction,
+			"project": project
+		})
+	
+	invoice.insert()
+	
+	net_amount = total_amount - retention_amount - advance_deduction
+	
+	return {
+		"invoice": invoice.name,
+		"customer": customer,
+		"item_count": items_added,
+		"bills_included": list(bills_included),
+		"gross_amount": total_amount,
+		"retention_amount": retention_amount,
+		"advance_deduction": advance_deduction,
+		"net_amount": net_amount,
+		"status": "Draft",
+		"is_proforma": is_proforma
 	}

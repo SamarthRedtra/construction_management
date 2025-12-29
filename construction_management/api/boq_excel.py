@@ -55,6 +55,7 @@ def export_boq_to_excel(project: str) -> str:
 		"Current Qty", "Current Amount",
 		"To-Date Qty", "To-Date Amount",
 		"Balance Qty", "Balance Amount",
+		"Total Estimated Cost",
 		"Cost To-Date", "Margin"
 	]
 	
@@ -86,10 +87,11 @@ def export_boq_to_excel(project: str) -> str:
 		ws.cell(row=row, column=13, value=amount.get('to_date', 0)).fill = bill_fill
 		ws.cell(row=row, column=14, value=qty.get('balance', 0)).fill = bill_fill
 		ws.cell(row=row, column=15, value=amount.get('balance', 0)).fill = bill_fill
-		ws.cell(row=row, column=16, value=totals.get('cost_to_date', 0)).fill = bill_fill
-		ws.cell(row=row, column=17, value=totals.get('margin', 0)).fill = bill_fill
+		ws.cell(row=row, column=16, value=totals.get('estimated_costs', {}).get('total', 0) or totals.get('total_estimated_cost', 0)).fill = bill_fill
+		ws.cell(row=row, column=17, value=totals.get('cost_to_date', 0)).fill = bill_fill
+		ws.cell(row=row, column=18, value=totals.get('margin', 0)).fill = bill_fill
 		
-		for col in range(1, 18):
+		for col in range(1, 19):
 			ws.cell(row=row, column=col).border = thin_border
 		
 		row += 1
@@ -115,16 +117,17 @@ def export_boq_to_excel(project: str) -> str:
 			ws.cell(row=row, column=13, value=item_amount.get('to_date', 0))
 			ws.cell(row=row, column=14, value=item_qty.get('balance', 0))
 			ws.cell(row=row, column=15, value=item_amount.get('balance', 0))
-			ws.cell(row=row, column=16, value=item.get('cost_to_date', 0))
-			ws.cell(row=row, column=17, value=item.get('margin', 0))
+			ws.cell(row=row, column=16, value=item.get('estimated_costs', {}).get('total', 0) or item.get('total_estimated_cost', 0))
+			ws.cell(row=row, column=17, value=item.get('cost_to_date', 0))
+			ws.cell(row=row, column=18, value=item.get('margin', 0))
 			
-			for col in range(1, 18):
+			for col in range(1, 19):
 				ws.cell(row=row, column=col).border = thin_border
 			
 			row += 1
 	
 	# Adjust column widths
-	column_widths = [15, 15, 40, 8, 12, 12, 15, 12, 15, 12, 15, 12, 15, 12, 15, 15, 15]
+	column_widths = [15, 15, 40, 8, 12, 12, 15, 12, 15, 12, 15, 12, 15, 12, 15, 18, 15, 15]
 	for i, width in enumerate(column_widths, 1):
 		ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = width
 	

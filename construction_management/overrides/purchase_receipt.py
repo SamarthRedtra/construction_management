@@ -3,16 +3,19 @@
 
 import frappe
 from frappe import _
+from construction_management.api.purchase_receipt_utils import get_warehouse_project
 
 
 def validate(doc, method):
 	"""Validate Purchase Receipt before save"""
 	validate_items_in_purchase_order(doc)
+	ensure_item_projects(doc)
 
 
 def before_submit(doc, method):
 	"""Validate Purchase Receipt before submit"""
 	validate_items_in_purchase_order(doc)
+	ensure_item_projects(doc, make_mandatory=True)
 
 
 def validate_items_in_purchase_order(doc):
@@ -60,3 +63,29 @@ def validate_items_in_purchase_order(doc):
 			title=_("Items Not in Purchase Order")
 		)
 
+
+def ensure_item_projects(doc, make_mandatory=False):
+	"""
+	Ensure each item has project set by pulling from row/custom fields or linked warehouses.
+	This safeguards against client-side values being cleared during save/submit.
+	"""
+	for row in doc.get("items", []):
+		project = row.get("project") or row.get("custom_project")
+
+		# Try accepted warehouse first, then rejected warehouse
+		if not project and row.get("warehouse"):
+			project = get_warehouse_project(row.warehouse)
+		if not project and row.get("rejected_warehouse"):
+			project = get_warehouse_project(row.rejected_warehouse)
+
+		if project:
+			row.project = project
+			if hasattr(row, "custom_project"):
+				row.custom_project = project
+		elif make_mandatory:
+			frappe.throw(
+				_("Row {0}: Please set a Project for warehouse {1}").format(
+					row.idx or row.name, row.warehouse or row.rejected_warehouse
+				),
+				title=_("Project Required"),
+			)

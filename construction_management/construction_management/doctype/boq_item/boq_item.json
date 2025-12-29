@@ -23,6 +23,16 @@
   "total_qty",
   "rate",
   "total_amount",
+  "section_estimated_costs",
+  "estimated_material_cost",
+  "estimated_labour_cost",
+  "estimated_subcontract_cost",
+  "column_break_estimated_1",
+  "estimated_asset_cost",
+  "estimated_other_cost",
+  "total_estimated_cost",
+  "section_materials",
+  "materials",
   "section_progressive",
   "prev_qty",
   "prev_amount",
@@ -164,6 +174,66 @@
    "in_list_view": 1,
    "label": "Total Amount",
    "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_estimated_costs",
+   "fieldtype": "Section Break",
+   "label": "Estimated Costs"
+  },
+  {
+   "description": "Estimated material cost for this BOQ item",
+   "fieldname": "estimated_material_cost",
+   "fieldtype": "Currency",
+   "label": "Estimated Material Cost"
+  },
+  {
+   "description": "Estimated labour cost for this BOQ item",
+   "fieldname": "estimated_labour_cost",
+   "fieldtype": "Currency",
+   "label": "Estimated Labour Cost"
+  },
+  {
+   "description": "Estimated subcontracting cost for this BOQ item",
+   "fieldname": "estimated_subcontract_cost",
+   "fieldtype": "Currency",
+   "label": "Estimated Subcontracting Cost"
+  },
+  {
+   "fieldname": "column_break_estimated_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Estimated asset/equipment cost for this BOQ item",
+   "fieldname": "estimated_asset_cost",
+   "fieldtype": "Currency",
+   "label": "Estimated Asset Cost"
+  },
+  {
+   "description": "Other estimated costs for this BOQ item",
+   "fieldname": "estimated_other_cost",
+   "fieldtype": "Currency",
+   "label": "Estimated Other Costs"
+  },
+  {
+   "description": "Sum of all estimated cost components (auto-calculated)",
+   "fieldname": "total_estimated_cost",
+   "fieldtype": "Currency",
+   "label": "Total Estimated Cost",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_materials",
+   "fieldtype": "Section Break",
+   "label": "Materials"
+  },
+  {
+   "description": "Material items required for this BOQ item",
+   "fieldname": "materials",
+   "fieldtype": "Table",
+   "label": "Materials",
+   "options": "BOQ Item Material"
   },
   {
    "fieldname": "section_progressive",

@@ -233,7 +233,10 @@ def get_boq_items(bill_name: str) -> list:
 		fields=[
 			"name", "item_code", "description", "unit",
 			"total_qty", "rate", "total_amount",
-			"billing_status"
+			"billing_status",
+			"estimated_material_cost", "estimated_labour_cost",
+			"estimated_subcontract_cost", "estimated_asset_cost",
+			"estimated_other_cost", "total_estimated_cost"
 		],
 		order_by="idx"
 	)
@@ -246,6 +249,16 @@ def get_boq_items(bill_name: str) -> list:
 		# Get cost values
 		cost_values = get_item_cost_values(item.name)
 		item.update(cost_values)
+		
+		# Add estimated costs structure
+		item["estimated_costs"] = {
+			"material": flt(item.get("estimated_material_cost", 0)),
+			"labour": flt(item.get("estimated_labour_cost", 0)),
+			"subcontract": flt(item.get("estimated_subcontract_cost", 0)),
+			"asset": flt(item.get("estimated_asset_cost", 0)),
+			"other": flt(item.get("estimated_other_cost", 0)),
+			"total": flt(item.get("total_estimated_cost", 0))
+		}
 	
 	return items
 
@@ -319,7 +332,11 @@ def calculate_bill_totals(items: list) -> dict:
 		"qty": {"total": 0, "prev": 0, "current": 0, "to_date": 0, "balance": 0},
 		"amount": {"total": 0, "prev": 0, "current": 0, "to_date": 0, "balance": 0},
 		"cost_to_date": 0,
-		"margin": 0
+		"margin": 0,
+		"estimated_costs": {
+			"material": 0, "labour": 0, "subcontract": 0, 
+			"asset": 0, "other": 0, "total": 0
+		}
 	}
 	
 	for item in items:
@@ -332,6 +349,11 @@ def calculate_bill_totals(items: list) -> dict:
 					totals["amount"][key] += flt(item["amount"].get(key, 0))
 		totals["cost_to_date"] += flt(item.get("cost_to_date", 0))
 		totals["margin"] += flt(item.get("margin", 0))
+		
+		# Aggregate estimated costs
+		if "estimated_costs" in item:
+			for key in totals["estimated_costs"]:
+				totals["estimated_costs"][key] += flt(item["estimated_costs"].get(key, 0))
 	
 	return totals
 
@@ -539,3 +561,18 @@ def get_boq_item_cost_breakdown(boq_item: str) -> dict:
 		},
 		"dprs": dprs
 	}
+
+
+@frappe.whitelist()
+def get_boq_item_cost_progress(boq_item: str) -> dict:
+	"""
+	Get cost progress comparing estimated vs incurred costs for a BOQ item.
+	
+	Args:
+		boq_item: BOQ Item name
+		
+	Returns:
+		dict with progress percentage, breakup by category, and variance
+	"""
+	item = frappe.get_doc("BOQ Item", boq_item)
+	return item.get_cost_progress()

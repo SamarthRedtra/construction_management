@@ -114,6 +114,10 @@ function get_dashboard_styles() {
 		.boq-dashboard-loading { text-align: center; padding: 60px 20px; color: #6c757d; }
 		.loading-spinner { width: 40px; height: 40px; border: 3px solid #f3f3f3; border-top: 3px solid #5e64ff; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 15px; }
 		@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+		/* Fix date picker z-index in modals */
+		.flatpickr-calendar { z-index: 2100 !important; }
+		.datepicker { z-index: 2100 !important; }
+		.modal .datepicker-container { z-index: 2100 !important; }
 	</style>`;
 }
 
@@ -331,7 +335,7 @@ function render_action_bar(container, frm) {
 			</button>
 			<button class="btn-modern btn-success-modern" onclick="generate_invoice_for_all('${frm.doc.name}')">
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-				Generate Invoice
+				Generate Proforma
 			</button>
 			<button class="btn-modern btn-warning-modern" onclick="create_dpr_quick('${frm.doc.name}')">
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
@@ -370,6 +374,10 @@ function render_action_bar(container, frm) {
 			<button class="btn-modern btn-outline" onclick="export_boq_excel('${frm.doc.name}')">
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
 				Export Excel
+			</button>
+			<button class="btn-modern btn-outline" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; border: none;" onclick="upload_boq_template('${frm.doc.name}')">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+				Upload Template
 			</button>
 		</div>
 	`);
@@ -708,33 +716,81 @@ window.add_bill_number = function(project) {
 };
 
 window.add_boq_item = function(bill_name, project) {
+	// Store materials data
+	let materialsData = [];
+	
 	const d = new frappe.ui.Dialog({
 		title: 'Add BOQ Item',
+		size: 'large',
 		fields: [
+			// Row 1: Item Code, Unit, Total Quantity
 			{fieldname: 'item_code', label: 'Item Code', fieldtype: 'Data'},
-			{fieldname: 'description', label: 'Description', fieldtype: 'Text', reqd: 1},
 			{fieldtype: 'Column Break'},
 			{fieldname: 'unit', label: 'Unit', fieldtype: 'Link', options: 'UOM', reqd: 1},
-			{fieldname: 'total_qty', label: 'Total Quantity', fieldtype: 'Float', reqd: 1, change: function() {
-				let qty = d.get_value('total_qty') || 0;
-				let rate = d.get_value('rate') || 0;
-				d.set_value('total_amount', qty * rate);
-			}},
-			{fieldname: 'rate', label: 'Rate', fieldtype: 'Currency', reqd: 1, change: function() {
-				let qty = d.get_value('total_qty') || 0;
-				let rate = d.get_value('rate') || 0;
-				d.set_value('total_amount', qty * rate);
-			}},
+			{fieldtype: 'Column Break'},
+			{fieldname: 'total_qty', label: 'Total Quantity', fieldtype: 'Float', reqd: 1},
+			
+			// Row 2: Description, Rate, Total Amount
+			{fieldtype: 'Section Break'},
+			{fieldname: 'description', label: 'Description', fieldtype: 'Small Text', reqd: 1},
+			{fieldtype: 'Column Break'},
+			{fieldname: 'rate', label: 'Rate', fieldtype: 'Currency', reqd: 1},
+			{fieldtype: 'Column Break'},
 			{fieldname: 'total_amount', label: 'Total Amount', fieldtype: 'Currency', read_only: 1},
-			{fieldtype: 'Section Break', label: 'Task Options'},
+			
+			// Materials Section
+			{fieldtype: 'Section Break', label: 'Materials', collapsible: 1},
+			{fieldname: 'materials_html', fieldtype: 'HTML'},
+			
+			// Estimated Costs Section
+			{fieldtype: 'Section Break', label: 'Estimated Costs', collapsible: 1},
+			{fieldname: 'cost_entry_mode', label: 'Cost Entry Mode', fieldtype: 'Select', 
+				options: 'Total Cost Only\nBreakdown', default: 'Total Cost Only',
+				description: 'Choose how to enter estimated costs'},
+			{fieldname: 'total_estimated_cost', label: 'Total Estimated Cost', fieldtype: 'Currency',
+				depends_on: 'eval:doc.cost_entry_mode=="Total Cost Only"',
+				description: 'Enter total estimated cost'},
+			{fieldtype: 'Column Break'},
+			{fieldname: 'estimated_material_cost', label: 'Material Cost', fieldtype: 'Currency', 
+				depends_on: 'eval:doc.cost_entry_mode=="Breakdown"',
+				description: 'Auto-calculated from materials if added'},
+			{fieldname: 'estimated_labour_cost', label: 'Labour Cost', fieldtype: 'Currency',
+				depends_on: 'eval:doc.cost_entry_mode=="Breakdown"'},
+			{fieldtype: 'Column Break'},
+			{fieldname: 'estimated_subcontract_cost', label: 'Subcontract Cost', fieldtype: 'Currency',
+				depends_on: 'eval:doc.cost_entry_mode=="Breakdown"'},
+			{fieldname: 'estimated_asset_cost', label: 'Asset Cost', fieldtype: 'Currency',
+				depends_on: 'eval:doc.cost_entry_mode=="Breakdown"'},
+			{fieldname: 'estimated_other_cost', label: 'Other Costs', fieldtype: 'Currency',
+				depends_on: 'eval:doc.cost_entry_mode=="Breakdown"'},
+			{fieldname: 'calculated_total_cost', label: 'Total (Calculated)', fieldtype: 'Currency',
+				depends_on: 'eval:doc.cost_entry_mode=="Breakdown"', read_only: 1},
+			
+			// Task Options Section
+			{fieldtype: 'Section Break', label: 'Task Options', collapsible: 1},
 			{fieldname: 'is_task', label: 'Create as Task', fieldtype: 'Check', 
 				description: 'Create a Group Task linked to this BOQ Item'},
-			{fieldname: 'start_date', label: 'Start Date', fieldtype: 'Date', depends_on: 'is_task'},
 			{fieldtype: 'Column Break'},
-			{fieldname: 'end_date', label: 'End Date', fieldtype: 'Date', depends_on: 'is_task'}
+			{fieldname: 'start_date', label: 'Start Date', fieldtype: 'Date', depends_on: 'eval:doc.is_task==1'},
+			{fieldtype: 'Column Break'},
+			{fieldname: 'end_date', label: 'End Date', fieldtype: 'Date', depends_on: 'eval:doc.is_task==1'}
 		],
 		primary_action_label: 'Create',
 		primary_action(values) {
+			// Calculate costs based on entry mode
+			let material_cost = 0, labour_cost = 0, subcontract_cost = 0, asset_cost = 0, other_cost = 0;
+			
+			if (values.cost_entry_mode === 'Breakdown') {
+				material_cost = values.estimated_material_cost || 0;
+				labour_cost = values.estimated_labour_cost || 0;
+				subcontract_cost = values.estimated_subcontract_cost || 0;
+				asset_cost = values.estimated_asset_cost || 0;
+				other_cost = values.estimated_other_cost || 0;
+			} else {
+				// Total Cost Only mode - put all in other_cost for simplicity
+				other_cost = values.total_estimated_cost || 0;
+			}
+			
 			frappe.call({
 				method: 'construction_management.api.boq_tasks.create_boq_item_with_task',
 				args: {
@@ -746,7 +802,14 @@ window.add_boq_item = function(bill_name, project) {
 					rate: values.rate,
 					is_task: values.is_task ? 1 : 0,
 					start_date: values.start_date,
-					end_date: values.end_date
+					end_date: values.end_date,
+					estimated_material_cost: material_cost,
+					estimated_labour_cost: labour_cost,
+					estimated_subcontract_cost: subcontract_cost,
+					estimated_asset_cost: asset_cost,
+					estimated_other_cost: other_cost,
+					total_estimated_cost: values.cost_entry_mode === 'Total Cost Only' ? (values.total_estimated_cost || 0) : 0,
+					materials: JSON.stringify(materialsData)
 				},
 				callback: function(r) {
 					if (r.message) {
@@ -762,7 +825,199 @@ window.add_boq_item = function(bill_name, project) {
 			});
 		}
 	});
+	
+	// Render materials section
+	function renderMaterialsSection() {
+		let html = `
+			<div class="materials-container">
+				<div class="materials-toolbar" style="margin-bottom: 10px;">
+					<button class="btn btn-xs btn-primary add-material-btn">
+						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>
+						</svg>
+						Add Material
+					</button>
+					<span class="materials-total" style="margin-left: 15px; font-weight: 600;">
+						Total: ${format_currency(materialsData.reduce((sum, m) => sum + (m.amount || 0), 0))}
+					</span>
+				</div>
+				<div class="materials-list">
+					${materialsData.length === 0 ? '<p class="text-muted">No materials added</p>' : ''}
+					<table class="table table-bordered table-sm" style="${materialsData.length === 0 ? 'display:none' : ''}">
+						<thead>
+							<tr>
+								<th>Item</th>
+								<th style="width: 80px;">Qty</th>
+								<th style="width: 100px;">Rate</th>
+								<th style="width: 100px;">Amount</th>
+								<th style="width: 40px;"></th>
+							</tr>
+						</thead>
+						<tbody>
+							${materialsData.map((m, idx) => `
+								<tr data-idx="${idx}">
+									<td>${m.item_name || m.item_code}</td>
+									<td>${m.qty}</td>
+									<td>${format_currency(m.rate)}</td>
+									<td>${format_currency(m.amount)}</td>
+									<td>
+										<button class="btn btn-xs btn-danger remove-material-btn" data-idx="${idx}">
+											<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+												<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>
+											</svg>
+										</button>
+									</td>
+								</tr>
+							`).join('')}
+						</tbody>
+					</table>
+				</div>
+			</div>
+		`;
+		d.fields_dict.materials_html.$wrapper.html(html);
+		
+		// Bind add material button
+		d.fields_dict.materials_html.$wrapper.find('.add-material-btn').on('click', function(e) {
+			e.preventDefault();
+			showAddMaterialDialog();
+		});
+		
+		// Bind remove buttons
+		d.fields_dict.materials_html.$wrapper.find('.remove-material-btn').on('click', function(e) {
+			e.preventDefault();
+			const idx = $(this).data('idx');
+			materialsData.splice(idx, 1);
+			renderMaterialsSection();
+			updateMaterialCost();
+		});
+	}
+	
+	function showAddMaterialDialog() {
+		const matDialog = new frappe.ui.Dialog({
+			title: 'Add Material',
+			fields: [
+				{fieldname: 'item_code', label: 'Item', fieldtype: 'Link', options: 'Item', reqd: 1},
+				{fieldname: 'item_name', label: 'Item Name', fieldtype: 'Data', read_only: 1},
+				{fieldtype: 'Column Break'},
+				{fieldname: 'qty', label: 'Quantity', fieldtype: 'Float', reqd: 1},
+				{fieldname: 'rate', label: 'Valuation Rate', fieldtype: 'Currency', read_only: 1,
+					description: 'Auto-fetched from stock valuation rate'},
+				{fieldname: 'amount', label: 'Amount', fieldtype: 'Currency', read_only: 1}
+			],
+			primary_action_label: 'Add',
+			primary_action: function(values) {
+				if (!values.item_code || !values.qty) {
+					frappe.show_alert({message: 'Please select item and enter quantity', indicator: 'orange'});
+					return;
+				}
+				materialsData.push({
+					item_code: values.item_code,
+					item_name: values.item_name,
+					qty: values.qty,
+					rate: values.rate || 0,
+					amount: (values.qty || 0) * (values.rate || 0)
+				});
+				matDialog.hide();
+				renderMaterialsSection();
+				updateMaterialCost();
+			}
+		});
+		
+		// Fetch item details and valuation rate on selection
+		matDialog.fields_dict.item_code.$input.on('change', function() {
+			const item_code = matDialog.get_value('item_code');
+			if (item_code) {
+				// First get item name
+				frappe.call({
+					method: 'frappe.client.get_value',
+					args: {
+						doctype: 'Item',
+						filters: {name: item_code},
+						fieldname: ['item_name']
+					},
+					callback: function(r) {
+						if (r.message) {
+							matDialog.set_value('item_name', r.message.item_name);
+						}
+					}
+				});
+				
+				// Get valuation rate from stock ledger
+				frappe.call({
+					method: 'construction_management.api.dpr_utils.get_item_valuation_rate',
+					args: {item_code: item_code},
+					callback: function(r) {
+						if (r.message) {
+							matDialog.set_value('rate', r.message.valuation_rate || 0);
+							updateMatAmount();
+						}
+					}
+				});
+			}
+		});
+		
+		// Update amount on qty change
+		function updateMatAmount() {
+			const qty = matDialog.get_value('qty') || 0;
+			const rate = matDialog.get_value('rate') || 0;
+			matDialog.set_value('amount', qty * rate);
+		}
+		
+		matDialog.fields_dict.qty.$input.on('change', updateMatAmount);
+		
+		matDialog.show();
+	}
+	
+	function updateMaterialCost() {
+		const total = materialsData.reduce((sum, m) => sum + (m.amount || 0), 0);
+		if (d.get_value('cost_entry_mode') === 'Breakdown') {
+			d.set_value('estimated_material_cost', total);
+		}
+	}
+	
+	// Set up change handlers after dialog is created
+	d.fields_dict.total_qty.$input.on('change', function() {
+		let qty = d.get_value('total_qty') || 0;
+		let rate = d.get_value('rate') || 0;
+		d.set_value('total_amount', qty * rate);
+	});
+	
+	d.fields_dict.rate.$input.on('change', function() {
+		let qty = d.get_value('total_qty') || 0;
+		let rate = d.get_value('rate') || 0;
+		d.set_value('total_amount', qty * rate);
+	});
+	
+	// Auto-calculate total when breakdown costs change
+	const updateCalculatedTotal = function() {
+		if (d.get_value('cost_entry_mode') === 'Breakdown') {
+			const total = (d.get_value('estimated_material_cost') || 0) +
+				(d.get_value('estimated_labour_cost') || 0) +
+				(d.get_value('estimated_subcontract_cost') || 0) +
+				(d.get_value('estimated_asset_cost') || 0) +
+				(d.get_value('estimated_other_cost') || 0);
+			d.set_value('calculated_total_cost', total);
+		}
+	};
+	
+	['estimated_material_cost', 'estimated_labour_cost', 'estimated_subcontract_cost', 
+	 'estimated_asset_cost', 'estimated_other_cost'].forEach(function(fieldname) {
+		if (d.fields_dict[fieldname] && d.fields_dict[fieldname].$input) {
+			d.fields_dict[fieldname].$input.on('change', updateCalculatedTotal);
+		}
+	});
+	
 	d.show();
+	
+	// Render materials section after dialog is shown
+	renderMaterialsSection();
+	
+	// Fix date picker z-index issue - ensure datepicker appears above modal
+	setTimeout(function() {
+		d.$wrapper.find('.datepicker').css('z-index', '2000');
+		// Also fix the flatpickr calendar if used
+		$('.flatpickr-calendar').css('z-index', '2100');
+	}, 100);
 };
 
 window.edit_boq_item = function(item_name) { frappe.set_route('Form', 'BOQ Item', item_name); };
@@ -1200,21 +1455,90 @@ window.submit_payment_certificate = function(pc_name, boq_item) {
 };
 
 window.view_cost_details = function(boq_item) {
-	frappe.call({
-		method: 'construction_management.api.boq_tree.get_boq_item_cost_details',
-		args: { boq_item: boq_item },
-		callback: function(r) { if (r.message) show_cost_dialog(boq_item, r.message); }
+	// Fetch both cost details and cost progress
+	Promise.all([
+		new Promise((resolve) => {
+			frappe.call({
+				method: 'construction_management.api.boq_tree.get_boq_item_cost_details',
+				args: { boq_item: boq_item },
+				callback: function(r) { resolve(r.message); }
+			});
+		}),
+		new Promise((resolve) => {
+			frappe.call({
+				method: 'construction_management.api.boq_tree.get_boq_item_cost_progress',
+				args: { boq_item: boq_item },
+				callback: function(r) { resolve(r.message); }
+			});
+		})
+	]).then(([costDetails, costProgress]) => {
+		show_cost_dialog(boq_item, costDetails, costProgress);
 	});
 };
 
-function show_cost_dialog(boq_item, data) {
+function show_cost_dialog(boq_item, data, progressData) {
 	const cost = data.cost || {};
 	const revenue = data.revenue || {};
 	const margin = (revenue.to_date || 0) - (cost.total || 0);
 	const marginPercent = revenue.to_date > 0 ? ((margin / revenue.to_date) * 100).toFixed(1) : 0;
 	
+	// Cost progress data
+	const hasEstimates = progressData && progressData.has_estimates;
+	const estimated = progressData ? progressData.estimated : {};
+	const incurred = progressData ? progressData.incurred : {};
+	const variance = progressData ? progressData.variance : {};
+	const progressPercent = progressData ? progressData.progress_percentage : 0;
+	const isOverrun = progressData ? progressData.is_overrun : false;
+	
+	// Build cost progress section HTML
+	let costProgressHtml = '';
+	if (hasEstimates) {
+		costProgressHtml = `
+			<div class="cost-progress-section">
+				<h4>📊 Cost Progress (Estimated vs Incurred)</h4>
+				<div class="progress-bar-container">
+					<div class="progress-bar-wrapper">
+						<div class="progress-bar-fill ${isOverrun ? 'overrun' : ''}" style="width: ${Math.min(progressPercent, 100)}%"></div>
+					</div>
+					<span class="progress-label ${isOverrun ? 'overrun' : ''}">${progressPercent.toFixed(1)}%</span>
+				</div>
+				<div class="progress-summary">
+					<span class="progress-stat"><strong>Estimated:</strong> ${format_currency(estimated.total || 0)}</span>
+					<span class="progress-stat"><strong>Incurred:</strong> ${format_currency(incurred.total || 0)}</span>
+					<span class="progress-stat ${variance.total >= 0 ? 'positive' : 'negative'}"><strong>Variance:</strong> ${format_currency(variance.total || 0)}</span>
+				</div>
+				<table class="cost-progress-table">
+					<thead>
+						<tr>
+							<th>Category</th>
+							<th class="text-right">Estimated</th>
+							<th class="text-right">Incurred</th>
+							<th class="text-right">Variance</th>
+							<th class="text-right">Progress</th>
+						</tr>
+					</thead>
+					<tbody>
+						${render_cost_progress_row('Material', estimated.material, incurred.material, variance.material)}
+						${render_cost_progress_row('Labour', estimated.labour, incurred.labour, variance.labour)}
+						${render_cost_progress_row('Subcontract', estimated.subcontract, incurred.subcontract, variance.subcontract)}
+						${render_cost_progress_row('Asset', estimated.asset, incurred.asset, variance.asset)}
+						${render_cost_progress_row('Other', estimated.other, incurred.other, variance.other)}
+						<tr class="total-row">
+							<td><strong>Total</strong></td>
+							<td class="text-right"><strong>${format_currency(estimated.total || 0)}</strong></td>
+							<td class="text-right"><strong>${format_currency(incurred.total || 0)}</strong></td>
+							<td class="text-right ${variance.total >= 0 ? 'text-success' : 'text-danger'}"><strong>${format_currency(variance.total || 0)}</strong></td>
+							<td class="text-right"><strong>${progressPercent.toFixed(1)}%</strong></td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		`;
+	}
+	
 	const d = new frappe.ui.Dialog({ title: __('Cost Details - Expenses Breakdown'), size: 'large', fields: [{fieldtype: 'HTML', fieldname: 'cost_html'}] });
 	d.fields_dict.cost_html.$wrapper.html(`
+		${costProgressHtml}
 		<div class="cost-summary-section">
 			<h4>Revenue vs Cost Summary</h4>
 			<div class="cost-summary-grid">
@@ -1239,6 +1563,24 @@ function show_cost_dialog(boq_item, data) {
 			</table>
 		</div>
 		<style>
+			.cost-progress-section { margin-bottom: 24px; padding: 16px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; }
+			.cost-progress-section h4 { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #374151; }
+			.progress-bar-container { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+			.progress-bar-wrapper { flex: 1; height: 24px; background: #e5e7eb; border-radius: 12px; overflow: hidden; }
+			.progress-bar-fill { height: 100%; background: linear-gradient(90deg, #10b981, #34d399); border-radius: 12px; transition: width 0.3s ease; }
+			.progress-bar-fill.overrun { background: linear-gradient(90deg, #ef4444, #f87171); }
+			.progress-label { font-size: 16px; font-weight: 600; color: #374151; min-width: 60px; }
+			.progress-label.overrun { color: #ef4444; }
+			.progress-summary { display: flex; gap: 24px; margin-bottom: 16px; flex-wrap: wrap; }
+			.progress-stat { font-size: 13px; color: #6b7280; }
+			.progress-stat.positive { color: #059669; }
+			.progress-stat.negative { color: #dc2626; }
+			.cost-progress-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+			.cost-progress-table th, .cost-progress-table td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; }
+			.cost-progress-table th { background: #f1f5f9; font-weight: 500; font-size: 11px; text-transform: uppercase; color: #64748b; }
+			.cost-progress-table .total-row { background: #f1f5f9; font-weight: 600; }
+			.text-success { color: #059669; }
+			.text-danger { color: #dc2626; }
 			.cost-summary-section, .cost-breakdown-section { margin-bottom: 24px; }
 			.cost-summary-section h4, .cost-breakdown-section h4 { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #374151; }
 			.cost-summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -1269,6 +1611,24 @@ function show_cost_dialog(boq_item, data) {
 	};
 	d.show();
 	ensure_dashboard_visible();
+}
+
+function render_cost_progress_row(category, estimated, incurred, variance) {
+	const est = flt(estimated) || 0;
+	const inc = flt(incurred) || 0;
+	const vari = flt(variance) || 0;
+	const progress = est > 0 ? ((inc / est) * 100).toFixed(1) : (inc > 0 ? '100.0' : '0.0');
+	const varianceClass = vari >= 0 ? 'text-success' : 'text-danger';
+	
+	return `
+		<tr>
+			<td>${category}</td>
+			<td class="text-right">${format_currency(est)}</td>
+			<td class="text-right">${format_currency(inc)}</td>
+			<td class="text-right ${varianceClass}">${format_currency(vari)}</td>
+			<td class="text-right">${progress}%</td>
+		</tr>
+	`;
 }
 
 // ============================================
@@ -1396,30 +1756,566 @@ function get_advance_status_color(status) {
 }
 
 window.generate_invoice_for_all = function(project) {
-	const items = [];
-	$('.current-qty-input').each(function() {
-		const qty = parseFloat($(this).val()) || 0;
-		if (qty > 0) items.push({ boq_item: $(this).data('item'), current_qty: qty });
-	});
-	
-	if (items.length === 0) {
-		frappe.show_alert({message: __('No items with current quantity to bill'), indicator: 'orange'});
-		return;
-	}
-	
-	frappe.confirm(__('Create invoice for {0} items?', [items.length]), function() {
-		frappe.call({
-			method: 'construction_management.api.boq_invoice.create_invoice_from_multiple_items',
-			args: { project: project, items: items },
-			callback: function(r) {
-				if (r.message) {
-					frappe.show_alert({message: __('Invoice {0} created', [r.message.invoice]), indicator: 'green'});
-					frappe.set_route('Form', 'Sales Invoice', r.message.invoice);
-				}
+	// Get ALL bills and items (not just those with current_qty > 0)
+	frappe.call({
+		method: 'construction_management.api.boq_invoice.get_all_bills_with_items',
+		args: { project: project },
+		callback: function(r) {
+			if (r.message && r.message.length > 0) {
+				show_invoice_selection_dialog(project, r.message);
+			} else {
+				frappe.show_alert({message: __('No items with balance to bill'), indicator: 'orange'});
 			}
-		});
+		}
 	});
 };
+
+function show_invoice_selection_dialog(project, billsWithItems) {
+	// Build bill and items HTML - items are NOT selected by default
+	let billsHtml = billsWithItems.map(bill => `
+		<div class="bill-section collapsed" data-bill="${bill.bill_name}">
+			<div class="bill-header-row" onclick="toggleBillItems(this)">
+				<div class="bill-header-left">
+					<input type="checkbox" class="bill-checkbox" data-bill="${bill.bill_name}" onclick="event.stopPropagation();">
+					<svg class="chevron-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+					<span class="bill-no">${bill.bill_no}</span>
+					${bill.bill_description ? `<span class="bill-desc">${bill.bill_description}</span>` : ''}
+				</div>
+				<div class="bill-header-right">
+					<span class="bill-stat">${bill.item_count} items</span>
+					<span class="bill-balance">Balance: ${format_currency(bill.total_balance)}</span>
+					<span class="bill-amount" data-bill="${bill.bill_name}">To Bill: ${format_currency(0)}</span>
+				</div>
+			</div>
+			<div class="bill-items" style="display: none;">
+				<table class="items-table">
+					<thead>
+						<tr>
+							<th style="width: 30px;"></th>
+							<th>Description</th>
+							<th style="width: 60px;">Unit</th>
+							<th style="width: 80px;">Rate</th>
+							<th style="width: 80px;">Billed</th>
+							<th style="width: 80px;">Balance</th>
+							<th style="width: 90px;">Bill Qty</th>
+							<th style="width: 100px;">Amount</th>
+						</tr>
+					</thead>
+					<tbody>
+						${bill.items.map(item => `
+							<tr class="item-row unchecked" data-item="${item.boq_item}">
+								<td><input type="checkbox" class="item-checkbox" data-item="${item.boq_item}" data-bill="${bill.bill_name}"></td>
+								<td class="item-desc">${item.description || item.item_code || 'No description'}</td>
+								<td>${item.unit || '-'}</td>
+								<td class="text-right">${format_currency(item.rate)}</td>
+								<td class="text-right text-muted">${format_number(item.to_date_qty || 0)}</td>
+								<td class="text-right text-success">${format_number(item.balance_qty)}</td>
+								<td>
+									<input type="number" class="item-qty-input form-control input-sm" 
+										data-item="${item.boq_item}" 
+										data-rate="${item.rate}"
+										data-max="${item.balance_qty}"
+										value="0" 
+										min="0" max="${item.balance_qty}" step="0.001"
+										style="width: 80px; text-align: right;">
+								</td>
+								<td class="text-right item-amount" data-item="${item.boq_item}">${format_currency(0)}</td>
+							</tr>
+						`).join('')}
+					</tbody>
+				</table>
+			</div>
+		</div>
+	`).join('');
+	
+	const d = new frappe.ui.Dialog({
+		title: __('Generate Invoice - Select Items'),
+		size: 'extra-large',
+		fields: [
+			{
+				fieldtype: 'HTML',
+				fieldname: 'bill_selection',
+				options: `
+					<div class="invoice-selection-container">
+						<div class="selection-header">
+							<div class="selection-info">
+								<span class="info-text">Select bills or individual items to invoice</span>
+							</div>
+							<div class="selection-summary">
+								<span id="selected-count">0</span> items | 
+								<span id="selected-amount">${format_currency(0)}</span>
+							</div>
+						</div>
+						<div class="bills-container">
+							${billsHtml}
+						</div>
+					</div>
+					<style>
+						.invoice-selection-container { max-height: 450px; overflow-y: auto; }
+						.selection-header { 
+							display: flex; justify-content: space-between; align-items: center;
+							padding: 12px 16px; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+							border: 1px solid #bae6fd; border-radius: 8px; margin-bottom: 12px;
+							position: sticky; top: 0; z-index: 10;
+						}
+						.info-text { font-size: 13px; color: #0369a1; }
+						.selection-summary { font-size: 13px; color: #0369a1; font-weight: 600; }
+						.bills-container { display: flex; flex-direction: column; gap: 8px; }
+						.bill-section { border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
+						.bill-section.has-selection { border-color: #3b82f6; background: #f0f9ff; }
+						.bill-header-row { 
+							display: flex; justify-content: space-between; align-items: center;
+							padding: 10px 12px; background: #f9fafb; cursor: pointer;
+							border-bottom: 1px solid #e5e7eb;
+						}
+						.bill-header-row:hover { background: #f3f4f6; }
+						.bill-header-left { display: flex; align-items: center; gap: 8px; }
+						.bill-header-right { display: flex; align-items: center; gap: 16px; }
+						.bill-no { font-weight: 600; color: #1f2937; }
+						.bill-desc { font-size: 12px; color: #6b7280; }
+						.bill-stat { font-size: 12px; color: #6b7280; }
+						.bill-balance { font-size: 12px; color: #059669; }
+						.bill-amount { font-weight: 600; color: #3b82f6; min-width: 100px; text-align: right; }
+						.chevron-icon { transition: transform 0.2s; }
+						.bill-section.collapsed .chevron-icon { transform: rotate(-90deg); }
+						.bill-items { padding: 0; }
+						.items-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+						.items-table th { background: #f3f4f6; padding: 8px; text-align: left; font-weight: 600; }
+						.items-table td { padding: 8px; border-bottom: 1px solid #f3f4f6; }
+						.item-row:hover { background: #f9fafb; }
+						.item-row.unchecked { opacity: 0.6; }
+						.item-row.unchecked .item-qty-input { background: #f3f4f6; }
+						.item-desc { max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+						.item-qty-input { padding: 4px 6px; border: 1px solid #d1d5db; border-radius: 4px; }
+						.item-qty-input:focus { border-color: #3b82f6; outline: none; }
+						.text-right { text-align: right; }
+						.text-muted { color: #9ca3af; }
+						.text-success { color: #059669; font-weight: 500; }
+					</style>
+				`
+			},
+			{
+				fieldtype: 'Section Break',
+				label: __('Invoice Options')
+			},
+			{
+				fieldtype: 'Check',
+				fieldname: 'apply_retention',
+				label: __('Apply Retention'),
+				default: 1
+			}
+		],
+		primary_action_label: __('Generate Proforma Invoice'),
+		primary_action: function(values) {
+			// Build items array from selected items with qty > 0
+			const itemsToInvoice = [];
+			d.$wrapper.find('.item-checkbox:checked').each(function() {
+				const itemName = $(this).data('item');
+				const qtyInput = d.$wrapper.find(`.item-qty-input[data-item="${itemName}"]`);
+				const qty = parseFloat(qtyInput.val()) || 0;
+				if (qty > 0) {
+					itemsToInvoice.push({
+						boq_item: itemName,
+						qty: qty
+					});
+				}
+			});
+			
+			if (itemsToInvoice.length === 0) {
+				frappe.show_alert({message: __('Please select at least one item and enter quantity to bill'), indicator: 'orange'});
+				return;
+			}
+			
+			d.disable_primary_action();
+			
+			// Create Proforma Invoice (not Sales Invoice)
+			frappe.call({
+				method: 'construction_management.construction_management.doctype.proforma_invoice.proforma_invoice.create_proforma_from_selected_items',
+				args: {
+					project: project,
+					items: JSON.stringify(itemsToInvoice),
+					apply_retention: values.apply_retention ? 1 : 0
+				},
+				callback: function(r) {
+					d.enable_primary_action();
+					if (r.message) {
+						d.hide();
+						frappe.show_alert({
+							message: __('Proforma Invoice {0} created with {1} items', [
+								r.message.name, 
+								r.message.item_count
+							]), 
+							indicator: 'green'
+						});
+						frappe.set_route('Form', 'Proforma Invoice', r.message.name);
+					}
+				},
+				error: function() {
+					d.enable_primary_action();
+				}
+			});
+		}
+	});
+	
+	// Toggle bill items visibility
+	window.toggleBillItems = function(header) {
+		const section = $(header).closest('.bill-section');
+		const items = section.find('.bill-items');
+		section.toggleClass('collapsed');
+		items.slideToggle(200);
+	};
+	
+	// Update totals function
+	function updateTotals() {
+		let totalSelected = 0;
+		let totalAmount = 0;
+		
+		d.$wrapper.find('.item-checkbox:checked').each(function() {
+			const itemName = $(this).data('item');
+			const qtyInput = d.$wrapper.find(`.item-qty-input[data-item="${itemName}"]`);
+			const rate = parseFloat(qtyInput.data('rate')) || 0;
+			const qty = parseFloat(qtyInput.val()) || 0;
+			if (qty > 0) {
+				totalSelected++;
+				totalAmount += qty * rate;
+			}
+		});
+		
+		d.$wrapper.find('#selected-count').text(totalSelected);
+		d.$wrapper.find('#selected-amount').text(format_currency(totalAmount));
+		
+		// Update bill totals and highlight bills with selections
+		billsWithItems.forEach(bill => {
+			let billTotal = 0;
+			let hasSelection = false;
+			bill.items.forEach(item => {
+				const checkbox = d.$wrapper.find(`.item-checkbox[data-item="${item.boq_item}"]`);
+				if (checkbox.is(':checked')) {
+					const qtyInput = d.$wrapper.find(`.item-qty-input[data-item="${item.boq_item}"]`);
+					const qty = parseFloat(qtyInput.val()) || 0;
+					if (qty > 0) {
+						billTotal += qty * item.rate;
+						hasSelection = true;
+					}
+				}
+			});
+			d.$wrapper.find(`.bill-amount[data-bill="${bill.bill_name}"]`).text('To Bill: ' + format_currency(billTotal));
+			d.$wrapper.find(`.bill-section[data-bill="${bill.bill_name}"]`).toggleClass('has-selection', hasSelection);
+		});
+	}
+	
+	// When bill checkbox is checked, select all items and set qty to balance
+	d.$wrapper.on('change', '.bill-checkbox', function() {
+		const billName = $(this).data('bill');
+		const isChecked = $(this).is(':checked');
+		const section = d.$wrapper.find(`.bill-section[data-bill="${billName}"]`);
+		
+		// Select/deselect all items in this bill
+		section.find('.item-checkbox').prop('checked', isChecked);
+		section.find('.item-row').toggleClass('unchecked', !isChecked);
+		
+		// If checking, set qty to balance for all items; if unchecking, set to 0
+		section.find('.item-qty-input').each(function() {
+			const maxQty = parseFloat($(this).data('max')) || 0;
+			const newQty = isChecked ? maxQty : 0;
+			$(this).val(newQty);
+			
+			// Update amount display
+			const itemName = $(this).data('item');
+			const rate = parseFloat($(this).data('rate')) || 0;
+			d.$wrapper.find(`.item-amount[data-item="${itemName}"]`).text(format_currency(newQty * rate));
+		});
+		
+		// Expand the bill section if checking
+		if (isChecked && section.hasClass('collapsed')) {
+			section.removeClass('collapsed');
+			section.find('.bill-items').slideDown(200);
+		}
+		
+		updateTotals();
+	});
+	
+	// When item checkbox is changed
+	d.$wrapper.on('change', '.item-checkbox', function() {
+		const row = $(this).closest('.item-row');
+		const isChecked = $(this).is(':checked');
+		const itemName = $(this).data('item');
+		const qtyInput = d.$wrapper.find(`.item-qty-input[data-item="${itemName}"]`);
+		
+		row.toggleClass('unchecked', !isChecked);
+		
+		// If checking, set qty to balance; if unchecking, set to 0
+		if (isChecked) {
+			const maxQty = parseFloat(qtyInput.data('max')) || 0;
+			qtyInput.val(maxQty);
+			const rate = parseFloat(qtyInput.data('rate')) || 0;
+			d.$wrapper.find(`.item-amount[data-item="${itemName}"]`).text(format_currency(maxQty * rate));
+		} else {
+			qtyInput.val(0);
+			d.$wrapper.find(`.item-amount[data-item="${itemName}"]`).text(format_currency(0));
+		}
+		
+		// Update bill checkbox state
+		const billName = $(this).data('bill');
+		const billItems = d.$wrapper.find(`.item-checkbox[data-bill="${billName}"]`);
+		const checkedItems = billItems.filter(':checked');
+		d.$wrapper.find(`.bill-checkbox[data-bill="${billName}"]`).prop('checked', checkedItems.length === billItems.length);
+		d.$wrapper.find(`.bill-checkbox[data-bill="${billName}"]`).prop('indeterminate', checkedItems.length > 0 && checkedItems.length < billItems.length);
+		
+		updateTotals();
+	});
+	
+	// When qty input changes
+	d.$wrapper.on('change input', '.item-qty-input', function() {
+		const itemName = $(this).data('item');
+		const rate = parseFloat($(this).data('rate')) || 0;
+		const maxQty = parseFloat($(this).data('max')) || 0;
+		let qty = parseFloat($(this).val()) || 0;
+		
+		// Validate qty
+		if (qty < 0) { qty = 0; $(this).val(0); }
+		if (qty > maxQty) { 
+			qty = maxQty; 
+			$(this).val(maxQty);
+			frappe.show_alert({message: __('Quantity cannot exceed balance ({0})', [maxQty]), indicator: 'orange'});
+		}
+		
+		// Update amount display
+		const amount = qty * rate;
+		d.$wrapper.find(`.item-amount[data-item="${itemName}"]`).text(format_currency(amount));
+		
+		// Auto-check the item if qty > 0
+		const checkbox = d.$wrapper.find(`.item-checkbox[data-item="${itemName}"]`);
+		if (qty > 0 && !checkbox.is(':checked')) {
+			checkbox.prop('checked', true);
+			$(this).closest('.item-row').removeClass('unchecked');
+		} else if (qty === 0 && checkbox.is(':checked')) {
+			checkbox.prop('checked', false);
+			$(this).closest('.item-row').addClass('unchecked');
+		}
+		
+		// Update bill checkbox state
+		const billName = checkbox.data('bill');
+		const billItems = d.$wrapper.find(`.item-checkbox[data-bill="${billName}"]`);
+		const checkedItems = billItems.filter(':checked');
+		d.$wrapper.find(`.bill-checkbox[data-bill="${billName}"]`).prop('checked', checkedItems.length === billItems.length);
+		d.$wrapper.find(`.bill-checkbox[data-bill="${billName}"]`).prop('indeterminate', checkedItems.length > 0 && checkedItems.length < billItems.length);
+		
+		updateTotals();
+	});
+	
+	d.onhide = function() {
+		cleanup_modal_and_restore_dashboard();
+	};
+	
+	d.show();
+}
+
+// Keep the old function for backward compatibility
+function show_bill_selection_dialog(project, bills) {
+	// Build bill selection HTML
+	let billsHtml = bills.map(bill => `
+		<div class="bill-select-row" data-bill="${bill.name}">
+			<label class="bill-checkbox-label">
+				<input type="checkbox" class="bill-checkbox" data-bill="${bill.name}" checked>
+				<div class="bill-info">
+					<span class="bill-no">${bill.bill_no}</span>
+					${bill.description ? `<span class="bill-desc">${bill.description}</span>` : ''}
+				</div>
+				<div class="bill-stats">
+					<span class="stat-item"><strong>${bill.item_count}</strong> items</span>
+					<span class="stat-item"><strong>${format_currency(bill.total_amount)}</strong></span>
+				</div>
+			</label>
+		</div>
+	`).join('');
+	
+	const totalAmount = bills.reduce((sum, b) => sum + (b.total_amount || 0), 0);
+	const totalItems = bills.reduce((sum, b) => sum + (b.item_count || 0), 0);
+	
+	const d = new frappe.ui.Dialog({
+		title: __('Generate Invoice for Selected Bills'),
+		size: 'large',
+		fields: [
+			{
+				fieldtype: 'HTML',
+				fieldname: 'bill_selection',
+				options: `
+					<div class="bill-selection-container">
+						<div class="selection-header">
+							<label class="select-all-label">
+								<input type="checkbox" id="select-all-bills" checked>
+								<span>Select All Bills</span>
+							</label>
+							<div class="selection-summary">
+								<span id="selected-count">${bills.length}</span> bills selected | 
+								<span id="selected-items">${totalItems}</span> items | 
+								<span id="selected-amount">${format_currency(totalAmount)}</span>
+							</div>
+						</div>
+						<div class="bills-list">
+							${billsHtml}
+						</div>
+					</div>
+					<style>
+						.bill-selection-container { max-height: 400px; overflow-y: auto; }
+						.selection-header { 
+							display: flex; 
+							justify-content: space-between; 
+							align-items: center;
+							padding: 12px 16px;
+							background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+							border: 1px solid #bae6fd;
+							border-radius: 8px;
+							margin-bottom: 12px;
+						}
+						.select-all-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; }
+						.selection-summary { font-size: 13px; color: #0369a1; }
+						.bills-list { display: flex; flex-direction: column; gap: 8px; }
+						.bill-select-row { 
+							border: 1px solid #e5e7eb; 
+							border-radius: 8px; 
+							transition: all 0.2s;
+						}
+						.bill-select-row:hover { border-color: #3b82f6; background: #f8fafc; }
+						.bill-select-row.selected { border-color: #3b82f6; background: #eff6ff; }
+						.bill-checkbox-label { 
+							display: flex; 
+							align-items: center; 
+							padding: 12px 16px; 
+							cursor: pointer;
+							gap: 12px;
+						}
+						.bill-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+						.bill-no { font-weight: 600; color: #1f2937; }
+						.bill-desc { font-size: 12px; color: #6b7280; }
+						.bill-stats { display: flex; gap: 16px; font-size: 13px; color: #374151; }
+						.stat-item { display: flex; gap: 4px; }
+					</style>
+				`
+			},
+			{
+				fieldtype: 'Section Break',
+				label: __('Invoice Options')
+			},
+			{
+				fieldtype: 'Check',
+				fieldname: 'apply_retention',
+				label: __('Apply Retention'),
+				default: 1
+			},
+			{
+				fieldtype: 'Column Break'
+			},
+			{
+				fieldtype: 'Check',
+				fieldname: 'is_proforma',
+				label: __('Create as Proforma Invoice'),
+				default: 0
+			},
+			{
+				fieldtype: 'Section Break'
+			},
+			{
+				fieldtype: 'Currency',
+				fieldname: 'advance_deduction',
+				label: __('Advance Deduction'),
+				default: 0
+			}
+		],
+		primary_action_label: __('Generate Invoice'),
+		primary_action: function(values) {
+			const selectedBills = [];
+			d.$wrapper.find('.bill-checkbox:checked').each(function() {
+				selectedBills.push($(this).data('bill'));
+			});
+			
+			if (selectedBills.length === 0) {
+				frappe.show_alert({message: __('Please select at least one bill'), indicator: 'orange'});
+				return;
+			}
+			
+			d.disable_primary_action();
+			
+			frappe.call({
+				method: 'construction_management.api.boq_invoice.create_invoice_from_selected_bills',
+				args: {
+					project: project,
+					bill_names: selectedBills,
+					apply_retention: values.apply_retention ? 1 : 0,
+					advance_deduction: values.advance_deduction || 0,
+					is_proforma: values.is_proforma ? 1 : 0
+				},
+				callback: function(r) {
+					d.enable_primary_action();
+					if (r.message) {
+						d.hide();
+						frappe.show_alert({
+							message: __('Invoice {0} created with {1} items from {2} bills', [
+								r.message.invoice, 
+								r.message.item_count,
+								r.message.bills_included.length
+							]), 
+							indicator: 'green'
+						});
+						frappe.set_route('Form', 'Sales Invoice', r.message.invoice);
+					}
+				},
+				error: function() {
+					d.enable_primary_action();
+				}
+			});
+		}
+	});
+	
+	// Set up event handlers after dialog is shown
+	d.$wrapper.on('change', '#select-all-bills', function() {
+		const isChecked = $(this).is(':checked');
+		d.$wrapper.find('.bill-checkbox').prop('checked', isChecked);
+		d.$wrapper.find('.bill-select-row').toggleClass('selected', isChecked);
+		updateSelectionSummary();
+	});
+	
+	d.$wrapper.on('change', '.bill-checkbox', function() {
+		const row = $(this).closest('.bill-select-row');
+		row.toggleClass('selected', $(this).is(':checked'));
+		
+		// Update select all checkbox
+		const allChecked = d.$wrapper.find('.bill-checkbox').length === d.$wrapper.find('.bill-checkbox:checked').length;
+		d.$wrapper.find('#select-all-bills').prop('checked', allChecked);
+		
+		updateSelectionSummary();
+	});
+	
+	function updateSelectionSummary() {
+		let selectedCount = 0;
+		let selectedItems = 0;
+		let selectedAmount = 0;
+		
+		d.$wrapper.find('.bill-checkbox:checked').each(function() {
+			const billName = $(this).data('bill');
+			const bill = bills.find(b => b.name === billName);
+			if (bill) {
+				selectedCount++;
+				selectedItems += bill.item_count || 0;
+				selectedAmount += bill.total_amount || 0;
+			}
+		});
+		
+		d.$wrapper.find('#selected-count').text(selectedCount);
+		d.$wrapper.find('#selected-items').text(selectedItems);
+		d.$wrapper.find('#selected-amount').text(format_currency(selectedAmount));
+	}
+	
+	d.onhide = function() {
+		cleanup_modal_and_restore_dashboard();
+	};
+	
+	d.show();
+	
+	// Mark all rows as selected initially
+	d.$wrapper.find('.bill-select-row').addClass('selected');
+}
 
 window.export_boq_excel = function(project) {
 	frappe.call({
@@ -2577,7 +3473,17 @@ window.show_dpr_dialog_enhanced = function(project) {
 			// Material Section
 			{ fieldtype: 'Section Break', label: __('📦 Material Cost') },
 			{ fieldname: 'item_code', label: __('Add Item'), fieldtype: 'Link', options: 'Item',
-				get_query: () => ({ filters: { is_stock_item: 1 } }),
+				get_query: () => {
+					// Get site_location warehouse from project
+					const site_warehouse = cur_frm?.doc?.site_location;
+					if (site_warehouse) {
+						return {
+							query: 'construction_management.api.dpr_utils.get_warehouse_items_query',
+							filters: { warehouse: site_warehouse, project: project }
+						};
+					}
+					return { filters: { is_stock_item: 1 } };
+				},
 				change: function() {
 					const item = d.get_value('item_code');
 					if (item) show_material_qty_dialog(d, item, project);
@@ -2761,6 +3667,9 @@ function show_material_qty_dialog(d, item_code, project) {
 		return;
 	}
 	
+	// Get site_location warehouse from project
+	const site_warehouse = cur_frm?.doc?.site_location || '';
+	
 	frappe.call({
 		method: 'construction_management.api.dpr_utils.get_item_details',
 		args: { item_code: item_code },
@@ -2774,6 +3683,7 @@ function show_material_qty_dialog(d, item_code, project) {
 				frappe.prompt([
 					{ fieldname: 'qty', label: __('Quantity'), fieldtype: 'Float', reqd: 1, default: 1 },
 					{ fieldname: 'warehouse', label: __('Source Warehouse'), fieldtype: 'Link', options: 'Warehouse', reqd: 1,
+					  default: site_warehouse,
 					  description: __('Stock will be transferred from this warehouse on submit') },
 					{ fieldname: 'rate', label: __('Rate (for Costing)'), fieldtype: 'Currency', default: item.rate || 0,
 					  description: rateDesc }
@@ -3868,4 +4778,280 @@ window.add_resource_allocation = function(project) {
 	
 	// Initial display
 	updateSelectedEmployeesDisplay();
+};
+
+// ============================================
+// BOQ Template Upload (Task 14.4)
+// Requirements: 11.1, 11.5, 11.6
+// ============================================
+
+window.upload_boq_template = function(project) {
+	const d = new frappe.ui.Dialog({
+		title: __('Upload BOQ Template'),
+		size: 'large',
+		fields: [
+			{
+				fieldtype: 'HTML',
+				fieldname: 'template_info',
+				options: `
+					<div class="template-upload-info">
+						<div class="info-header">
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<circle cx="12" cy="12" r="10"></circle>
+								<line x1="12" y1="16" x2="12" y2="12"></line>
+								<line x1="12" y1="8" x2="12.01" y2="8"></line>
+							</svg>
+							<span>Template Format</span>
+						</div>
+						<p>Upload an Excel file with the following columns:</p>
+						<div class="columns-list">
+							<div class="column-group required">
+								<strong>Required:</strong>
+								<span class="column-tag">Bill No</span>
+								<span class="column-tag">Description</span>
+								<span class="column-tag">Unit</span>
+								<span class="column-tag">Quantity</span>
+								<span class="column-tag">Rate</span>
+							</div>
+							<div class="column-group optional">
+								<strong>Optional:</strong>
+								<span class="column-tag">Item Code</span>
+								<span class="column-tag">Estimated Material Cost</span>
+								<span class="column-tag">Estimated Labour Cost</span>
+								<span class="column-tag">Estimated Subcontract Cost</span>
+								<span class="column-tag">Estimated Asset Cost</span>
+								<span class="column-tag">Estimated Other Cost</span>
+							</div>
+						</div>
+						<button class="btn btn-xs btn-default download-template-btn" onclick="download_boq_template()">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+								<polyline points="7 10 12 15 17 10"></polyline>
+								<line x1="12" y1="15" x2="12" y2="3"></line>
+							</svg>
+							Download Sample Template
+						</button>
+					</div>
+					<style>
+						.template-upload-info { 
+							background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+							border: 1px solid #bae6fd;
+							border-radius: 8px;
+							padding: 16px;
+							margin-bottom: 16px;
+						}
+						.info-header { 
+							display: flex; 
+							align-items: center; 
+							gap: 8px; 
+							font-weight: 600; 
+							color: #0369a1;
+							margin-bottom: 8px;
+						}
+						.template-upload-info p { margin: 0 0 12px 0; color: #374151; font-size: 13px; }
+						.columns-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+						.column-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
+						.column-group strong { min-width: 70px; color: #374151; }
+						.column-tag { 
+							background: white; 
+							border: 1px solid #d1d5db; 
+							border-radius: 4px; 
+							padding: 2px 8px; 
+							font-size: 11px;
+							color: #4b5563;
+						}
+						.column-group.required .column-tag { border-color: #f59e0b; background: #fffbeb; color: #92400e; }
+						.column-group.optional .column-tag { border-color: #10b981; background: #ecfdf5; color: #065f46; }
+						.download-template-btn { 
+							display: inline-flex; 
+							align-items: center; 
+							gap: 6px;
+							margin-top: 8px;
+						}
+					</style>
+				`
+			},
+			{
+				fieldtype: 'Attach',
+				fieldname: 'template_file',
+				label: __('Select Excel File'),
+				reqd: 1,
+				options: {
+					restrictions: {
+						allowed_file_types: ['.xlsx', '.xls']
+					}
+				}
+			},
+			{
+				fieldtype: 'HTML',
+				fieldname: 'upload_result',
+				options: '<div id="upload-result-container"></div>'
+			}
+		],
+		primary_action_label: __('Upload & Create'),
+		primary_action: function(values) {
+			if (!values.template_file) {
+				frappe.msgprint(__('Please select a file to upload'));
+				return;
+			}
+			
+			d.disable_primary_action();
+			$('#upload-result-container').html(`
+				<div class="upload-progress">
+					<div class="spinner-border spinner-border-sm" role="status"></div>
+					<span>Processing template...</span>
+				</div>
+				<style>
+					.upload-progress { 
+						display: flex; 
+						align-items: center; 
+						gap: 10px; 
+						padding: 12px; 
+						background: #f3f4f6; 
+						border-radius: 6px;
+						color: #4b5563;
+					}
+				</style>
+			`);
+			
+			frappe.call({
+				method: 'construction_management.api.template_upload.upload_boq_template',
+				args: {
+					project: project,
+					file_url: values.template_file
+				},
+				callback: function(r) {
+					d.enable_primary_action();
+					
+					if (r.message) {
+						const result = r.message;
+						
+						if (result.success) {
+							$('#upload-result-container').html(`
+								<div class="upload-success">
+									<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+										<polyline points="22 4 12 14.01 9 11.01"></polyline>
+									</svg>
+									<div class="success-content">
+										<strong>${result.message}</strong>
+										<div class="success-details">
+											<span>Bills: ${result.bills_created}</span>
+											<span>Items: ${result.items_created}</span>
+										</div>
+									</div>
+								</div>
+								<style>
+									.upload-success { 
+										display: flex; 
+										align-items: center; 
+										gap: 12px; 
+										padding: 16px; 
+										background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+										border: 1px solid #10b981;
+										border-radius: 8px;
+										color: #065f46;
+									}
+									.success-content { display: flex; flex-direction: column; gap: 4px; }
+									.success-details { display: flex; gap: 16px; font-size: 12px; color: #047857; }
+								</style>
+							`);
+							
+							// Refresh dashboard after successful upload
+							setTimeout(() => {
+								d.hide();
+								cur_frm.reload_doc();
+							}, 1500);
+						} else {
+							// Show errors
+							let errorHtml = '';
+							if (result.errors && result.errors.length > 0) {
+								errorHtml = result.errors.map(e => {
+									if (typeof e === 'object') {
+										return `<div class="error-item">Row ${e.row}, ${e.column}: ${e.message}</div>`;
+									}
+									return `<div class="error-item">${e}</div>`;
+								}).join('');
+							}
+							
+							$('#upload-result-container').html(`
+								<div class="upload-error">
+									<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<circle cx="12" cy="12" r="10"></circle>
+										<line x1="15" y1="9" x2="9" y2="15"></line>
+										<line x1="9" y1="9" x2="15" y2="15"></line>
+									</svg>
+									<div class="error-content">
+										<strong>${result.message || 'Upload failed'}</strong>
+										<div class="error-list">${errorHtml}</div>
+									</div>
+								</div>
+								<style>
+									.upload-error { 
+										display: flex; 
+										align-items: flex-start; 
+										gap: 12px; 
+										padding: 16px; 
+										background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+										border: 1px solid #ef4444;
+										border-radius: 8px;
+										color: #991b1b;
+									}
+									.error-content { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+									.error-list { 
+										max-height: 150px; 
+										overflow-y: auto; 
+										font-size: 12px; 
+										background: white;
+										border-radius: 4px;
+										padding: 8px;
+									}
+									.error-item { 
+										padding: 4px 0; 
+										border-bottom: 1px solid #fecaca;
+										color: #b91c1c;
+									}
+									.error-item:last-child { border-bottom: none; }
+								</style>
+							`);
+						}
+					}
+				},
+				error: function(r) {
+					d.enable_primary_action();
+					$('#upload-result-container').html(`
+						<div class="upload-error">
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<circle cx="12" cy="12" r="10"></circle>
+								<line x1="15" y1="9" x2="9" y2="15"></line>
+								<line x1="9" y1="9" x2="15" y2="15"></line>
+							</svg>
+							<div class="error-content">
+								<strong>Error processing template</strong>
+								<p>${r.message || 'An unexpected error occurred'}</p>
+							</div>
+						</div>
+					`);
+				}
+			});
+		}
+	});
+	
+	d.onhide = function() {
+		cleanup_modal_and_restore_dashboard();
+	};
+	
+	d.show();
+};
+
+window.download_boq_template = function() {
+	frappe.call({
+		method: 'construction_management.api.template_upload.download_template',
+		callback: function(r) {
+			if (r.message) {
+				window.open(r.message);
+				frappe.show_alert({message: __('Template downloaded'), indicator: 'green'});
+			}
+		}
+	});
 };

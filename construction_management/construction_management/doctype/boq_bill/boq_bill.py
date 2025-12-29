@@ -41,7 +41,13 @@ class BOQBill(Document):
 		totals = frappe.db.sql("""
 			SELECT 
 				COALESCE(SUM(total_qty), 0) as total_qty,
-				COALESCE(SUM(total_amount), 0) as total_amount
+				COALESCE(SUM(total_amount), 0) as total_amount,
+				COALESCE(SUM(total_estimated_cost), 0) as total_estimated_cost,
+				COALESCE(SUM(estimated_material_cost), 0) as estimated_material_cost,
+				COALESCE(SUM(estimated_labour_cost), 0) as estimated_labour_cost,
+				COALESCE(SUM(estimated_subcontract_cost), 0) as estimated_subcontract_cost,
+				COALESCE(SUM(estimated_asset_cost), 0) as estimated_asset_cost,
+				COALESCE(SUM(estimated_other_cost), 0) as estimated_other_cost
 			FROM `tabBOQ Item`
 			WHERE parent_bill = %s
 		""", self.name, as_dict=True)
@@ -49,6 +55,13 @@ class BOQBill(Document):
 		if totals:
 			self.total_qty = flt(totals[0].total_qty)
 			self.total_amount = flt(totals[0].total_amount)
+			# Estimated costs aggregation
+			self.total_estimated_cost = flt(totals[0].total_estimated_cost)
+			self.estimated_material_cost = flt(totals[0].estimated_material_cost)
+			self.estimated_labour_cost = flt(totals[0].estimated_labour_cost)
+			self.estimated_subcontract_cost = flt(totals[0].estimated_subcontract_cost)
+			self.estimated_asset_cost = flt(totals[0].estimated_asset_cost)
+			self.estimated_other_cost = flt(totals[0].estimated_other_cost)
 		
 		# Get ledger-based amounts
 		ledger_totals = frappe.db.sql("""
@@ -71,6 +84,17 @@ class BOQBill(Document):
 		self.current_amount = flt(current[0][0]) if current else 0
 		self.to_date_amount = flt(self.prev_amount) + flt(self.current_amount)
 		self.balance_amount = flt(self.total_amount) - flt(self.to_date_amount)
+	
+	def get_estimated_costs(self):
+		"""Get aggregated estimated costs from child BOQ Items"""
+		return {
+			"total_estimated_cost": flt(self.total_estimated_cost),
+			"estimated_material_cost": flt(self.estimated_material_cost),
+			"estimated_labour_cost": flt(self.estimated_labour_cost),
+			"estimated_subcontract_cost": flt(self.estimated_subcontract_cost),
+			"estimated_asset_cost": flt(self.estimated_asset_cost),
+			"estimated_other_cost": flt(self.estimated_other_cost)
+		}
 	
 	def on_update(self):
 		"""Update parent Project BOQ totals"""
