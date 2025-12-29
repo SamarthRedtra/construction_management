@@ -346,6 +346,11 @@ function render_action_bar(container, frm) {
 
 	container.html(`
 		<div class="action-bar-left">
+			<button class="btn-modern btn-fullscreen-icon" onclick="openFullScreenBOQ('${frm.doc.name}')" title="Full Screen View">
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+				</svg>
+			</button>
 			${can_modify_boq ? `
 			<button class="btn-modern btn-primary-modern" onclick="add_bill_number('${frm.doc.name}')">
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
@@ -5170,4 +5175,402 @@ window.download_boq_template = function () {
 			}
 		}
 	});
+};
+
+// ============================================
+// Full Screen BOQ Management View
+// ============================================
+
+window.openFullScreenBOQ = function(project) {
+	// Store current state for restoration
+	window._boq_fullscreen_state = {
+		project: project,
+		scrollPosition: window.pageYOffset
+	};
+
+	// Fetch BOQ data for full-screen view
+	frappe.call({
+		method: 'construction_management.api.boq_tree.get_boq_tree_data',
+		args: { project: project },
+		callback: function(r) {
+			if (r.message && r.message.has_boq) {
+				showFullScreenBOQModal(project, r.message);
+			} else {
+				frappe.msgprint(__('No BOQ data found for this project'));
+			}
+		}
+	});
+};
+
+function showFullScreenBOQModal(project, data) {
+	// Create full-screen modal
+	const modal = $(`
+		<div class="boq-fullscreen-modal" id="boq-fullscreen-modal">
+			<div class="fullscreen-header">
+				<div class="fullscreen-title">
+					<h2>BOQ Management - Full Screen View</h2>
+					<span class="project-name">${project}</span>
+				</div>
+				<div class="fullscreen-actions">
+					<button class="btn btn-default btn-sm" onclick="refreshFullScreenBOQ()">
+						<i class="fa fa-refresh"></i> Refresh
+					</button>
+					<button class="btn btn-default btn-sm close-fullscreen" onclick="closeFullScreenBOQ()">
+						<i class="fa fa-times"></i> Close
+					</button>
+				</div>
+			</div>
+			<div class="fullscreen-content">
+				<div class="fullscreen-loading">
+					<div class="loading-spinner"></div>
+					<p>Loading BOQ Management Table...</p>
+				</div>
+			</div>
+		</div>
+	`);
+
+	// Add to body and show
+	$('body').append(modal);
+	modal.fadeIn(300);
+
+	// Enable browser full-screen if supported
+	if (document.documentElement.requestFullscreen) {
+		document.documentElement.requestFullscreen().catch(() => {
+			// Fallback to modal full-screen
+			modal.addClass('fallback-fullscreen');
+		});
+	} else {
+		modal.addClass('fallback-fullscreen');
+	}
+
+	// Render the BOQ management table in full-screen
+	setTimeout(() => {
+		const contentContainer = modal.find('.fullscreen-content');
+		contentContainer.html('<div id="fullscreen-bills-container"></div>');
+		
+		// Use the existing render function but with full-screen optimizations
+		render_boq_management_table(contentContainer.find('#fullscreen-bills-container'), { doc: { name: project } }, data.bills);
+		
+		// Apply full-screen specific styles
+		applyFullScreenStyles();
+		
+		// Fix z-index for any existing modals/dialogs
+		fixModalZIndex();
+	}, 100);
+
+	// Handle escape key
+	$(document).on('keydown.fullscreen', function(e) {
+		if (e.key === 'Escape') {
+			closeFullScreenBOQ();
+		}
+	});
+
+	// Store modal reference
+	window._fullscreen_modal = modal;
+}
+
+// Helper function to fix modal z-index issues
+function fixModalZIndex() {
+	// Ensure all Frappe dialogs have higher z-index than full-screen modal
+	$(document).on('show.bs.modal', '.modal', function() {
+		const modal = $(this);
+		if ($('#boq-fullscreen-modal').is(':visible')) {
+			modal.css('z-index', 10002);
+			modal.next('.modal-backdrop').css('z-index', 10001);
+		}
+	});
+	
+	// Fix existing modals and dialogs
+	$('.modal, .frappe-dialog').each(function() {
+		if ($(this).is(':visible') && $('#boq-fullscreen-modal').is(':visible')) {
+			$(this).css('z-index', 10002);
+			$(this).next('.modal-backdrop').css('z-index', 10001);
+		}
+	});
+	
+	// Ensure task management dialogs work properly
+	$(document).on('DOMNodeInserted', '.frappe-dialog', function() {
+		if ($('#boq-fullscreen-modal').is(':visible')) {
+			$(this).css('z-index', 10002);
+		}
+	});
+}
+
+function applyFullScreenStyles() {
+	if (!$('#fullscreen-boq-styles').length) {
+		$('head').append(`
+			<style id="fullscreen-boq-styles">
+				/* Full Screen Button Styling */
+				.btn-fullscreen-icon {
+					background: transparent !important;
+					border: 1px solid #d1d5db !important;
+					color: #6b7280 !important;
+					padding: 8px !important;
+					border-radius: 6px !important;
+					transition: all 0.2s ease !important;
+				}
+				
+				.btn-fullscreen-icon:hover {
+					background: #f3f4f6 !important;
+					border-color: #9ca3af !important;
+					color: #374151 !important;
+					transform: translateY(-1px) !important;
+				}
+				
+				.btn-fullscreen-icon:active {
+					transform: translateY(0) !important;
+				}
+				
+				.boq-fullscreen-modal {
+					position: fixed;
+					top: 0;
+					left: 0;
+					width: 100vw;
+					height: 100vh;
+					background: white;
+					z-index: 10000 !important;
+					display: none;
+					flex-direction: column;
+				}
+				
+				.boq-fullscreen-modal.fallback-fullscreen {
+					position: fixed !important;
+					top: 0 !important;
+					left: 0 !important;
+					width: 100vw !important;
+					height: 100vh !important;
+				}
+				
+				.fullscreen-header {
+					display: flex;
+					justify-content: space-between;
+					align-items: center;
+					padding: 16px 24px;
+					background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+					color: white;
+					border-bottom: 1px solid #e5e7eb;
+					flex-shrink: 0;
+				}
+				
+				.fullscreen-title h2 {
+					margin: 0;
+					font-size: 20px;
+					font-weight: 600;
+				}
+				
+				.project-name {
+					font-size: 14px;
+					opacity: 0.9;
+					margin-top: 4px;
+					display: block;
+				}
+				
+				.fullscreen-actions {
+					display: flex;
+					gap: 8px;
+				}
+				
+				.fullscreen-actions .btn {
+					border: 1px solid rgba(255,255,255,0.3);
+					color: white;
+					background: rgba(255,255,255,0.1);
+				}
+				
+				.fullscreen-actions .btn:hover {
+					background: rgba(255,255,255,0.2);
+				}
+				
+				.fullscreen-content {
+					flex: 1;
+					overflow: auto;
+					padding: 16px 24px;
+					position: relative;
+				}
+				
+				.fullscreen-loading {
+					display: flex;
+					flex-direction: column;
+					align-items: center;
+					justify-content: center;
+					height: 200px;
+					color: #6c757d;
+				}
+				
+				.fullscreen-loading .loading-spinner {
+					width: 40px;
+					height: 40px;
+					border: 3px solid #f3f3f3;
+					border-top: 3px solid #667eea;
+					border-radius: 50%;
+					animation: spin 1s linear infinite;
+					margin-bottom: 16px;
+				}
+				
+				@keyframes spin {
+					0% { transform: rotate(0deg); }
+					100% { transform: rotate(360deg); }
+				}
+				
+				/* Full-screen table optimizations */
+				.boq-fullscreen-modal .comprehensive-items-table {
+					min-width: 100%;
+					font-size: 12px;
+				}
+				
+				.boq-fullscreen-modal .comprehensive-table-wrapper {
+					overflow-x: auto;
+					overflow-y: visible;
+				}
+				
+				/* Responsive column widths for full-screen */
+				.boq-fullscreen-modal .col-desc {
+					min-width: 200px;
+					max-width: 300px;
+				}
+				
+				.boq-fullscreen-modal .col-num {
+					width: 90px;
+					min-width: 80px;
+				}
+				
+				.boq-fullscreen-modal .col-actions {
+					width: 160px;
+					min-width: 160px;
+				}
+				
+				/* Larger screens get more space */
+				@media (min-width: 1920px) {
+					.boq-fullscreen-modal .comprehensive-items-table {
+						font-size: 13px;
+					}
+					
+					.boq-fullscreen-modal .col-desc {
+						min-width: 250px;
+						max-width: 350px;
+					}
+					
+					.boq-fullscreen-modal .col-num {
+						width: 100px;
+						min-width: 90px;
+					}
+					
+					.boq-fullscreen-modal .col-actions {
+						width: 180px;
+						min-width: 180px;
+					}
+				}
+				
+				/* Medium screens optimization */
+				@media (min-width: 1366px) and (max-width: 1919px) {
+					.boq-fullscreen-modal .col-desc {
+						min-width: 180px;
+						max-width: 280px;
+					}
+					
+					.boq-fullscreen-modal .col-num {
+						width: 85px;
+						min-width: 75px;
+					}
+				}
+				
+				/* Fix modal z-index issues in full-screen */
+				.boq-fullscreen-modal .modal {
+					z-index: 10002 !important;
+				}
+				
+				.boq-fullscreen-modal .modal-backdrop {
+					z-index: 10001 !important;
+				}
+				
+				/* Ensure dialogs appear above full-screen modal */
+				.frappe-dialog {
+					z-index: 10002 !important;
+				}
+				
+				.frappe-dialog .modal-dialog {
+					z-index: 10002 !important;
+				}
+				
+				/* Fix date picker z-index in full-screen modals */
+				.boq-fullscreen-modal .flatpickr-calendar {
+					z-index: 10003 !important;
+				}
+				
+				.boq-fullscreen-modal .datepicker {
+					z-index: 10003 !important;
+				}
+				
+				/* Ensure proper scrolling in full-screen */
+				.boq-fullscreen-modal .fullscreen-content {
+					max-height: calc(100vh - 80px);
+					overflow-y: auto;
+					overflow-x: hidden;
+				}
+				
+				.boq-fullscreen-modal .comprehensive-table-wrapper {
+					max-width: 100%;
+					overflow-x: auto;
+				}
+			</style>
+		`);
+	}
+}
+
+window.closeFullScreenBOQ = function() {
+	// Exit browser full-screen if active
+	if (document.fullscreenElement) {
+		document.exitFullscreen();
+	}
+	
+	// Remove modal
+	const modal = $('#boq-fullscreen-modal');
+	if (modal.length) {
+		modal.fadeOut(300, function() {
+			modal.remove();
+		});
+	}
+	
+	// Remove event listeners
+	$(document).off('keydown.fullscreen');
+	$(document).off('show.bs.modal');
+	
+	// Reset modal z-indexes
+	$('.modal').css('z-index', '');
+	$('.modal-backdrop').css('z-index', '');
+	
+	// Restore scroll position
+	if (window._boq_fullscreen_state && window._boq_fullscreen_state.scrollPosition) {
+		window.scrollTo(0, window._boq_fullscreen_state.scrollPosition);
+	}
+	
+	// Clean up
+	delete window._fullscreen_modal;
+	delete window._boq_fullscreen_state;
+};
+
+window.refreshFullScreenBOQ = function() {
+	if (window._boq_fullscreen_state && window._boq_fullscreen_state.project) {
+		const project = window._boq_fullscreen_state.project;
+		
+		// Show loading
+		$('#boq-fullscreen-modal .fullscreen-content').html(`
+			<div class="fullscreen-loading">
+				<div class="loading-spinner"></div>
+				<p>Refreshing BOQ data...</p>
+			</div>
+		`);
+		
+		// Fetch fresh data
+		frappe.call({
+			method: 'construction_management.api.boq_tree.get_boq_tree_data',
+			args: { project: project },
+			callback: function(r) {
+				if (r.message && r.message.has_boq) {
+					const contentContainer = $('#boq-fullscreen-modal .fullscreen-content');
+					contentContainer.html('<div id="fullscreen-bills-container"></div>');
+					render_boq_management_table(contentContainer.find('#fullscreen-bills-container'), { doc: { name: project } }, r.message.bills);
+				}
+			}
+		});
+	}
 };

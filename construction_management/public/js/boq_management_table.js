@@ -567,7 +567,7 @@ window.toggleBillSection = function (header) {
 };
 
 /**
- * Toggle transaction history for an item - Shows inline expandable section
+ * Toggle transaction history for an item - Shows inline expandable section with BOQ Progress Ledger entries
  * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7
  */
 window.toggleTransactionHistory = function (itemName) {
@@ -580,57 +580,55 @@ window.toggleTransactionHistory = function (itemName) {
 		if (existingInline.is(':visible')) {
 			existingInline.slideUp(200, function () {
 				expandBtn.removeClass('expanded');
+				expandBtn.attr('aria-expanded', 'false');
 			});
 		} else {
 			existingInline.slideDown(200, function () {
 				expandBtn.addClass('expanded');
+				expandBtn.attr('aria-expanded', 'true');
 			});
 		}
 		return;
 	}
 
-	// Fetch and create inline section
+	// Fetch and create inline section using BOQ invoice history API
 	expandBtn.addClass('loading');
 
 	frappe.call({
-		method: 'construction_management.api.boq_tree.get_boq_item_with_transactions',
+		method: 'construction_management.api.boq_invoice.get_boq_invoice_history',
 		args: { boq_item: itemName },
 		callback: function (r) {
 			expandBtn.removeClass('loading');
 			if (r.message) {
-				const inlineHtml = renderInlineBreakdownSection(itemName, r.message);
+				const inlineHtml = renderTransactionHistorySection(itemName, r.message);
 				const inlineRow = $(inlineHtml);
 				inlineRow.hide();
 				row.after(inlineRow);
 				inlineRow.slideDown(200, function () {
 					expandBtn.addClass('expanded');
+					expandBtn.attr('aria-expanded', 'true');
 				});
 			} else {
-				frappe.show_alert({ message: __('No data found'), indicator: 'blue' });
+				frappe.show_alert({ message: __('No transaction history found'), indicator: 'blue' });
 			}
 		},
 		error: function () {
 			expandBtn.removeClass('loading');
-			frappe.show_alert({ message: __('Failed to load data'), indicator: 'red' });
+			frappe.show_alert({ message: __('Failed to load transaction history'), indicator: 'red' });
 		}
 	});
 };
 
 /**
- * Render inline breakdown section for a BOQ Item
+ * Render transaction history section for a BOQ Item using BOQ Progress Ledger data
  * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6
  */
-function renderInlineBreakdownSection(itemName, data) {
-	const item = data.item || {};
-	const transactions = data.transactions || [];
-	const qty = item.qty || {};
-	const amount = item.amount || {};
-	const estimated = item.estimated_costs || {};
-	const actual = item.actual_costs || {};
-
-	// Determine proforma/PC status
-	const proformaStatus = getProformaStatus(transactions);
-	const statusIndicator = getStatusIndicatorHtml(proformaStatus);
+function renderTransactionHistorySection(itemName, data) {
+	const boqItem = data.boq_item || {};
+	const summary = data.summary || {};
+	const ledgerEntries = data.ledger_entries || [];
+	const paymentCertificates = data.payment_certificates || [];
+	const pendingProformas = data.pending_proformas || [];
 
 	// Get column count from parent table
 	const colSpan = $(`tr.item-row[data-item="${itemName}"]`).find('td').length;
@@ -638,88 +636,542 @@ function renderInlineBreakdownSection(itemName, data) {
 	return `
 		<tr class="inline-breakdown-row" data-item="${itemName}">
 			<td colspan="${colSpan}">
-				<div class="inline-breakdown-container">
-					<!-- Header with Status -->
-					<div class="inline-breakdown-header">
-						<div class="inline-header-left">
-							<span class="inline-title">Item Breakdown</span>
-							<span class="inline-item-code">${item.item_code || itemName}</span>
+				<div class="transaction-history-container">
+					<!-- Header with BOQ Item Summary -->
+					<div class="transaction-header">
+						<div class="transaction-header-left">
+							<span class="transaction-title">Transaction History</span>
+							<span class="transaction-item-desc">${boqItem.description || itemName}</span>
 						</div>
-						<div class="inline-header-right">
-							${statusIndicator}
-						</div>
-					</div>
-					
-					<!-- Main Content Grid -->
-					<div class="inline-breakdown-grid">
-						<!-- Qty & Value Breakdown -->
-						<div class="inline-section">
-							<div class="inline-section-title">Qty & Value Breakdown</div>
-							<table class="inline-breakdown-table">
-								<thead>
-									<tr>
-										<th></th>
-										<th class="text-right">Previous</th>
-										<th class="text-right">Current</th>
-										<th class="text-right">Accumulated</th>
-										<th class="text-right">Balance</th>
-									</tr>
-								</thead>
-								<tbody>
-									<tr>
-										<td class="breakdown-label">Quantity</td>
-										<td class="text-right">${format_number(qty.prev || 0)}</td>
-										<td class="text-right highlight-current">${format_number(qty.current || 0)}</td>
-										<td class="text-right font-bold">${format_number(qty.to_date || 0)}</td>
-										<td class="text-right balance-value">${format_number(qty.balance || 0)}</td>
-									</tr>
-									<tr>
-										<td class="breakdown-label">Amount</td>
-										<td class="text-right">${format_currency(amount.prev || 0)}</td>
-										<td class="text-right highlight-current">${format_currency(amount.current || 0)}</td>
-										<td class="text-right font-bold">${format_currency(amount.to_date || 0)}</td>
-										<td class="text-right balance-value">${format_currency(amount.balance || 0)}</td>
-									</tr>
-								</tbody>
-							</table>
-						</div>
-						
-						<!-- Cost & Revenue Estimation -->
-						<div class="inline-section">
-							<div class="inline-section-title">Cost & Revenue</div>
-							<div class="cost-revenue-grid">
-								<div class="cost-card">
-									<span class="cost-label">Estimated Cost</span>
-									<span class="cost-value">${format_currency(estimated.total || 0)}</span>
+						<div class="transaction-header-right">
+							<div class="summary-stats">
+								<div class="stat-item">
+									<span class="stat-label">Total BOQ</span>
+									<span class="stat-value">${format_currency(boqItem.total_amount || 0)}</span>
 								</div>
-								<div class="cost-card">
-									<span class="cost-label">Actual Cost</span>
-									<span class="cost-value">${format_currency(actual.total || 0)}</span>
+								<div class="stat-item">
+									<span class="stat-label">Billed To Date</span>
+									<span class="stat-value">${format_currency(summary.accumulated_amount || 0)}</span>
 								</div>
-								<div class="cost-card">
-									<span class="cost-label">Revenue (To Date)</span>
-									<span class="cost-value">${format_currency(amount.to_date || 0)}</span>
-								</div>
-								<div class="cost-card ${(amount.to_date || 0) - (actual.total || 0) >= 0 ? 'positive' : 'negative'}">
-									<span class="cost-label">Gross Profit</span>
-									<span class="cost-value">${format_currency((amount.to_date || 0) - (actual.total || 0))}</span>
+								<div class="stat-item">
+									<span class="stat-label">Balance</span>
+									<span class="stat-value">${format_currency(summary.balance_amount || 0)}</span>
 								</div>
 							</div>
 						</div>
 					</div>
 					
-					<!-- Transactions Section -->
-					<div class="inline-section inline-transactions">
-						<div class="inline-section-title">
-							Transaction History
-							<span class="txn-count-badge">${transactions.length}</span>
+					<!-- BOQ Progress Ledger Entries -->
+					<div class="transaction-section">
+						<div class="transaction-section-title">
+							BOQ Progress Ledger Entries
+							<span class="entry-count-badge">${ledgerEntries.length}</span>
 						</div>
-						${transactions.length > 0 ? renderInlineTransactionsTable(transactions) : '<div class="no-transactions">No transactions found</div>'}
+						${ledgerEntries.length > 0 ? renderLedgerEntriesTable(ledgerEntries) : '<div class="no-entries">No ledger entries found</div>'}
 					</div>
+					
+					<!-- Payment Certificates Section -->
+					${paymentCertificates.length > 0 ? `
+					<div class="transaction-section">
+						<div class="transaction-section-title">
+							Payment Certificates
+							<span class="entry-count-badge">${paymentCertificates.length}</span>
+						</div>
+						${renderPaymentCertificatesTable(paymentCertificates)}
+					</div>
+					` : ''}
+					
+					<!-- Pending Proformas Section -->
+					${pendingProformas.length > 0 ? `
+					<div class="transaction-section">
+						<div class="transaction-section-title">
+							Pending Proformas
+							<span class="entry-count-badge">${pendingProformas.length}</span>
+						</div>
+						${renderPendingProformasTable(pendingProformas)}
+					</div>
+					` : ''}
 				</div>
+				${getTransactionHistoryStyles()}
 			</td>
 		</tr>
 	`;
+}
+
+/**
+ * Render BOQ Progress Ledger entries table
+ */
+function renderLedgerEntriesTable(entries) {
+	let html = `
+		<table class="ledger-entries-table">
+			<thead>
+				<tr>
+					<th>Date</th>
+					<th>Document</th>
+					<th>Type</th>
+					<th class="text-right">Prev Qty</th>
+					<th class="text-right">Curr Qty</th>
+					<th class="text-right">Accum Qty</th>
+					<th class="text-right">Prev Amount</th>
+					<th class="text-right">Curr Amount</th>
+					<th class="text-right">Accum Amount</th>
+					<th class="text-right">Rate</th>
+					<th>Status</th>
+					<th>PC</th>
+				</tr>
+			</thead>
+			<tbody>
+	`;
+
+	entries.forEach(entry => {
+		const docTypeClass = getDocTypeClass(entry.reference_doctype);
+		const statusClass = getStatusClass(entry.invoice_status || 'Draft');
+		const isProforma = entry.is_proforma ? 'PI' : 'Tax Inv';
+		const docType = entry.reference_doctype === 'Sales Invoice' ? isProforma : entry.reference_doctype;
+
+		html += `
+			<tr class="ledger-entry-row" onclick="openDocument('${entry.reference_doctype}', '${entry.reference_name}')">
+				<td>${entry.posting_date || '-'}</td>
+				<td class="doc-name">${entry.reference_name || '-'}</td>
+				<td><span class="doc-type-badge ${docTypeClass}">${docType}</span></td>
+				<td class="text-right">${format_number(entry.prev_qty || 0)}</td>
+				<td class="text-right highlight-current">${format_number(entry.current_qty || 0)}</td>
+				<td class="text-right font-bold">${format_number(entry.accumulated_qty || 0)}</td>
+				<td class="text-right">${format_currency(entry.prev_amount || 0)}</td>
+				<td class="text-right highlight-current">${format_currency(entry.current_amount || 0)}</td>
+				<td class="text-right font-bold">${format_currency(entry.accumulated_amount || 0)}</td>
+				<td class="text-right">${format_currency(entry.rate || 0)}</td>
+				<td><span class="status-badge ${statusClass}">${entry.invoice_status || 'Draft'}</span></td>
+				<td>${entry.pay_cert ? `<a href="/app/payment-certificate/${entry.pay_cert}" target="_blank">${entry.pay_cert}</a>` : '-'}</td>
+			</tr>
+		`;
+	});
+
+	html += `
+			</tbody>
+		</table>
+	`;
+
+	return html;
+}
+
+/**
+ * Render Payment Certificates table
+ */
+function renderPaymentCertificatesTable(certificates) {
+	let html = `
+		<table class="payment-certificates-table">
+			<thead>
+				<tr>
+					<th>PC No</th>
+					<th>Date</th>
+					<th>Proforma Invoice</th>
+					<th class="text-right">PI Amount</th>
+					<th class="text-right">Accepted Amount</th>
+					<th class="text-right">Variance</th>
+					<th class="text-right">Variance %</th>
+					<th>Tax Invoice</th>
+					<th>Status</th>
+				</tr>
+			</thead>
+			<tbody>
+	`;
+
+	certificates.forEach(pc => {
+		const variance = flt(pc.proforma_amount || 0) - flt(pc.accepted_amount || 0);
+		const variancePercent = pc.proforma_amount > 0 ? (variance / pc.proforma_amount * 100).toFixed(2) : 0;
+		const varianceClass = variance > 0 ? 'text-danger' : variance < 0 ? 'text-success' : '';
+
+		html += `
+			<tr class="pc-row" onclick="openDocument('Payment Certificate', '${pc.name}')">
+				<td class="doc-name">${pc.name}</td>
+				<td>${pc.posting_date || '-'}</td>
+				<td>${pc.proforma_invoice ? `<a href="/app/sales-invoice/${pc.proforma_invoice}" target="_blank">${pc.proforma_invoice}</a>` : '-'}</td>
+				<td class="text-right">${format_currency(pc.proforma_amount || 0)}</td>
+				<td class="text-right">${format_currency(pc.accepted_amount || 0)}</td>
+				<td class="text-right ${varianceClass}">${format_currency(variance)}</td>
+				<td class="text-right ${varianceClass}">${variancePercent}%</td>
+				<td>${pc.tax_invoice ? `<a href="/app/sales-invoice/${pc.tax_invoice}" target="_blank">${pc.tax_invoice}</a>` : '-'}</td>
+				<td><span class="status-badge ${getStatusClass(pc.status)}">${pc.status || 'Draft'}</span></td>
+			</tr>
+		`;
+	});
+
+	html += `
+			</tbody>
+		</table>
+	`;
+
+	return html;
+}
+
+/**
+ * Render Pending Proformas table
+ */
+function renderPendingProformasTable(proformas) {
+	let html = `
+		<table class="pending-proformas-table">
+			<thead>
+				<tr>
+					<th>Proforma No</th>
+					<th>Date</th>
+					<th class="text-right">Amount</th>
+					<th>Customer</th>
+					<th class="text-right">Age (Days)</th>
+					<th>Action</th>
+				</tr>
+			</thead>
+			<tbody>
+	`;
+
+	proformas.forEach(pi => {
+		const ageClass = pi.age_days > 30 ? 'text-danger' : pi.age_days > 15 ? 'text-warning' : '';
+
+		html += `
+			<tr class="proforma-row">
+				<td class="doc-name"><a href="/app/sales-invoice/${pi.name}" target="_blank">${pi.name}</a></td>
+				<td>${pi.posting_date || '-'}</td>
+				<td class="text-right">${format_currency(pi.grand_total || 0)}</td>
+				<td>${pi.customer || '-'}</td>
+				<td class="text-right ${ageClass}">${pi.age_days || 0}</td>
+				<td>
+					<button class="btn btn-xs btn-primary" onclick="createPCFromProforma('${pi.name}'); event.stopPropagation();">
+						Create PC
+					</button>
+				</td>
+			</tr>
+		`;
+	});
+
+	html += `
+			</tbody>
+		</table>
+	`;
+
+	return html;
+}
+
+/**
+ * Get document type CSS class
+ */
+function getDocTypeClass(doctype) {
+	const classMap = {
+		'Sales Invoice': 'doc-type-invoice',
+		'Proforma Invoice': 'doc-type-proforma',
+		'Payment Certificate': 'doc-type-pc'
+	};
+	return classMap[doctype] || 'doc-type-default';
+}
+
+/**
+ * Get status CSS class
+ */
+function getStatusClass(status) {
+	const classMap = {
+		'Draft': 'status-draft',
+		'Submitted': 'status-submitted',
+		'Paid': 'status-paid',
+		'Cancelled': 'status-cancelled',
+		'Approved': 'status-approved',
+		'Pending': 'status-pending'
+	};
+	return classMap[status] || 'status-default';
+}
+
+/**
+ * Open document in new tab
+ */
+window.openDocument = function(doctype, name) {
+	if (name && name !== '-') {
+		const route = doctype.toLowerCase().replace(' ', '-');
+		window.open(`/app/${route}/${name}`, '_blank');
+	}
+};
+
+/**
+ * Create Payment Certificate from Proforma
+ */
+window.createPCFromProforma = function(proformaName) {
+	frappe.prompt([
+		{
+			fieldname: 'accepted_amount',
+			fieldtype: 'Currency',
+			label: 'Accepted Amount',
+			reqd: 1
+		},
+		{
+			fieldname: 'posting_date',
+			fieldtype: 'Date',
+			label: 'Posting Date',
+			default: frappe.datetime.get_today(),
+			reqd: 1
+		}
+	], function(values) {
+		frappe.call({
+			method: 'construction_management.api.boq_invoice.create_payment_certificate',
+			args: {
+				proforma_invoice: proformaName,
+				accepted_amount: values.accepted_amount,
+				posting_date: values.posting_date
+			},
+			callback: function(r) {
+				if (r.message) {
+					frappe.show_alert({
+						message: __('Payment Certificate {0} created', [r.message]),
+						indicator: 'green'
+					});
+					// Refresh the transaction history
+					const itemName = $('.inline-breakdown-row:visible').data('item');
+					if (itemName) {
+						$('.inline-breakdown-row:visible').remove();
+						toggleTransactionHistory(itemName);
+					}
+				}
+			}
+		});
+	}, __('Create Payment Certificate'), __('Create'));
+};
+
+/**
+ * Get transaction history styles
+ */
+function getTransactionHistoryStyles() {
+	return `<style>
+		.transaction-history-container {
+			padding: 16px;
+			background: #fafbfc;
+			border-radius: 8px;
+			margin: 8px 0;
+		}
+		
+		.transaction-header {
+			display: flex;
+			justify-content: space-between;
+			align-items: flex-start;
+			margin-bottom: 20px;
+			padding-bottom: 12px;
+			border-bottom: 1px solid #e8e8e8;
+		}
+		
+		.transaction-title {
+			font-size: 14px;
+			font-weight: 600;
+			color: #1f272e;
+			display: block;
+			margin-bottom: 4px;
+		}
+		
+		.transaction-item-desc {
+			font-size: 12px;
+			color: #6c7680;
+		}
+		
+		.summary-stats {
+			display: flex;
+			gap: 20px;
+		}
+		
+		.stat-item {
+			text-align: right;
+		}
+		
+		.stat-label {
+			display: block;
+			font-size: 10px;
+			color: #6c7680;
+			text-transform: uppercase;
+			margin-bottom: 2px;
+		}
+		
+		.stat-value {
+			display: block;
+			font-size: 13px;
+			font-weight: 600;
+			color: #1f272e;
+		}
+		
+		.transaction-section {
+			margin-bottom: 20px;
+		}
+		
+		.transaction-section:last-child {
+			margin-bottom: 0;
+		}
+		
+		.transaction-section-title {
+			font-size: 12px;
+			font-weight: 600;
+			color: #1f272e;
+			margin-bottom: 12px;
+			display: flex;
+			align-items: center;
+			gap: 8px;
+		}
+		
+		.entry-count-badge {
+			background: #e3f2fd;
+			color: #1565c0;
+			padding: 2px 8px;
+			border-radius: 10px;
+			font-size: 10px;
+			font-weight: 500;
+		}
+		
+		.ledger-entries-table,
+		.payment-certificates-table,
+		.pending-proformas-table {
+			width: 100%;
+			border-collapse: collapse;
+			background: white;
+			border-radius: 6px;
+			overflow: hidden;
+			border: 1px solid #e8e8e8;
+		}
+		
+		.ledger-entries-table th,
+		.payment-certificates-table th,
+		.pending-proformas-table th {
+			background: #f7f7f7;
+			padding: 8px 10px;
+			font-size: 10px;
+			font-weight: 500;
+			color: #6c7680;
+			text-transform: uppercase;
+			border-bottom: 1px solid #e8e8e8;
+		}
+		
+		.ledger-entries-table td,
+		.payment-certificates-table td,
+		.pending-proformas-table td {
+			padding: 8px 10px;
+			font-size: 11px;
+			border-bottom: 1px solid #f0f0f0;
+		}
+		
+		.ledger-entry-row,
+		.pc-row,
+		.proforma-row {
+			cursor: pointer;
+			transition: background 0.15s;
+		}
+		
+		.ledger-entry-row:hover,
+		.pc-row:hover,
+		.proforma-row:hover {
+			background: #f5f7fa;
+		}
+		
+		.doc-name {
+			font-weight: 500;
+			color: #2490ef;
+		}
+		
+		.doc-type-badge {
+			padding: 2px 6px;
+			border-radius: 4px;
+			font-size: 9px;
+			font-weight: 600;
+			text-transform: uppercase;
+		}
+		
+		.doc-type-invoice {
+			background: #e8f5e9;
+			color: #2e7d32;
+		}
+		
+		.doc-type-proforma {
+			background: #e3f2fd;
+			color: #1565c0;
+		}
+		
+		.doc-type-pc {
+			background: #fff3e0;
+			color: #e65100;
+		}
+		
+		.doc-type-default {
+			background: #f7f7f7;
+			color: #6c7680;
+		}
+		
+		.status-badge {
+			padding: 2px 6px;
+			border-radius: 4px;
+			font-size: 9px;
+			font-weight: 500;
+		}
+		
+		.status-draft {
+			background: #f7f7f7;
+			color: #6c7680;
+		}
+		
+		.status-submitted {
+			background: #e3f2fd;
+			color: #1565c0;
+		}
+		
+		.status-paid {
+			background: #e8f5e9;
+			color: #2e7d32;
+		}
+		
+		.status-cancelled {
+			background: #ffebee;
+			color: #c62828;
+		}
+		
+		.status-approved {
+			background: #e8f5e9;
+			color: #2e7d32;
+		}
+		
+		.status-pending {
+			background: #fff3e0;
+			color: #e65100;
+		}
+		
+		.status-default {
+			background: #f7f7f7;
+			color: #6c7680;
+		}
+		
+		.highlight-current {
+			background: #e3f2fd;
+			color: #1565c0;
+			font-weight: 600;
+		}
+		
+		.text-right {
+			text-align: right;
+		}
+		
+		.font-bold {
+			font-weight: 600;
+		}
+		
+		.text-danger {
+			color: #ff5630;
+		}
+		
+		.text-success {
+			color: #36b37e;
+		}
+		
+		.text-warning {
+			color: #ff8f00;
+		}
+		
+		.no-entries {
+			text-align: center;
+			padding: 20px;
+			color: #8d99a6;
+			font-size: 12px;
+			background: white;
+			border-radius: 6px;
+			border: 1px solid #e8e8e8;
+		}
+	</style>`;
 }
 
 /**
@@ -873,82 +1325,152 @@ function renderTransactionsTable(transactions) {
 }
 
 /**
- * Show tasks popup for a BOQ item
- * Requirements: 5.2
+ * Show enhanced tasks popup for a BOQ item with add/edit capabilities
+ * Requirements: 2.1, 2.2, 2.3, 2.4, 4.1, 4.2, 4.5
  */
 window.showTasksPopup = function (itemName) {
 	frappe.call({
-		method: 'construction_management.api.boq_tasks.get_boq_item_tasks',
+		method: 'construction_management.api.boq_tasks.get_boq_item_tasks_tree',
 		args: { boq_item: itemName },
 		callback: function (r) {
-			const tasks = r.message || [];
-			const item = frappe.db.get_value ? null : null; // Will fetch from API
+			const data = r.message || {};
+			const boqItem = data.boq_item || {};
+			const tasks = data.tasks || [];
+			const hasTasks = data.has_tasks || false;
+			const linkedTask = data.linked_task;
 
-			let tasksHtml = '';
-			if (tasks.length === 0) {
-				tasksHtml = '<div class="no-tasks-message">No tasks linked to this BOQ item.</div>';
-			} else {
-				tasksHtml = `
-					<table class="tasks-popup-table">
-						<thead>
-							<tr>
-								<th>Task</th>
-								<th>Status</th>
-								<th>Start Date</th>
-								<th>End Date</th>
-								<th>Progress</th>
-							</tr>
-						</thead>
-						<tbody>
-				`;
-
-				tasks.forEach(task => {
-					const statusClass = getTaskStatusClass(task.status);
-					tasksHtml += `
-						<tr class="task-row" onclick="frappe.set_route('Form', 'Task', '${task.name}')">
-							<td class="task-name">${task.subject || task.name}</td>
-							<td><span class="task-status ${statusClass}">${task.status || '-'}</span></td>
-							<td>${task.exp_start_date || '-'}</td>
-							<td>${task.exp_end_date || '-'}</td>
-							<td>
-								<div class="task-progress-bar">
-									<div class="task-progress-fill" style="width: ${task.progress || 0}%"></div>
-								</div>
-								<span class="task-progress-text">${task.progress || 0}%</span>
-							</td>
-						</tr>
-					`;
-				});
-
-				tasksHtml += '</tbody></table>';
-			}
-
-			const dialogHtml = `
-				<div class="tasks-popup-container">
-					<div class="tasks-popup-header">
-						<span class="tasks-count">${tasks.length} task(s)</span>
-					</div>
-					${tasksHtml}
-				</div>
-				${getTasksPopupStyles()}
-			`;
-
-			const dialog = new frappe.ui.Dialog({
-				title: __('Tasks - {0}', [itemName]),
-				size: 'large',
-				fields: [
-					{
-						fieldtype: 'HTML',
-						fieldname: 'tasks_content',
-						options: dialogHtml
-					}
-				]
-			});
-
-			dialog.show();
+			showTaskManagementDialog(itemName, boqItem, tasks, hasTasks, linkedTask);
 		}
 	});
 };
+
+function showTaskManagementDialog(itemName, boqItem, tasks, hasTasks, linkedTask) {
+	const dialog = new frappe.ui.Dialog({
+		title: __('Task Management - {0}', [boqItem.description?.substring(0, 50) || itemName]),
+		size: 'extra-large',
+		fields: [
+			{
+				fieldtype: 'HTML',
+				fieldname: 'task_content'
+			}
+		]
+	});
+
+	function renderTaskManagement() {
+		let content = `
+			<div class="task-management-container">
+				<div class="task-header">
+					<div class="task-header-info">
+						<h4>${boqItem.description || 'BOQ Item'}</h4>
+						<div class="task-meta">
+							<span><strong>Qty:</strong> ${format_number(boqItem.total_qty || 0)} ${boqItem.unit || ''}</span>
+							<span><strong>Rate:</strong> ${format_currency(boqItem.rate || 0)}</span>
+							<span><strong>Amount:</strong> ${format_currency(boqItem.total_amount || 0)}</span>
+						</div>
+					</div>
+					<div class="task-header-actions">
+						${!hasTasks ? `
+							<button class="btn btn-primary btn-sm" onclick="createTaskForBOQ('${itemName}', this)">
+								<i class="fa fa-plus"></i> Create Task
+							</button>
+						` : `
+							<button class="btn btn-success btn-sm" onclick="addChildTask('${linkedTask}', '${boqItem.project}', this)">
+								<i class="fa fa-plus"></i> Add Sub-Task
+							</button>
+						`}
+					</div>
+				</div>
+		`;
+
+		if (hasTasks && tasks.length > 0) {
+			content += `<div class="task-tree">${renderTaskTree(tasks)}</div>`;
+		} else {
+			content += `
+				<div class="no-tasks-message">
+					<i class="fa fa-tasks" style="font-size: 48px; color: #ccc; margin-bottom: 15px;"></i>
+					<p>No tasks linked to this BOQ Item yet.</p>
+					<p class="text-muted">Click "Create Task" to create a group task for this BOQ Item.</p>
+				</div>
+			`;
+		}
+
+		content += `</div>${getTaskManagementStyles()}`;
+		dialog.fields_dict.task_content.$wrapper.html(content);
+	}
+
+	function renderTaskTree(taskNodes, level = 0) {
+		let html = '';
+		for (const task of taskNodes) {
+			const statusClass = getTaskStatusClass(task.status);
+			const progressWidth = Math.min(100, Math.max(0, task.progress || 0));
+			const hasChildren = task.children && task.children.length > 0;
+
+			html += `
+				<div class="task-node" data-task="${task.name}" data-level="${level}">
+					<div class="task-node-content" style="padding-left: ${level * 24 + 12}px;">
+						${hasChildren ? `
+							<span class="task-toggle" onclick="toggleTaskChildren(this)">
+								<i class="fa fa-chevron-down"></i>
+							</span>
+						` : `<span class="task-toggle-placeholder"></span>`}
+						<div class="task-info">
+							<div class="task-subject">
+								<a href="/app/task/${task.name}" target="_blank">${task.subject}</a>
+								${task.is_group ? '<span class="badge badge-info">Group</span>' : ''}
+							</div>
+							<div class="task-details">
+								${task.exp_start_date ? `<span><i class="fa fa-calendar"></i> ${task.exp_start_date}</span>` : ''}
+								${task.exp_end_date ? `<span>→ ${task.exp_end_date}</span>` : ''}
+							</div>
+						</div>
+						<div class="task-progress-container">
+							<div class="progress-bar-wrapper">
+								<div class="progress-bar-mini">
+									<div class="progress-fill" data-task="${task.name}" style="width: ${progressWidth}%"></div>
+								</div>
+								<input type="range" class="progress-slider" data-task="${task.name}" 
+									min="0" max="100" value="${progressWidth}" 
+									onchange="updateTaskProgress('${task.name}', this.value, this)"
+									oninput="previewTaskProgress('${task.name}', this.value, this)">
+							</div>
+							<input type="number" class="progress-input" data-task="${task.name}" 
+								min="0" max="100" value="${progressWidth}" 
+								onchange="updateTaskProgress('${task.name}', this.value, this)">
+							<span class="progress-percent">%</span>
+						</div>
+						<div class="task-status">
+							<select class="status-select ${statusClass}" onchange="updateTaskStatusWithProgress('${task.name}', this.value, this)">
+								<option value="Open" ${task.status === 'Open' ? 'selected' : ''}>Open</option>
+								<option value="Working" ${task.status === 'Working' ? 'selected' : ''}>Working</option>
+								<option value="Pending Review" ${task.status === 'Pending Review' ? 'selected' : ''}>Pending Review</option>
+								<option value="Overdue" ${task.status === 'Overdue' ? 'selected' : ''}>Overdue</option>
+								<option value="Completed" ${task.status === 'Completed' ? 'selected' : ''}>Completed</option>
+								<option value="Cancelled" ${task.status === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
+							</select>
+						</div>
+						<div class="task-actions">
+							<button class="btn btn-xs btn-default" onclick="addChildTask('${task.name}', '${boqItem.project}', this)" title="Add Sub-Task">
+								<i class="fa fa-plus"></i>
+							</button>
+							<button class="btn btn-xs btn-default" onclick="window.open('/app/task/${task.name}', '_blank')" title="Open Task">
+								<i class="fa fa-external-link"></i>
+							</button>
+						</div>
+					</div>
+					${hasChildren ? `<div class="task-children">${renderTaskTree(task.children, level + 1)}</div>` : ''}
+				</div>
+			`;
+		}
+		return html;
+	}
+
+	renderTaskManagement();
+	dialog.show();
+
+	// Store dialog reference for refresh
+	window._current_task_dialog = dialog;
+	window._current_boq_item = itemName;
+}
 
 function getTaskStatusClass(status) {
 	const statusMap = {
@@ -962,37 +1484,197 @@ function getTaskStatusClass(status) {
 	return statusMap[status] || 'task-status-default';
 }
 
-function getTasksPopupStyles() {
+function getTaskManagementStyles() {
 	return `<style>
-		.tasks-popup-container { padding: 0; }
-		.tasks-popup-header { display: flex; justify-content: flex-end; margin-bottom: 12px; }
-		.tasks-count { font-size: 11px; color: #6c7680; background: #f0f0f0; padding: 2px 8px; border-radius: 10px; }
-		
-		.tasks-popup-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e8e8e8; border-radius: 6px; overflow: hidden; }
-		.tasks-popup-table th { background: #f7f7f7; padding: 10px 12px; font-size: 10px; font-weight: 500; color: #6c7680; text-transform: uppercase; text-align: left; }
-		.tasks-popup-table td { padding: 10px 12px; font-size: 12px; border-top: 1px solid #e8e8e8; }
-		
-		.task-row { cursor: pointer; transition: background 0.15s; }
-		.task-row:hover { background: #f5f7fa; }
-		
-		.task-name { font-weight: 500; color: #2490ef; }
-		
-		.task-status { padding: 3px 8px; border-radius: 10px; font-size: 10px; font-weight: 500; }
-		.task-status-open { background: #e3f2fd; color: #1565c0; }
-		.task-status-working { background: #fff3e0; color: #e65100; }
-		.task-status-pending { background: #fce4ec; color: #c2185b; }
-		.task-status-overdue { background: #ffebee; color: #c62828; }
-		.task-status-completed { background: #e8f5e9; color: #2e7d32; }
-		.task-status-cancelled { background: #f7f7f7; color: #6c7680; }
-		.task-status-default { background: #f7f7f7; color: #6c7680; }
-		
-		.task-progress-bar { width: 60px; height: 6px; background: #e8e8e8; border-radius: 3px; display: inline-block; vertical-align: middle; margin-right: 6px; }
-		.task-progress-fill { height: 100%; background: #36b37e; border-radius: 3px; }
-		.task-progress-text { font-size: 10px; color: #6c7680; }
-		
-		.no-tasks-message { text-align: center; padding: 30px; color: #8d99a6; font-size: 13px; background: #fafbfc; border-radius: 6px; }
+		.task-management-container { padding: 0; }
+		.task-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px; margin-bottom: 16px; }
+		.task-header h4 { margin: 0 0 8px 0; font-size: 15px; }
+		.task-meta { font-size: 12px; opacity: 0.9; }
+		.task-meta span { margin-right: 16px; }
+		.task-tree { border: 1px solid #e9ecef; border-radius: 8px; overflow: hidden; }
+		.task-node { border-bottom: 1px solid #f0f0f0; }
+		.task-node:last-child { border-bottom: none; }
+		.task-node-content { display: flex; align-items: center; padding: 12px; gap: 12px; transition: background 0.2s; }
+		.task-node-content:hover { background: #f8f9fa; }
+		.task-toggle { cursor: pointer; width: 20px; text-align: center; color: #6c757d; }
+		.task-toggle-placeholder { width: 20px; }
+		.task-toggle i { transition: transform 0.2s; }
+		.task-node.collapsed .task-toggle i { transform: rotate(-90deg); }
+		.task-node.collapsed .task-children { display: none; }
+		.task-info { flex: 1; min-width: 0; }
+		.task-subject { font-weight: 500; margin-bottom: 2px; }
+		.task-subject a { color: #333; text-decoration: none; }
+		.task-subject a:hover { color: #5e64ff; }
+		.task-subject .badge { font-size: 10px; margin-left: 8px; padding: 2px 6px; }
+		.task-details { font-size: 11px; color: #6c757d; }
+		.task-details span { margin-right: 8px; }
+		.task-progress-container { display: flex; align-items: center; gap: 6px; width: 140px; }
+		.progress-bar-wrapper { position: relative; flex: 1; }
+		.progress-bar-mini { height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden; }
+		.progress-fill { height: 100%; background: linear-gradient(90deg, #28a745, #20c997); transition: width 0.2s; }
+		.progress-slider { position: absolute; top: 0; left: 0; width: 100%; height: 8px; opacity: 0; cursor: pointer; margin: 0; }
+		.progress-input { width: 40px; padding: 2px 4px; border: 1px solid #ddd; border-radius: 4px; font-size: 11px; text-align: center; }
+		.progress-input:focus { outline: none; border-color: #5e64ff; }
+		.progress-percent { font-size: 11px; color: #6c757d; }
+		.task-status { width: 130px; }
+		.status-select { width: 100%; padding: 4px 8px; border-radius: 4px; border: 1px solid #ddd; font-size: 12px; cursor: pointer; }
+		.status-select.task-status-completed { background: #d4edda; border-color: #28a745; }
+		.status-select.task-status-working { background: #cce5ff; border-color: #007bff; }
+		.status-select.task-status-pending { background: #fff3cd; border-color: #ffc107; }
+		.status-select.task-status-overdue { background: #f8d7da; border-color: #dc3545; }
+		.status-select.task-status-cancelled { background: #e2e3e5; border-color: #6c757d; }
+		.task-actions { display: flex; gap: 4px; }
+		.task-children { background: #fafafa; }
+		.no-tasks-message { text-align: center; padding: 40px 20px; color: #6c757d; }
 	</style>`;
 }
+
+// Task management helper functions
+window.toggleTaskChildren = function (el) {
+	const node = $(el).closest('.task-node');
+	node.toggleClass('collapsed');
+};
+
+window.previewTaskProgress = function (task, progress, sliderEl) {
+	const $node = $(sliderEl).closest('.task-node');
+	const progressValue = Math.min(100, Math.max(0, parseInt(progress) || 0));
+	$node.find(`.progress-fill[data-task="${task}"]`).css('width', progressValue + '%');
+	$node.find(`.progress-input[data-task="${task}"]`).val(progressValue);
+};
+
+window.updateTaskProgress = function (task, progress, inputEl) {
+	const progressValue = Math.min(100, Math.max(0, parseInt(progress) || 0));
+	const $node = $(inputEl).closest('.task-node');
+
+	$node.find(`.progress-fill[data-task="${task}"]`).css('width', progressValue + '%');
+	$node.find(`.progress-slider[data-task="${task}"]`).val(progressValue);
+	$node.find(`.progress-input[data-task="${task}"]`).val(progressValue);
+
+	let newStatus = null;
+	if (progressValue === 100) {
+		newStatus = 'Completed';
+	} else if (progressValue > 0) {
+		const currentStatus = $node.find('.status-select').val();
+		if (currentStatus === 'Open') {
+			newStatus = 'Working';
+		}
+	}
+
+	frappe.call({
+		method: 'construction_management.api.boq_tasks.update_task_status',
+		args: { task: task, status: newStatus, progress: progressValue },
+		callback: function (r) {
+			if (r.message) {
+				frappe.show_alert({ message: __('Progress updated to {0}%', [progressValue]), indicator: 'green' });
+				if (r.message.status) {
+					const $select = $node.find('.status-select');
+					$select.val(r.message.status);
+					$select.removeClass('task-status-open task-status-working task-status-pending task-status-overdue task-status-completed task-status-cancelled');
+					$select.addClass(getTaskStatusClass(r.message.status));
+				}
+			}
+		}
+	});
+};
+
+window.updateTaskStatusWithProgress = function (task, status, selectEl) {
+	const $node = $(selectEl).closest('.task-node');
+	let progress = null;
+
+	if (status === 'Completed') {
+		progress = 100;
+	} else if (status === 'Open') {
+		progress = 0;
+	} else if (status === 'Cancelled') {
+		progress = 0;
+	}
+
+	frappe.call({
+		method: 'construction_management.api.boq_tasks.update_task_status',
+		args: { task: task, status: status, progress: progress },
+		callback: function (r) {
+			if (r.message) {
+				frappe.show_alert({ message: __('Task status updated'), indicator: 'green' });
+				const $select = $(selectEl);
+				$select.removeClass('task-status-open task-status-working task-status-pending task-status-overdue task-status-completed task-status-cancelled');
+				$select.addClass(getTaskStatusClass(status));
+
+				const newProgress = r.message.progress || 0;
+				$node.find(`.progress-fill[data-task="${task}"]`).css('width', newProgress + '%');
+				$node.find(`.progress-slider[data-task="${task}"]`).val(newProgress);
+				$node.find(`.progress-input[data-task="${task}"]`).val(newProgress);
+			}
+		}
+	});
+};
+
+window.createTaskForBOQ = function (boq_item, btnEl) {
+	const d = new frappe.ui.Dialog({
+		title: __('Create Task for BOQ Item'),
+		fields: [
+			{ fieldname: 'start_date', label: 'Start Date', fieldtype: 'Date' },
+			{ fieldname: 'end_date', label: 'End Date', fieldtype: 'Date' }
+		],
+		primary_action_label: __('Create'),
+		primary_action: function (values) {
+			frappe.call({
+				method: 'construction_management.api.boq_tasks.create_task_for_existing_boq_item',
+				args: {
+					boq_item: boq_item,
+					start_date: values.start_date,
+					end_date: values.end_date
+				},
+				callback: function (r) {
+					if (r.message) {
+						d.hide();
+						frappe.show_alert({ message: __('Task {0} created', [r.message.task]), indicator: 'green' });
+						if (window._current_task_dialog) {
+							window._current_task_dialog.hide();
+							showTasksPopup(boq_item);
+						}
+					}
+				}
+			});
+		}
+	});
+	d.show();
+};
+
+window.addChildTask = function (parent_task, project, btnEl) {
+	const d = new frappe.ui.Dialog({
+		title: __('Add Sub-Task'),
+		fields: [
+			{ fieldname: 'subject', label: 'Task Name', fieldtype: 'Data', reqd: 1 },
+			{ fieldtype: 'Column Break' },
+			{ fieldname: 'start_date', label: 'Start Date', fieldtype: 'Date' },
+			{ fieldname: 'end_date', label: 'End Date', fieldtype: 'Date' }
+		],
+		primary_action_label: __('Create'),
+		primary_action: function (values) {
+			frappe.call({
+				method: 'construction_management.api.boq_tasks.create_child_task',
+				args: {
+					parent_task: parent_task,
+					subject: values.subject,
+					project: project,
+					start_date: values.start_date,
+					end_date: values.end_date
+				},
+				callback: function (r) {
+					if (r.message) {
+						d.hide();
+						frappe.show_alert({ message: __('Sub-task created'), indicator: 'green' });
+						if (window._current_task_dialog && window._current_boq_item) {
+							window._current_task_dialog.hide();
+							showTasksPopup(window._current_boq_item);
+						}
+					}
+				}
+			});
+		}
+	});
+	d.show();
+};
 
 /**
  * Show costs popup for a BOQ item
@@ -1451,7 +2133,7 @@ function get_table_styles() {
 		.col-unit { width: 50px; min-width: 50px; text-align: center; }
 		.col-rate { width: 80px; min-width: 80px; text-align: right; }
 		.col-num { width: 80px; min-width: 70px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-		.col-actions { width: 180px; min-width: 180px; text-align: left; padding: 4px 2px !important; }
+		.col-actions { width: 160px; min-width: 160px; text-align: center; padding: 4px 2px !important; }
 		
 		/* Sticky Columns - Requirements: 2.1, 2.2, 2.3, 2.4 */
 		.sticky-col { position: sticky; background: #fff; z-index: 2; }
@@ -1501,7 +2183,7 @@ function get_table_styles() {
 		.comprehensive-items-table .action-icons { 
 			display: flex !important;
 			gap: 2px !important;
-			justify-content: flex-start !important;
+			justify-content: center !important;
 			align-items: center !important;
 			flex-wrap: nowrap !important;
 			visibility: visible !important;
@@ -1512,11 +2194,11 @@ function get_table_styles() {
 			position: relative !important;
 		}
 		.comprehensive-items-table .action-btn { 
-			width: 26px !important;
-			height: 26px !important;
-			min-width: 26px !important;
-			min-height: 26px !important;
-			max-width: 26px !important;
+			width: 22px !important;
+			height: 22px !important;
+			min-width: 22px !important;
+			min-height: 22px !important;
+			max-width: 22px !important;
 			padding: 0 !important;
 			border-radius: 4px !important; 
 			border: 1px solid #d1d8dd !important; 
@@ -1556,8 +2238,8 @@ function get_table_styles() {
 		
 		/* Action button SVG icons */
 		.comprehensive-items-table .action-btn svg {
-			width: 14px !important;
-			height: 14px !important;
+			width: 12px !important;
+			height: 12px !important;
 			stroke: currentColor !important;
 			fill: none !important;
 			display: block !important;
@@ -1886,4 +2568,33 @@ function showProformaSelectionForPC(proformas, boqItemName) {
 // Export for use in project.js
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = { render_boq_management_table };
+}
+
+/**
+ * Format currency value
+ */
+function format_currency(value) {
+	if (typeof frappe !== 'undefined' && frappe.format_currency) {
+		return frappe.format_currency(value);
+	}
+	const num = parseFloat(value) || 0;
+	return new Intl.NumberFormat('en-US', {
+		style: 'currency',
+		currency: 'USD',
+		minimumFractionDigits: 2
+	}).format(num);
+}
+
+/**
+ * Format number value
+ */
+function format_number(value, precision = 3) {
+	if (typeof frappe !== 'undefined' && frappe.format) {
+		return frappe.format(value, { fieldtype: 'Float', precision: precision });
+	}
+	const num = parseFloat(value) || 0;
+	return num.toLocaleString('en-US', {
+		minimumFractionDigits: precision,
+		maximumFractionDigits: precision
+	});
 }

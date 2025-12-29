@@ -795,7 +795,7 @@ def get_boq_invoice_history(boq_item: str) -> dict:
 	latest_accumulated_qty = flt(filtered_entries[-1].accumulated_qty) if filtered_entries else 0
 	latest_accumulated_amount = flt(filtered_entries[-1].accumulated_amount) if filtered_entries else 0
 	
-	# Get payment certificates for this BOQ Item
+	# Get payment certificates for this BOQ Item with variance calculation
 	payment_certificates = frappe.db.sql("""
 		SELECT 
 			pc.name,
@@ -803,7 +803,12 @@ def get_boq_invoice_history(boq_item: str) -> dict:
 			pc.proforma_invoice,
 			pc.proforma_amount,
 			pc.accepted_amount,
-			pc.variance,
+			(pc.proforma_amount - pc.accepted_amount) as variance,
+			CASE 
+				WHEN pc.proforma_amount > 0 THEN 
+					ROUND(((pc.proforma_amount - pc.accepted_amount) / pc.proforma_amount * 100), 2)
+				ELSE 0 
+			END as variance_percent,
 			pc.tax_invoice,
 			pc.status,
 			pc.payment_received,
