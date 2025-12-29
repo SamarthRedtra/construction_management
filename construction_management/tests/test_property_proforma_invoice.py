@@ -6,6 +6,7 @@
 Property Tests for Proforma Invoice
 
 These tests validate the following properties:
+- Property 3: Ledger Entry Project BOQ Completeness (boq-ui-improvements-v2)
 - Property 13: Proforma Invoice Ledger Round-Trip
 - Property 14: Tax Invoice Requires Approved Payment Certificate
 - Property 15: Tax Invoice Ledger Update
@@ -16,6 +17,185 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt, today
 from hypothesis import given, strategies as st, settings
+
+
+class TestLedgerEntryProjectBOQCompleteness(FrappeTestCase):
+	"""
+	**Feature: boq-ui-improvements-v2, Property 3: Ledger Entry Project BOQ Completeness**
+	**Validates: Requirements 5.1, 5.5**
+	
+	Property: For any BOQ Progress Ledger entry created by proforma invoice operations
+	(submission or cancellation), the project_boq field SHALL be set to a valid Project BOQ document.
+	"""
+	
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		cls.test_project = create_test_project("TEST-LEDGER-PBOQ-PROJECT")
+		cls.test_boq = create_test_project_boq(cls.test_project)
+		cls.test_bill = create_test_bill(cls.test_project, "Bill No. 1 - Ledger PBOQ Test")
+		cls.test_boq_item = create_test_boq_item(cls.test_bill, "Ledger PBOQ Test Item")
+	
+	def test_submission_ledger_has_project_boq(self):
+		"""
+		Property: Submitting proforma creates ledger entry with valid project_boq
+		**Validates: Requirements 5.1**
+		"""
+		proforma = create_proforma_invoice_with_items(
+			self.test_project, self.test_boq_item, qty=5, rate=100
+		)
+		
+		# Submit proforma
+		proforma.submit()
+		
+		# Check all ledger entries have project_boq set
+		ledger_entries = frappe.get_all(
+			"BOQ Progress Ledger",
+			filters={"reference_name": proforma.name, "reference_doctype": "Proforma Invoice"},
+			fields=["name", "project_boq", "boq_item"]
+		)
+		
+		self.assertGreater(len(ledger_entries), 0, "Ledger entries should be created on submission")
+		
+		for entry in ledger_entries:
+			# project_boq must be set
+			self.assertIsNotNone(entry.project_boq, f"Ledger entry {entry.name} must have project_boq set")
+			self.assertTrue(entry.project_boq, f"Ledger entry {entry.name} project_boq must not be empty")
+			
+			# project_boq must be a valid Project BOQ document
+			self.assertTrue(
+				frappe.db.exists("Project BOQ", entry.project_boq),
+				f"Ledger entry {entry.name} project_boq '{entry.project_boq}' must be a valid Project BOQ"
+			)
+		
+		# Cleanup
+		proforma.cancel()
+		frappe.delete_doc("Proforma Invoice", proforma.name, force=True)
+	
+	def test_cancellation_ledger_has_project_boq(self):
+		"""
+		Property: Cancelling proforma creates reversing ledger entry with valid project_boq
+		**Validates: Requirements 5.5**
+		"""
+		proforma = create_proforma_invoice_with_items(
+			self.test_project, self.test_boq_item, qty=3, rate=200
+		)
+		
+		proforma.submit()
+		proforma.cancel()
+		
+		# Check all ledger entries (including reversals) have project_boq set
+		ledger_entries = frappe.get_all(
+			"BOQ Progress Ledger",
+			filters={"reference_name": proforma.name, "reference_doctype": "Proforma Invoice"},
+			fields=["name", "project_boq", "source", "qty"]
+		)
+		
+		# Should have at least 2 entries (submission + cancellation)
+		self.assertGreaterEqual(len(ledger_entries), 2, "Should have submission and cancellation entries")
+		
+		# Check for reversing entry (negative qty)
+		reversing_entries = [e for e in ledger_entries if flt(e.qty) < 0]
+		self.assertGreater(len(reversing_entries), 0, "Should have reversing entries on cancellation")
+		
+		for entry in ledger_entries:
+			# project_boq must be set for all entries including reversals
+			self.assertIsNotNone(entry.project_boq, f"Ledger entry {entry.name} must have project_boq set")
+			self.assertTrue(entry.project_boq, f"Ledger entry {entry.name} project_boq must not be empty")
+			
+			# project_boq must be a valid Project BOQ document
+			self.assertTrue(
+				frappe.db.exists("Project BOQ", entry.project_boq),
+				f"Ledger entry {entry.name} project_boq '{entry.project_boq}' must be a valid Project BOQ"
+			)
+		
+		# Cleanup
+		frappe.delete_doc("Proforma Invoice", proforma.name, force=True)
+	
+	@given(
+		qty=st.floats(min_value=1, max_value=50, allow_nan=False, allow_infinity=False),
+		rate=st.floats(min_value=10, max_value=1000, allow_nan=False, allow_infinity=False)
+	)
+	@settings(max_examples=100, deadline=None)
+	def test_ledger_project_boq_completeness_property(self, qty, rate):
+		"""
+		**Feature: boq-ui-improvements-v2, Property 3: Ledger Entry Project BOQ Completeness**
+		**Validates: Requirements 5.1, 5.5**
+		
+		Property: For any proforma invoice with any valid qty and rate,
+		all ledger entries created (submission and cancellation) SHALL have
+		project_boq set to a valid Project BOQ document.
+		"""
+		proforma = create_proforma_invoice_with_items(
+			self.test_project, self.test_boq_item, qty=qty, rate=rate
+		)
+		
+		# Submit proforma
+		proforma.submit()
+		
+		# Check submission ledger entries
+		submission_entries = frappe.get_all(
+			"BOQ Progress Ledger",
+			filters={"reference_name": proforma.name, "reference_doctype": "Proforma Invoice"},
+			fields=["name", "project_boq"]
+		)
+		
+		for entry in submission_entries:
+			self.assertIsNotNone(entry.project_boq)
+			self.assertTrue(entry.project_boq)
+			self.assertTrue(frappe.db.exists("Project BOQ", entry.project_boq))
+		
+		# Cancel proforma
+		proforma.cancel()
+		
+		# Check all ledger entries including reversals
+		all_entries = frappe.get_all(
+			"BOQ Progress Ledger",
+			filters={"reference_name": proforma.name, "reference_doctype": "Proforma Invoice"},
+			fields=["name", "project_boq"]
+		)
+		
+		for entry in all_entries:
+			self.assertIsNotNone(entry.project_boq, f"Entry {entry.name} must have project_boq")
+			self.assertTrue(entry.project_boq, f"Entry {entry.name} project_boq must not be empty")
+			self.assertTrue(
+				frappe.db.exists("Project BOQ", entry.project_boq),
+				f"Entry {entry.name} project_boq must be valid"
+			)
+		
+		# Cleanup
+		frappe.delete_doc("Proforma Invoice", proforma.name, force=True)
+	
+	def test_project_boq_matches_boq_item_hierarchy(self):
+		"""
+		Property: The project_boq on ledger entries must match the BOQ Item's hierarchy
+		"""
+		proforma = create_proforma_invoice_with_items(
+			self.test_project, self.test_boq_item, qty=2, rate=150
+		)
+		
+		proforma.submit()
+		
+		# Get the expected project_boq from BOQ Item hierarchy
+		parent_bill = frappe.db.get_value("BOQ Item", self.test_boq_item, "parent_bill")
+		expected_project_boq = frappe.db.get_value("BOQ Bill", parent_bill, "project_boq")
+		
+		# Check ledger entries have the correct project_boq
+		ledger_entries = frappe.get_all(
+			"BOQ Progress Ledger",
+			filters={"reference_name": proforma.name, "reference_doctype": "Proforma Invoice"},
+			fields=["name", "project_boq", "boq_item"]
+		)
+		
+		for entry in ledger_entries:
+			self.assertEqual(
+				entry.project_boq, expected_project_boq,
+				f"Ledger entry {entry.name} project_boq should match BOQ Item hierarchy"
+			)
+		
+		# Cleanup
+		proforma.cancel()
+		frappe.delete_doc("Proforma Invoice", proforma.name, force=True)
 
 
 class TestProformaInvoiceLedgerRoundTrip(FrappeTestCase):
@@ -37,8 +217,8 @@ class TestProformaInvoiceLedgerRoundTrip(FrappeTestCase):
 	
 	def test_proforma_submission_creates_ledger_entry(self):
 		"""Property: Submitting proforma creates positive ledger entry"""
-		proforma = create_proforma_invoice(
-			self.test_project, self.test_bill, self.test_boq_item, 10000
+		proforma = create_proforma_invoice_with_items(
+			self.test_project, self.test_boq_item, qty=100, rate=100
 		)
 		
 		# Submit proforma
@@ -48,13 +228,13 @@ class TestProformaInvoiceLedgerRoundTrip(FrappeTestCase):
 		ledger_entry = frappe.db.get_value(
 			"BOQ Progress Ledger",
 			{"proforma_invoice": proforma.name},
-			["proforma_amount", "entry_type"],
+			["proforma_amount", "source"],
 			as_dict=True
 		)
 		
 		if ledger_entry:
 			self.assertEqual(flt(ledger_entry.proforma_amount), 10000)
-			self.assertEqual(ledger_entry.entry_type, "Proforma")
+			self.assertEqual(ledger_entry.source, "Proforma")
 		
 		# Cleanup
 		proforma.cancel()
@@ -62,8 +242,8 @@ class TestProformaInvoiceLedgerRoundTrip(FrappeTestCase):
 	
 	def test_proforma_cancellation_creates_reversing_entry(self):
 		"""Property: Cancelling proforma creates negative ledger entry"""
-		proforma = create_proforma_invoice(
-			self.test_project, self.test_bill, self.test_boq_item, 15000
+		proforma = create_proforma_invoice_with_items(
+			self.test_project, self.test_boq_item, qty=150, rate=100
 		)
 		
 		proforma.submit()
@@ -72,8 +252,8 @@ class TestProformaInvoiceLedgerRoundTrip(FrappeTestCase):
 		# Check for reversing entry
 		reversal_entry = frappe.db.get_value(
 			"BOQ Progress Ledger",
-			{"proforma_invoice": proforma.name, "entry_type": "Proforma Reversal"},
-			"proforma_amount"
+			{"reference_name": proforma.name, "source": "Proforma Reversal"},
+			"amount"
 		)
 		
 		if reversal_entry:
@@ -84,8 +264,8 @@ class TestProformaInvoiceLedgerRoundTrip(FrappeTestCase):
 	
 	def test_net_ledger_effect_is_zero_after_cancel(self):
 		"""Property: Net ledger effect is zero after submit then cancel"""
-		proforma = create_proforma_invoice(
-			self.test_project, self.test_bill, self.test_boq_item, 20000
+		proforma = create_proforma_invoice_with_items(
+			self.test_project, self.test_boq_item, qty=200, rate=100
 		)
 		
 		proforma.submit()
@@ -93,9 +273,9 @@ class TestProformaInvoiceLedgerRoundTrip(FrappeTestCase):
 		
 		# Sum all ledger entries for this proforma
 		total = frappe.db.sql("""
-			SELECT COALESCE(SUM(proforma_amount), 0) as total
+			SELECT COALESCE(SUM(amount), 0) as total
 			FROM `tabBOQ Progress Ledger`
-			WHERE proforma_invoice = %s
+			WHERE reference_name = %s AND reference_doctype = 'Proforma Invoice'
 		""", proforma.name)[0][0]
 		
 		self.assertEqual(flt(total), 0, "Net ledger effect should be zero after cancel")
@@ -104,13 +284,14 @@ class TestProformaInvoiceLedgerRoundTrip(FrappeTestCase):
 		frappe.delete_doc("Proforma Invoice", proforma.name, force=True)
 	
 	@given(
-		amount=st.floats(min_value=100, max_value=100000, allow_nan=False, allow_infinity=False)
+		qty=st.floats(min_value=1, max_value=50, allow_nan=False, allow_infinity=False),
+		rate=st.floats(min_value=10, max_value=1000, allow_nan=False, allow_infinity=False)
 	)
 	@settings(max_examples=50, deadline=None)
-	def test_ledger_round_trip_property(self, amount):
-		"""Property: For any amount, submit + cancel = net zero"""
-		proforma = create_proforma_invoice(
-			self.test_project, self.test_bill, self.test_boq_item, amount
+	def test_ledger_round_trip_property(self, qty, rate):
+		"""Property: For any qty and rate, submit + cancel = net zero"""
+		proforma = create_proforma_invoice_with_items(
+			self.test_project, self.test_boq_item, qty=qty, rate=rate
 		)
 		
 		proforma.submit()
@@ -118,9 +299,9 @@ class TestProformaInvoiceLedgerRoundTrip(FrappeTestCase):
 		
 		# Sum all ledger entries
 		total = frappe.db.sql("""
-			SELECT COALESCE(SUM(proforma_amount), 0) as total
+			SELECT COALESCE(SUM(amount), 0) as total
 			FROM `tabBOQ Progress Ledger`
-			WHERE proforma_invoice = %s
+			WHERE reference_name = %s AND reference_doctype = 'Proforma Invoice'
 		""", proforma.name)[0][0]
 		
 		self.assertAlmostEqual(flt(total), 0, places=2)
@@ -256,5 +437,32 @@ def create_proforma_invoice(project, bill_no, boq_item, amount):
 	proforma.boq_item = boq_item
 	proforma.amount = amount
 	proforma.posting_date = today()
+	proforma.insert(ignore_permissions=True)
+	return proforma
+
+
+def create_proforma_invoice_with_items(project, boq_item, qty, rate):
+	"""
+	Create a Proforma Invoice with items child table properly populated.
+	This is the correct way to create proforma invoices as per the doctype structure.
+	"""
+	# Get BOQ Item details
+	boq_item_doc = frappe.get_doc("BOQ Item", boq_item)
+	
+	proforma = frappe.new_doc("Proforma Invoice")
+	proforma.project = project
+	proforma.posting_date = today()
+	
+	# Add item to the items child table
+	proforma.append("items", {
+		"boq_item": boq_item,
+		"bill_no": boq_item_doc.parent_bill,
+		"description": boq_item_doc.description,
+		"unit": boq_item_doc.unit,
+		"qty": flt(qty),
+		"rate": flt(rate),
+		"amount": flt(qty) * flt(rate)
+	})
+	
 	proforma.insert(ignore_permissions=True)
 	return proforma

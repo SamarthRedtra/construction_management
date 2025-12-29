@@ -26,6 +26,7 @@ def get_columns():
 	"""
 	Get report columns.
 	Requirements: 9.2 - Show columns: Project, Bill No, BOQ Item, Proforma No, Date, Amount, Age
+	Requirements: 4.3 - Add PC Status, Tax Invoice link, Action columns
 	"""
 	return [
 		{
@@ -88,6 +89,32 @@ def get_columns():
 			"width": 90
 		},
 		{
+			"fieldname": "pc_status",
+			"label": _("PC Status"),
+			"fieldtype": "Data",
+			"width": 100
+		},
+		{
+			"fieldname": "payment_certificate",
+			"label": _("Payment Certificate"),
+			"fieldtype": "Link",
+			"options": "Payment Certificate",
+			"width": 140
+		},
+		{
+			"fieldname": "tax_invoice",
+			"label": _("Tax Invoice"),
+			"fieldtype": "Link",
+			"options": "Sales Invoice",
+			"width": 140
+		},
+		{
+			"fieldname": "action",
+			"label": _("Action"),
+			"fieldtype": "Data",
+			"width": 100
+		},
+		{
 			"fieldname": "description",
 			"label": _("Description"),
 			"fieldtype": "Data",
@@ -108,6 +135,7 @@ def get_data(filters):
 	"""
 	conditions = get_conditions(filters)
 	
+	# Get proformas with PC status
 	data = frappe.db.sql("""
 		SELECT 
 			pi.name,
@@ -119,14 +147,30 @@ def get_data(filters):
 			pi.amount,
 			pi.net_amount,
 			pi.description,
-			DATEDIFF(CURDATE(), pi.posting_date) as age_days
+			DATEDIFF(CURDATE(), pi.posting_date) as age_days,
+			pc.name as payment_certificate,
+			pc.status as pc_status,
+			pc.tax_invoice
 		FROM `tabProforma Invoice` pi
+		LEFT JOIN `tabPayment Certificate` pc ON pc.proforma_invoice = pi.name AND pc.docstatus != 2
 		WHERE pi.docstatus = 1
-		AND pi.status = 'Submitted'
-		AND (pi.payment_certificate IS NULL OR pi.payment_certificate = '')
+		AND pi.status IN ('Submitted', 'Partially Certified')
 		{conditions}
 		ORDER BY pi.posting_date DESC
 	""".format(conditions=conditions), filters, as_dict=True)
+	
+	# Add action based on PC status
+	for row in data:
+		if not row.payment_certificate:
+			row["action"] = "Create PC"
+			row["pc_status"] = "Pending"
+		elif row.pc_status == "Draft":
+			row["action"] = "Submit PC"
+		elif row.pc_status in ["Submitted", "Invoiced", "Paid"]:
+			row["action"] = "View"
+		else:
+			row["action"] = "Create PC"
+			row["pc_status"] = "Pending"
 	
 	return data
 

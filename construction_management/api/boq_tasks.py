@@ -200,9 +200,61 @@ def create_group_task_for_boq_item(
 
 
 @frappe.whitelist()
-def get_boq_item_tasks(boq_item: str) -> dict:
+def get_boq_item_tasks(boq_item: str) -> list:
 	"""
 	Get all tasks linked to a BOQ Item (parent task and children).
+	Returns a flat list of tasks for popup display.
+	
+	Args:
+		boq_item: BOQ Item name
+		
+	Returns:
+		list of task dicts with name, subject, status, dates, progress
+	
+	Requirements: 5.2
+	"""
+	# Get the linked parent task
+	linked_task = frappe.db.get_value("BOQ Item", boq_item, "linked_task")
+	
+	if not linked_task:
+		return []
+	
+	# Get all tasks in the tree (parent and children)
+	tasks = []
+	
+	def collect_tasks(task_name):
+		"""Recursively collect tasks"""
+		task = frappe.get_doc("Task", task_name)
+		tasks.append({
+			"name": task.name,
+			"subject": task.subject,
+			"status": task.status,
+			"progress": flt(task.progress),
+			"priority": task.priority,
+			"exp_start_date": str(task.exp_start_date) if task.exp_start_date else None,
+			"exp_end_date": str(task.exp_end_date) if task.exp_end_date else None,
+			"is_group": task.is_group
+		})
+		
+		# Get child tasks
+		child_tasks = frappe.get_all(
+			"Task",
+			filters={"parent_task": task_name},
+			fields=["name"],
+			order_by="idx, creation"
+		)
+		
+		for child in child_tasks:
+			collect_tasks(child.name)
+	
+	collect_tasks(linked_task)
+	return tasks
+
+
+@frappe.whitelist()
+def get_boq_item_tasks_tree(boq_item: str) -> dict:
+	"""
+	Get all tasks linked to a BOQ Item as a tree structure.
 	
 	Args:
 		boq_item: BOQ Item name

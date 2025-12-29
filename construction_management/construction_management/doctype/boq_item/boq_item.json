@@ -185,19 +185,22 @@
    "description": "Estimated material cost for this BOQ item",
    "fieldname": "estimated_material_cost",
    "fieldtype": "Currency",
-   "label": "Estimated Material Cost"
+   "label": "Estimated Material Cost",
+   "read_only": 1
   },
   {
    "description": "Estimated labour cost for this BOQ item",
    "fieldname": "estimated_labour_cost",
    "fieldtype": "Currency",
-   "label": "Estimated Labour Cost"
+   "label": "Estimated Labour Cost",
+   "read_only": 1
   },
   {
    "description": "Estimated subcontracting cost for this BOQ item",
    "fieldname": "estimated_subcontract_cost",
    "fieldtype": "Currency",
-   "label": "Estimated Subcontracting Cost"
+   "label": "Estimated Subcontracting Cost",
+   "read_only": 1
   },
   {
    "fieldname": "column_break_estimated_1",
@@ -207,13 +210,15 @@
    "description": "Estimated asset/equipment cost for this BOQ item",
    "fieldname": "estimated_asset_cost",
    "fieldtype": "Currency",
-   "label": "Estimated Asset Cost"
+   "label": "Estimated Asset Cost",
+   "read_only": 1
   },
   {
    "description": "Other estimated costs for this BOQ item",
    "fieldname": "estimated_other_cost",
    "fieldtype": "Currency",
-   "label": "Estimated Other Costs"
+   "label": "Estimated Other Costs",
+   "read_only": 1
   },
   {
    "description": "Sum of all estimated cost components (auto-calculated)",
@@ -393,6 +398,18 @@
   },
   {
    "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
    "email": 1,
    "export": 1,
    "print": 1,
@@ -409,6 +426,15 @@
    "read": 1,
    "report": 1,
    "role": "Construction Manager",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Projects User",
    "share": 1
   }
  ],

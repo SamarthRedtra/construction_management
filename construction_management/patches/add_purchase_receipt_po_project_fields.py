@@ -30,16 +30,6 @@ def execute():
 			"insert_after": "item_code",
 			"read_only": 1,
 			"description": "Copied from parent Purchase Receipt"
-		},
-		{
-			"dt": "Purchase Receipt Item",
-			"fieldname": "custom_project",
-			"label": "Project",
-			"fieldtype": "Link",
-			"options": "Project",
-			"insert_after": "warehouse",
-			"in_list_view": 1,
-			"description": "Project linked to the warehouse"
 		}
 	]
 	
@@ -65,4 +55,3 @@ def create_custom_field_if_not_exists(field_def):
 	doc.flags.ignore_validate = True
 	doc.insert(ignore_permissions=True)
 	print(f"Created custom field {dt}-{fieldname}")
-

@@ -66,22 +66,30 @@ def validate_items_in_purchase_order(doc):
 
 def ensure_item_projects(doc, make_mandatory=False):
 	"""
-	Ensure each item has project set by pulling from row/custom fields or linked warehouses.
+	Ensure each item has project set by pulling from the row or linked warehouses.
 	This safeguards against client-side values being cleared during save/submit.
 	"""
 	for row in doc.get("items", []):
-		project = row.get("project") or row.get("custom_project")
+		project = row.get("project")
 
 		# Try accepted warehouse first, then rejected warehouse
 		if not project and row.get("warehouse"):
-			project = get_warehouse_project(row.warehouse)
+			project = get_warehouse_project(row.warehouse, company=doc.company)
 		if not project and row.get("rejected_warehouse"):
-			project = get_warehouse_project(row.rejected_warehouse)
+			project = get_warehouse_project(row.rejected_warehouse, company=doc.company)
 
 		if project:
+			# Validate company alignment early to give clearer errors
+			project_company = frappe.db.get_value("Project", project, "company")
+			if project_company and project_company != doc.company:
+				frappe.throw(
+					_("Row {0}: Project {1} belongs to {2}, but the Purchase Receipt is for {3}. Please select a project for {3}.").format(
+						row.idx or row.name, frappe.utils.bold(project), frappe.utils.bold(project_company), frappe.utils.bold(doc.company)
+					),
+					title=_("Project Company Mismatch"),
+				)
+
 			row.project = project
-			if hasattr(row, "custom_project"):
-				row.custom_project = project
 		elif make_mandatory:
 			frappe.throw(
 				_("Row {0}: Please set a Project for warehouse {1}").format(

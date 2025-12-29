@@ -226,7 +226,7 @@ def get_bill_advance_amount(bill_no: str) -> float:
 
 
 def get_boq_items(bill_name: str) -> list:
-	"""Get all BOQ items for a bill with calculated values"""
+	"""Get all BOQ items for a bill with calculated values including revenue breakdown and profitability"""
 	items = frappe.get_all(
 		"BOQ Item",
 		filters={"parent_bill": bill_name},
@@ -246,9 +246,13 @@ def get_boq_items(bill_name: str) -> list:
 		ledger_values = get_item_ledger_values(item.name)
 		item.update(ledger_values)
 		
-		# Get cost values
+		# Get cost values (actual costs from DPR)
 		cost_values = get_item_cost_values(item.name)
 		item.update(cost_values)
+		
+		# Get actual cost breakdown from DPR
+		actual_costs = get_item_actual_costs(item.name)
+		item["actual_costs"] = actual_costs
 		
 		# Add estimated costs structure
 		item["estimated_costs"] = {
@@ -259,12 +263,99 @@ def get_boq_items(bill_name: str) -> list:
 			"other": flt(item.get("estimated_other_cost", 0)),
 			"total": flt(item.get("total_estimated_cost", 0))
 		}
+		
+		# Get revenue breakdown (PI, PC, Tax Invoice, Variance, Balance)
+		revenue_breakdown = get_boq_item_revenue_breakdown_internal(item.name, item["total_amount"])
+		item["revenue"] = revenue_breakdown
+		
+		# Calculate profitability (GP and GP%)
+		# Revenue = Tax Invoice total (actual collected) or PC total if no tax invoice
+		revenue_for_gp = flt(revenue_breakdown.get("tax_invoice_total", 0)) or flt(revenue_breakdown.get("pc_total", 0))
+		actual_cost = flt(actual_costs.get("total", 0))
+		
+		gp = revenue_for_gp - actual_cost
+		gp_percent = (gp / revenue_for_gp * 100) if revenue_for_gp > 0 else 0
+		
+		item["profitability"] = {
+			"gp": flt(gp),
+			"gp_percent": flt(gp_percent, 2)
+		}
 	
 	return items
 
 
+def get_item_actual_costs(boq_item: str) -> dict:
+	"""Get actual cost breakdown from Daily Progress Records for a BOQ item"""
+	cost_breakdown = frappe.db.sql("""
+		SELECT 
+			COALESCE(SUM(labour_cost), 0) as labour,
+			COALESCE(SUM(material_cost), 0) as material,
+			COALESCE(SUM(asset_cost), 0) as asset,
+			COALESCE(SUM(subcontract_cost), 0) as subcontract,
+			COALESCE(SUM(expense_cost), 0) as other,
+			COALESCE(SUM(total_cost), 0) as total
+		FROM `tabDaily Progress Record`
+		WHERE boq_item = %s AND docstatus = 1
+	""", boq_item, as_dict=True)[0]
+	
+	return {
+		"material": flt(cost_breakdown.material),
+		"labour": flt(cost_breakdown.labour),
+		"asset": flt(cost_breakdown.asset),
+		"subcontract": flt(cost_breakdown.subcontract),
+		"other": flt(cost_breakdown.other),
+		"total": flt(cost_breakdown.total)
+	}
+
+
+def get_boq_item_revenue_breakdown_internal(boq_item: str, boq_total: float) -> dict:
+	"""
+	Internal function to get revenue breakdown for a BOQ item.
+	Used by get_boq_items to avoid repeated API calls.
+	"""
+	# Get Proforma Invoice totals
+	proforma_total = frappe.db.sql("""
+		SELECT COALESCE(SUM(pii.amount), 0) as total
+		FROM `tabProforma Invoice Item` pii
+		JOIN `tabProforma Invoice` pi ON pi.name = pii.parent
+		WHERE pii.boq_item = %s AND pi.docstatus = 1
+	""", boq_item)[0][0] or 0
+	
+	# Get Payment Certificate totals and variance
+	pc_data = frappe.db.sql("""
+		SELECT 
+			COALESCE(SUM(pc.accepted_amount), 0) as pc_total,
+			COALESCE(SUM(pc.variance), 0) as variance_total
+		FROM `tabPayment Certificate` pc
+		WHERE pc.boq_item = %s AND pc.docstatus = 1
+	""", boq_item, as_dict=True)[0]
+	
+	pc_total = flt(pc_data.pc_total) if pc_data else 0
+	variance_total = flt(pc_data.variance_total) if pc_data else 0
+	
+	# Get Tax Invoice totals
+	tax_invoice_total = frappe.db.sql("""
+		SELECT COALESCE(SUM(sii.amount), 0) as total
+		FROM `tabSales Invoice Item` sii
+		JOIN `tabSales Invoice` si ON si.name = sii.parent
+		WHERE sii.boq_item = %s AND si.docstatus = 1
+	""", boq_item)[0][0] or 0
+	
+	# Balance = BOQ Total - Proforma Total (NOT PC Total)
+	balance = flt(boq_total) - flt(proforma_total)
+	
+	return {
+		"proforma": flt(proforma_total),
+		"pc": flt(pc_total),
+		"tax_invoice": flt(tax_invoice_total),
+		"variance": flt(variance_total),
+		"total": flt(proforma_total),  # Total billed = PI total
+		"balance": flt(balance)
+	}
+
+
 def get_item_ledger_values(boq_item: str) -> dict:
-	"""Get Previous, Current, To-Date, Balance values from ledger"""
+	"""Get Previous, Current, To-Date, Balance values from ledger with fallback to invoice data"""
 	from construction_management.api.boq_ledger import (
 		get_previous_qty, get_previous_amount,
 		get_to_date_qty, get_to_date_amount
@@ -277,6 +368,25 @@ def get_item_ledger_values(boq_item: str) -> dict:
 	prev_amount = get_previous_amount(boq_item)
 	to_date_qty = get_to_date_qty(boq_item)
 	to_date_amount = get_to_date_amount(boq_item)
+	
+	# If no ledger entries exist, try to get values from Proforma Invoice items
+	if to_date_qty == 0 and to_date_amount == 0:
+		invoice_totals = frappe.db.sql("""
+			SELECT 
+				COALESCE(SUM(pii.qty), 0) as qty,
+				COALESCE(SUM(pii.amount), 0) as amount
+			FROM `tabProforma Invoice Item` pii
+			INNER JOIN `tabProforma Invoice` pi ON pi.name = pii.parent
+			WHERE pii.boq_item = %s
+			AND pi.docstatus = 1
+		""", boq_item, as_dict=True)
+		
+		if invoice_totals and invoice_totals[0]:
+			to_date_qty = flt(invoice_totals[0].qty)
+			to_date_amount = flt(invoice_totals[0].amount)
+			# All invoiced amounts are "previous" since they're already submitted
+			prev_qty = to_date_qty
+			prev_amount = to_date_amount
 	
 	# Current is the difference (items being billed now but not yet submitted)
 	current_qty = flt(item.current_qty) if hasattr(item, 'current_qty') else 0
@@ -327,7 +437,7 @@ def get_item_cost_values(boq_item: str) -> dict:
 
 
 def calculate_bill_totals(items: list) -> dict:
-	"""Calculate aggregated totals for a bill from its items"""
+	"""Calculate aggregated totals for a bill from its items including revenue breakdown and profitability"""
 	totals = {
 		"qty": {"total": 0, "prev": 0, "current": 0, "to_date": 0, "balance": 0},
 		"amount": {"total": 0, "prev": 0, "current": 0, "to_date": 0, "balance": 0},
@@ -336,6 +446,17 @@ def calculate_bill_totals(items: list) -> dict:
 		"estimated_costs": {
 			"material": 0, "labour": 0, "subcontract": 0, 
 			"asset": 0, "other": 0, "total": 0
+		},
+		"actual_costs": {
+			"material": 0, "labour": 0, "subcontract": 0,
+			"asset": 0, "other": 0, "total": 0
+		},
+		"revenue": {
+			"proforma": 0, "pc": 0, "tax_invoice": 0,
+			"variance": 0, "total": 0, "balance": 0
+		},
+		"profitability": {
+			"gp": 0, "gp_percent": 0
 		}
 	}
 	
@@ -354,6 +475,25 @@ def calculate_bill_totals(items: list) -> dict:
 		if "estimated_costs" in item:
 			for key in totals["estimated_costs"]:
 				totals["estimated_costs"][key] += flt(item["estimated_costs"].get(key, 0))
+		
+		# Aggregate actual costs
+		if "actual_costs" in item:
+			for key in totals["actual_costs"]:
+				totals["actual_costs"][key] += flt(item["actual_costs"].get(key, 0))
+		
+		# Aggregate revenue breakdown
+		if "revenue" in item:
+			for key in totals["revenue"]:
+				totals["revenue"][key] += flt(item["revenue"].get(key, 0))
+		
+		# Aggregate profitability
+		if "profitability" in item:
+			totals["profitability"]["gp"] += flt(item["profitability"].get("gp", 0))
+	
+	# Calculate bill-level GP%
+	revenue_for_gp = flt(totals["revenue"]["tax_invoice"]) or flt(totals["revenue"]["pc"])
+	if revenue_for_gp > 0:
+		totals["profitability"]["gp_percent"] = flt(totals["profitability"]["gp"] / revenue_for_gp * 100, 2)
 	
 	return totals
 
@@ -576,3 +716,306 @@ def get_boq_item_cost_progress(boq_item: str) -> dict:
 	"""
 	item = frappe.get_doc("BOQ Item", boq_item)
 	return item.get_cost_progress()
+
+
+@frappe.whitelist()
+def get_boq_item_revenue_breakdown(boq_item: str) -> dict:
+	"""
+	Get revenue breakdown for a BOQ item showing PI, PC, Tax Invoice, Variance, and Balance.
+	
+	Key Logic:
+	- Balance = BOQ Total - Sum of Proforma Invoice amounts (NOT PC amounts)
+	- Variance = Sum of (PI Amount - PC Amount) for each PI-PC pair
+	- Variance represents loss when PC < PI
+	
+	Args:
+		boq_item: BOQ Item name
+		
+	Returns:
+		dict with:
+		- proforma_total: Sum of all Proforma Invoice amounts
+		- pc_total: Sum of all Payment Certificate accepted amounts
+		- tax_invoice_total: Sum of all Tax Invoice amounts
+		- variance_total: Sum of all variances (PI - PC)
+		- total_billed: Same as proforma_total (what was billed)
+		- balance: BOQ Total - proforma_total
+	
+	Requirements: 3.3, 3.5
+	"""
+	# Get BOQ Item details
+	item = frappe.db.get_value(
+		"BOQ Item", boq_item, 
+		["total_amount", "total_qty", "rate"], 
+		as_dict=True
+	)
+	
+	if not item:
+		return {
+			"proforma_total": 0,
+			"pc_total": 0,
+			"tax_invoice_total": 0,
+			"variance_total": 0,
+			"total_billed": 0,
+			"balance": 0
+		}
+	
+	boq_total = flt(item.total_amount)
+	
+	# Get Proforma Invoice totals for this BOQ item
+	proforma_total = frappe.db.sql("""
+		SELECT COALESCE(SUM(pii.amount), 0) as total
+		FROM `tabProforma Invoice Item` pii
+		JOIN `tabProforma Invoice` pi ON pi.name = pii.parent
+		WHERE pii.boq_item = %s AND pi.docstatus = 1
+	""", boq_item)[0][0] or 0
+	
+	# Get Payment Certificate totals and variance for this BOQ item
+	# PC is linked to Proforma Invoice, and may have different accepted_amount
+	pc_data = frappe.db.sql("""
+		SELECT 
+			COALESCE(SUM(pc.accepted_amount), 0) as pc_total,
+			COALESCE(SUM(pc.variance), 0) as variance_total
+		FROM `tabPayment Certificate` pc
+		WHERE pc.boq_item = %s AND pc.docstatus = 1
+	""", boq_item, as_dict=True)[0]
+	
+	pc_total = flt(pc_data.pc_total) if pc_data else 0
+	variance_total = flt(pc_data.variance_total) if pc_data else 0
+	
+	# Get Tax Invoice totals for this BOQ item
+	tax_invoice_total = frappe.db.sql("""
+		SELECT COALESCE(SUM(sii.amount), 0) as total
+		FROM `tabSales Invoice Item` sii
+		JOIN `tabSales Invoice` si ON si.name = sii.parent
+		WHERE sii.boq_item = %s AND si.docstatus = 1
+	""", boq_item)[0][0] or 0
+	
+	# Balance = BOQ Total - Proforma Total (NOT PC Total)
+	# This ensures variance (loss) doesn't affect the balance
+	balance = boq_total - flt(proforma_total)
+	
+	return {
+		"proforma_total": flt(proforma_total),
+		"pc_total": flt(pc_total),
+		"tax_invoice_total": flt(tax_invoice_total),
+		"variance_total": flt(variance_total),
+		"total_billed": flt(proforma_total),  # What was actually billed
+		"balance": flt(balance),
+		"boq_total": boq_total
+	}
+
+
+@frappe.whitelist()
+def get_boq_item_transactions(boq_item: str) -> list:
+	"""
+	Get all transactions (PI, PC, Tax Invoice) for a BOQ item.
+	
+	Returns a unified list of all billing transactions for expandable row display.
+	
+	Args:
+		boq_item: BOQ Item name
+		
+	Returns:
+		List of transactions with:
+		- doctype: "Proforma Invoice" | "Payment Certificate" | "Sales Invoice"
+		- name: Document name
+		- date: Posting date
+		- qty: Quantity billed
+		- amount: Amount
+		- status: Document status
+		- variance: Variance amount (for PC only)
+		- pc_amount: Accepted amount (for PC only)
+	
+	Requirements: 2.2, 2.3
+	"""
+	transactions = []
+	
+	# Get Proforma Invoices
+	proforma_items = frappe.db.sql("""
+		SELECT 
+			'Proforma Invoice' as doctype,
+			pi.name,
+			pi.posting_date as date,
+			pii.qty,
+			pii.amount,
+			pi.status,
+			NULL as variance,
+			NULL as pc_amount
+		FROM `tabProforma Invoice Item` pii
+		JOIN `tabProforma Invoice` pi ON pi.name = pii.parent
+		WHERE pii.boq_item = %s AND pi.docstatus != 2
+		ORDER BY pi.posting_date DESC
+	""", boq_item, as_dict=True)
+	
+	transactions.extend(proforma_items)
+	
+	# Get Payment Certificates
+	payment_certs = frappe.db.sql("""
+		SELECT 
+			'Payment Certificate' as doctype,
+			pc.name,
+			pc.posting_date as date,
+			NULL as qty,
+			pc.proforma_amount as amount,
+			pc.status,
+			pc.variance,
+			pc.accepted_amount as pc_amount
+		FROM `tabPayment Certificate` pc
+		WHERE pc.boq_item = %s AND pc.docstatus != 2
+		ORDER BY pc.posting_date DESC
+	""", boq_item, as_dict=True)
+	
+	transactions.extend(payment_certs)
+	
+	# Get Sales Invoices (Tax Invoices)
+	sales_invoices = frappe.db.sql("""
+		SELECT 
+			'Sales Invoice' as doctype,
+			si.name,
+			si.posting_date as date,
+			sii.qty,
+			sii.amount,
+			si.status,
+			NULL as variance,
+			NULL as pc_amount
+		FROM `tabSales Invoice Item` sii
+		JOIN `tabSales Invoice` si ON si.name = sii.parent
+		WHERE sii.boq_item = %s AND si.docstatus != 2
+		ORDER BY si.posting_date DESC
+	""", boq_item, as_dict=True)
+	
+	transactions.extend(sales_invoices)
+	
+	# Sort all transactions by date (most recent first)
+	transactions.sort(key=lambda x: x.get('date') or '', reverse=True)
+	
+	return transactions
+
+
+@frappe.whitelist()
+def get_boq_item_with_transactions(boq_item: str) -> dict:
+	"""
+	Get BOQ item details along with all transactions for popup display.
+	
+	Returns item details (description, unit, rate, qty/value breakdown) and
+	all transactions (PI, PC, Tax Invoice) in a single API call.
+	
+	Args:
+		boq_item: BOQ Item name
+		
+	Returns:
+		dict with:
+		- item: Item details including qty and amount breakdown
+		- transactions: List of all transactions with project_boq
+	
+	Requirements: 1.1, 1.2, 1.3, 3.4
+	"""
+	# Get BOQ Item details
+	item_doc = frappe.get_doc("BOQ Item", boq_item)
+	
+	# Get ledger-based values
+	ledger_values = get_item_ledger_values(boq_item)
+	
+	# Get revenue breakdown
+	revenue = get_boq_item_revenue_breakdown_internal(boq_item, flt(item_doc.total_amount))
+	
+	# Get estimated and actual costs
+	estimated_costs = {
+		"material": flt(item_doc.estimated_material_cost),
+		"labour": flt(item_doc.estimated_labour_cost),
+		"asset": flt(item_doc.estimated_asset_cost),
+		"subcontract": flt(item_doc.estimated_subcontract_cost),
+		"other": flt(item_doc.estimated_other_cost),
+		"total": flt(item_doc.total_estimated_cost)
+	}
+	
+	# Build item data
+	item_data = {
+		"name": item_doc.name,
+		"item_code": item_doc.item_code,
+		"description": item_doc.description,
+		"unit": item_doc.unit,
+		"project": item_doc.project,
+		"project_boq": item_doc.project_boq,
+		"parent_bill": item_doc.parent_bill,
+		"billing_status": item_doc.billing_status,
+		"qty": ledger_values.get("qty", {}),
+		"amount": ledger_values.get("amount", {}),
+		"revenue": revenue,
+		"estimated_costs": estimated_costs,
+		"actual_costs": ledger_values.get("actual_costs", {})
+	}
+	
+	# Get transactions with project_boq included
+	transactions = get_boq_item_transactions_with_ledger(boq_item)
+	
+	return {
+		"item": item_data,
+		"transactions": transactions
+	}
+
+
+def get_boq_item_transactions_with_ledger(boq_item: str) -> list:
+	"""
+	Get all transactions for a BOQ item including ledger entries with project_boq.
+	
+	Args:
+		boq_item: BOQ Item name
+		
+	Returns:
+		List of transactions with complete ledger data including project_boq
+		
+	Requirements: 3.4
+	"""
+	transactions = []
+	
+	# Get BOQ Progress Ledger entries (includes project_boq)
+	ledger_entries = frappe.db.sql("""
+		SELECT 
+			reference_doctype as doctype,
+			reference_name as name,
+			posting_date as date,
+			qty,
+			amount,
+			source,
+			project_boq,
+			proforma_invoice,
+			proforma_amount,
+			payment_certificate,
+			certified_amount,
+			tax_invoice,
+			tax_invoice_amount,
+			prev_qty,
+			prev_amount,
+			current_qty,
+			current_amount,
+			accumulated_qty,
+			accumulated_amount,
+			remarks
+		FROM `tabBOQ Progress Ledger`
+		WHERE boq_item = %s
+		ORDER BY posting_date DESC, creation DESC
+	""", boq_item, as_dict=True)
+	
+	# Add status from referenced documents
+	for entry in ledger_entries:
+		if entry.doctype and entry.name:
+			try:
+				status = frappe.db.get_value(entry.doctype, entry.name, "status")
+				entry["status"] = status or "Unknown"
+			except Exception:
+				entry["status"] = "Unknown"
+		else:
+			entry["status"] = entry.source or "Unknown"
+		
+		# Calculate variance if applicable
+		if entry.proforma_amount and entry.certified_amount:
+			entry["variance"] = flt(entry.proforma_amount) - flt(entry.certified_amount)
+		else:
+			entry["variance"] = 0
+		
+		entry["pc_amount"] = entry.certified_amount
+		
+		transactions.append(entry)
+	
+	return transactions

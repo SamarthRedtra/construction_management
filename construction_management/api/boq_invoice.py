@@ -6,6 +6,80 @@ from frappe import _
 from frappe.utils import flt, today, getdate
 
 
+def has_invoice_permission() -> bool:
+	"""
+	Check if current user has permission to create invoices.
+	
+	Returns:
+		bool: True if user has required role
+	"""
+	allowed_roles = ["Project Manager", "Quantity Surveyor", "System Manager"]
+	user_roles = frappe.get_roles()
+	return any(role in user_roles for role in allowed_roles)
+
+
+@frappe.whitelist()
+def get_pending_proformas_for_item(boq_item: str) -> list:
+	"""
+	Get pending proforma invoices for a specific BOQ item.
+	Returns proformas that are submitted but don't have a Payment Certificate yet.
+	
+	Args:
+		boq_item: BOQ Item name
+		
+	Returns:
+		List of proforma invoices with their details
+	"""
+	# Query Proforma Invoice doctype for items linked to this BOQ item
+	proformas = frappe.db.sql("""
+		SELECT DISTINCT
+			pi.name,
+			pi.posting_date,
+			pi.amount,
+			pi.net_amount,
+			pi.customer,
+			pi.project,
+			pi.status
+		FROM `tabProforma Invoice` pi
+		INNER JOIN `tabProforma Invoice Item` pii ON pii.parent = pi.name
+		WHERE pii.boq_item = %(boq_item)s
+		AND pi.docstatus = 1
+		AND pi.status IN ('Submitted', 'Partially Certified')
+		AND NOT EXISTS (
+			SELECT 1 FROM `tabPayment Certificate` pc
+			WHERE pc.proforma_invoice = pi.name 
+			AND pc.docstatus != 2
+		)
+		ORDER BY pi.posting_date DESC
+	""", {"boq_item": boq_item}, as_dict=True)
+	
+	return proformas
+
+
+def has_boq_write_permission() -> bool:
+	"""
+	Check if current user has permission to modify BOQ data.
+	
+	Returns:
+		bool: True if user has required role
+	"""
+	allowed_roles = ["Project Manager", "Quantity Surveyor", "System Manager"]
+	user_roles = frappe.get_roles()
+	return any(role in user_roles for role in allowed_roles)
+
+
+def has_boq_read_permission() -> bool:
+	"""
+	Check if current user has permission to read BOQ data.
+	
+	Returns:
+		bool: True if user has required role
+	"""
+	allowed_roles = ["Project Manager", "Quantity Surveyor", "System Manager", "Projects User", "Construction Manager"]
+	user_roles = frappe.get_roles()
+	return any(role in user_roles for role in allowed_roles)
+
+
 @frappe.whitelist()
 def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float, 
                                   apply_retention: int = 1, advance_deduction: float = 0,
@@ -24,6 +98,13 @@ def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float
 	Returns:
 		dict with invoice details
 	"""
+	# Permission check - require Project Manager, Quantity Surveyor, or System Manager
+	if not has_invoice_permission():
+		frappe.throw(
+			_("You don't have permission to create invoices. Required role: Project Manager, Quantity Surveyor, or System Manager"),
+			frappe.PermissionError
+		)
+	
 	current_qty = flt(current_qty)
 	apply_retention = int(apply_retention)
 	advance_deduction = flt(advance_deduction)
@@ -142,16 +223,34 @@ def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float
 			"project": project  # Set project on item level
 		})
 	
-	invoice.insert()
-	
-	# Update BOQ Item current_qty
-	item.current_qty = 0  # Reset after creating invoice
-	item.save()
+	try:
+		invoice.insert()
+		
+		# Update BOQ Item current_qty
+		item.current_qty = 0  # Reset after creating invoice
+		item.save()
+		
+		# Commit the transaction
+		frappe.db.commit()
+		frappe.flags.commit = True
+		
+		frappe.logger().info(
+			f"Created Sales Invoice {invoice.name} from BOQ Item {boq_item}, "
+			f"qty={current_qty}, amount={current_amount}, is_proforma={is_proforma}"
+		)
+	except Exception as e:
+		frappe.db.rollback()
+		frappe.log_error(
+			message=f"Error creating invoice from BOQ Item {boq_item}: {str(e)}",
+			title="Invoice Creation Error"
+		)
+		frappe.throw(_("Failed to create invoice: {0}").format(str(e)))
 	
 	# Calculate net amount
 	net_amount = current_amount - retention_amount - advance_deduction
 	
 	return {
+		"status": "success",
 		"invoice": invoice.name,
 		"customer": customer,
 		"qty": current_qty,
@@ -179,6 +278,13 @@ def create_invoice_from_multiple_items(project: str, items: list,
 	Returns:
 		dict with invoice details
 	"""
+	# Permission check
+	if not has_invoice_permission():
+		frappe.throw(
+			_("You don't have permission to create invoices. Required role: Project Manager, Quantity Surveyor, or System Manager"),
+			frappe.PermissionError
+		)
+	
 	if isinstance(items, str):
 		import json
 		items = json.loads(items)
@@ -303,16 +409,34 @@ def create_invoice_from_multiple_items(project: str, items: list,
 			"project": project  # Set project on item level
 		})
 	
-	invoice.insert()
-	
-	# Reset current_qty on all BOQ Items
-	for item_data in items:
-		if flt(item_data.get("current_qty", 0)) > 0:
-			frappe.db.set_value("BOQ Item", item_data.get("boq_item"), "current_qty", 0)
+	try:
+		invoice.insert()
+		
+		# Reset current_qty on all BOQ Items
+		for item_data in items:
+			if flt(item_data.get("current_qty", 0)) > 0:
+				frappe.db.set_value("BOQ Item", item_data.get("boq_item"), "current_qty", 0)
+		
+		# Commit the transaction
+		frappe.db.commit()
+		frappe.flags.commit = True
+		
+		frappe.logger().info(
+			f"Created Sales Invoice {invoice.name} from multiple BOQ Items, "
+			f"item_count={len([i for i in invoice.items if flt(i.rate) > 0])}, total={total_amount}"
+		)
+	except Exception as e:
+		frappe.db.rollback()
+		frappe.log_error(
+			message=f"Error creating invoice from multiple items for project {project}: {str(e)}",
+			title="Invoice Creation Error"
+		)
+		frappe.throw(_("Failed to create invoice: {0}").format(str(e)))
 	
 	net_amount = total_amount - retention_amount - advance_deduction
 	
 	return {
+		"status": "success",
 		"invoice": invoice.name,
 		"customer": customer,
 		"item_count": len([i for i in invoice.items if flt(i.rate) > 0]),
@@ -320,7 +444,7 @@ def create_invoice_from_multiple_items(project: str, items: list,
 		"retention_amount": retention_amount,
 		"advance_deduction": advance_deduction,
 		"net_amount": net_amount,
-		"status": "Draft"
+		"doc_status": "Draft"
 	}
 
 
@@ -498,16 +622,34 @@ def create_invoice_from_selected_bills(project: str, bill_names: list,
 			"project": project
 		})
 	
-	invoice.insert()
-	
-	# Reset current_qty on all BOQ Items that were billed
-	for item_data in items_to_bill:
-		if flt(item_data.current_qty) > 0:
-			frappe.db.set_value("BOQ Item", item_data.boq_item, "current_qty", 0)
+	try:
+		invoice.insert()
+		
+		# Reset current_qty on all BOQ Items that were billed
+		for item_data in items_to_bill:
+			if flt(item_data.current_qty) > 0:
+				frappe.db.set_value("BOQ Item", item_data.boq_item, "current_qty", 0)
+		
+		# Commit the transaction
+		frappe.db.commit()
+		frappe.flags.commit = True
+		
+		frappe.logger().info(
+			f"Created Sales Invoice {invoice.name} from selected bills, "
+			f"items={items_added}, bills={list(bills_included)}, amount={total_amount}"
+		)
+	except Exception as e:
+		frappe.db.rollback()
+		frappe.log_error(
+			message=f"Error creating invoice from selected bills for project {project}: {str(e)}",
+			title="Invoice Creation Error"
+		)
+		frappe.throw(_("Failed to create invoice: {0}").format(str(e)))
 	
 	net_amount = total_amount - retention_amount - advance_deduction
 	
 	return {
+		"status": "success",
 		"invoice": invoice.name,
 		"customer": customer,
 		"item_count": items_added,
@@ -879,12 +1021,27 @@ def release_retention(project: str, amount: float = None) -> dict:
 		"amount": release_amount
 	})
 	
-	invoice.insert()
+	try:
+		invoice.insert()
+		frappe.db.commit()
+		frappe.flags.commit = True
+		
+		frappe.logger().info(
+			f"Created retention release invoice {invoice.name} for project {project}, amount={release_amount}"
+		)
+	except Exception as e:
+		frappe.db.rollback()
+		frappe.log_error(
+			message=f"Error creating retention release invoice for project {project}: {str(e)}",
+			title="Retention Release Error"
+		)
+		frappe.throw(_("Failed to create retention release invoice: {0}").format(str(e)))
 	
 	return {
+		"status": "success",
 		"invoice": invoice.name,
 		"amount": release_amount,
-		"status": "Draft"
+		"doc_status": "Draft"
 	}
 
 
@@ -1613,6 +1770,43 @@ def get_billable_items_by_bill(project: str) -> list:
 	return result
 
 
+def calculate_variance(proforma_amount: float, pc_amount: float) -> float:
+	"""
+	Calculate variance between Proforma Invoice and Payment Certificate.
+	
+	Variance = PI Amount - PC Amount
+	Positive variance = loss (customer paid less than billed)
+	
+	Args:
+		proforma_amount: Proforma Invoice amount
+		pc_amount: Payment Certificate accepted amount
+		
+	Returns:
+		Variance amount (positive = loss)
+	
+	Requirements: 3.1
+	"""
+	return flt(proforma_amount) - flt(pc_amount)
+
+
+def calculate_variance_percent(variance: float, proforma_amount: float) -> float:
+	"""
+	Calculate variance percentage.
+	
+	Variance% = (Variance / PI Amount) * 100
+	
+	Args:
+		variance: Variance amount
+		proforma_amount: Proforma Invoice amount
+		
+	Returns:
+		Variance percentage
+	"""
+	if flt(proforma_amount) <= 0:
+		return 0
+	return flt(variance / proforma_amount * 100, 2)
+
+
 @frappe.whitelist()
 def get_all_bills_with_items(project: str) -> list:
 	"""
@@ -1727,7 +1921,8 @@ def create_invoice_from_selected_items(project: str, items: str | list,
 	
 	for item_data in items:
 		boq_item_name = item_data.get("boq_item")
-		current_qty = flt(item_data.get("qty", 0))
+		# Accept both "qty" and "current_qty" field names for backward compatibility
+		current_qty = flt(item_data.get("current_qty") or item_data.get("qty", 0))
 		
 		if current_qty <= 0:
 			continue
@@ -1831,11 +2026,31 @@ def create_invoice_from_selected_items(project: str, items: str | list,
 			"project": project
 		})
 	
-	invoice.insert()
+	try:
+		invoice.insert()
+		# Ensure the transaction is committed
+		frappe.db.commit()
+		# Also set flag to prevent any later rollback
+		frappe.flags.commit = True
+		frappe.logger().info(
+			f"Created Sales Invoice {invoice.name} for project {project}, "
+			f"items={items_added}, amount={total_amount}, is_proforma={is_proforma}"
+		)
+	except Exception as e:
+		frappe.db.rollback()
+		frappe.log_error(
+			message=f"Error creating invoice for project {project}: {str(e)}",
+			title="Invoice Creation Error"
+		)
+		return {
+			"status": "error",
+			"error_message": _("Failed to create invoice: {0}").format(str(e))
+		}
 	
 	net_amount = total_amount - retention_amount - advance_deduction
 	
 	return {
+		"status": "success",
 		"invoice": invoice.name,
 		"customer": customer,
 		"item_count": items_added,
@@ -1844,6 +2059,276 @@ def create_invoice_from_selected_items(project: str, items: str | list,
 		"retention_amount": retention_amount,
 		"advance_deduction": advance_deduction,
 		"net_amount": net_amount,
-		"status": "Draft",
+		"doc_status": "Draft",
 		"is_proforma": is_proforma
 	}
+
+
+@frappe.whitelist()
+def create_pc_from_purchase_receipt(
+	purchase_receipt: str,
+	accepted_amount: float,
+	bill_no: str = None,
+	boq_item: str = None,
+	remarks: str = None
+) -> dict:
+	"""
+	Create Payment Certificate from a Purchase Receipt.
+	Property 5: Purchase Payment Certificate Creation
+	Requirements: 6.2, 6.5
+	
+	Args:
+		purchase_receipt: Purchase Receipt name
+		accepted_amount: Accepted amount
+		bill_no: Optional Bill No
+		boq_item: Optional BOQ Item
+		remarks: Optional remarks
+		
+	Returns:
+		dict with created Payment Certificate info
+	"""
+	# Get Purchase Receipt
+	pr = frappe.get_doc("Purchase Receipt", purchase_receipt)
+	
+	if pr.docstatus != 1:
+		frappe.throw(_("Purchase Receipt must be submitted"))
+	
+	if not pr.project:
+		frappe.throw(_("Purchase Receipt must have a Project assigned"))
+	
+	# Check if PC already exists for this PR
+	existing = frappe.db.exists(
+		"Payment Certificate",
+		{
+			"purchase_receipt": purchase_receipt,
+			"docstatus": ["!=", 2]
+		}
+	)
+	if existing:
+		frappe.throw(
+			_("Payment Certificate {0} already exists for this Purchase Receipt").format(existing)
+		)
+	
+	# Create Payment Certificate
+	pc = frappe.new_doc("Payment Certificate")
+	pc.type = "Purchase"
+	pc.project = pr.project
+	pc.supplier = pr.supplier
+	pc.purchase_receipt = purchase_receipt
+	pc.pr_amount = flt(pr.grand_total)
+	pc.accepted_amount = flt(accepted_amount)
+	pc.posting_date = today()
+	pc.remarks = remarks
+	
+	# Copy Bill No and BOQ Item if provided
+	if bill_no:
+		pc.bill_no = bill_no
+	elif hasattr(pr, 'custom_bill_no') and pr.custom_bill_no:
+		pc.bill_no = pr.custom_bill_no
+	
+	if boq_item:
+		pc.boq_item = boq_item
+	elif hasattr(pr, 'custom_boq_item') and pr.custom_boq_item:
+		pc.boq_item = pr.custom_boq_item
+	
+	# Try to get Purchase Order from PR items
+	if pr.items:
+		for item in pr.items:
+			if item.purchase_order:
+				pc.purchase_order = item.purchase_order
+				break
+	
+	pc.insert()
+	
+	# Commit the transaction
+	frappe.db.commit()
+	frappe.flags.commit = True
+	
+	frappe.logger().info(
+		f"Created Payment Certificate {pc.name} from Purchase Receipt {purchase_receipt}, "
+		f"amount={accepted_amount}"
+	)
+	
+	return {
+		"status": "success",
+		"name": pc.name,
+		"project": pc.project,
+		"supplier": pc.supplier,
+		"pr_amount": pc.pr_amount,
+		"accepted_amount": pc.accepted_amount,
+		"variance": pc.variance,
+		"bill_no": pc.bill_no,
+		"boq_item": pc.boq_item
+	}
+
+
+@frappe.whitelist()
+def create_payment_certificate(proforma_invoice: str, posting_date: str = None, accepted_amount: float = None) -> str:
+	"""
+	Create Payment Certificate from a Proforma Invoice.
+	
+	Args:
+		proforma_invoice: Proforma Invoice name
+		posting_date: Optional posting date
+		accepted_amount: Optional accepted amount (defaults to proforma net_amount)
+		
+	Returns:
+		Payment Certificate name
+	"""
+	proforma = frappe.get_doc("Proforma Invoice", proforma_invoice)
+	
+	if proforma.docstatus != 1:
+		frappe.throw(_("Proforma Invoice must be submitted"))
+	
+	# Check if PC already exists
+	existing = frappe.db.exists(
+		"Payment Certificate",
+		{
+			"proforma_invoice": proforma_invoice,
+			"docstatus": ["!=", 2]
+		}
+	)
+	if existing:
+		frappe.throw(
+			_("Payment Certificate {0} already exists for this Proforma Invoice").format(existing)
+		)
+	
+	# Get proforma amount (use net_amount after retention if available)
+	proforma_amount = flt(proforma.net_amount) or flt(proforma.amount)
+	
+	# Auto-populate accepted_amount if not provided
+	if accepted_amount is None:
+		accepted_amount = proforma_amount
+	else:
+		accepted_amount = flt(accepted_amount)
+	
+	# Validate accepted_amount
+	if accepted_amount > proforma_amount:
+		frappe.throw(
+			_("Accepted amount ({0}) cannot exceed proforma amount ({1})").format(
+				accepted_amount, proforma_amount
+			)
+		)
+	
+	pc = frappe.new_doc("Payment Certificate")
+	pc.type = "Sales"
+	pc.project = proforma.project
+	pc.customer = proforma.customer
+	pc.proforma_invoice = proforma_invoice
+	pc.proforma_amount = proforma_amount
+	pc.accepted_amount = accepted_amount
+	pc.posting_date = getdate(posting_date) if posting_date else today()
+	
+	# Auto-fetch bill_no and boq_item from proforma items
+	if proforma.items:
+		for item in proforma.items:
+			if hasattr(item, "bill_no") and item.bill_no and not pc.bill_no:
+				pc.bill_no = item.bill_no
+			if hasattr(item, "boq_item") and item.boq_item and not pc.boq_item:
+				pc.boq_item = item.boq_item
+	
+	pc.insert()
+	
+	# Commit the transaction
+	frappe.db.commit()
+	frappe.flags.commit = True
+	
+	frappe.logger().info(
+		f"Created Payment Certificate {pc.name} from Proforma Invoice {proforma_invoice}"
+	)
+	
+	return pc.name
+
+
+
+@frappe.whitelist()
+def get_proforma_management_data(project: str) -> dict:
+	"""
+	Get all Proforma Invoices for a project with their PC status and available actions.
+	Requirements: 3.1
+	
+	Args:
+		project: Project name
+		
+	Returns:
+		dict with proformas grouped by status
+	"""
+	# Get all proforma invoices for the project
+	proformas = frappe.db.sql("""
+		SELECT 
+			si.name,
+			si.posting_date,
+			si.grand_total,
+			si.customer,
+			si.customer_name,
+			pc.name as payment_certificate,
+			pc.status as pc_status,
+			pc.accepted_amount,
+			pc.variance,
+			pc.tax_invoice,
+			DATEDIFF(CURDATE(), si.posting_date) as age_days
+		FROM `tabSales Invoice` si
+		LEFT JOIN `tabPayment Certificate` pc ON pc.proforma_invoice = si.name AND pc.docstatus != 2
+		WHERE si.project = %s
+		AND si.custom_is_proforma = 1
+		AND si.docstatus = 0
+		ORDER BY si.posting_date DESC
+	""", project, as_dict=True)
+	
+	# Group by status and add action
+	pending = []
+	draft_pc = []
+	submitted_pc = []
+	invoiced = []
+	
+	for p in proformas:
+		action = get_action_for_proforma(p)
+		p["action"] = action
+		
+		if not p.payment_certificate:
+			pending.append(p)
+		elif p.pc_status == "Draft":
+			draft_pc.append(p)
+		elif p.pc_status == "Submitted":
+			submitted_pc.append(p)
+		elif p.pc_status in ["Invoiced", "Paid"]:
+			invoiced.append(p)
+		else:
+			pending.append(p)
+	
+	return {
+		"pending": pending,
+		"draft_pc": draft_pc,
+		"submitted_pc": submitted_pc,
+		"invoiced": invoiced,
+		"total_count": len(proformas),
+		"pending_count": len(pending),
+		"draft_pc_count": len(draft_pc),
+		"submitted_pc_count": len(submitted_pc),
+		"invoiced_count": len(invoiced)
+	}
+
+
+def get_action_for_proforma(proforma: dict) -> str:
+	"""
+	Determine available action for a proforma invoice.
+	Property 3: Action Button Visibility Based on Status
+	Requirements: 3.2, 3.3, 3.4
+	
+	Args:
+		proforma: Proforma invoice dict with PC info
+		
+	Returns:
+		Action string: "create_pc", "submit_pc", "view_details"
+	"""
+	if not proforma.get("payment_certificate"):
+		return "create_pc"
+	
+	pc_status = proforma.get("pc_status")
+	
+	if pc_status == "Draft":
+		return "submit_pc"
+	elif pc_status in ["Submitted", "Invoiced", "Paid"]:
+		return "view_details"
+	else:
+		return "create_pc"

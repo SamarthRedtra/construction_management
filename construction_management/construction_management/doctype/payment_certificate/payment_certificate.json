@@ -6,24 +6,32 @@
 	"engine": "InnoDB",
 	"field_order": [
 		"naming_series",
+		"type",
 		"project",
 		"bill_no",
 		"boq_item",
 		"column_break_1",
 		"customer",
+		"supplier",
 		"status",
 		"posting_date",
 		"section_proforma",
 		"proforma_invoice",
 		"proforma_amount",
-		"column_break_2",
+		"column_break_proforma",
+		"purchase_receipt",
+		"pr_amount",
+		"section_accepted",
 		"accepted_amount",
 		"variance",
 		"variance_percent",
+		"column_break_2",
+		"purchase_order",
 		"section_tax_invoice",
 		"tax_invoice",
 		"tax_invoice_amount",
 		"column_break_3",
+		"purchase_invoice",
 		"invoice_status",
 		"payment_received",
 		"section_remarks",
@@ -36,6 +44,16 @@
 			"fieldtype": "Select",
 			"label": "Series",
 			"options": "PC-.YYYY.-",
+			"reqd": 1
+		},
+		{
+			"default": "Sales",
+			"fieldname": "type",
+			"fieldtype": "Select",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+			"label": "Type",
+			"options": "Sales\nPurchase",
 			"reqd": 1
 		},
 		{
@@ -68,12 +86,21 @@
 			"fieldtype": "Column Break"
 		},
 		{
+			"depends_on": "eval:doc.type=='Sales'",
 			"fetch_from": "project.customer",
 			"fieldname": "customer",
 			"fieldtype": "Link",
 			"label": "Customer",
 			"options": "Customer",
-			"read_only": 1
+			"mandatory_depends_on": "eval:doc.type=='Sales'"
+		},
+		{
+			"depends_on": "eval:doc.type=='Purchase'",
+			"fieldname": "supplier",
+			"fieldtype": "Link",
+			"label": "Supplier",
+			"options": "Supplier",
+			"mandatory_depends_on": "eval:doc.type=='Purchase'"
 		},
 		{
 			"default": "Draft",
@@ -94,19 +121,22 @@
 			"reqd": 1
 		},
 		{
+			"depends_on": "eval:doc.type=='Sales'",
 			"fieldname": "section_proforma",
 			"fieldtype": "Section Break",
 			"label": "Proforma Invoice Details"
 		},
 		{
+			"depends_on": "eval:doc.type=='Sales'",
 			"fieldname": "proforma_invoice",
 			"fieldtype": "Link",
 			"in_list_view": 1,
 			"label": "Proforma Invoice",
-			"options": "Sales Invoice",
-			"description": "Reference proforma/draft invoice"
+			"options": "Proforma Invoice",
+			"description": "Reference proforma invoice for certification"
 		},
 		{
+			"depends_on": "eval:doc.type=='Sales'",
 			"fieldname": "proforma_amount",
 			"fieldtype": "Currency",
 			"in_list_view": 1,
@@ -114,8 +144,29 @@
 			"description": "Original amount from proforma invoice"
 		},
 		{
-			"fieldname": "column_break_2",
+			"fieldname": "column_break_proforma",
 			"fieldtype": "Column Break"
+		},
+		{
+			"depends_on": "eval:doc.type=='Purchase'",
+			"fieldname": "purchase_receipt",
+			"fieldtype": "Link",
+			"label": "Purchase Receipt",
+			"options": "Purchase Receipt",
+			"description": "Reference Purchase Receipt",
+			"mandatory_depends_on": "eval:doc.type=='Purchase'"
+		},
+		{
+			"depends_on": "eval:doc.type=='Purchase'",
+			"fieldname": "pr_amount",
+			"fieldtype": "Currency",
+			"label": "PR Amount",
+			"description": "Amount from Purchase Receipt"
+		},
+		{
+			"fieldname": "section_accepted",
+			"fieldtype": "Section Break",
+			"label": "Accepted Amount"
 		},
 		{
 			"fieldname": "accepted_amount",
@@ -123,14 +174,14 @@
 			"in_list_view": 1,
 			"label": "Accepted Amount",
 			"reqd": 1,
-			"description": "Amount accepted/approved by customer"
+			"description": "Amount accepted/approved"
 		},
 		{
 			"fieldname": "variance",
 			"fieldtype": "Currency",
 			"label": "Variance",
 			"read_only": 1,
-			"description": "Difference: Proforma - Accepted"
+			"description": "Difference: Original - Accepted"
 		},
 		{
 			"fieldname": "variance_percent",
@@ -139,19 +190,33 @@
 			"read_only": 1
 		},
 		{
-			"fieldname": "section_tax_invoice",
-			"fieldtype": "Section Break",
-			"label": "Tax Invoice"
+			"fieldname": "column_break_2",
+			"fieldtype": "Column Break"
 		},
 		{
+			"depends_on": "eval:doc.type=='Purchase'",
+			"fieldname": "purchase_order",
+			"fieldtype": "Link",
+			"label": "Purchase Order",
+			"options": "Purchase Order",
+			"description": "Reference Purchase Order"
+		},
+		{
+			"fieldname": "section_tax_invoice",
+			"fieldtype": "Section Break",
+			"label": "Invoice"
+		},
+		{
+			"depends_on": "eval:doc.type=='Sales'",
 			"fieldname": "tax_invoice",
 			"fieldtype": "Link",
 			"label": "Tax Invoice",
 			"options": "Sales Invoice",
 			"read_only": 1,
-			"description": "Final invoice created on submit"
+			"description": "Final Sales Invoice created on submit"
 		},
 		{
+			"depends_on": "eval:doc.type=='Sales'",
 			"fieldname": "tax_invoice_amount",
 			"fieldtype": "Currency",
 			"label": "Tax Invoice Amount",
@@ -160,6 +225,15 @@
 		{
 			"fieldname": "column_break_3",
 			"fieldtype": "Column Break"
+		},
+		{
+			"depends_on": "eval:doc.type=='Purchase'",
+			"fieldname": "purchase_invoice",
+			"fieldtype": "Link",
+			"label": "Purchase Invoice",
+			"options": "Purchase Invoice",
+			"read_only": 1,
+			"description": "Purchase Invoice created on submit"
 		},
 		{
 			"fieldname": "invoice_status",

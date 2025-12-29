@@ -47,7 +47,7 @@ doctype_js = {
 	"BOQ": "public/js/boq.js",
 	"Bid": "public/js/bid.js",
 	"Interim Payment Certificate": "public/js/ipc.js",
-	"Project": "public/js/project.js",
+	"Project": ["public/js/boq_management_table.js", "public/js/project.js"],
 	"Daily Progress Record": "public/js/daily_progress_record.js",
 	"Purchase Receipt": "public/js/purchase_receipt.js"
 }
@@ -148,6 +148,9 @@ doc_events = {
 	"Purchase Receipt": {
 		"validate": "construction_management.overrides.purchase_receipt.validate",
 		"before_submit": "construction_management.overrides.purchase_receipt.before_submit"
+	},
+	"Project": {
+		"on_update": "construction_management.overrides.project.clear_project_cache"
 	}
 }
 

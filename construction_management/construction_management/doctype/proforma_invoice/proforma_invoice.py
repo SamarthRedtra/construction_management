@@ -14,6 +14,38 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, getdate, today
+from typing import Optional
+
+
+def get_project_boq_for_item(boq_item_name: str) -> Optional[str]:
+	"""
+	Get project_boq from BOQ Item's parent hierarchy.
+	
+	Traverses: BOQ Item → BOQ Bill → Project BOQ
+	
+	Args:
+		boq_item_name: Name of the BOQ Item
+		
+	Returns:
+		Project BOQ name if found, None if hierarchy is incomplete
+		
+	Requirements: 5.2
+	"""
+	if not boq_item_name:
+		return None
+	
+	# First try to get project_boq directly from BOQ Item (it's a fetched field)
+	project_boq = frappe.db.get_value("BOQ Item", boq_item_name, "project_boq")
+	if project_boq:
+		return project_boq
+	
+	# If not set, traverse the hierarchy: BOQ Item → BOQ Bill → Project BOQ
+	parent_bill = frappe.db.get_value("BOQ Item", boq_item_name, "parent_bill")
+	if not parent_bill:
+		return None
+	
+	project_boq = frappe.db.get_value("BOQ Bill", parent_bill, "project_boq")
+	return project_boq
 
 
 class ProformaInvoice(Document):
@@ -79,6 +111,155 @@ class ProformaInvoice(Document):
 			else:
 				self.description = f"Proforma Invoice for {len(self.items)} BOQ Items"
 	
+	def before_update_after_submit(self):
+		"""
+		Handle amendments to submitted Proforma Invoice.
+		Recalculate totals and update ledger entries.
+		
+		Requirements: 7.2, 7.5
+		"""
+		# Recalculate totals
+		self.calculate_totals()
+		self.calculate_retention()
+	
+	def on_update_after_submit(self):
+		"""
+		After amending a submitted Proforma Invoice:
+		1. Update BOQ Progress Ledger entries with new amounts
+		2. Update related Payment Certificate if exists
+		
+		Requirements: 7.2, 7.5
+		"""
+		self.update_ledger_entries_on_revision()
+		self.update_related_documents()
+	
+	def update_ledger_entries_on_revision(self):
+		"""
+		Update BOQ Progress Ledger entries when proforma is revised.
+		Creates reversing entries for old values and new entries for updated values.
+		
+		Requirements: 7.5
+		"""
+		if not frappe.db.exists("DocType", "BOQ Progress Ledger"):
+			return
+		
+		from construction_management.api.boq_ledger import create_ledger_entry
+		
+		# Get existing ledger entries for this proforma
+		existing_entries = frappe.get_all(
+			"BOQ Progress Ledger",
+			filters={
+				"reference_doctype": "Proforma Invoice",
+				"reference_name": self.name,
+				"source": "Proforma"
+			},
+			fields=["name", "boq_item", "qty", "amount"]
+		)
+		
+		# Create a map of existing entries by boq_item
+		existing_map = {e.boq_item: e for e in existing_entries}
+		
+		for item in self.items:
+			if not item.boq_item:
+				continue
+			
+			existing = existing_map.get(item.boq_item)
+			
+			if existing:
+				# Check if values changed
+				if flt(existing.qty) != flt(item.qty) or flt(existing.amount) != flt(item.amount):
+					# Create reversing entry for old value
+					try:
+						create_ledger_entry(
+							boq_item=item.boq_item,
+							qty=-flt(existing.qty),
+							amount=-flt(existing.amount),
+							source="Proforma Reversal",
+							reference_doctype="Proforma Invoice",
+							reference_name=self.name,
+							posting_date=today(),
+							remarks=f"Revision of Proforma Invoice {self.name}"
+						)
+						
+						# Create new entry with updated value
+						create_ledger_entry(
+							boq_item=item.boq_item,
+							qty=flt(item.qty),
+							amount=flt(item.amount),
+							source="Proforma",
+							reference_doctype="Proforma Invoice",
+							reference_name=self.name,
+							posting_date=self.posting_date,
+							remarks=f"Revised Proforma Invoice {self.name}",
+							proforma_invoice=self.name,
+							proforma_amount=flt(item.amount)
+						)
+					except Exception as e:
+						frappe.log_error(
+							f"Error updating ledger for Proforma {self.name}, Item {item.boq_item}: {str(e)}",
+							"Proforma Invoice Revision Error"
+						)
+						raise
+				
+				# Remove from map to track processed items
+				del existing_map[item.boq_item]
+			else:
+				# New item added during revision
+				try:
+					create_ledger_entry(
+						boq_item=item.boq_item,
+						qty=flt(item.qty),
+						amount=flt(item.amount),
+						source="Proforma",
+						reference_doctype="Proforma Invoice",
+						reference_name=self.name,
+						posting_date=self.posting_date,
+						remarks=f"Added in revision of Proforma Invoice {self.name}",
+						proforma_invoice=self.name,
+						proforma_amount=flt(item.amount)
+					)
+				except Exception as e:
+					frappe.log_error(
+						f"Error creating ledger for new item in Proforma {self.name}, Item {item.boq_item}: {str(e)}",
+						"Proforma Invoice Revision Error"
+					)
+					raise
+		
+		# Handle removed items (remaining in existing_map)
+		for boq_item, existing in existing_map.items():
+			try:
+				create_ledger_entry(
+					boq_item=boq_item,
+					qty=-flt(existing.qty),
+					amount=-flt(existing.amount),
+					source="Proforma Reversal",
+					reference_doctype="Proforma Invoice",
+					reference_name=self.name,
+					posting_date=today(),
+					remarks=f"Item removed in revision of Proforma Invoice {self.name}"
+				)
+			except Exception as e:
+				frappe.log_error(
+					f"Error reversing ledger for removed item in Proforma {self.name}, Item {boq_item}: {str(e)}",
+					"Proforma Invoice Revision Error"
+				)
+				raise
+	
+	def update_related_documents(self):
+		"""
+		Update related Payment Certificate and other documents when proforma is revised.
+		
+		Requirements: 7.5
+		"""
+		# Update Payment Certificate if linked
+		if self.payment_certificate:
+			pc = frappe.get_doc("Payment Certificate", self.payment_certificate)
+			if pc.docstatus == 0:  # Only update if PC is still draft
+				pc.proforma_amount = self.amount
+				pc.variance = flt(self.amount) - flt(pc.accepted_amount)
+				pc.save()
+				frappe.db.commit()
+	
 	def on_submit(self):
 		"""
 		On submit:
@@ -110,78 +291,72 @@ class ProformaInvoice(Document):
 		self.create_reversing_ledger_entries()
 	
 	def create_ledger_entries(self):
-		"""Create BOQ Progress Ledger entries for each item"""
+		"""
+		Create BOQ Progress Ledger entries for each item using centralized function.
+		
+		Requirements: 5.1, 5.3, 6.3
+		"""
 		if not frappe.db.exists("DocType", "BOQ Progress Ledger"):
 			return
+		
+		from construction_management.api.boq_ledger import create_ledger_entry
 		
 		for item in self.items:
 			if not item.boq_item:
 				continue
 			
 			try:
-				# Get previous accumulated values
-				from construction_management.api.boq_ledger import get_to_date_qty, get_to_date_amount
-				prev_qty = get_to_date_qty(item.boq_item)
-				prev_amount = get_to_date_amount(item.boq_item)
-				
-				ledger = frappe.new_doc("BOQ Progress Ledger")
-				ledger.boq_item = item.boq_item
-				ledger.project = self.project
-				ledger.bill_no = item.bill_no
-				ledger.posting_date = self.posting_date
-				ledger.reference_doctype = "Proforma Invoice"
-				ledger.reference_name = self.name
-				ledger.proforma_invoice = self.name
-				ledger.proforma_amount = flt(item.amount)
-				ledger.source = "Proforma Invoice"
-				ledger.qty = flt(item.qty)
-				ledger.amount = flt(item.amount)
-				ledger.prev_qty = prev_qty
-				ledger.prev_amount = prev_amount
-				ledger.current_qty = flt(item.qty)
-				ledger.current_amount = flt(item.amount)
-				ledger.accumulated_qty = prev_qty + flt(item.qty)
-				ledger.accumulated_amount = prev_amount + flt(item.amount)
-				ledger.remarks = f"Proforma Invoice {self.name}"
-				ledger.insert(ignore_permissions=True)
+				create_ledger_entry(
+					boq_item=item.boq_item,
+					qty=flt(item.qty),
+					amount=flt(item.amount),
+					source="Proforma",
+					reference_doctype="Proforma Invoice",
+					reference_name=self.name,
+					posting_date=self.posting_date,
+					remarks=f"Proforma Invoice {self.name}",
+					proforma_invoice=self.name,
+					proforma_amount=flt(item.amount)
+				)
 			except Exception as e:
-				frappe.log_error(f"Error creating ledger for Proforma {self.name}, Item {item.boq_item}: {str(e)}")
+				frappe.log_error(
+					f"Error creating ledger for Proforma {self.name}, Item {item.boq_item}: {str(e)}",
+					"Proforma Invoice Ledger Error"
+				)
+				raise
 	
 	def create_reversing_ledger_entries(self):
-		"""Create reversing BOQ Progress Ledger entries"""
+		"""
+		Create reversing BOQ Progress Ledger entries using centralized function.
+		
+		Requirements: 5.5, 6.3
+		"""
 		if not frappe.db.exists("DocType", "BOQ Progress Ledger"):
 			return
+		
+		from construction_management.api.boq_ledger import create_ledger_entry
 		
 		for item in self.items:
 			if not item.boq_item:
 				continue
 			
 			try:
-				# Get current accumulated values
-				from construction_management.api.boq_ledger import get_to_date_qty, get_to_date_amount
-				prev_qty = get_to_date_qty(item.boq_item)
-				prev_amount = get_to_date_amount(item.boq_item)
-				
-				ledger = frappe.new_doc("BOQ Progress Ledger")
-				ledger.boq_item = item.boq_item
-				ledger.project = self.project
-				ledger.bill_no = item.bill_no
-				ledger.posting_date = today()
-				ledger.reference_doctype = "Proforma Invoice"
-				ledger.reference_name = self.name
-				ledger.source = "Proforma Invoice Cancellation"
-				ledger.qty = -flt(item.qty)
-				ledger.amount = -flt(item.amount)
-				ledger.prev_qty = prev_qty
-				ledger.prev_amount = prev_amount
-				ledger.current_qty = -flt(item.qty)
-				ledger.current_amount = -flt(item.amount)
-				ledger.accumulated_qty = prev_qty - flt(item.qty)
-				ledger.accumulated_amount = prev_amount - flt(item.amount)
-				ledger.remarks = f"Cancellation of Proforma Invoice {self.name}"
-				ledger.insert(ignore_permissions=True)
+				create_ledger_entry(
+					boq_item=item.boq_item,
+					qty=-flt(item.qty),
+					amount=-flt(item.amount),
+					source="Proforma Reversal",
+					reference_doctype="Proforma Invoice",
+					reference_name=self.name,
+					posting_date=today(),
+					remarks=f"Cancellation of Proforma Invoice {self.name}"
+				)
 			except Exception as e:
-				frappe.log_error(f"Error creating reversing ledger for Proforma {self.name}, Item {item.boq_item}: {str(e)}")
+				frappe.log_error(
+					f"Error creating reversing ledger for Proforma {self.name}, Item {item.boq_item}: {str(e)}",
+					"Proforma Invoice Reversal Error"
+				)
+				raise
 	
 	def reset_boq_item_current_qty(self):
 		"""Reset current_qty on BOQ Items after proforma creation"""
@@ -247,7 +422,8 @@ def create_proforma_from_selected_items(
 	items: str | list,
 	apply_retention: int = 1,
 	posting_date: str = None,
-	remarks: str = None
+	remarks: str = None,
+	auto_submit: int = 1
 ) -> dict:
 	"""
 	Create Proforma Invoice from selected BOQ Items.
@@ -258,82 +434,110 @@ def create_proforma_from_selected_items(
 		apply_retention: Whether to apply retention
 		posting_date: Optional posting date
 		remarks: Optional remarks
+		auto_submit: Whether to auto-submit the proforma (1=yes, 0=no)
 		
 	Returns:
-		dict with created proforma info
+		dict with status, data or error_message
+		
+	Requirements: 6.4, 7.1, 7.2
 	"""
 	import json
 	
-	if isinstance(items, str):
-		items = json.loads(items)
-	
-	if not items:
-		frappe.throw(_("No items provided"))
-	
-	proforma = frappe.new_doc("Proforma Invoice")
-	proforma.project = project
-	proforma.posting_date = posting_date or today()
-	proforma.remarks = remarks
-	
-	total_amount = 0
-	bills_included = set()
-	
-	for item_data in items:
-		boq_item_name = item_data.get("boq_item")
-		qty = flt(item_data.get("qty", 0))
+	try:
+		if isinstance(items, str):
+			items = json.loads(items)
 		
-		if qty <= 0:
-			continue
+		if not items:
+			return {"status": "error", "error_message": _("No items provided")}
 		
-		# Get BOQ Item details
-		boq_item = frappe.get_doc("BOQ Item", boq_item_name)
+		auto_submit = int(auto_submit)
 		
-		# Validate balance
-		from construction_management.api.boq_ledger import get_to_date_qty
-		to_date_qty = get_to_date_qty(boq_item_name)
-		balance_qty = flt(boq_item.total_qty) - flt(to_date_qty)
+		proforma = frappe.new_doc("Proforma Invoice")
+		proforma.project = project
+		proforma.posting_date = posting_date or today()
+		proforma.remarks = remarks
 		
-		if qty > balance_qty:
-			frappe.throw(
-				_("Quantity ({0}) exceeds available balance ({1}) for item {2}").format(
-					qty, balance_qty, boq_item.description[:50]
-				),
-				title=_("Over-Billing Error")
-			)
+		total_amount = 0
+		bills_included = set()
 		
-		amount = flt(qty) * flt(boq_item.rate)
-		total_amount += amount
+		for item_data in items:
+			boq_item_name = item_data.get("boq_item")
+			qty = flt(item_data.get("qty", 0))
+			
+			if qty <= 0:
+				continue
+			
+			# Get BOQ Item details
+			boq_item = frappe.get_doc("BOQ Item", boq_item_name)
+			
+			# Validate balance
+			from construction_management.api.boq_ledger import get_to_date_qty
+			to_date_qty = get_to_date_qty(boq_item_name)
+			balance_qty = flt(boq_item.total_qty) - flt(to_date_qty)
+			
+			if qty > balance_qty:
+				return {
+					"status": "error",
+					"error_message": _("Quantity ({0}) exceeds available balance ({1}) for item {2}").format(
+						qty, balance_qty, boq_item.description[:50]
+					)
+				}
+			
+			amount = flt(qty) * flt(boq_item.rate)
+			total_amount += amount
+			
+			# Get bill_no
+			bill_no = frappe.db.get_value("BOQ Bill", boq_item.parent_bill, "bill_no")
+			bills_included.add(bill_no or boq_item.parent_bill)
+			
+			# Add item to proforma
+			proforma.append("items", {
+				"boq_item": boq_item_name,
+				"bill_no": boq_item.parent_bill,
+				"description": boq_item.description,
+				"unit": boq_item.unit,
+				"qty": qty,
+				"rate": boq_item.rate,
+				"amount": amount
+			})
 		
-		# Get bill_no
-		bill_no = frappe.db.get_value("BOQ Bill", boq_item.parent_bill, "bill_no")
-		bills_included.add(bill_no or boq_item.parent_bill)
+		if not proforma.items:
+			return {"status": "error", "error_message": _("No valid items to invoice")}
 		
-		# Add item to proforma
-		proforma.append("items", {
-			"boq_item": boq_item_name,
-			"bill_no": boq_item.parent_bill,
-			"description": boq_item.description,
-			"unit": boq_item.unit,
-			"qty": qty,
-			"rate": boq_item.rate,
-			"amount": amount
-		})
-	
-	if not proforma.items:
-		frappe.throw(_("No valid items to invoice"))
-	
-	proforma.insert()
-	
-	return {
-		"name": proforma.name,
-		"project": proforma.project,
-		"item_count": len(proforma.items),
-		"bills_included": list(bills_included),
-		"amount": proforma.amount,
-		"retention_amount": proforma.retention_amount,
-		"net_amount": proforma.net_amount,
-		"status": "Draft"
-	}
+		# Insert the proforma
+		proforma.insert()
+		
+		# Auto-submit if requested
+		if auto_submit:
+			proforma.submit()
+		
+		# Ensure the transaction is committed
+		frappe.db.commit()
+		# Also set flag to prevent any later rollback
+		frappe.flags.commit = True
+		
+		frappe.logger().info(
+			f"Created Proforma Invoice {proforma.name} for project {project}, "
+			f"items={len(proforma.items)}, amount={proforma.amount}, submitted={auto_submit}"
+		)
+		
+		return {
+			"status": "success",
+			"name": proforma.name,
+			"project": proforma.project,
+			"item_count": len(proforma.items),
+			"bills_included": list(bills_included),
+			"amount": proforma.amount,
+			"retention_amount": proforma.retention_amount,
+			"net_amount": proforma.net_amount,
+			"doc_status": "Submitted" if auto_submit else "Draft",
+			"docstatus": proforma.docstatus
+		}
+		
+	except Exception as e:
+		frappe.db.rollback()
+		frappe.log_error(f"Error creating proforma invoice: {str(e)}", "Proforma Invoice API Error")
+		return {"status": "error", "error_message": str(e)}
 
 
 @frappe.whitelist()
@@ -372,3 +576,197 @@ def get_proforma_summary(project: str) -> dict:
 		"pending_amount": flt(summary.pending_amount),
 		"converted_amount": flt(summary.converted_amount)
 	}
+
+
+@frappe.whitelist()
+def revise_proforma_invoice(
+	proforma_name: str,
+	items: str | list,
+	remarks: str = None
+) -> dict:
+	"""
+	Revise a submitted Proforma Invoice with updated quantities/amounts.
+	Updates BOQ Progress Ledger and related documents.
+	
+	Args:
+		proforma_name: Name of the Proforma Invoice to revise
+		items: List of dicts with boq_item and qty (updated values)
+		remarks: Optional revision remarks
+		
+	Returns:
+		dict with status, data or error_message
+		
+	Requirements: 7.5
+	"""
+	import json
+	
+	try:
+		if isinstance(items, str):
+			items = json.loads(items)
+		
+		if not items:
+			return {"status": "error", "error_message": _("No items provided")}
+		
+		# Get the proforma
+		proforma = frappe.get_doc("Proforma Invoice", proforma_name)
+		
+		# Check if it can be revised
+		if proforma.docstatus != 1:
+			return {"status": "error", "error_message": _("Only submitted Proforma Invoices can be revised")}
+		
+		if proforma.status == "Converted":
+			return {"status": "error", "error_message": _("Cannot revise a converted Proforma Invoice")}
+		
+		# Build a map of new items
+		new_items_map = {}
+		for item_data in items:
+			boq_item_name = item_data.get("boq_item")
+			qty = flt(item_data.get("qty", 0))
+			if boq_item_name and qty > 0:
+				new_items_map[boq_item_name] = qty
+		
+		# Update existing items and track changes
+		items_updated = 0
+		for item in proforma.items:
+			if item.boq_item in new_items_map:
+				new_qty = new_items_map[item.boq_item]
+				if flt(item.qty) != new_qty:
+					item.qty = new_qty
+					item.amount = flt(new_qty) * flt(item.rate)
+					items_updated += 1
+				del new_items_map[item.boq_item]
+		
+		# Add any new items
+		for boq_item_name, qty in new_items_map.items():
+			boq_item = frappe.get_doc("BOQ Item", boq_item_name)
+			
+			# Validate balance
+			from construction_management.api.boq_ledger import get_to_date_qty
+			to_date_qty = get_to_date_qty(boq_item_name)
+			balance_qty = flt(boq_item.total_qty) - flt(to_date_qty)
+			
+			if qty > balance_qty:
+				return {
+					"status": "error",
+					"error_message": _("Quantity ({0}) exceeds available balance ({1}) for item {2}").format(
+						qty, balance_qty, boq_item.description[:50]
+					)
+				}
+			
+			proforma.append("items", {
+				"boq_item": boq_item_name,
+				"bill_no": boq_item.parent_bill,
+				"description": boq_item.description,
+				"unit": boq_item.unit,
+				"qty": qty,
+				"rate": boq_item.rate,
+				"amount": flt(qty) * flt(boq_item.rate)
+			})
+			items_updated += 1
+		
+		if items_updated == 0:
+			return {"status": "error", "error_message": _("No changes detected")}
+		
+		# Add revision remarks
+		if remarks:
+			proforma.remarks = f"{proforma.remarks or ''}\n[Revision: {today()}] {remarks}".strip()
+		
+		# Save with update_after_submit flag
+		proforma.flags.ignore_validate_update_after_submit = True
+		proforma.save()
+		
+		# Trigger the update hooks manually
+		proforma.run_method("on_update_after_submit")
+		
+		frappe.db.commit()
+		frappe.flags.commit = True
+		
+		frappe.logger().info(
+			f"Revised Proforma Invoice {proforma.name}, "
+			f"items_updated={items_updated}, new_amount={proforma.amount}"
+		)
+		
+		return {
+			"status": "success",
+			"name": proforma.name,
+			"items_updated": items_updated,
+			"amount": proforma.amount,
+			"retention_amount": proforma.retention_amount,
+			"net_amount": proforma.net_amount
+		}
+		
+	except Exception as e:
+		frappe.db.rollback()
+		frappe.log_error(f"Error revising proforma invoice: {str(e)}", "Proforma Invoice Revision Error")
+		return {"status": "error", "error_message": str(e)}
+
+
+@frappe.whitelist()
+def get_proforma_details(proforma_name: str) -> dict:
+	"""
+	Get detailed information about a Proforma Invoice including items and ledger entries.
+	
+	Args:
+		proforma_name: Name of the Proforma Invoice
+		
+	Returns:
+		dict with proforma details, items, and ledger entries
+	"""
+	try:
+		proforma = frappe.get_doc("Proforma Invoice", proforma_name)
+		
+		# Get ledger entries
+		ledger_entries = frappe.get_all(
+			"BOQ Progress Ledger",
+			filters={
+				"reference_doctype": "Proforma Invoice",
+				"reference_name": proforma_name
+			},
+			fields=["name", "boq_item", "qty", "amount", "source", "posting_date", "remarks"],
+			order_by="posting_date desc, creation desc"
+		)
+		
+		# Get items with BOQ Item details
+		items = []
+		for item in proforma.items:
+			boq_item = frappe.db.get_value(
+				"BOQ Item", 
+				item.boq_item, 
+				["description", "total_qty", "rate", "unit"],
+				as_dict=True
+			) if item.boq_item else {}
+			
+			items.append({
+				"boq_item": item.boq_item,
+				"bill_no": item.bill_no,
+				"description": item.description or boq_item.get("description"),
+				"unit": item.unit or boq_item.get("unit"),
+				"qty": item.qty,
+				"rate": item.rate,
+				"amount": item.amount,
+				"total_qty": boq_item.get("total_qty", 0)
+			})
+		
+		return {
+			"status": "success",
+			"proforma": {
+				"name": proforma.name,
+				"project": proforma.project,
+				"customer": proforma.customer,
+				"posting_date": proforma.posting_date,
+				"amount": proforma.amount,
+				"retention_amount": proforma.retention_amount,
+				"net_amount": proforma.net_amount,
+				"status": proforma.status,
+				"docstatus": proforma.docstatus,
+				"payment_certificate": proforma.payment_certificate,
+				"tax_invoice": proforma.tax_invoice,
+				"remarks": proforma.remarks
+			},
+			"items": items,
+			"ledger_entries": ledger_entries
+		}
+		
+	except Exception as e:
+		frappe.log_error(f"Error getting proforma details: {str(e)}", "Proforma Invoice API Error")
+		return {"status": "error", "error_message": str(e)}

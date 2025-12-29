@@ -10,7 +10,7 @@ import io
 @frappe.whitelist()
 def export_boq_to_excel(project: str) -> str:
 	"""
-	Export BOQ data to Excel format.
+	Export BOQ data to Excel format with comprehensive columns matching the UI table.
 	
 	Args:
 		project: Project name
@@ -37,8 +37,8 @@ def export_boq_to_excel(project: str) -> str:
 	ws.title = "BOQ"
 	
 	# Styles
-	header_font = Font(bold=True, size=11)
-	header_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+	header_font = Font(bold=True, size=10, color="FFFFFF")
+	subheader_font = Font(bold=True, size=9)
 	bill_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
 	thin_border = Border(
 		left=Side(style='thin'),
@@ -47,51 +47,88 @@ def export_boq_to_excel(project: str) -> str:
 		bottom=Side(style='thin')
 	)
 	
-	# Headers
+	# Group header colors
+	revenue_fill = PatternFill(start_color="1565C0", end_color="1565C0", fill_type="solid")
+	value_fill = PatternFill(start_color="E65100", end_color="E65100", fill_type="solid")
+	qty_fill = PatternFill(start_color="2E7D32", end_color="2E7D32", fill_type="solid")
+	billing_fill = PatternFill(start_color="C2185B", end_color="C2185B", fill_type="solid")
+	estimated_fill = PatternFill(start_color="7B1FA2", end_color="7B1FA2", fill_type="solid")
+	actual_fill = PatternFill(start_color="C62828", end_color="C62828", fill_type="solid")
+	profit_fill = PatternFill(start_color="00695C", end_color="00695C", fill_type="solid")
+	default_fill = PatternFill(start_color="424242", end_color="424242", fill_type="solid")
+	
+	# Row 1: Group headers
+	group_headers = [
+		("", 1, 1, default_fill),
+		("", 2, 2, default_fill),
+		("", 3, 3, default_fill),
+		("", 4, 4, default_fill),
+		("", 5, 5, default_fill),
+		("Revenue", 6, 11, revenue_fill),
+		("Value Breakdown", 12, 14, value_fill),
+		("Qty Breakdown", 15, 17, qty_fill),
+		("Current Billing", 18, 19, billing_fill),
+		("Estimated Cost", 20, 25, estimated_fill),
+		("Actual Cost", 26, 31, actual_fill),
+		("Profitability", 32, 33, profit_fill),
+	]
+	
+	for label, start_col, end_col, fill in group_headers:
+		if start_col == end_col:
+			cell = ws.cell(row=1, column=start_col, value=label)
+			cell.font = header_font
+			cell.fill = fill
+			cell.alignment = Alignment(horizontal='center')
+		else:
+			ws.merge_cells(start_row=1, start_column=start_col, end_row=1, end_column=end_col)
+			cell = ws.cell(row=1, column=start_col, value=label)
+			cell.font = header_font
+			cell.fill = fill
+			cell.alignment = Alignment(horizontal='center')
+	
+	# Row 2: Column headers
 	headers = [
-		"Bill No", "Item Code", "Description", "Unit",
-		"Total Qty", "Rate", "Total Amount",
-		"Prev Qty", "Prev Amount",
-		"Current Qty", "Current Amount",
-		"To-Date Qty", "To-Date Amount",
-		"Balance Qty", "Balance Amount",
-		"Total Estimated Cost",
-		"Cost To-Date", "Margin"
+		"Bill No", "Item Code", "Description", "Unit", "Rate",
+		# Revenue
+		"Proforma Invoice", "PC", "TAX Invoice", "Variance (-)", "BOQ Balance", "Total",
+		# Value Breakdown
+		"Previous/Value", "Current/Value", "Accumulated/Value",
+		# Qty Breakdown
+		"Previous/Qty", "Current/Qty", "Accumulated/Qty",
+		# Current Billing
+		"Current Qty", "Current Value",
+		# Estimated Cost
+		"Material", "Labour", "Asset", "S/C", "Other", "Total",
+		# Actual Cost
+		"Material", "Labour", "Asset", "S/C", "Other", "Total",
+		# Profitability
+		"GP", "GP%"
 	]
 	
 	for col, header in enumerate(headers, 1):
-		cell = ws.cell(row=1, column=col, value=header)
-		cell.font = header_font
-		cell.fill = header_fill
+		cell = ws.cell(row=2, column=col, value=header)
+		cell.font = subheader_font
 		cell.border = thin_border
 		cell.alignment = Alignment(horizontal='center', wrap_text=True)
 	
 	# Data rows
-	row = 2
+	row = 3
 	for bill in data['bills']:
-		# Bill row
+		# Bill row (summary)
 		ws.cell(row=row, column=1, value=bill['bill_no']).fill = bill_fill
 		ws.cell(row=row, column=3, value=bill.get('description', '')).fill = bill_fill
 		
 		totals = bill.get('totals', {})
+		revenue = totals.get('revenue', {})
 		qty = totals.get('qty', {})
 		amount = totals.get('amount', {})
+		estimated = totals.get('estimated_costs', {})
+		actual = totals.get('actual_costs', {})
+		profitability = totals.get('profitability', {})
 		
-		ws.cell(row=row, column=5, value=qty.get('total', 0)).fill = bill_fill
-		ws.cell(row=row, column=7, value=amount.get('total', 0)).fill = bill_fill
-		ws.cell(row=row, column=8, value=qty.get('prev', 0)).fill = bill_fill
-		ws.cell(row=row, column=9, value=amount.get('prev', 0)).fill = bill_fill
-		ws.cell(row=row, column=10, value=qty.get('current', 0)).fill = bill_fill
-		ws.cell(row=row, column=11, value=amount.get('current', 0)).fill = bill_fill
-		ws.cell(row=row, column=12, value=qty.get('to_date', 0)).fill = bill_fill
-		ws.cell(row=row, column=13, value=amount.get('to_date', 0)).fill = bill_fill
-		ws.cell(row=row, column=14, value=qty.get('balance', 0)).fill = bill_fill
-		ws.cell(row=row, column=15, value=amount.get('balance', 0)).fill = bill_fill
-		ws.cell(row=row, column=16, value=totals.get('estimated_costs', {}).get('total', 0) or totals.get('total_estimated_cost', 0)).fill = bill_fill
-		ws.cell(row=row, column=17, value=totals.get('cost_to_date', 0)).fill = bill_fill
-		ws.cell(row=row, column=18, value=totals.get('margin', 0)).fill = bill_fill
-		
-		for col in range(1, 19):
+		# Apply bill fill to all cells in the row
+		for col in range(1, 34):
+			ws.cell(row=row, column=col).fill = bill_fill
 			ws.cell(row=row, column=col).border = thin_border
 		
 		row += 1
@@ -103,31 +140,73 @@ def export_boq_to_excel(project: str) -> str:
 			ws.cell(row=row, column=3, value=item.get('description', ''))
 			ws.cell(row=row, column=4, value=item.get('unit', ''))
 			
-			item_qty = item.get('qty', {})
 			item_amount = item.get('amount', {})
+			item_qty = item.get('qty', {})
+			item_revenue = item.get('revenue', {})
+			item_estimated = item.get('estimated_costs', {})
+			item_actual = item.get('actual_costs', {})
+			item_profit = item.get('profitability', {})
 			
-			ws.cell(row=row, column=5, value=item_qty.get('total', 0))
-			ws.cell(row=row, column=6, value=item_amount.get('rate', 0))
-			ws.cell(row=row, column=7, value=item_amount.get('total', 0))
-			ws.cell(row=row, column=8, value=item_qty.get('prev', 0))
-			ws.cell(row=row, column=9, value=item_amount.get('prev', 0))
-			ws.cell(row=row, column=10, value=item_qty.get('current', 0))
-			ws.cell(row=row, column=11, value=item_amount.get('current', 0))
-			ws.cell(row=row, column=12, value=item_qty.get('to_date', 0))
-			ws.cell(row=row, column=13, value=item_amount.get('to_date', 0))
-			ws.cell(row=row, column=14, value=item_qty.get('balance', 0))
-			ws.cell(row=row, column=15, value=item_amount.get('balance', 0))
-			ws.cell(row=row, column=16, value=item.get('estimated_costs', {}).get('total', 0) or item.get('total_estimated_cost', 0))
-			ws.cell(row=row, column=17, value=item.get('cost_to_date', 0))
-			ws.cell(row=row, column=18, value=item.get('margin', 0))
+			ws.cell(row=row, column=5, value=item_amount.get('rate', 0))
 			
-			for col in range(1, 19):
+			# Revenue columns
+			ws.cell(row=row, column=6, value=item_revenue.get('proforma', 0))
+			ws.cell(row=row, column=7, value=item_revenue.get('pc', 0))
+			ws.cell(row=row, column=8, value=item_revenue.get('tax_invoice', 0))
+			ws.cell(row=row, column=9, value=item_revenue.get('variance', 0))
+			ws.cell(row=row, column=10, value=item_revenue.get('balance', 0))
+			ws.cell(row=row, column=11, value=item_revenue.get('total', 0))
+			
+			# Value Breakdown
+			ws.cell(row=row, column=12, value=item_amount.get('prev', 0))
+			ws.cell(row=row, column=13, value=item_amount.get('current', 0))
+			ws.cell(row=row, column=14, value=item_amount.get('to_date', 0))
+			
+			# Qty Breakdown
+			ws.cell(row=row, column=15, value=item_qty.get('prev', 0))
+			ws.cell(row=row, column=16, value=item_qty.get('current', 0))
+			ws.cell(row=row, column=17, value=item_qty.get('to_date', 0))
+			
+			# Current Billing
+			ws.cell(row=row, column=18, value=item_qty.get('current', 0))
+			ws.cell(row=row, column=19, value=item_amount.get('current', 0))
+			
+			# Estimated Cost
+			ws.cell(row=row, column=20, value=item_estimated.get('material', 0))
+			ws.cell(row=row, column=21, value=item_estimated.get('labour', 0))
+			ws.cell(row=row, column=22, value=item_estimated.get('asset', 0))
+			ws.cell(row=row, column=23, value=item_estimated.get('subcontract', 0))
+			ws.cell(row=row, column=24, value=item_estimated.get('other', 0))
+			ws.cell(row=row, column=25, value=item_estimated.get('total', 0))
+			
+			# Actual Cost
+			ws.cell(row=row, column=26, value=item_actual.get('material', 0))
+			ws.cell(row=row, column=27, value=item_actual.get('labour', 0))
+			ws.cell(row=row, column=28, value=item_actual.get('asset', 0))
+			ws.cell(row=row, column=29, value=item_actual.get('subcontract', 0))
+			ws.cell(row=row, column=30, value=item_actual.get('other', 0))
+			ws.cell(row=row, column=31, value=item_actual.get('total', 0))
+			
+			# Profitability
+			ws.cell(row=row, column=32, value=item_profit.get('gp', 0))
+			ws.cell(row=row, column=33, value=item_profit.get('gp_percent', 0))
+			
+			for col in range(1, 34):
 				ws.cell(row=row, column=col).border = thin_border
 			
 			row += 1
 	
 	# Adjust column widths
-	column_widths = [15, 15, 40, 8, 12, 12, 15, 12, 15, 12, 15, 12, 15, 12, 15, 18, 15, 15]
+	column_widths = [
+		12, 15, 35, 8, 10,  # Basic info
+		12, 12, 12, 10, 12, 12,  # Revenue
+		12, 12, 12,  # Value Breakdown
+		10, 10, 10,  # Qty Breakdown
+		10, 12,  # Current Billing
+		10, 10, 10, 10, 10, 12,  # Estimated Cost
+		10, 10, 10, 10, 10, 12,  # Actual Cost
+		12, 8  # Profitability
+	]
 	for i, width in enumerate(column_widths, 1):
 		ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = width
 	

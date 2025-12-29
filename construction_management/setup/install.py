@@ -245,16 +245,6 @@ def create_purchase_receipt_po_project_fields():
 			"fetch_from": "",
 			"description": "Copied from parent Purchase Receipt"
 		},
-		{
-			"dt": "Purchase Receipt Item",
-			"fieldname": "custom_project",
-			"label": "Project",
-			"fieldtype": "Link",
-			"options": "Project",
-			"insert_after": "warehouse",
-			"in_list_view": 1,
-			"description": "Project linked to the warehouse"
-		}
 	]
 	
 	for field_def in fields_to_create:
@@ -424,6 +414,27 @@ def create_payment_certificate_fields():
 			"insert_after": "qty",
 			"default": "0",
 			"description": "Quantity completed (for progress tracking)"
+		},
+		# Purchase Receipt BOQ dimension fields (Requirements 6.5)
+		{
+			"dt": "Purchase Receipt",
+			"fieldname": "custom_bill_no",
+			"label": "Bill No",
+			"fieldtype": "Link",
+			"options": "BOQ Bill",
+			"insert_after": "project",
+			"description": "BOQ Bill for this Purchase Receipt",
+			"depends_on": "eval:doc.project"
+		},
+		{
+			"dt": "Purchase Receipt",
+			"fieldname": "custom_boq_item",
+			"label": "BOQ Item",
+			"fieldtype": "Link",
+			"options": "BOQ Item",
+			"insert_after": "custom_bill_no",
+			"description": "BOQ Item for this Purchase Receipt",
+			"depends_on": "eval:doc.custom_bill_no"
 		}
 	]
 	

@@ -243,3 +243,168 @@ def check_dpr_cost_validation(boq_item: str, dpr_costs: dict, dpr_name: str = No
 		"has_errors": result.has_errors,
 		"has_warnings": result.has_warnings
 	}
+
+
+@frappe.whitelist()
+def update_estimated_costs(boq_item: str, new_values: dict, old_values: dict) -> dict:
+	"""
+	Update estimated costs for a BOQ Item with audit logging.
+	
+	Requires Project Manager role or System Manager role.
+	
+	Args:
+		boq_item: BOQ Item name
+		new_values: Dict with new estimated cost values
+		old_values: Dict with old estimated cost values (for audit)
+	
+	Returns:
+		Dict with success status and message
+	
+	Property 9: Estimated Cost Audit Logging
+	Validates: Requirements 5.7
+	"""
+	import json
+	
+	# Parse JSON if strings
+	if isinstance(new_values, str):
+		new_values = json.loads(new_values)
+	if isinstance(old_values, str):
+		old_values = json.loads(old_values)
+	
+	# Check permission
+	if not (frappe.has_permission("BOQ Item", "write", boq_item) or 
+			"Project Manager" in frappe.get_roles() or 
+			"System Manager" in frappe.get_roles()):
+		frappe.throw(_("You don't have permission to update estimated costs"), frappe.PermissionError)
+	
+	# Get the BOQ Item
+	doc = frappe.get_doc("BOQ Item", boq_item)
+	
+	# Track changes for audit
+	changes = []
+	cost_fields = [
+		"estimated_material_cost",
+		"estimated_labour_cost",
+		"estimated_subcontract_cost",
+		"estimated_asset_cost",
+		"estimated_other_cost",
+		"total_estimated_cost"
+	]
+	
+	for field in cost_fields:
+		old_val = flt(old_values.get(field, 0))
+		new_val = flt(new_values.get(field, 0))
+		
+		if old_val != new_val:
+			changes.append({
+				"field": field,
+				"old_value": old_val,
+				"new_value": new_val
+			})
+			# Update the field
+			doc.set(field, new_val)
+	
+	if not changes:
+		return {"success": True, "message": _("No changes detected")}
+	
+	# Save the document
+	doc.flags.ignore_permissions = True
+	doc.save()
+	
+	# Create audit log entry using Version doctype
+	create_cost_audit_log(boq_item, changes)
+	
+	return {
+		"success": True,
+		"message": _("Estimated costs updated successfully"),
+		"changes": changes
+	}
+
+
+def create_cost_audit_log(boq_item: str, changes: list):
+	"""
+	Create an audit log entry for estimated cost changes.
+	
+	Uses the Version doctype to track changes.
+	
+	Args:
+		boq_item: BOQ Item name
+		changes: List of change dicts with field, old_value, new_value
+	"""
+	import json
+	
+	# Format changes for Version doctype
+	data = {
+		"changed": [],
+		"comment_type": "Edit",
+		"comment": "Estimated costs updated"
+	}
+	
+	for change in changes:
+		data["changed"].append([
+			change["field"],
+			change["old_value"],
+			change["new_value"]
+		])
+	
+	# Create Version entry
+	version = frappe.new_doc("Version")
+	version.ref_doctype = "BOQ Item"
+	version.docname = boq_item
+	version.data = json.dumps(data)
+	version.flags.ignore_permissions = True
+	version.insert()
+	
+	# Also add a comment for visibility
+	frappe.get_doc({
+		"doctype": "Comment",
+		"comment_type": "Info",
+		"reference_doctype": "BOQ Item",
+		"reference_name": boq_item,
+		"content": _("Estimated costs updated by {0}").format(frappe.session.user)
+	}).insert(ignore_permissions=True)
+
+
+@frappe.whitelist()
+def get_cost_audit_log(boq_item: str) -> list:
+	"""
+	Get audit log entries for estimated cost changes.
+	
+	Args:
+		boq_item: BOQ Item name
+	
+	Returns:
+		List of audit log entries
+	"""
+	import json
+	
+	versions = frappe.get_all(
+		"Version",
+		filters={
+			"ref_doctype": "BOQ Item",
+			"docname": boq_item
+		},
+		fields=["name", "data", "owner", "creation"],
+		order_by="creation desc",
+		limit=50
+	)
+	
+	audit_entries = []
+	
+	for version in versions:
+		try:
+			data = json.loads(version.data)
+			if data.get("changed"):
+				for change in data["changed"]:
+					if change[0].startswith("estimated_"):
+						audit_entries.append({
+							"field": change[0],
+							"old_value": change[1],
+							"new_value": change[2],
+							"changed_by": version.owner,
+							"changed_at": version.creation
+						})
+		except (json.JSONDecodeError, KeyError, IndexError):
+			continue
+	
+	return audit_entries
