@@ -220,13 +220,23 @@ function render_empty_state(wrapper, frm) {
 			</div>
 			<h3>No BOQ Found</h3>
 			<p>Create a Project BOQ to start tracking progressive billing for this project.</p>
-			<button class="btn-modern btn-primary-modern" onclick="create_project_boq('${frm.doc.name}')">
-				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<line x1="12" y1="5" x2="12" y2="19"></line>
-					<line x1="5" y1="12" x2="19" y2="12"></line>
-				</svg>
-				Create Project BOQ
-			</button>
+			<div class="empty-actions" style="display: flex; gap: 12px; justify-content: center; margin-top: 20px;">
+				<button class="btn-modern btn-primary-modern" onclick="create_project_boq('${frm.doc.name}')">
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<line x1="12" y1="5" x2="12" y2="19"></line>
+						<line x1="5" y1="12" x2="19" y2="12"></line>
+					</svg>
+					Create Project BOQ
+				</button>
+				<button class="btn-modern btn-outline" onclick="upload_boq_template('${frm.doc.name}')" style="background: white;">
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+						<polyline points="17 8 12 3 7 8"></polyline>
+						<line x1="12" y1="3" x2="12" y2="15"></line>
+					</svg>
+					Import from Excel
+				</button>
+			</div>
 		</div>
 	`);
 }
@@ -5181,7 +5191,7 @@ window.download_boq_template = function () {
 // Full Screen BOQ Management View
 // ============================================
 
-window.openFullScreenBOQ = function(project) {
+window.openFullScreenBOQ = function (project) {
 	// Store current state for restoration
 	window._boq_fullscreen_state = {
 		project: project,
@@ -5192,7 +5202,7 @@ window.openFullScreenBOQ = function(project) {
 	frappe.call({
 		method: 'construction_management.api.boq_tree.get_boq_tree_data',
 		args: { project: project },
-		callback: function(r) {
+		callback: function (r) {
 			if (r.message && r.message.has_boq) {
 				showFullScreenBOQModal(project, r.message);
 			} else {
@@ -5247,19 +5257,19 @@ function showFullScreenBOQModal(project, data) {
 	setTimeout(() => {
 		const contentContainer = modal.find('.fullscreen-content');
 		contentContainer.html('<div id="fullscreen-bills-container"></div>');
-		
+
 		// Use the existing render function but with full-screen optimizations
 		render_boq_management_table(contentContainer.find('#fullscreen-bills-container'), { doc: { name: project } }, data.bills);
-		
+
 		// Apply full-screen specific styles
 		applyFullScreenStyles();
-		
+
 		// Fix z-index for any existing modals/dialogs
 		fixModalZIndex();
 	}, 100);
 
 	// Handle escape key
-	$(document).on('keydown.fullscreen', function(e) {
+	$(document).on('keydown.fullscreen', function (e) {
 		if (e.key === 'Escape') {
 			closeFullScreenBOQ();
 		}
@@ -5272,24 +5282,24 @@ function showFullScreenBOQModal(project, data) {
 // Helper function to fix modal z-index issues
 function fixModalZIndex() {
 	// Ensure all Frappe dialogs have higher z-index than full-screen modal
-	$(document).on('show.bs.modal', '.modal', function() {
+	$(document).on('show.bs.modal', '.modal', function () {
 		const modal = $(this);
 		if ($('#boq-fullscreen-modal').is(':visible')) {
 			modal.css('z-index', 10002);
 			modal.next('.modal-backdrop').css('z-index', 10001);
 		}
 	});
-	
+
 	// Fix existing modals and dialogs
-	$('.modal, .frappe-dialog').each(function() {
+	$('.modal, .frappe-dialog').each(function () {
 		if ($(this).is(':visible') && $('#boq-fullscreen-modal').is(':visible')) {
 			$(this).css('z-index', 10002);
 			$(this).next('.modal-backdrop').css('z-index', 10001);
 		}
 	});
-	
+
 	// Ensure task management dialogs work properly
-	$(document).on('DOMNodeInserted', '.frappe-dialog', function() {
+	$(document).on('DOMNodeInserted', '.frappe-dialog', function () {
 		if ($('#boq-fullscreen-modal').is(':visible')) {
 			$(this).css('z-index', 10002);
 		}
@@ -5516,42 +5526,42 @@ function applyFullScreenStyles() {
 	}
 }
 
-window.closeFullScreenBOQ = function() {
+window.closeFullScreenBOQ = function () {
 	// Exit browser full-screen if active
 	if (document.fullscreenElement) {
 		document.exitFullscreen();
 	}
-	
+
 	// Remove modal
 	const modal = $('#boq-fullscreen-modal');
 	if (modal.length) {
-		modal.fadeOut(300, function() {
+		modal.fadeOut(300, function () {
 			modal.remove();
 		});
 	}
-	
+
 	// Remove event listeners
 	$(document).off('keydown.fullscreen');
 	$(document).off('show.bs.modal');
-	
+
 	// Reset modal z-indexes
 	$('.modal').css('z-index', '');
 	$('.modal-backdrop').css('z-index', '');
-	
+
 	// Restore scroll position
 	if (window._boq_fullscreen_state && window._boq_fullscreen_state.scrollPosition) {
 		window.scrollTo(0, window._boq_fullscreen_state.scrollPosition);
 	}
-	
+
 	// Clean up
 	delete window._fullscreen_modal;
 	delete window._boq_fullscreen_state;
 };
 
-window.refreshFullScreenBOQ = function() {
+window.refreshFullScreenBOQ = function () {
 	if (window._boq_fullscreen_state && window._boq_fullscreen_state.project) {
 		const project = window._boq_fullscreen_state.project;
-		
+
 		// Show loading
 		$('#boq-fullscreen-modal .fullscreen-content').html(`
 			<div class="fullscreen-loading">
@@ -5559,12 +5569,12 @@ window.refreshFullScreenBOQ = function() {
 				<p>Refreshing BOQ data...</p>
 			</div>
 		`);
-		
+
 		// Fetch fresh data
 		frappe.call({
 			method: 'construction_management.api.boq_tree.get_boq_tree_data',
 			args: { project: project },
-			callback: function(r) {
+			callback: function (r) {
 				if (r.message && r.message.has_boq) {
 					const contentContainer = $('#boq-fullscreen-modal .fullscreen-content');
 					contentContainer.html('<div id="fullscreen-bills-container"></div>');
