@@ -280,8 +280,21 @@ def get_boq_items(bill_name: str) -> list:
 			"gp": flt(gp),
 			"gp_percent": flt(gp_percent, 2)
 		}
+		
+		# Get advance payments for this item (Task 9.4)
+		item["advance_amount"] = get_item_advance_amount(item.name)
 	
 	return items
+
+
+def get_item_advance_amount(boq_item: str) -> float:
+	"""Get total advance amount collected for a specific BOQ item"""
+	result = frappe.db.sql("""
+		SELECT COALESCE(SUM(amount), 0) as total
+		FROM `tabBOQ Advance Payment`
+		WHERE boq_item = %s AND docstatus = 1
+	""", boq_item)
+	return flt(result[0][0]) if result else 0
 
 
 def get_item_actual_costs(boq_item: str) -> dict:
@@ -306,6 +319,17 @@ def get_item_actual_costs(boq_item: str) -> dict:
 		"other": flt(cost_breakdown.other),
 		"total": flt(cost_breakdown.total)
 	}
+
+
+@frappe.whitelist()
+def get_boq_item_advances(boq_item: str) -> list:
+	"""Get detailed advance payments list for a BOQ item"""
+	return frappe.get_all(
+		"BOQ Advance Payment",
+		filters={"boq_item": boq_item, "docstatus": 1},
+		fields=["name", "date", "amount", "status", "reference", "remarks"],
+		order_by="date desc"
+	)
 
 
 def get_boq_item_revenue_breakdown_internal(boq_item: str, boq_total: float) -> dict:

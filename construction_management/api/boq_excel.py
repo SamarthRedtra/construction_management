@@ -64,13 +64,14 @@ def export_boq_to_excel(project: str) -> str:
 		("", 3, 3, default_fill),
 		("", 4, 4, default_fill),
 		("", 5, 5, default_fill),
-		("Revenue", 6, 11, revenue_fill),
-		("Value Breakdown", 12, 14, value_fill),
-		("Qty Breakdown", 15, 17, qty_fill),
-		("Current Billing", 18, 19, billing_fill),
-		("Estimated Cost", 20, 25, estimated_fill),
-		("Actual Cost", 26, 31, actual_fill),
-		("Profitability", 32, 33, profit_fill),
+		("", 6, 6, default_fill),
+		("Revenue", 7, 12, revenue_fill),
+		("Value Breakdown", 13, 15, value_fill),
+		("Qty Breakdown", 16, 18, qty_fill),
+		("Current Billing", 19, 20, billing_fill),
+		("Estimated Cost", 21, 26, estimated_fill),
+		("Actual Cost", 27, 32, actual_fill),
+		("Profitability", 33, 34, profit_fill),
 	]
 	
 	for label, start_col, end_col, fill in group_headers:
@@ -88,7 +89,7 @@ def export_boq_to_excel(project: str) -> str:
 	
 	# Row 2: Column headers
 	headers = [
-		"Bill No", "Item Code", "Description", "Unit", "Rate",
+		"Bill No", "Item Code", "Description", "Unit", "Total Qty", "Rate",
 		# Revenue
 		"Proforma Invoice", "PC", "TAX Invoice", "Variance (-)", "BOQ Balance", "Total",
 		# Value Breakdown
@@ -126,9 +127,13 @@ def export_boq_to_excel(project: str) -> str:
 		actual = totals.get('actual_costs', {})
 		profitability = totals.get('profitability', {})
 		
-		# Apply bill fill to all cells in the row
-		for col in range(1, 34):
-			ws.cell(row=row, column=col).fill = bill_fill
+		# Add Total Qty for the Bill row
+		ws.cell(row=row, column=5, value=qty.get('total', 0)).fill = bill_fill
+		
+		# Apply bill fill to all other cells in the row
+		for col in range(1, 35):
+			if col != 5: # Already set above
+				ws.cell(row=row, column=col).fill = bill_fill
 			ws.cell(row=row, column=col).border = thin_border
 		
 		row += 1
@@ -140,6 +145,10 @@ def export_boq_to_excel(project: str) -> str:
 			ws.cell(row=row, column=3, value=item.get('description', ''))
 			ws.cell(row=row, column=4, value=item.get('unit', ''))
 			
+			# Ensure Total Qty is fetched correctly (Task 2.1 fix)
+			total_qty = flt(item.get('total_qty')) or flt(item.get('qty', {}).get('total', 0))
+			ws.cell(row=row, column=5, value=total_qty)
+			
 			item_amount = item.get('amount', {})
 			item_qty = item.get('qty', {})
 			item_revenue = item.get('revenue', {})
@@ -147,58 +156,58 @@ def export_boq_to_excel(project: str) -> str:
 			item_actual = item.get('actual_costs', {})
 			item_profit = item.get('profitability', {})
 			
-			ws.cell(row=row, column=5, value=item_amount.get('rate', 0))
+			ws.cell(row=row, column=6, value=item_amount.get('rate', 0))
 			
 			# Revenue columns
-			ws.cell(row=row, column=6, value=item_revenue.get('proforma', 0))
-			ws.cell(row=row, column=7, value=item_revenue.get('pc', 0))
-			ws.cell(row=row, column=8, value=item_revenue.get('tax_invoice', 0))
-			ws.cell(row=row, column=9, value=item_revenue.get('variance', 0))
-			ws.cell(row=row, column=10, value=item_revenue.get('balance', 0))
-			ws.cell(row=row, column=11, value=item_revenue.get('total', 0))
+			ws.cell(row=row, column=7, value=item_revenue.get('proforma', 0))
+			ws.cell(row=row, column=8, value=item_revenue.get('pc', 0))
+			ws.cell(row=row, column=9, value=item_revenue.get('tax_invoice', 0))
+			ws.cell(row=row, column=10, value=item_revenue.get('variance', 0))
+			ws.cell(row=row, column=11, value=item_revenue.get('balance', 0))
+			ws.cell(row=row, column=12, value=item_revenue.get('total', 0))
 			
 			# Value Breakdown
-			ws.cell(row=row, column=12, value=item_amount.get('prev', 0))
-			ws.cell(row=row, column=13, value=item_amount.get('current', 0))
-			ws.cell(row=row, column=14, value=item_amount.get('to_date', 0))
+			ws.cell(row=row, column=13, value=item_amount.get('prev', 0))
+			ws.cell(row=row, column=14, value=item_amount.get('current', 0))
+			ws.cell(row=row, column=15, value=item_amount.get('to_date', 0))
 			
 			# Qty Breakdown
-			ws.cell(row=row, column=15, value=item_qty.get('prev', 0))
-			ws.cell(row=row, column=16, value=item_qty.get('current', 0))
-			ws.cell(row=row, column=17, value=item_qty.get('to_date', 0))
+			ws.cell(row=row, column=16, value=item_qty.get('prev', 0))
+			ws.cell(row=row, column=17, value=item_qty.get('current', 0))
+			ws.cell(row=row, column=18, value=item_qty.get('to_date', 0))
 			
 			# Current Billing
-			ws.cell(row=row, column=18, value=item_qty.get('current', 0))
-			ws.cell(row=row, column=19, value=item_amount.get('current', 0))
+			ws.cell(row=row, column=19, value=item_qty.get('current', 0))
+			ws.cell(row=row, column=20, value=item_amount.get('current', 0))
 			
 			# Estimated Cost
-			ws.cell(row=row, column=20, value=item_estimated.get('material', 0))
-			ws.cell(row=row, column=21, value=item_estimated.get('labour', 0))
-			ws.cell(row=row, column=22, value=item_estimated.get('asset', 0))
-			ws.cell(row=row, column=23, value=item_estimated.get('subcontract', 0))
-			ws.cell(row=row, column=24, value=item_estimated.get('other', 0))
-			ws.cell(row=row, column=25, value=item_estimated.get('total', 0))
+			ws.cell(row=row, column=21, value=item_estimated.get('material', 0))
+			ws.cell(row=row, column=22, value=item_estimated.get('labour', 0))
+			ws.cell(row=row, column=23, value=item_estimated.get('asset', 0))
+			ws.cell(row=row, column=24, value=item_estimated.get('subcontract', 0))
+			ws.cell(row=row, column=25, value=item_estimated.get('other', 0))
+			ws.cell(row=row, column=26, value=item_estimated.get('total', 0))
 			
 			# Actual Cost
-			ws.cell(row=row, column=26, value=item_actual.get('material', 0))
-			ws.cell(row=row, column=27, value=item_actual.get('labour', 0))
-			ws.cell(row=row, column=28, value=item_actual.get('asset', 0))
-			ws.cell(row=row, column=29, value=item_actual.get('subcontract', 0))
-			ws.cell(row=row, column=30, value=item_actual.get('other', 0))
-			ws.cell(row=row, column=31, value=item_actual.get('total', 0))
+			ws.cell(row=row, column=27, value=item_actual.get('material', 0))
+			ws.cell(row=row, column=28, value=item_actual.get('labour', 0))
+			ws.cell(row=row, column=29, value=item_actual.get('asset', 0))
+			ws.cell(row=row, column=30, value=item_actual.get('subcontract', 0))
+			ws.cell(row=row, column=31, value=item_actual.get('other', 0))
+			ws.cell(row=row, column=32, value=item_actual.get('total', 0))
 			
 			# Profitability
-			ws.cell(row=row, column=32, value=item_profit.get('gp', 0))
-			ws.cell(row=row, column=33, value=item_profit.get('gp_percent', 0))
+			ws.cell(row=row, column=33, value=item_profit.get('gp', 0))
+			ws.cell(row=row, column=34, value=item_profit.get('gp_percent', 0))
 			
-			for col in range(1, 34):
+			for col in range(1, 35):
 				ws.cell(row=row, column=col).border = thin_border
 			
 			row += 1
 	
 	# Adjust column widths
 	column_widths = [
-		12, 15, 35, 8, 10,  # Basic info
+		12, 15, 35, 8, 10, 10,  # Basic info + Total Qty
 		12, 12, 12, 10, 12, 12,  # Revenue
 		12, 12, 12,  # Value Breakdown
 		10, 10, 10,  # Qty Breakdown

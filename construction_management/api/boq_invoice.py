@@ -694,16 +694,18 @@ def get_bills_with_billable_items(project: str) -> list:
 
 
 @frappe.whitelist()
-def get_boq_invoice_history(boq_item: str) -> dict:
+def get_boq_invoice_history(boq_item: str, grouped_view: int = 0) -> dict:
 	"""
 	Get invoice history for a BOQ Item (Child Payment Plan) with progressive billing details.
 	Includes proforma invoices, payment certificates, and tax invoices tracking.
 	
 	Args:
 		boq_item: BOQ Item name
+		grouped_view: Whether to return grouped transaction view (1) or raw ledger view (0)
 		
 	Returns:
 		dict with invoice summary, ledger entries, payment certificates with prev/curr/accumulated values
+		If grouped_view=1, also includes grouped_transactions and grouping_summary
 	"""
 	# Get BOQ Item details
 	boq_item_doc = frappe.get_doc("BOQ Item", boq_item)
@@ -850,7 +852,8 @@ def get_boq_invoice_history(boq_item: str) -> dict:
 		"pending_proforma_amount": sum(flt(p.grand_total) for p in pending_proformas)
 	}
 	
-	return {
+	# Prepare base response
+	response = {
 		"boq_item": {
 			"name": boq_item_doc.name,
 			"description": boq_item_doc.description,
@@ -874,6 +877,34 @@ def get_boq_invoice_history(boq_item: str) -> dict:
 		"pending_proformas": pending_proformas,
 		"pc_summary": pc_summary
 	}
+	
+	# Add grouped transaction view if requested
+	if grouped_view:
+		from construction_management.api.transaction_grouping import (
+			group_transactions_by_billing_cycle, 
+			get_grouped_transaction_summary
+		)
+		
+		try:
+			# Group transactions by billing cycle
+			grouped_transactions = group_transactions_by_billing_cycle(filtered_entries, payment_certificates)
+			grouping_summary = get_grouped_transaction_summary(grouped_transactions)
+			
+			response.update({
+				"grouped_transactions": grouped_transactions,
+				"grouping_summary": grouping_summary,
+				"view_mode": "grouped"
+			})
+		except Exception as e:
+			# Fallback to raw view if grouping fails
+			frappe.log_error(f"Transaction grouping failed for BOQ Item {boq_item}: {str(e)}", 
+							"Transaction Grouping Error")
+			response["view_mode"] = "raw"
+			response["grouping_error"] = str(e)
+	else:
+		response["view_mode"] = "raw"
+	
+	return response
 
 
 

@@ -42,6 +42,7 @@ function render_boq_management_table(container, frm, bills) {
 
 /**
  * Render a single bill section with header and items table
+ * Requirements: 7.5 - Bill-level financial summary display
  */
 function render_bill_section(bill, frm, isExpanded) {
 	const totals = bill.totals || {};
@@ -104,14 +105,16 @@ function render_comprehensive_items_table(items, frm) {
 						<th rowspan="2" class="col-desc sticky-col">Description</th>
 						<th rowspan="2" class="col-unit sticky-col">Unit</th>
 						<th rowspan="2" class="col-total-qty sticky-col">Qty</th>
-						<th rowspan="2" class="col-rate sticky-col sticky-col-last">Rate</th>
+						<th rowspan="2" class="col-rate sticky-col">Rate</th>
+						<th rowspan="2" class="col-amount sticky-col sticky-col-last">Amount</th>
 						<th colspan="3" class="col-group col-group-qty">Qty Breakdown</th>
 						<th colspan="3" class="col-group col-group-value">Value Breakdown</th>
 						<th colspan="2" class="col-group col-group-billing">Current Billing</th>
 						<th colspan="6" class="col-group col-group-revenue">Revenue</th>
 						<th colspan="6" class="col-group col-group-estimated">Estimated Cost</th>
 						<th colspan="6" class="col-group col-group-actual">Actual Cost</th>
-						<th colspan="2" class="col-group col-group-profit">Profitability</th>
+						<th colspan="4" class="col-group col-group-profit">Profitability</th>
+						<th colspan="3" class="col-group col-group-financial">Financial Summary</th>
 						<th rowspan="2" class="col-actions">Actions</th>
 					</tr>
 					<tr class="header-row-sub">
@@ -148,8 +151,14 @@ function render_comprehensive_items_table(items, frm) {
 						<th class="col-num">Other</th>
 						<th class="col-num">Total</th>
 						<!-- Profitability -->
-						<th class="col-num">GP</th>
-						<th class="col-num">GP%</th>
+						<th class="col-num">Actual GP</th>
+						<th class="col-num">Actual GP%</th>
+						<th class="col-num">Est. GP</th>
+						<th class="col-num">Est. GP%</th>
+						<!-- Financial Summary -->
+						<th class="col-num">Retention</th>
+						<th class="col-num">Advances</th>
+						<th class="col-num">Net Amount</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -222,10 +231,13 @@ function render_item_row(item, frm) {
 					${item.item_code ? `<span class="item-code">${item.item_code}</span>` : ''}
 					<span class="item-desc">${item.description || 'No description'}</span>
 				</div>
+				<!-- Profit/Loss Indicator - Requirements: 8.1, 8.2, 8.3, 8.4 -->
+				<div class="profit-indicator-container" data-item-id="${item.name}"></div>
 			</td>
 			<td class="col-unit sticky-col">${item.unit || '-'}</td>
 			<td class="col-total-qty sticky-col">${format_number(totalQty)}</td>
-			<td class="col-rate sticky-col sticky-col-last">${format_currency(amount.rate || 0)}</td>
+			<td class="col-rate sticky-col">${format_currency(amount.rate || 0)}</td>
+			<td class="col-amount sticky-col sticky-col-last">${format_currency(amount.total || 0)}</td>
 			
 			<!-- Qty Breakdown (moved before Value) -->
 			<td class="col-num">${format_number(qty.prev || 0)}</td>
@@ -278,6 +290,15 @@ function render_item_row(item, frm) {
 			<!-- Profitability -->
 			<td class="col-num ${profitability.gp >= 0 ? 'text-success' : 'text-danger'} font-bold">${format_currency(profitability.gp || 0)}</td>
 			<td class="col-num ${profitability.gp_percent >= 0 ? 'text-success' : 'text-danger'}">${(profitability.gp_percent || 0).toFixed(1)}%</td>
+			
+			<!-- Estimated GP -->
+			<td class="col-num ${(estimated.estimated_gp || 0) >= 0 ? 'text-success' : 'text-danger'} font-bold">${format_currency(estimated.estimated_gp || 0)}</td>
+			<td class="col-num ${(estimated.estimated_gp_percent || 0) >= 0 ? 'text-success' : 'text-danger'}">${(estimated.estimated_gp_percent || 0).toFixed(1)}%</td>
+			
+			<!-- Financial Summary -->
+			<td class="col-num text-warning">${format_currency(item.retention_amount || 0)}</td>
+			<td class="col-num text-info">${format_currency(item.advance_amount || 0)}</td>
+			<td class="col-num text-success font-bold">${format_currency((revenue.total || 0) - (item.retention_amount || 0) - (item.advance_amount || 0))}</td>
 			
 			<!-- Actions - Requirements: 3.2, 3.3 -->
 			<td class="col-actions" role="cell">
@@ -594,12 +615,15 @@ window.toggleTransactionHistory = function (itemName) {
 		return;
 	}
 
-	// Fetch and create inline section using BOQ invoice history API
+	// Fetch and create inline section using BOQ invoice history API with grouped view
 	expandBtn.addClass('loading');
 
 	frappe.call({
 		method: 'construction_management.api.boq_invoice.get_boq_invoice_history',
-		args: { boq_item: itemName },
+		args: { 
+			boq_item: itemName,
+			grouped_view: 1  // Request grouped view
+		},
 		callback: function (r) {
 			expandBtn.removeClass('loading');
 			if (r.message) {
@@ -623,7 +647,7 @@ window.toggleTransactionHistory = function (itemName) {
 };
 
 /**
- * Render transaction history section for a BOQ Item using BOQ Progress Ledger data
+ * Render transaction history section for a BOQ Item with support for grouped transactions
  * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6
  */
 function renderTransactionHistorySection(itemName, data) {
@@ -632,6 +656,8 @@ function renderTransactionHistorySection(itemName, data) {
 	const ledgerEntries = data.ledger_entries || [];
 	const paymentCertificates = data.payment_certificates || [];
 	const pendingProformas = data.pending_proformas || [];
+	const groupedTransactions = data.grouped_transactions || [];
+	const viewMode = data.view_mode || 'raw';
 
 	// Get column count from parent table
 	const colSpan = $(`tr.item-row[data-item="${itemName}"]`).find('td').length;
@@ -645,6 +671,7 @@ function renderTransactionHistorySection(itemName, data) {
 						<div class="transaction-header-left">
 							<span class="transaction-title">Transaction History</span>
 							<span class="transaction-item-desc">${boqItem.description || itemName}</span>
+							${viewMode === 'grouped' ? '<span class="view-mode-badge">Grouped View</span>' : '<span class="view-mode-badge">Raw View</span>'}
 						</div>
 						<div class="transaction-header-right">
 							<div class="summary-stats">
@@ -660,40 +687,25 @@ function renderTransactionHistorySection(itemName, data) {
 									<span class="stat-label">Balance</span>
 									<span class="stat-value">${format_currency(summary.balance_amount || 0)}</span>
 								</div>
+								${viewMode === 'grouped' && data.grouping_summary ? `
+								<div class="stat-item">
+									<span class="stat-label">Billing Cycles</span>
+									<span class="stat-value">${data.grouping_summary.total_billing_cycles}</span>
+								</div>
+								` : ''}
+							</div>
+							<div class="view-toggle-container">
+								<button class="btn btn-xs btn-default" onclick="toggleViewMode('${itemName}', '${viewMode}')">
+									${viewMode === 'grouped' ? 'Show Raw View' : 'Show Grouped View'}
+								</button>
 							</div>
 						</div>
 					</div>
 					
-					<!-- BOQ Progress Ledger Entries -->
-					<div class="transaction-section">
-						<div class="transaction-section-title">
-							BOQ Progress Ledger Entries
-							<span class="entry-count-badge">${ledgerEntries.length}</span>
-						</div>
-						${ledgerEntries.length > 0 ? renderLedgerEntriesTable(ledgerEntries) : '<div class="no-entries">No ledger entries found</div>'}
-					</div>
-					
-					<!-- Payment Certificates Section -->
-					${paymentCertificates.length > 0 ? `
-					<div class="transaction-section">
-						<div class="transaction-section-title">
-							Payment Certificates
-							<span class="entry-count-badge">${paymentCertificates.length}</span>
-						</div>
-						${renderPaymentCertificatesTable(paymentCertificates)}
-					</div>
-					` : ''}
-					
-					<!-- Pending Proformas Section -->
-					${pendingProformas.length > 0 ? `
-					<div class="transaction-section">
-						<div class="transaction-section-title">
-							Pending Proformas
-							<span class="entry-count-badge">${pendingProformas.length}</span>
-						</div>
-						${renderPendingProformasTable(pendingProformas)}
-					</div>
-					` : ''}
+					${viewMode === 'grouped' && groupedTransactions.length > 0 ? 
+						renderGroupedTransactionsSection(groupedTransactions) : 
+						renderRawTransactionsSection(ledgerEntries, paymentCertificates, pendingProformas)
+					}
 				</div>
 				${getTransactionHistoryStyles()}
 			</td>
@@ -702,8 +714,322 @@ function renderTransactionHistorySection(itemName, data) {
 }
 
 /**
- * Render BOQ Progress Ledger entries table
+ * Render grouped transactions section
  */
+function renderGroupedTransactionsSection(groupedTransactions) {
+	return `
+		<div class="transaction-section">
+			<div class="transaction-section-title">
+				Billing Cycles
+				<span class="entry-count-badge">${groupedTransactions.length}</span>
+				<span class="section-subtitle">Grouped by Proforma → Payment Certificate → Tax Invoice workflow</span>
+			</div>
+			${renderGroupedTransactionsTable(groupedTransactions)}
+		</div>
+	`;
+}
+
+/**
+ * Render raw transactions section (original view)
+ */
+function renderRawTransactionsSection(ledgerEntries, paymentCertificates, pendingProformas) {
+	return `
+		<!-- BOQ Progress Ledger Entries -->
+		<div class="transaction-section">
+			<div class="transaction-section-title">
+				BOQ Progress Ledger Entries
+				<span class="entry-count-badge">${ledgerEntries.length}</span>
+			</div>
+			${ledgerEntries.length > 0 ? renderLedgerEntriesTable(ledgerEntries) : '<div class="no-entries">No ledger entries found</div>'}
+		</div>
+		
+		<!-- Payment Certificates Section -->
+		${paymentCertificates.length > 0 ? `
+		<div class="transaction-section">
+			<div class="transaction-section-title">
+				Payment Certificates
+				<span class="entry-count-badge">${paymentCertificates.length}</span>
+			</div>
+			${renderPaymentCertificatesTable(paymentCertificates)}
+		</div>
+		` : ''}
+		
+		<!-- Pending Proformas Section -->
+		${pendingProformas.length > 0 ? `
+		<div class="transaction-section">
+			<div class="transaction-section-title">
+				Pending Proformas
+				<span class="entry-count-badge">${pendingProformas.length}</span>
+			</div>
+			${renderPendingProformasTable(pendingProformas)}
+		</div>
+		` : ''}
+	`;
+}
+
+/**
+ * Render grouped transactions table
+ */
+function renderGroupedTransactionsTable(groupedTransactions) {
+	let html = `
+		<table class="grouped-transactions-table">
+			<thead>
+				<tr>
+					<th>Billing Cycle</th>
+					<th>Proforma Invoice</th>
+					<th>Payment Certificate</th>
+					<th>Tax Invoice</th>
+					<th class="text-right">Prev Qty</th>
+					<th class="text-right">Curr Qty</th>
+					<th class="text-right">Accum Qty</th>
+					<th class="text-right">Prev Amount</th>
+					<th class="text-right">Curr Amount</th>
+					<th class="text-right">Accum Amount</th>
+					<th class="text-right">Variance</th>
+					<th>Status</th>
+					<th>Actions</th>
+				</tr>
+			</thead>
+			<tbody>
+	`;
+
+	groupedTransactions.forEach((cycle, index) => {
+		const consolidated = cycle.consolidated_values || {};
+		const variance = cycle.variance || {};
+		const varianceClass = getVarianceClass(variance.amount);
+		const statusClass = getWorkflowStatusClass(cycle.workflow_status);
+
+		html += `
+			<tr class="grouped-transaction-row" data-cycle-id="${cycle.cycle_id}">
+				<td class="cycle-id">
+					<div class="cycle-info">
+						<span class="cycle-number">#${index + 1}</span>
+						<button class="btn btn-xs btn-default expand-cycle-btn" onclick="toggleCycleDetails('${cycle.cycle_id}')">
+							<i class="fa fa-chevron-down"></i>
+						</button>
+					</div>
+				</td>
+				<td class="doc-name">
+					${cycle.proforma_invoice ? 
+						`<a href="/app/sales-invoice/${cycle.proforma_invoice.name}" target="_blank" title="${cycle.proforma_invoice.date}">
+							${cycle.proforma_invoice.name}
+						</a>` : '-'
+					}
+				</td>
+				<td class="doc-name">
+					${cycle.payment_certificate ? 
+						`<a href="/app/payment-certificate/${cycle.payment_certificate.name}" target="_blank" title="${cycle.payment_certificate.date}">
+							${cycle.payment_certificate.name}
+						</a>` : '-'
+					}
+				</td>
+				<td class="doc-name">
+					${cycle.tax_invoice ? 
+						`<a href="/app/sales-invoice/${cycle.tax_invoice.name}" target="_blank" title="${cycle.tax_invoice.date}">
+							${cycle.tax_invoice.name}
+						</a>` : '-'
+					}
+				</td>
+				<td class="text-right">${format_number(consolidated.prev_qty || 0)}</td>
+				<td class="text-right highlight-current">${format_number(consolidated.current_qty || 0)}</td>
+				<td class="text-right font-bold">${format_number(consolidated.accumulated_qty || 0)}</td>
+				<td class="text-right">${format_currency(consolidated.prev_amount || 0)}</td>
+				<td class="text-right highlight-current">${format_currency(consolidated.current_amount || 0)}</td>
+				<td class="text-right font-bold">${format_currency(consolidated.accumulated_amount || 0)}</td>
+				<td class="text-right ${varianceClass}">
+					<span class="variance-tooltip" data-tooltip="Proforma: ${format_currency(cycle.proforma_invoice ? cycle.proforma_invoice.amount : 0)} | PC: ${format_currency(cycle.payment_certificate ? cycle.payment_certificate.accepted_amount : 0)}">
+						${variance.amount ? format_currency(variance.amount) : '-'}
+						${variance.percentage ? `<br><small class="variance-percent">(${variance.percentage > 0 ? '+' : ''}${variance.percentage}%)</small>` : ''}
+					</span>
+				</td>
+				<td>
+					<span class="status-badge ${statusClass}">${getWorkflowStatusLabel(cycle.workflow_status)}</span>
+				</td>
+				<td>
+					<div class="cycle-actions">
+						${cycle.adjustments && cycle.adjustments.length > 0 ? 
+							`<button class="btn btn-xs btn-info" onclick="showAdjustments('${cycle.cycle_id}')" title="View Adjustments">
+								<i class="fa fa-list"></i> ${cycle.adjustments.length}
+							</button>` : ''
+						}
+					</div>
+				</td>
+			</tr>
+			<tr class="cycle-details-row" id="cycle-details-${cycle.cycle_id}" style="display: none;">
+				<td colspan="13">
+					${renderCycleDetails(cycle)}
+				</td>
+			</tr>
+		`;
+	});
+
+	html += `
+			</tbody>
+		</table>
+	`;
+
+	return html;
+}
+
+/**
+ * Render cycle details (expandable section)
+ */
+function renderCycleDetails(cycle) {
+	return `
+		<div class="cycle-details-container">
+			<div class="cycle-workflow">
+				<h5>Workflow Progress</h5>
+				${renderWorkflowProgressBar(cycle)}
+				<div class="workflow-steps">
+					${cycle.documents.map(doc => `
+						<div class="workflow-step ${doc.type}">
+							<div class="step-icon">
+								<i class="fa ${getDocumentIcon(doc.type)}"></i>
+							</div>
+							<div class="step-content">
+								<div class="step-title">${getDocumentTypeLabel(doc.type)}</div>
+								<div class="step-details">
+									<a href="/app/${getDocumentRoute(doc.type)}/${doc.name}" target="_blank">${doc.name}</a>
+									<span class="step-date">${doc.date}</span>
+									<span class="step-amount">${format_currency(doc.amount)}</span>
+								</div>
+							</div>
+						</div>
+					`).join('')}
+				</div>
+			</div>
+			
+			${cycle.adjustments && cycle.adjustments.length > 0 ? `
+			<div class="cycle-adjustments">
+				<h5>Adjustments & Deductions</h5>
+				<table class="adjustments-table">
+					<thead>
+						<tr>
+							<th>Date</th>
+							<th>Type</th>
+							<th class="text-right">Qty</th>
+							<th class="text-right">Amount</th>
+							<th>Reference</th>
+							<th>Remarks</th>
+						</tr>
+					</thead>
+					<tbody>
+						${cycle.adjustments.map(adj => `
+							<tr>
+								<td>${adj.date}</td>
+								<td><span class="adjustment-type-badge ${adj.type}">${adj.type}</span></td>
+								<td class="text-right">${format_number(adj.qty || 0)}</td>
+								<td class="text-right">${format_currency(adj.amount || 0)}</td>
+								<td>${adj.reference || '-'}</td>
+								<td>${adj.remarks || '-'}</td>
+							</tr>
+						`).join('')}
+					</tbody>
+				</table>
+			</div>
+			` : ''}
+		</div>
+	`;
+}
+
+/**
+ * Toggle view mode between grouped and raw
+ */
+window.toggleViewMode = function(itemName, currentMode) {
+	const row = $(`tr.item-row[data-item="${itemName}"]`);
+	const inlineRow = row.next('.inline-breakdown-row');
+	
+	if (inlineRow.length === 0) return;
+	
+	const newMode = currentMode === 'grouped' ? 0 : 1;
+	
+	// Show loading state
+	inlineRow.find('.transaction-history-container').html('<div class="loading-state">Switching view...</div>');
+	
+	frappe.call({
+		method: 'construction_management.api.boq_invoice.get_boq_invoice_history',
+		args: { 
+			boq_item: itemName,
+			grouped_view: newMode
+		},
+		callback: function(r) {
+			if (r.message) {
+				const newHtml = renderTransactionHistorySection(itemName, r.message);
+				const newInlineRow = $(newHtml);
+				inlineRow.replaceWith(newInlineRow);
+			}
+		},
+		error: function() {
+			frappe.show_alert({ message: __('Failed to switch view mode'), indicator: 'red' });
+		}
+	});
+};
+
+/**
+ * Toggle cycle details
+ */
+window.toggleCycleDetails = function(cycleId) {
+	const detailsRow = $(`#cycle-details-${cycleId}`);
+	const expandBtn = $(`.grouped-transaction-row[data-cycle-id="${cycleId}"] .expand-cycle-btn i`);
+	
+	if (detailsRow.is(':visible')) {
+		detailsRow.slideUp(200);
+		expandBtn.removeClass('fa-chevron-up').addClass('fa-chevron-down');
+	} else {
+		detailsRow.slideDown(200);
+		expandBtn.removeClass('fa-chevron-down').addClass('fa-chevron-up');
+	}
+};
+
+/**
+ * Helper functions for grouped transactions
+ */
+function getWorkflowStatusClass(status) {
+	const statusClasses = {
+		'proforma_created': 'status-draft',
+		'pc_draft': 'status-draft',
+		'pc_approved': 'status-submitted',
+		'tax_invoice_generated': 'status-paid'
+	};
+	return statusClasses[status] || 'status-draft';
+}
+
+function getWorkflowStatusLabel(status) {
+	const statusLabels = {
+		'proforma_created': 'Proforma Created',
+		'pc_draft': 'PC Draft',
+		'pc_approved': 'PC Approved',
+		'tax_invoice_generated': 'Tax Invoice Generated'
+	};
+	return statusLabels[status] || status;
+}
+
+function getDocumentIcon(docType) {
+	const icons = {
+		'proforma_invoice': 'fa-file-text-o',
+		'payment_certificate': 'fa-certificate',
+		'tax_invoice': 'fa-file-text'
+	};
+	return icons[docType] || 'fa-file';
+}
+
+function getDocumentTypeLabel(docType) {
+	const labels = {
+		'proforma_invoice': 'Proforma Invoice',
+		'payment_certificate': 'Payment Certificate',
+		'tax_invoice': 'Tax Invoice'
+	};
+	return labels[docType] || docType;
+}
+
+function getDocumentRoute(docType) {
+	const routes = {
+		'proforma_invoice': 'sales-invoice',
+		'payment_certificate': 'payment-certificate',
+		'tax_invoice': 'sales-invoice'
+	};
+	return routes[docType] || docType;
+}
 function renderLedgerEntriesTable(entries) {
 	let html = `
 		<table class="ledger-entries-table">
@@ -884,7 +1210,7 @@ function getStatusClass(status) {
 /**
  * Open document in new tab
  */
-window.openDocument = function(doctype, name) {
+window.openDocument = function (doctype, name) {
 	if (name && name !== '-') {
 		const route = doctype.toLowerCase().replace(' ', '-');
 		window.open(`/app/${route}/${name}`, '_blank');
@@ -894,7 +1220,7 @@ window.openDocument = function(doctype, name) {
 /**
  * Create Payment Certificate from Proforma
  */
-window.createPCFromProforma = function(proformaName) {
+window.createPCFromProforma = function (proformaName) {
 	frappe.prompt([
 		{
 			fieldname: 'accepted_amount',
@@ -909,7 +1235,7 @@ window.createPCFromProforma = function(proformaName) {
 			default: frappe.datetime.get_today(),
 			reqd: 1
 		}
-	], function(values) {
+	], function (values) {
 		frappe.call({
 			method: 'construction_management.api.boq_invoice.create_payment_certificate',
 			args: {
@@ -917,7 +1243,7 @@ window.createPCFromProforma = function(proformaName) {
 				accepted_amount: values.accepted_amount,
 				posting_date: values.posting_date
 			},
-			callback: function(r) {
+			callback: function (r) {
 				if (r.message) {
 					frappe.show_alert({
 						message: __('Payment Certificate {0} created', [r.message]),
@@ -1173,6 +1499,360 @@ function getTransactionHistoryStyles() {
 			background: white;
 			border-radius: 6px;
 			border: 1px solid #e8e8e8;
+		}
+		
+		/* Grouped Transactions Styles */
+		.view-mode-badge {
+			background: #e8f5e9;
+			color: #2e7d32;
+			padding: 2px 8px;
+			border-radius: 10px;
+			font-size: 10px;
+			font-weight: 500;
+			margin-left: 8px;
+		}
+		
+		.view-toggle-container {
+			margin-left: 16px;
+		}
+		
+		.section-subtitle {
+			font-size: 10px;
+			color: #8d99a6;
+			font-weight: normal;
+			margin-left: 8px;
+		}
+		
+		.grouped-transactions-table {
+			width: 100%;
+			border-collapse: collapse;
+			background: white;
+			border-radius: 6px;
+			overflow: hidden;
+			border: 1px solid #e8e8e8;
+		}
+		
+		.grouped-transactions-table th {
+			background: #f7f7f7;
+			padding: 8px 10px;
+			font-size: 10px;
+			font-weight: 500;
+			color: #6c7680;
+			text-transform: uppercase;
+			border-bottom: 1px solid #e8e8e8;
+		}
+		
+		.grouped-transactions-table td {
+			padding: 8px 10px;
+			font-size: 11px;
+			border-bottom: 1px solid #f0f0f0;
+		}
+		
+		.grouped-transaction-row {
+			cursor: pointer;
+			transition: background 0.15s;
+		}
+		
+		.grouped-transaction-row:hover {
+			background: #f5f7fa;
+		}
+		
+		.cycle-id {
+			font-weight: 500;
+		}
+		
+		.cycle-info {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+		}
+		
+		.cycle-number {
+			font-weight: 600;
+			color: #1565c0;
+		}
+		
+		.expand-cycle-btn {
+			padding: 2px 4px;
+			border: none;
+			background: transparent;
+			cursor: pointer;
+			color: #6c7680;
+		}
+		
+		.expand-cycle-btn:hover {
+			color: #1565c0;
+		}
+		
+		.cycle-details-container {
+			padding: 16px;
+			background: #fafbfc;
+			border-radius: 6px;
+			margin: 8px 0;
+		}
+		
+		.cycle-workflow h5 {
+			margin: 0 0 12px 0;
+			font-size: 12px;
+			font-weight: 600;
+			color: #1f272e;
+		}
+		
+		.workflow-steps {
+			display: flex;
+			gap: 16px;
+			flex-wrap: wrap;
+		}
+		
+		.workflow-step {
+			display: flex;
+			align-items: flex-start;
+			gap: 8px;
+			padding: 12px;
+			background: white;
+			border-radius: 6px;
+			border: 1px solid #e8e8e8;
+			min-width: 200px;
+			position: relative;
+		}
+		
+		.workflow-step::after {
+			content: '';
+			position: absolute;
+			right: -8px;
+			top: 50%;
+			transform: translateY(-50%);
+			width: 0;
+			height: 0;
+			border-left: 8px solid #e8e8e8;
+			border-top: 8px solid transparent;
+			border-bottom: 8px solid transparent;
+		}
+		
+		.workflow-step:last-child::after {
+			display: none;
+		}
+		
+		.step-icon {
+			width: 24px;
+			height: 24px;
+			border-radius: 50%;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			font-size: 10px;
+		}
+		
+		.workflow-step.proforma_invoice .step-icon {
+			background: #e3f2fd;
+			color: #1565c0;
+		}
+		
+		.workflow-step.payment_certificate .step-icon {
+			background: #fff3e0;
+			color: #e65100;
+		}
+		
+		.workflow-step.tax_invoice .step-icon {
+			background: #e8f5e9;
+			color: #2e7d32;
+		}
+		
+		.step-content {
+			flex: 1;
+		}
+		
+		.step-title {
+			font-size: 11px;
+			font-weight: 600;
+			color: #1f272e;
+			margin-bottom: 4px;
+		}
+		
+		.step-details {
+			font-size: 10px;
+			color: #6c7680;
+		}
+		
+		.step-details a {
+			color: #2490ef;
+			text-decoration: none;
+			font-weight: 500;
+		}
+		
+		.step-details a:hover {
+			text-decoration: underline;
+		}
+		
+		.step-date, .step-amount {
+			display: block;
+			margin-top: 2px;
+		}
+		
+		.step-amount {
+			font-weight: 600;
+			color: #1f272e;
+		}
+		
+		.cycle-adjustments {
+			margin-top: 16px;
+		}
+		
+		.cycle-adjustments h5 {
+			margin: 0 0 12px 0;
+			font-size: 12px;
+			font-weight: 600;
+			color: #1f272e;
+		}
+		
+		.adjustments-table {
+			width: 100%;
+			border-collapse: collapse;
+			background: white;
+			border-radius: 6px;
+			overflow: hidden;
+			border: 1px solid #e8e8e8;
+		}
+		
+		.adjustments-table th {
+			background: #f7f7f7;
+			padding: 6px 8px;
+			font-size: 10px;
+			font-weight: 500;
+			color: #6c7680;
+			text-transform: uppercase;
+			border-bottom: 1px solid #e8e8e8;
+		}
+		
+		.adjustments-table td {
+			padding: 6px 8px;
+			font-size: 10px;
+			border-bottom: 1px solid #f0f0f0;
+		}
+		
+		.adjustment-type-badge {
+			padding: 2px 6px;
+			border-radius: 4px;
+			font-size: 9px;
+			font-weight: 600;
+			text-transform: uppercase;
+		}
+		
+		.adjustment-type-badge.deduction {
+			background: #ffebee;
+			color: #c62828;
+		}
+		
+		.adjustment-type-badge.adjustment {
+			background: #fff3e0;
+			color: #e65100;
+		}
+		
+		.cycle-actions {
+			display: flex;
+			gap: 4px;
+		}
+		
+		.loading-state {
+			text-align: center;
+			padding: 40px;
+			color: #8d99a6;
+			font-size: 12px;
+		}
+		
+		/* Variance Highlighting */
+		.variance-positive {
+			color: #ff5630 !important;
+			font-weight: 600;
+		}
+		
+		.variance-negative {
+			color: #36b37e !important;
+			font-weight: 600;
+		}
+		
+		.variance-zero {
+			color: #6c7680;
+		}
+		
+		.variance-tooltip {
+			position: relative;
+			cursor: help;
+		}
+		
+		.variance-tooltip:hover::after {
+			content: attr(data-tooltip);
+			position: absolute;
+			bottom: 100%;
+			left: 50%;
+			transform: translateX(-50%);
+			background: #1f272e;
+			color: white;
+			padding: 4px 8px;
+			border-radius: 4px;
+			font-size: 10px;
+			white-space: nowrap;
+			z-index: 1000;
+		}
+		
+		/* Workflow Progress Indicators */
+		.workflow-progress-bar {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			margin: 12px 0;
+		}
+		
+		.progress-step {
+			display: flex;
+			align-items: center;
+			gap: 4px;
+			padding: 4px 8px;
+			border-radius: 12px;
+			font-size: 10px;
+			font-weight: 500;
+		}
+		
+		.progress-step.completed {
+			background: #e8f5e9;
+			color: #2e7d32;
+		}
+		
+		.progress-step.current {
+			background: #e3f2fd;
+			color: #1565c0;
+		}
+		
+		.progress-step.pending {
+			background: #f7f7f7;
+			color: #6c7680;
+		}
+		
+		.progress-arrow {
+			color: #e8e8e8;
+			font-size: 12px;
+		}
+		
+		/* Enhanced Status Badges */
+		.status-badge.workflow-proforma-created {
+			background: #e3f2fd;
+			color: #1565c0;
+		}
+		
+		.status-badge.workflow-pc-draft {
+			background: #fff3e0;
+			color: #e65100;
+		}
+		
+		.status-badge.workflow-pc-approved {
+			background: #e8f5e9;
+			color: #2e7d32;
+		}
+		
+		.status-badge.workflow-tax-invoice-generated {
+			background: #e8f5e9;
+			color: #2e7d32;
+			border: 1px solid #4caf50;
 		}
 	</style>`;
 }
@@ -2067,12 +2747,43 @@ function get_table_styles() {
 		.bill-title { font-size: 14px; font-weight: 600; color: var(--boq-text-primary); }
 		.bill-desc { font-size: 11px; color: var(--boq-text-secondary); margin-top: 2px; }
 		
-		.bill-header-stats { display: flex; gap: 20px; }
+		.bill-header-stats { display: flex; gap: 20px; align-items: center; }
 		.bill-stat { display: flex; flex-direction: column; align-items: flex-end; }
 		.stat-label { font-size: 9px; color: var(--boq-text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
 		.stat-value { font-size: 13px; font-weight: 600; color: var(--boq-text-primary); }
 		.stat-value.positive { color: var(--boq-success); }
 		.stat-value.negative { color: var(--boq-danger); }
+		
+		/* Financial Summary Button */
+		.btn-financial-summary {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			width: 32px;
+			height: 32px;
+			padding: 0;
+			background: rgba(255, 255, 255, 0.9);
+			border: 1px solid var(--boq-border);
+			border-radius: 6px;
+			cursor: pointer;
+			transition: all 0.2s;
+			margin-left: 8px;
+		}
+		
+		.btn-financial-summary:hover {
+			background: #fff;
+			border-color: #2490ef;
+			transform: scale(1.05);
+			box-shadow: 0 2px 8px rgba(36, 144, 239, 0.2);
+		}
+		
+		.btn-financial-summary svg {
+			color: #6c7680;
+		}
+		
+		.btn-financial-summary:hover svg {
+			color: #2490ef;
+		}
 		
 		.bill-items-container { border-top: none; }
 		.bill-toolbar { padding: 10px 16px; background: var(--boq-bg-tertiary); border-bottom: 1px solid var(--boq-border-light); }
@@ -2128,35 +2839,39 @@ function get_table_styles() {
 		.col-group-estimated { background: #f3e5f5 !important; color: #7b1fa2; border-color: #7b1fa2; }
 		.col-group-actual { background: #ffebee !important; color: #c62828; border-color: #c62828; }
 		.col-group-profit { background: #e0f2f1 !important; color: #00695c; border-color: #00695c; }
+		.col-group-financial { background: #e8f5e9 !important; color: #2e7d32; border-color: #2e7d32; }
 		
 		/* Column Widths - Requirements: 4.2, 4.3 */
 		.col-expand { width: 36px; min-width: 36px; text-align: center; }
 		.col-checkbox { width: 32px; min-width: 32px; text-align: center; }
-		.col-desc { min-width: 180px; max-width: 280px; text-align: left; word-wrap: break-word; }
+		.col-desc { width: 180px; min-width: 160px; max-width: 200px; text-align: left; word-wrap: break-word; }
 		.col-unit { width: 50px; min-width: 50px; text-align: center; }
 		.col-rate { width: 80px; min-width: 80px; text-align: right; }
+		.col-amount { width: 90px; min-width: 90px; text-align: right; }
 		.col-num { width: 80px; min-width: 70px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 		.col-actions { width: 160px; min-width: 160px; text-align: center; padding: 4px 2px !important; }
-		.col-total-qty { width: 50px; min-width: 50px; text-align: right; }
+		.col-total-qty { width: 80px; min-width: 70px; text-align: right; }
 		
 		/* Sticky Columns - Requirements: 2.1, 2.2, 2.3, 2.4 */
 		.sticky-col { position: sticky; background: #fff; z-index: 2; }
 		.comprehensive-items-table th.sticky-col { background: #f7f7f7; z-index: 3; }
 		.comprehensive-items-table tr:hover .sticky-col { background: #fafbfc; }
 		
-		/* Sticky column left offsets */
+		/* Sticky column left offsets - Recalculated for fixed widths */
+		/* Expand (36) + Checkbox (32) + Desc (180) + Unit (50) + Total Qty (80) + Rate (80) */
 		.col-expand.sticky-col { left: 0; }
 		.col-checkbox.sticky-col { left: 36px; }
-		.col-desc.sticky-col { left: 68px; }
-		.col-unit.sticky-col { left: 248px; }
-		.col-total-qty.sticky-col { left: 298px; }
-		.col-rate.sticky-col { left: 348px; }
+		.col-desc.sticky-col { left: 68px; }      /* 36 + 32 */
+		.col-unit.sticky-col { left: 247px; }     /* 68 + 180 */
+		.col-total-qty.sticky-col { left: 297px; } /* 248 + 50 */
+		.col-rate.sticky-col { left: 367px; }     /* 298 + 80 */
+		.col-amount.sticky-col { left: 447px; }   /* 378 + 80 */
 		
 		/* Visual separation for last sticky column - Requirements: 2.1, 2.2, 2.3, 2.4 */
 		.sticky-col-last { 
 			border-right: 2px solid #ccc !important; /* Requirements: 2.1 - Changed from blue to #ccc */
 			box-shadow: 2px 0 4px rgba(0,0,0,0.1); 
-			margin-right: 8px; /* Requirements: 2.4 */
+			margin-right: 0; /* Remove visual gap after last sticky column */
 			transition: border-color 0.2s ease, box-shadow 0.2s ease; /* Requirements: 2.2 */
 		}
 		
@@ -2377,14 +3092,14 @@ function get_table_styles() {
 		/* Large screens (1200px+) */
 		@media (min-width: 1200px) {
 			.comprehensive-items-table { min-width: 2200px; }
-			.col-desc { min-width: 200px; max-width: 300px; }
+			.col-desc { min-width: 180px; max-width: 260px; }
 			.action-btn { width: 40px; height: 40px; }
 		}
 		
 		/* Medium screens (992px - 1199px) */
 		@media (max-width: 1199px) and (min-width: 992px) {
 			.comprehensive-items-table { min-width: 1800px; }
-			.col-desc { min-width: 160px; max-width: 240px; }
+			.col-desc { min-width: 160px; max-width: 220px; }
 			.bill-header-stats { gap: 15px; }
 			.action-btn { width: 36px; height: 36px; min-width: 36px; min-height: 36px; }
 		}
@@ -2603,3 +3318,471 @@ function format_number(value, precision = 3) {
 		maximumFractionDigits: precision
 	});
 }
+
+
+/**
+ * Initialize profit/loss indicators for BOQ items
+ * Requirements: 8.1, 8.2, 8.3, 8.4, 8.5
+ */
+function initialize_profit_indicators(container, items) {
+	if (!window.ProfitLossIndicator) {
+		console.warn('ProfitLossIndicator not loaded');
+		return;
+	}
+
+	const indicator = new window.ProfitLossIndicator();
+
+	// Add indicators to each item row
+	items.forEach(item => {
+		const indicatorContainer = container.find(`.profit-indicator-container[data-item-id="${item.name}"]`);
+		if (indicatorContainer.length > 0) {
+			const itemData = {
+				name: item.name,
+				total_amount: item.revenue?.total || item.amount?.total || 0,
+				total_estimated_cost: item.estimated_costs?.total || 0
+			};
+
+			const profitStatus = indicator.calculateProfitStatus(itemData);
+			const indicatorHTML = indicator.createIndicatorHTML(profitStatus, item.name);
+			indicatorContainer.html(indicatorHTML);
+		}
+	});
+
+	// Store indicator instance for later updates
+	if (!window.boqProfitIndicators) {
+		window.boqProfitIndicators = new Map();
+	}
+	window.boqProfitIndicators.set(container.attr('id') || 'default', indicator);
+
+	return indicator;
+}
+
+/**
+ * Update profit indicator when item data changes
+ * Requirements: 8.5 - Real-time updates
+ */
+function update_profit_indicator(itemId, updatedData) {
+	if (!window.ProfitLossIndicator) return;
+
+	// Get indicator instance
+	const indicators = window.boqProfitIndicators;
+	if (!indicators) return;
+
+	// Update all indicator instances (in case multiple tables)
+	indicators.forEach(indicator => {
+		indicator.updateIndicator(itemId, updatedData);
+	});
+}
+
+/**
+ * Refresh all profit indicators
+ */
+function refresh_profit_indicators(container, items) {
+	if (!window.ProfitLossIndicator) return;
+
+	const indicatorKey = container.attr('id') || 'default';
+	const indicator = window.boqProfitIndicators?.get(indicatorKey);
+
+	if (indicator) {
+		indicator.updateIndicators(items);
+	} else {
+		initialize_profit_indicators(container, items);
+	}
+}
+
+// Export functions for global access
+window.initialize_profit_indicators = initialize_profit_indicators;
+window.update_profit_indicator = update_profit_indicator;
+window.refresh_profit_indicators = refresh_profit_indicators;
+
+/**
+ * Show adjustments for a billing cycle
+ */
+window.showAdjustments = function(cycleId) {
+	// Find the cycle data from the current display
+	const cycleRow = $(`.grouped-transaction-row[data-cycle-id="${cycleId}"]`);
+	if (cycleRow.length === 0) return;
+	
+	// Toggle the cycle details to show adjustments
+	toggleCycleDetails(cycleId);
+};
+
+/**
+ * Helper function to get transaction type class
+ */
+function get_transaction_type_class(doctype) {
+	const classMap = {
+		'Sales Invoice': 'txn-type-invoice',
+		'Proforma Invoice': 'txn-type-proforma',
+		'Payment Certificate': 'txn-type-pc'
+	};
+	return classMap[doctype] || 'txn-type-default';
+}
+
+/**
+ * Helper function to get status class
+ */
+function get_status_class(status) {
+	const classMap = {
+		'Draft': 'status-draft',
+		'Submitted': 'status-submitted',
+		'Paid': 'status-paid',
+		'Cancelled': 'status-cancelled'
+	};
+	return classMap[status] || 'status-default';
+}
+
+/**
+ * Helper function to get short doctype name
+ */
+function get_short_doctype(doctype) {
+	const shortNames = {
+		'Sales Invoice': 'SI',
+		'Proforma Invoice': 'PI',
+		'Payment Certificate': 'PC'
+	};
+	return shortNames[doctype] || doctype;
+}
+
+/**
+ * Test transaction grouping functionality
+ */
+window.testTransactionGrouping = function(boqItem) {
+	if (!boqItem) {
+		frappe.prompt([
+			{
+				fieldname: 'boq_item',
+				fieldtype: 'Link',
+				options: 'BOQ Item',
+				label: 'BOQ Item',
+				reqd: 1
+			}
+		], function(values) {
+			testTransactionGrouping(values.boq_item);
+		}, 'Test Transaction Grouping');
+		return;
+	}
+	
+	frappe.call({
+		method: 'construction_management.api.transaction_grouping_test.test_transaction_grouping',
+		args: { boq_item: boqItem },
+		callback: function(r) {
+			if (r.message) {
+				const result = r.message;
+				let message = `<h4>Transaction Grouping Test Results</h4>`;
+				message += `<p><strong>BOQ Item:</strong> ${result.boq_item}</p>`;
+				message += `<p><strong>Status:</strong> ${result.status}</p>`;
+				
+				if (result.status === 'success') {
+					message += `<h5>Raw Data Summary:</h5>`;
+					message += `<ul>`;
+					message += `<li>Ledger Entries: ${result.raw_data_summary.ledger_entries}</li>`;
+					message += `<li>Payment Certificates: ${result.raw_data_summary.payment_certificates}</li>`;
+					message += `<li>Total Amount: ${format_currency(result.raw_data_summary.total_amount)}</li>`;
+					message += `</ul>`;
+					
+					message += `<h5>Grouped Data Summary:</h5>`;
+					message += `<ul>`;
+					message += `<li>Billing Cycles: ${result.grouped_data_summary.billing_cycles}</li>`;
+					message += `<li>Total Amount: ${format_currency(result.grouped_data_summary.total_amount)}</li>`;
+					message += `</ul>`;
+					
+					const validation = result.validation_results;
+					message += `<h5>Validation Results:</h5>`;
+					message += `<ul>`;
+					message += `<li>Amount Match: ${validation.total_amount_match ? '✅' : '❌'}</li>`;
+					message += `<li>Quantity Match: ${validation.total_qty_match ? '✅' : '❌'}</li>`;
+					if (validation.issues.length > 0) {
+						message += `<li>Issues: ${validation.issues.join(', ')}</li>`;
+					}
+					message += `</ul>`;
+				} else {
+					message += `<p><strong>Error:</strong> ${result.error_message}</p>`;
+				}
+				
+				frappe.msgprint({
+					title: 'Transaction Grouping Test',
+					message: message,
+					indicator: result.status === 'success' ? 'green' : 'red'
+				});
+			}
+		}
+	});
+};
+
+/**
+ * Run comprehensive transaction grouping tests
+ */
+window.runComprehensiveGroupingTest = function() {
+	frappe.call({
+		method: 'construction_management.api.transaction_grouping_test.run_comprehensive_test',
+		callback: function(r) {
+			if (r.message) {
+				const result = r.message;
+				let message = `<h4>Comprehensive Transaction Grouping Test Results</h4>`;
+				
+				if (result.status === 'completed') {
+					const summary = result.summary;
+					message += `<h5>Test Summary:</h5>`;
+					message += `<ul>`;
+					message += `<li>Total Tests: ${summary.total_tests}</li>`;
+					message += `<li>Successful Tests: ${summary.successful_tests}</li>`;
+					message += `<li>Failed Tests: ${summary.failed_tests}</li>`;
+					message += `<li>Integrity Passes: ${summary.integrity_passes}</li>`;
+					message += `<li>Integrity Failures: ${summary.integrity_failures}</li>`;
+					message += `</ul>`;
+					
+					message += `<h5>Items Tested:</h5>`;
+					message += `<ul>`;
+					result.sample_items_tested.forEach(item => {
+						message += `<li>${item}</li>`;
+					});
+					message += `</ul>`;
+				} else {
+					message += `<p><strong>Error:</strong> ${result.error_message}</p>`;
+				}
+				
+				frappe.msgprint({
+					title: 'Comprehensive Test Results',
+					message: message,
+					indicator: result.status === 'completed' ? 'green' : 'red'
+				});
+			}
+		}
+	});
+};
+/**
+ * Enhanced variance highlighting functions
+ */
+function getVarianceClass(varianceAmount) {
+	if (!varianceAmount || varianceAmount === 0) return 'variance-zero';
+	return varianceAmount > 0 ? 'variance-positive' : 'variance-negative';
+}
+
+/**
+ * Render workflow progress bar
+ */
+function renderWorkflowProgressBar(cycle) {
+	const steps = [
+		{ key: 'proforma_invoice', label: 'Proforma', icon: 'fa-file-text-o' },
+		{ key: 'payment_certificate', label: 'Payment Cert', icon: 'fa-certificate' },
+		{ key: 'tax_invoice', label: 'Tax Invoice', icon: 'fa-file-text' }
+	];
+	
+	let progressHtml = '<div class="workflow-progress-bar">';
+	
+	steps.forEach((step, index) => {
+		let stepClass = 'pending';
+		
+		if (cycle[step.key]) {
+			stepClass = 'completed';
+		} else if (index === 0 || (index === 1 && cycle.proforma_invoice) || (index === 2 && cycle.payment_certificate)) {
+			stepClass = 'current';
+		}
+		
+		progressHtml += `
+			<div class="progress-step ${stepClass}">
+				<i class="fa ${step.icon}"></i>
+				<span>${step.label}</span>
+			</div>
+		`;
+		
+		if (index < steps.length - 1) {
+			progressHtml += '<i class="fa fa-arrow-right progress-arrow"></i>';
+		}
+	});
+	
+	progressHtml += '</div>';
+	return progressHtml;
+}
+
+/**
+ * Enhanced expand/collapse functionality with animation
+ */
+window.toggleCycleDetailsEnhanced = function(cycleId) {
+	const detailsRow = $(`#cycle-details-${cycleId}`);
+	const expandBtn = $(`.grouped-transaction-row[data-cycle-id="${cycleId}"] .expand-cycle-btn i`);
+	const cycleRow = $(`.grouped-transaction-row[data-cycle-id="${cycleId}"]`);
+	
+	if (detailsRow.is(':visible')) {
+		// Collapse with animation
+		detailsRow.find('.cycle-details-container').slideUp(300, function() {
+			detailsRow.hide();
+			expandBtn.removeClass('fa-chevron-up').addClass('fa-chevron-down');
+			cycleRow.removeClass('expanded');
+		});
+	} else {
+		// Expand with animation
+		detailsRow.show();
+		detailsRow.find('.cycle-details-container').hide().slideDown(300);
+		expandBtn.removeClass('fa-chevron-down').addClass('fa-chevron-up');
+		cycleRow.addClass('expanded');
+		
+		// Scroll to details if needed
+		setTimeout(() => {
+			const detailsTop = detailsRow.offset().top;
+			const windowTop = $(window).scrollTop();
+			const windowHeight = $(window).height();
+			
+			if (detailsTop > windowTop + windowHeight - 200) {
+				$('html, body').animate({
+					scrollTop: detailsTop - 100
+				}, 300);
+			}
+		}, 350);
+	}
+};
+
+/**
+ * Show detailed variance breakdown
+ */
+window.showVarianceBreakdown = function(cycleId, proformaAmount, pcAmount, variance) {
+	const variancePercent = proformaAmount > 0 ? ((variance / proformaAmount) * 100).toFixed(2) : 0;
+	const varianceType = variance > 0 ? 'Loss' : variance < 0 ? 'Gain' : 'No Variance';
+	const varianceClass = variance > 0 ? 'text-danger' : variance < 0 ? 'text-success' : 'text-muted';
+	
+	const message = `
+		<div class="variance-breakdown">
+			<h5>Variance Breakdown - Cycle ${cycleId}</h5>
+			<table class="table table-bordered">
+				<tr>
+					<td><strong>Proforma Amount:</strong></td>
+					<td class="text-right">${format_currency(proformaAmount)}</td>
+				</tr>
+				<tr>
+					<td><strong>Payment Certificate Amount:</strong></td>
+					<td class="text-right">${format_currency(pcAmount)}</td>
+				</tr>
+				<tr class="${varianceClass}">
+					<td><strong>Variance (${varianceType}):</strong></td>
+					<td class="text-right">
+						${format_currency(Math.abs(variance))}
+						<small>(${variancePercent}%)</small>
+					</td>
+				</tr>
+			</table>
+			<div class="variance-explanation">
+				<small class="text-muted">
+					${variance > 0 ? 
+						'Positive variance indicates the Payment Certificate amount is less than the Proforma amount (potential loss).' :
+						variance < 0 ?
+						'Negative variance indicates the Payment Certificate amount is more than the Proforma amount (potential gain).' :
+						'No variance - Payment Certificate amount matches Proforma amount exactly.'
+					}
+				</small>
+			</div>
+		</div>
+	`;
+	
+	frappe.msgprint({
+		title: 'Variance Details',
+		message: message,
+		indicator: variance > 0 ? 'red' : variance < 0 ? 'green' : 'blue'
+	});
+};
+
+/**
+ * Toggle between detailed and summary view for adjustments
+ */
+window.toggleAdjustmentDetails = function(cycleId) {
+	const adjustmentSection = $(`#cycle-details-${cycleId} .cycle-adjustments`);
+	const toggleBtn = adjustmentSection.find('.adjustment-toggle-btn');
+	
+	if (adjustmentSection.hasClass('detailed-view')) {
+		// Switch to summary view
+		adjustmentSection.removeClass('detailed-view');
+		toggleBtn.text('Show Details');
+		adjustmentSection.find('.adjustments-table tbody tr:gt(2)').slideUp(200);
+	} else {
+		// Switch to detailed view
+		adjustmentSection.addClass('detailed-view');
+		toggleBtn.text('Show Summary');
+		adjustmentSection.find('.adjustments-table tbody tr:gt(2)').slideDown(200);
+	}
+};
+
+/**
+ * Enhanced document navigation with context
+ */
+window.openDocumentWithContext = function(doctype, name, context) {
+	if (!name || name === '-') return;
+	
+	// Store context for the document view
+	if (context) {
+		sessionStorage.setItem(`doc_context_${name}`, JSON.stringify(context));
+	}
+	
+	const route = doctype.toLowerCase().replace(' ', '-');
+	window.open(`/app/${route}/${name}`, '_blank');
+};
+
+/**
+ * Preserve user preferences for view mode
+ */
+function saveViewModePreference(itemName, viewMode) {
+	const preferences = JSON.parse(localStorage.getItem('boq_view_preferences') || '{}');
+	preferences[itemName] = viewMode;
+	localStorage.setItem('boq_view_preferences', JSON.stringify(preferences));
+}
+
+function getViewModePreference(itemName) {
+	const preferences = JSON.parse(localStorage.getItem('boq_view_preferences') || '{}');
+	return preferences[itemName] || 'grouped'; // Default to grouped view
+}
+
+/**
+ * Enhanced view mode toggle with preference saving
+ */
+window.toggleViewModeEnhanced = function(itemName, currentMode) {
+	const row = $(`tr.item-row[data-item="${itemName}"]`);
+	const inlineRow = row.next('.inline-breakdown-row');
+	
+	if (inlineRow.length === 0) return;
+	
+	const newMode = currentMode === 'grouped' ? 0 : 1;
+	const newModeLabel = newMode ? 'grouped' : 'raw';
+	
+	// Save preference
+	saveViewModePreference(itemName, newModeLabel);
+	
+	// Show loading state with better UX
+	const loadingHtml = `
+		<div class="loading-state">
+			<i class="fa fa-spinner fa-spin"></i>
+			<span>Switching to ${newModeLabel} view...</span>
+		</div>
+	`;
+	inlineRow.find('.transaction-history-container').html(loadingHtml);
+	
+	frappe.call({
+		method: 'construction_management.api.boq_invoice.get_boq_invoice_history',
+		args: { 
+			boq_item: itemName,
+			grouped_view: newMode
+		},
+		callback: function(r) {
+			if (r.message) {
+				const newHtml = renderTransactionHistorySection(itemName, r.message);
+				const newInlineRow = $(newHtml);
+				inlineRow.replaceWith(newInlineRow);
+				
+				// Show success indicator
+				frappe.show_alert({
+					message: `Switched to ${newModeLabel} view`,
+					indicator: 'green'
+				});
+			}
+		},
+		error: function() {
+			frappe.show_alert({ 
+				message: __('Failed to switch view mode'), 
+				indicator: 'red' 
+			});
+			
+			// Restore original content on error
+			setTimeout(() => {
+				toggleTransactionHistory(itemName);
+			}, 1000);
+		}
+	});
+};

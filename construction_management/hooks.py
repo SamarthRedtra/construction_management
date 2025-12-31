@@ -47,7 +47,7 @@ doctype_js = {
 	"BOQ": "public/js/boq.js",
 	"Bid": "public/js/bid.js",
 	"Interim Payment Certificate": "public/js/ipc.js",
-	"Project": ["public/js/boq_management_table.js", "public/js/project.js"],
+	"Project": ["public/js/boq_management_table.js", "public/js/boq_fullscreen_manager.js", "public/js/sticky_columns_manager.js", "public/js/profit_loss_indicator.js", "public/js/bill_financial_summary_widget.js", "public/js/project.js"],
 	"Daily Progress Record": "public/js/daily_progress_record.js",
 	"Purchase Receipt": "public/js/purchase_receipt.js"
 }
@@ -150,7 +150,11 @@ doc_events = {
 		"before_submit": "construction_management.overrides.purchase_receipt.before_submit"
 	},
 	"Project": {
-		"on_update": "construction_management.overrides.project.clear_project_cache"
+		"on_update": "construction_management.overrides.project.clear_project_cache",
+		"after_insert": "construction_management.construction_management.doctype.boq_settings.boq_settings.auto_create_project_warehouse"
+	},
+	"Daily Progress Record": {
+		"validate": "construction_management.construction_management.doctype.boq_settings.boq_settings.validate_warehouse_for_dpr"
 	}
 }
 

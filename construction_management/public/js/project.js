@@ -356,7 +356,7 @@ function render_action_bar(container, frm) {
 
 	container.html(`
 		<div class="action-bar-left">
-			<button class="btn-modern btn-fullscreen-icon" onclick="openFullScreenBOQ('${frm.doc.name}')" title="Full Screen View">
+			<button class="btn-modern btn-fullscreen-icon" onclick="openFullScreenBOQ('${frm.doc.name}'); event.stopPropagation(); event.preventDefault();" title="Full Screen View">
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
 				</svg>
@@ -1722,6 +1722,76 @@ function render_cost_progress_row(category, estimated, incurred, variance) {
 			<td class="text-right">${progress}%</td>
 		</tr>
 	`;
+}
+
+// ============================================
+// Item Advances View (Task 9.4)
+// ============================================
+
+window.view_item_advances = function (boq_item) {
+	frappe.call({
+		method: 'construction_management.api.boq_tree.get_boq_item_advances',
+		args: { boq_item: boq_item },
+		callback: function (r) {
+			if (r.message && r.message.length > 0) {
+				show_item_advances_dialog(boq_item, r.message);
+			} else {
+				frappe.msgprint(__('No advance payments found for this item.'));
+			}
+		}
+	});
+};
+
+function show_item_advances_dialog(boq_item, advances) {
+	const total_amount = advances.reduce((sum, adv) => sum + flt(adv.amount), 0);
+
+	const advancesHtml = `
+		<div class="item-advances-wrapper">
+			<div class="advances-summary-mini" style="margin-bottom: 15px; padding: 10px; background: #f0f9ff; border-radius: 6px; border: 1px solid #bae6fd;">
+				<span style="font-size: 13px; color: #0369a1;">Total Advances: <strong>${format_currency(total_amount)}</strong></span>
+			</div>
+			<table class="table table-bordered" style="font-size: 12px;">
+				<thead style="background: #f8f9fa;">
+					<tr>
+						<th>Ref #</th>
+						<th>Date</th>
+						<th class="text-right">Amount</th>
+						<th>Status</th>
+						<th>Remarks</th>
+					</tr>
+				</thead>
+				<tbody>
+					${advances.map(adv => `
+						<tr>
+							<td><a href="/app/boq-advance-payment/${adv.name}">${adv.name}</a></td>
+							<td>${frappe.datetime.str_to_user(adv.date)}</td>
+							<td class="text-right" style="font-weight: 600;">${format_currency(adv.amount)}</td>
+							<td><span class="indicator-pill ${get_advance_status_color(adv.status)}">${adv.status}</span></td>
+							<td style="font-size: 11px; color: #666;">${adv.remarks || '-'}</td>
+						</tr>
+					`).join('')}
+				</tbody>
+			</table>
+		</div>
+	`;
+
+	const d = new frappe.ui.Dialog({
+		title: __('Advance Payments - {0}', [boq_item]),
+		size: 'large',
+		fields: [
+			{
+				fieldtype: 'HTML',
+				fieldname: 'advances_html',
+				options: advancesHtml
+			}
+		]
+	});
+
+	d.onhide = function () {
+		cleanup_modal_and_restore_dashboard();
+	};
+	d.show();
+	ensure_dashboard_visible();
 }
 
 // ============================================
@@ -5191,6 +5261,7 @@ window.download_boq_template = function () {
 // Full Screen BOQ Management View
 // ============================================
 
+
 window.openFullScreenBOQ = function (project) {
 	// Store current state for restoration
 	window._boq_fullscreen_state = {
@@ -5198,22 +5269,35 @@ window.openFullScreenBOQ = function (project) {
 		scrollPosition: window.pageYOffset
 	};
 
-	// Fetch BOQ data for full-screen view
+	// 1. Immediately request fullscreen and show modal (User Gesture Context)
+	showFullScreenBOQModal(project, null, true);
+
+	// 2. Fetch BOQ data for full-screen view
 	frappe.call({
 		method: 'construction_management.api.boq_tree.get_boq_tree_data',
 		args: { project: project },
 		callback: function (r) {
 			if (r.message && r.message.has_boq) {
-				showFullScreenBOQModal(project, r.message);
+				updateFullScreenBOQContent(project, r.message);
 			} else {
 				frappe.msgprint(__('No BOQ data found for this project'));
+				closeFullScreenBOQ();
 			}
 		}
 	});
 };
 
-function showFullScreenBOQModal(project, data) {
+function showFullScreenBOQModal(project, data, isLoading = false) {
+	// Apply full-screen specific styles immediately
+	applyFullScreenStyles();
+
 	// Create full-screen modal
+	const modalContent = isLoading ? `
+		<div class="fullscreen-loading">
+			<div class="loading-spinner"></div>
+			<p>Loading BOQ Management Table...</p>
+		</div>` : renderFullScreenBody(project, data);
+
 	const modal = $(`
 		<div class="boq-fullscreen-modal" id="boq-fullscreen-modal">
 			<div class="fullscreen-header">
@@ -5222,7 +5306,7 @@ function showFullScreenBOQModal(project, data) {
 					<span class="project-name">${project}</span>
 				</div>
 				<div class="fullscreen-actions">
-					<button class="btn btn-default btn-sm" onclick="refreshFullScreenBOQ()">
+					<button class="btn btn-default btn-sm" onclick="refreshFullScreenBOQ('${project}')">
 						<i class="fa fa-refresh"></i> Refresh
 					</button>
 					<button class="btn btn-default btn-sm close-fullscreen" onclick="closeFullScreenBOQ()">
@@ -5230,11 +5314,8 @@ function showFullScreenBOQModal(project, data) {
 					</button>
 				</div>
 			</div>
-			<div class="fullscreen-content">
-				<div class="fullscreen-loading">
-					<div class="loading-spinner"></div>
-					<p>Loading BOQ Management Table...</p>
-				</div>
+			<div class="fullscreen-content" id="fullscreen-content-wrapper">
+				${modalContent}
 			</div>
 		</div>
 	`);
@@ -5245,43 +5326,57 @@ function showFullScreenBOQModal(project, data) {
 
 	// Enable browser full-screen if supported
 	if (document.documentElement.requestFullscreen) {
-		document.documentElement.requestFullscreen().catch(() => {
-			// Fallback to modal full-screen
-			modal.addClass('fallback-fullscreen');
-		});
+		const request = document.documentElement.requestFullscreen();
+		if (request && request.catch) {
+			request.catch(() => {
+				// Fallback to modal full-screen
+				modal.addClass('fallback-fullscreen');
+			});
+		}
 	} else {
 		modal.addClass('fallback-fullscreen');
 	}
 
-	// Render the BOQ management table in full-screen
-	setTimeout(() => {
-		const contentContainer = modal.find('.fullscreen-content');
-		contentContainer.html('<div id="fullscreen-bills-container"></div>');
+	// Lock body scroll
+	$('body').css('overflow', 'hidden');
+	$('body').addClass('boq-fullscreen-active');
 
-		// Use the existing render function but with full-screen optimizations
-		render_boq_management_table(contentContainer.find('#fullscreen-bills-container'), { doc: { name: project } }, data.bills);
-
-		// Apply full-screen specific styles
-		applyFullScreenStyles();
-
-		// Fix z-index for any existing modals/dialogs
-		fixModalZIndex();
-	}, 100);
-
-	// Handle escape key
-	$(document).on('keydown.fullscreen', function (e) {
-		if (e.key === 'Escape') {
-			closeFullScreenBOQ();
+	// If data provided immediately (not loading), render scripts
+	if (!isLoading && data) {
+		const container = modal.find('.boq-fullscreen-container');
+		if (container.length) {
+			render_boq_management_table(container, { doc: { name: project } }, data.bills);
+			renderFullScreenScripts(project, data);
 		}
-	});
+	}
 
 	// Store modal reference
 	window._fullscreen_modal = modal;
 }
 
-// Helper function to fix modal z-index issues
-function fixModalZIndex() {
-	// Ensure all Frappe dialogs have higher z-index than full-screen modal
+function updateFullScreenBOQContent(project, data) {
+	const wrapper = $('#fullscreen-content-wrapper');
+	wrapper.html(renderFullScreenBody(project, data));
+
+	const container = wrapper.find('.boq-fullscreen-container');
+	if (container.length) {
+		render_boq_management_table(container, { doc: { name: project } }, data.bills);
+		renderFullScreenScripts(project, data);
+	}
+}
+
+function renderFullScreenBody(project, data) {
+	return `
+		<div class="boq-fullscreen-container"></div>
+	`;
+}
+
+function renderFullScreenScripts(project, data) {
+	const container = $('.boq-fullscreen-container');
+	const frm = { doc: { name: project } }; // Mock frm object
+
+	// Apply full-screen specific styles
+	applyFullScreenStyles();
 	$(document).on('show.bs.modal', '.modal', function () {
 		const modal = $(this);
 		if ($('#boq-fullscreen-modal').is(':visible')) {
@@ -5299,9 +5394,15 @@ function fixModalZIndex() {
 	});
 
 	// Ensure task management dialogs work properly
-	$(document).on('DOMNodeInserted', '.frappe-dialog', function () {
-		if ($('#boq-fullscreen-modal').is(':visible')) {
-			$(this).css('z-index', 10002);
+	$(document).on('DOMNodeInserted', 'body', function (e) {
+		const target = $(e.target);
+		if (target.hasClass('frappe-dialog') || target.hasClass('modal') || target.closest('.frappe-dialog').length) {
+			if ($('#boq-fullscreen-modal').is(':visible')) {
+				target.css('z-index', 10002);
+				if (target.hasClass('modal')) {
+					target.next('.modal-backdrop').css('z-index', 10001);
+				}
+			}
 		}
 	});
 }
@@ -5341,6 +5442,28 @@ function applyFullScreenStyles() {
 					z-index: 10000 !important;
 					display: none;
 					flex-direction: column;
+				}
+				
+				/* Robust z-index fix for popups in full screen */
+				body.boq-fullscreen-active .modal,
+				body.boq-fullscreen-active .frappe-dialog {
+					z-index: 10002 !important;
+				}
+				
+				body.boq-fullscreen-active .modal-backdrop {
+					z-index: 10001 !important;
+				}
+				
+				body.boq-fullscreen-active .datepicker {
+					z-index: 10003 !important;
+				}
+				
+				body.boq-fullscreen-active .awesomplete > ul {
+					z-index: 10003 !important;
+				}
+				
+				body.boq-fullscreen-active .flatpickr-calendar {
+					z-index: 10003 !important;
 				}
 				
 				.boq-fullscreen-modal.fallback-fullscreen {
@@ -5540,6 +5663,10 @@ window.closeFullScreenBOQ = function () {
 		});
 	}
 
+	// Remove full-screen active class
+	$('body').removeClass('boq-fullscreen-active');
+	$('body').css('overflow', '');
+
 	// Remove event listeners
 	$(document).off('keydown.fullscreen');
 	$(document).off('show.bs.modal');
@@ -5558,12 +5685,16 @@ window.closeFullScreenBOQ = function () {
 	delete window._boq_fullscreen_state;
 };
 
-window.refreshFullScreenBOQ = function () {
-	if (window._boq_fullscreen_state && window._boq_fullscreen_state.project) {
-		const project = window._boq_fullscreen_state.project;
+window.refreshFullScreenBOQ = function (project) {
+	if (!project && window._boq_fullscreen_state) {
+		project = window._boq_fullscreen_state.project;
+	}
 
+	if (project) {
 		// Show loading
-		$('#boq-fullscreen-modal .fullscreen-content').html(`
+		updateFullScreenBOQContent(project, null); // null data triggers loading state if we handled it, but updateFullScreenBOQContent expects data.
+		// Actually, let's use the explicit loading html
+		$('#fullscreen-content-wrapper').html(`
 			<div class="fullscreen-loading">
 				<div class="loading-spinner"></div>
 				<p>Refreshing BOQ data...</p>
@@ -5576,9 +5707,7 @@ window.refreshFullScreenBOQ = function () {
 			args: { project: project },
 			callback: function (r) {
 				if (r.message && r.message.has_boq) {
-					const contentContainer = $('#boq-fullscreen-modal .fullscreen-content');
-					contentContainer.html('<div id="fullscreen-bills-container"></div>');
-					render_boq_management_table(contentContainer.find('#fullscreen-bills-container'), { doc: { name: project } }, r.message.bills);
+					updateFullScreenBOQContent(project, r.message);
 				}
 			}
 		});
