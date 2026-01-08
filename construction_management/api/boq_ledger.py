@@ -108,20 +108,53 @@ def get_cost_to_date(boq_item: str) -> float:
 	Returns:
 		float: Total cost to date
 	"""
-	result = frappe.db.sql("""
-		SELECT COALESCE(SUM(
-			COALESCE(labour_cost, 0) + 
-			COALESCE(material_cost, 0) + 
-			COALESCE(asset_cost, 0) + 
-			COALESCE(subcontract_cost, 0) + 
-			COALESCE(expense_cost, 0)
-		), 0) as total
-		FROM `tabDaily Progress Record`
-		WHERE boq_item = %s
-		AND date <= %s
-	""", (boq_item, today()))
+	# Requirement 2: Real-Time Costing via GL Entries
+	# Calculate cost from GL entries linked to DPRs of this item
+	# This ensures we track "Financial Cost" (GL) rather than just "Operational Cost" (DPR estimates)
 	
-	return flt(result[0][0]) if result else 0
+	posting_date = today()
+	base_cost = frappe.db.sql("""
+		SELECT SUM(gle.debit - gle.credit)
+		FROM `tabGL Entry` gle
+		JOIN `tabDaily Progress Record` dpr ON (
+			dpr.stock_entries LIKE CONCAT('%%', gle.voucher_no, '%%') OR 
+			dpr.journal_entries LIKE CONCAT('%%', gle.voucher_no, '%%')
+		)
+		WHERE dpr.boq_item = %s
+		AND gle.is_cancelled = 0
+		AND gle.project = dpr.project
+		AND gle.posting_date <= %s
+		AND gle.account IN (
+			SELECT name FROM `tabAccount` 
+			WHERE root_type = 'Expense' 
+			OR account_type = 'Work In Progress'
+		)
+	""", (boq_item, posting_date))
+
+	purchase_gl_cost = frappe.db.sql("""
+		SELECT SUM(gle.debit - gle.credit)
+		FROM `tabGL Entry` gle
+		WHERE gle.voucher_type = 'Purchase Invoice'
+		AND gle.voucher_no IN (
+			SELECT pii.parent
+			FROM `tabPurchase Invoice Item` pii
+			JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
+			WHERE pii.boq_item = %s
+			AND pi.docstatus = 1
+		)
+		AND gle.is_cancelled = 0
+		AND gle.posting_date <= %s
+		AND gle.account IN (
+			SELECT name FROM `tabAccount`
+			WHERE root_type = 'Expense'
+			OR account_type = 'Work In Progress'
+		)
+	""", (boq_item, posting_date))
+
+	total = flt(base_cost[0][0] if base_cost and base_cost[0][0] else 0) + \
+		flt(purchase_gl_cost[0][0] if purchase_gl_cost and purchase_gl_cost[0][0] else 0)
+
+	return total
 
 
 def get_project_boq_for_item(boq_item_name: str) -> str:
@@ -472,3 +505,139 @@ def recalculate_progressive_values(project: str = None, boq_item: str = None):
 	
 	frappe.db.commit()
 	frappe.msgprint(_("Recalculated progressive values for {0} ledger entries").format(updated_count))
+
+
+def recalculate_ledger_for_item(boq_item):
+	"""
+	Helper to recalculate progressive values for a single BOQ item.
+	Can be called from other doctypes without "System Manager" restriction.
+	"""
+	entries = frappe.get_all(
+		"BOQ Progress Ledger",
+		filters={"boq_item": boq_item},
+		fields=["name", "qty", "amount", "certified_amount", "tax_invoice_amount", "source"],
+		order_by="posting_date ASC, creation ASC"
+	)
+	
+	running_qty = 0.0
+	running_amount = 0.0
+	
+	for entry in entries:
+		# Determine the "Active Amount" for this ledger row
+		# If it's a consolidated row (PI->PC->TI), use the most mature amount available
+		active_qty = flt(entry.qty) # Base qty
+		
+		# If we updated the row with PC/TI amounts, use those for calculation
+		if entry.tax_invoice_amount:
+			active_amount = flt(entry.tax_invoice_amount)
+		elif entry.certified_amount:
+			active_amount = flt(entry.certified_amount)
+		else:
+			active_amount = flt(entry.amount) # Base amount (defaults to PI)
+		
+		# Set context for this row
+		prev_qty = running_qty
+		prev_amount = running_amount
+		
+		# Update running totals
+		running_qty += active_qty
+		running_amount += active_amount
+		
+		# Update the ledger entry with corrected progressive values
+		frappe.db.set_value("BOQ Progress Ledger", entry.name, {
+			"prev_qty": prev_qty,
+			"prev_amount": prev_amount,
+			"current_qty": active_qty,
+			"current_amount": active_amount,
+			"accumulated_qty": running_qty,
+			"accumulated_amount": running_amount
+		}, update_modified=False)
+	
+	# Update BOQ Item statistics
+	try:
+		item_doc = frappe.get_doc("BOQ Item", boq_item)
+		# limit what we calculate/update to avoid deep recursion if triggers are active
+		item_doc.calculate_amounts()
+		item_doc.db_update() # Use db_update to avoid triggering full validation/save hooks if not needed
+	except Exception as e:
+		frappe.log_error(f"Failed to update BOQ Item {boq_item} stats: {str(e)}", "BOQ Ledger Update")
+	
+	# After recalculating ledger for item, update Project Financials
+	item_doc = frappe.db.get_value("BOQ Item", boq_item, "project", as_dict=True)
+	if item_doc:
+		update_project_financials(item_doc.project)
+
+def update_project_financials(project):
+	"""
+	Update Project-level financial summaries from BOQ Ledger and BOQ Items.
+	"""
+	# 1. Revenue & Financials from Ledger
+	ledger_totals = frappe.db.sql("""
+		SELECT 
+			COALESCE(SUM(current_amount), 0) as total_revenue,
+			COALESCE(SUM(retention_amount), 0) as total_retention_retained,
+			COALESCE(SUM(advance_deduction), 0) as total_advance_utilized
+			FROM `tabBOQ Progress Ledger`
+		WHERE project = %s AND docstatus = 1
+	""", project, as_dict=True)
+	
+	total_revenue = flt(ledger_totals[0].total_revenue) if ledger_totals else 0.0
+	total_retention_retained = flt(ledger_totals[0].total_retention_retained) if ledger_totals else 0.0
+	total_advance_utilized = flt(ledger_totals[0].total_advance_utilized) if ledger_totals else 0.0
+	
+	# 2. Estimates from Project BOQ (Approved)
+	boq_totals = frappe.db.sql("""
+		SELECT 
+			COALESCE(SUM(total_boq_value), 0) as total_boq_value
+		FROM `tabProject BOQ`
+		WHERE project = %s AND status = 'Approved'
+	""", project, as_dict=True)
+	
+	total_boq_value = flt(boq_totals[0].total_boq_value) if boq_totals else 0.0
+	
+	# Fetch total estimated cost from all BOQ Items
+	estimated_totals = frappe.db.sql("""
+		SELECT COALESCE(SUM(total_estimated_cost), 0)
+		FROM `tabBOQ Item`
+		WHERE project = %s
+	""", project)
+	total_estimated_cost = flt(estimated_totals[0][0]) if estimated_totals else 0.0
+	
+	# 3. Actual Costs from BOQ Items
+	actual_cost = frappe.db.sql("""
+		SELECT COALESCE(SUM(cost_to_date), 0)
+		FROM `tabBOQ Item`
+		WHERE project = %s
+	""", project)
+	total_actual_cost = flt(actual_cost[0][0]) if actual_cost else 0.0
+	
+	# 4. Advance Given (Placeholder)
+	# TODO: Implement accurate advance tracking logic based on user's workflow
+	total_advance_given = 0.0
+	
+	# 5. Calculations
+	total_estimated_gp = total_boq_value - total_estimated_cost
+	project_gp_percent = (total_estimated_gp / total_boq_value * 100) if total_boq_value else 0.0
+	
+	total_retention_released = 0.0 # Implement if tracked
+	total_retention_balance = total_retention_retained - total_retention_released
+	
+	total_advance_available = total_advance_given - total_advance_utilized
+	
+	project_net_receivable = total_revenue - total_retention_retained - total_advance_utilized
+	
+	# Update Project
+	frappe.db.set_value("Project", project, {
+		"total_revenue": total_revenue,
+		"total_estimated_cost": total_estimated_cost,
+		"total_actual_cost": total_actual_cost,
+		"total_estimated_gp": total_estimated_gp,
+		"project_gp_percentage": project_gp_percent,
+		"total_retention_retained": total_retention_retained,
+		"total_retention_released": total_retention_released,
+		"total_retention_balance": total_retention_balance,
+		"total_advance_given": total_advance_given,
+		"total_advance_utilized": total_advance_utilized,
+		"total_advance_available": total_advance_available,
+		"project_net_receivable": project_net_receivable
+	})

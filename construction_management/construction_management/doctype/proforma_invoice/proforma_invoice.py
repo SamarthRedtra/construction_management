@@ -143,7 +143,7 @@ class ProformaInvoice(Document):
 		if not frappe.db.exists("DocType", "BOQ Progress Ledger"):
 			return
 		
-		from construction_management.api.boq_ledger import create_ledger_entry
+		from construction_management.api.boq_ledger import create_ledger_entry, recalculate_ledger_for_item
 		
 		# Get existing ledger entries for this proforma
 		existing_entries = frappe.get_all(
@@ -166,42 +166,22 @@ class ProformaInvoice(Document):
 			existing = existing_map.get(item.boq_item)
 			
 			if existing:
-				# Check if values changed
-				if flt(existing.qty) != flt(item.qty) or flt(existing.amount) != flt(item.amount):
-					# Create reversing entry for old value
-					try:
-						create_ledger_entry(
-							boq_item=item.boq_item,
-							qty=-flt(existing.qty),
-							amount=-flt(existing.amount),
-							source="Proforma Reversal",
-							reference_doctype="Proforma Invoice",
-							reference_name=self.name,
-							posting_date=today(),
-							remarks=f"Revision of Proforma Invoice {self.name}"
-						)
-						
-						# Create new entry with updated value
-						create_ledger_entry(
-							boq_item=item.boq_item,
-							qty=flt(item.qty),
-							amount=flt(item.amount),
-							source="Proforma",
-							reference_doctype="Proforma Invoice",
-							reference_name=self.name,
-							posting_date=self.posting_date,
-							remarks=f"Revised Proforma Invoice {self.name}",
-							proforma_invoice=self.name,
-							proforma_amount=flt(item.amount)
-						)
-					except Exception as e:
-						frappe.log_error(
-							f"Error updating ledger for Proforma {self.name}, Item {item.boq_item}: {str(e)}",
-							"Proforma Invoice Revision Error"
-						)
-						raise
-				
-				# Remove from map to track processed items
+				# Update the existing ledger row in place (single-row lifecycle)
+				frappe.db.set_value(
+					"BOQ Progress Ledger",
+					existing.name,
+					{
+						"qty": flt(item.qty),
+						"amount": flt(item.amount),
+						"proforma_amount": flt(item.amount),
+						"posting_date": self.posting_date,
+						"remarks": f"Revised Proforma Invoice {self.name}",
+						"source": "Proforma",
+						"reference_doctype": "Proforma Invoice",
+						"reference_name": self.name
+					},
+					update_modified=False
+				)
 				del existing_map[item.boq_item]
 			else:
 				# New item added during revision
@@ -224,26 +204,24 @@ class ProformaInvoice(Document):
 						"Proforma Invoice Revision Error"
 					)
 					raise
+			
+			recalculate_ledger_for_item(item.boq_item)
 		
 		# Handle removed items (remaining in existing_map)
 		for boq_item, existing in existing_map.items():
-			try:
-				create_ledger_entry(
-					boq_item=boq_item,
-					qty=-flt(existing.qty),
-					amount=-flt(existing.amount),
-					source="Proforma Reversal",
-					reference_doctype="Proforma Invoice",
-					reference_name=self.name,
-					posting_date=today(),
-					remarks=f"Item removed in revision of Proforma Invoice {self.name}"
-				)
-			except Exception as e:
-				frappe.log_error(
-					f"Error reversing ledger for removed item in Proforma {self.name}, Item {boq_item}: {str(e)}",
-					"Proforma Invoice Revision Error"
-				)
-				raise
+			frappe.db.set_value(
+				"BOQ Progress Ledger",
+				existing.name,
+				{
+					"qty": 0,
+					"amount": 0,
+					"proforma_amount": 0,
+					"remarks": f"Removed in revision of Proforma Invoice {self.name}",
+					"source": "Proforma Reversal"
+				},
+				update_modified=False
+			)
+			recalculate_ledger_for_item(boq_item)
 	
 	def update_related_documents(self):
 		"""
@@ -299,25 +277,54 @@ class ProformaInvoice(Document):
 		if not frappe.db.exists("DocType", "BOQ Progress Ledger"):
 			return
 		
-		from construction_management.api.boq_ledger import create_ledger_entry
+		from construction_management.api.boq_ledger import create_ledger_entry, recalculate_ledger_for_item
 		
 		for item in self.items:
 			if not item.boq_item:
 				continue
 			
 			try:
-				create_ledger_entry(
-					boq_item=item.boq_item,
-					qty=flt(item.qty),
-					amount=flt(item.amount),
-					source="Proforma",
-					reference_doctype="Proforma Invoice",
-					reference_name=self.name,
-					posting_date=self.posting_date,
-					remarks=f"Proforma Invoice {self.name}",
-					proforma_invoice=self.name,
-					proforma_amount=flt(item.amount)
+				ledger_entry = frappe.db.get_value(
+					"BOQ Progress Ledger",
+					{
+						"boq_item": item.boq_item,
+						"proforma_invoice": self.name
+					},
+					"name"
 				)
+				
+				if ledger_entry:
+					# Update existing PI ledger row (single-row lifecycle)
+					frappe.db.set_value(
+						"BOQ Progress Ledger",
+						ledger_entry,
+						{
+							"qty": flt(item.qty),
+							"amount": flt(item.amount),
+							"proforma_amount": flt(item.amount),
+							"posting_date": self.posting_date,
+							"source": "Proforma",
+							"reference_doctype": "Proforma Invoice",
+							"reference_name": self.name,
+							"remarks": f"Proforma Invoice {self.name}"
+						},
+						update_modified=False
+					)
+				else:
+					create_ledger_entry(
+						boq_item=item.boq_item,
+						qty=flt(item.qty),
+						amount=flt(item.amount),
+						source="Proforma",
+						reference_doctype="Proforma Invoice",
+						reference_name=self.name,
+						posting_date=self.posting_date,
+						remarks=f"Proforma Invoice {self.name}",
+						proforma_invoice=self.name,
+						proforma_amount=flt(item.amount)
+					)
+				
+				recalculate_ledger_for_item(item.boq_item)
 			except Exception as e:
 				frappe.log_error(
 					f"Error creating ledger for Proforma {self.name}, Item {item.boq_item}: {str(e)}",
@@ -334,29 +341,39 @@ class ProformaInvoice(Document):
 		if not frappe.db.exists("DocType", "BOQ Progress Ledger"):
 			return
 		
-		from construction_management.api.boq_ledger import create_ledger_entry
+		from construction_management.api.boq_ledger import recalculate_ledger_for_item
 		
 		for item in self.items:
 			if not item.boq_item:
 				continue
 			
-			try:
-				create_ledger_entry(
-					boq_item=item.boq_item,
-					qty=-flt(item.qty),
-					amount=-flt(item.amount),
-					source="Proforma Reversal",
-					reference_doctype="Proforma Invoice",
-					reference_name=self.name,
-					posting_date=today(),
-					remarks=f"Cancellation of Proforma Invoice {self.name}"
+			ledger_entry = frappe.db.get_value(
+				"BOQ Progress Ledger",
+				{
+					"boq_item": item.boq_item,
+					"proforma_invoice": self.name
+				},
+				"name"
+			)
+			
+			if ledger_entry:
+				frappe.db.set_value(
+					"BOQ Progress Ledger",
+					ledger_entry,
+					{
+						"qty": 0,
+						"amount": 0,
+						"proforma_amount": 0,
+						"payment_certificate": None,
+						"certified_amount": 0,
+						"tax_invoice": None,
+						"tax_invoice_amount": 0,
+						"remarks": f"Cancellation of Proforma Invoice {self.name}",
+						"source": "Proforma Reversal"
+					},
+					update_modified=False
 				)
-			except Exception as e:
-				frappe.log_error(
-					f"Error creating reversing ledger for Proforma {self.name}, Item {item.boq_item}: {str(e)}",
-					"Proforma Invoice Reversal Error"
-				)
-				raise
+				recalculate_ledger_for_item(item.boq_item)
 	
 	def reset_boq_item_current_qty(self):
 		"""Reset current_qty on BOQ Items after proforma creation"""

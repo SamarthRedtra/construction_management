@@ -18,11 +18,46 @@ class BOQItem(Document):
 	def calculate_estimated_costs(self):
 		"""Calculate total estimated cost as sum of all cost components.
 		
-		If materials child table has items, calculate estimated_material_cost from it.
-		If breakdown costs are provided, calculate total from them.
-		If total_estimated_cost is set but no breakdown, preserve it (Total Cost Only mode).
+		Prioritizes Unit Level Breakdown if available.
+		Otherwise checks Materials child table.
+		Otherwise respects manual entry.
 		"""
-		# Calculate material cost from child table if materials exist
+		# Requirement 3: Unit Level Breakdown Calculation
+		if hasattr(self, 'item_breakdown') and self.item_breakdown:
+			costs = {
+				"Material": 0.0,
+				"Labour": 0.0,
+				"Subcontract": 0.0,
+				"Asset": 0.0,
+				"Other": 0.0
+			}
+			unit_rate_total = 0.0
+			
+			for row in self.item_breakdown:
+				# Calculate row amount (Unit Level)
+				row.amount = flt(row.qty_per_unit) * flt(row.rate)
+				unit_rate_total += row.amount
+				
+				# Aggregate into specific cost type totals (Unit Amount * Total Qty)
+				# Ensure case-insensitive matching or exact matching
+				ctype = row.cost_type
+				if ctype in costs:
+					costs[ctype] += (row.amount * flt(self.total_qty))
+			
+			# Set Totals
+			self.total_unit_rate = unit_rate_total
+			self.total_estimated_cost = unit_rate_total * flt(self.total_qty)
+			
+			# Update component fields
+			self.estimated_material_cost = costs["Material"]
+			self.estimated_labour_cost = costs["Labour"]
+			self.estimated_subcontract_cost = costs["Subcontract"]
+			self.estimated_asset_cost = costs["Asset"]
+			self.estimated_other_cost = costs["Other"]
+			
+			return
+
+		# Legacy Logic: Calculate from materials child table
 		if hasattr(self, 'materials') and self.materials:
 			materials_total = sum(flt(m.amount) for m in self.materials)
 			if materials_total > 0:
@@ -42,6 +77,18 @@ class BOQItem(Document):
 			self.total_estimated_cost = breakdown_total
 		elif not self.total_estimated_cost:
 			self.total_estimated_cost = 0
+			
+		# Calculate Estimated GP
+		# Calculate Estimated GP
+		# Note: self.total_amount might not be updated yet as calculate_amounts is called after this
+		potential_total_amount = flt(self.total_qty) * flt(self.rate)
+		
+		if potential_total_amount:
+			self.estimated_gp = potential_total_amount - flt(self.total_estimated_cost)
+			self.estimated_gp_percent = (self.estimated_gp / potential_total_amount * 100)
+		else:
+			self.estimated_gp = 0
+			self.estimated_gp_percent = 0
 	
 	def validate_boq_status(self):
 		"""Prevent modifications to qty/rate when parent BOQ is locked"""
@@ -72,12 +119,15 @@ class BOQItem(Document):
 		balance_qty = flt(self.total_qty) - flt(to_date_qty)
 		
 		if flt(self.current_qty) > balance_qty:
-			frappe.throw(
-				_("Current quantity ({0}) exceeds available balance ({1})").format(
-					self.current_qty, balance_qty
-				),
-				title=_("Over-Billing Error")
-			)
+			# Check setup
+			allow_overbilling = frappe.db.get_value("Project BOQ", self.project_boq, "allow_overbilling")
+			if not allow_overbilling:
+				frappe.throw(
+					_("Current quantity ({0}) exceeds available balance ({1})").format(
+						self.current_qty, balance_qty
+					),
+					title=_("Over-Billing Error")
+				)
 	
 	def calculate_amounts(self):
 		"""Calculate all amount fields"""
@@ -110,6 +160,7 @@ class BOQItem(Document):
 			self.cost_to_date = get_cost_to_date(self.name)
 			self.margin = flt(self.to_date_amount) - flt(self.cost_to_date)
 			
+			purchase_cost = self._get_purchase_invoice_subcontract_cost()
 			# Get cost breakdown from DPR
 			cost_breakdown = frappe.db.sql("""
 				SELECT 
@@ -126,8 +177,27 @@ class BOQItem(Document):
 				self.labour_cost = flt(cost_breakdown[0].labour_cost)
 				self.material_cost = flt(cost_breakdown[0].material_cost)
 				self.asset_cost = flt(cost_breakdown[0].asset_cost)
-				self.subcontract_cost = flt(cost_breakdown[0].subcontract_cost)
+				self.subcontract_cost = flt(cost_breakdown[0].subcontract_cost) + flt(purchase_cost)
 				self.expense_cost = flt(cost_breakdown[0].expense_cost)
+			else:
+				self.subcontract_cost = flt(purchase_cost)
+			
+			# Calculate Total Retention and Advance from Ledger
+			ret_adv = frappe.db.sql("""
+				SELECT 
+					COALESCE(SUM(retention_amount), 0),
+					COALESCE(SUM(advance_deduction), 0)
+				FROM `tabBOQ Progress Ledger`
+				WHERE boq_item = %s AND docstatus = 1
+			""", self.name)
+			
+			if ret_adv:
+				self.total_retention_amount = flt(ret_adv[0][0])
+				self.total_advance_deducted = flt(ret_adv[0][1])
+			else:
+				self.total_retention_amount = 0.0
+				self.total_advance_deducted = 0.0
+
 		else:
 			# New item - initialize to zero
 			self.prev_qty = 0
@@ -138,6 +208,20 @@ class BOQItem(Document):
 			self.balance_amount = flt(self.total_amount) - flt(self.current_amount)
 			self.cost_to_date = 0
 			self.margin = 0
+			self.total_retention_amount = 0.0
+			self.total_advance_deducted = 0.0
+
+	def _get_purchase_invoice_subcontract_cost(self) -> float:
+		"""Sum subcontract cost from Purchase Invoice items linked to this BOQ item."""
+		result = frappe.db.sql("""
+			SELECT COALESCE(SUM(pii.amount), 0) as total
+			FROM `tabPurchase Invoice Item` pii
+			JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
+			WHERE pii.boq_item = %s
+			AND pi.docstatus = 1
+		""", self.name)
+
+		return flt(result[0][0]) if result else 0.0
 	
 	def update_billing_status(self):
 		"""Update billing status based on progress"""

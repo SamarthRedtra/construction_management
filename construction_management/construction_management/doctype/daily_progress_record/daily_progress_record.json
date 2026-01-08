@@ -8,6 +8,7 @@
 	"field_order": [
 		"naming_series",
 		"project",
+		"warehouse",
 		"boq_item",
 		"bill_no",
 		"column_break_1",
@@ -54,6 +55,12 @@
 			"label": "Project",
 			"options": "Project",
 			"reqd": 1
+		},
+		{
+			"fieldname": "warehouse",
+			"fieldtype": "Link",
+			"label": "Site Location",
+			"options": "Warehouse"
 		},
 		{
 			"fieldname": "boq_item",

@@ -12,6 +12,7 @@
 		"column_break_1",
 		"status",
 		"currency",
+		"allow_overbilling",
 		"section_details",
 		"description",
 		"column_break_2",
@@ -70,6 +71,12 @@
 			"label": "Currency",
 			"options": "Currency",
 			"default": "AED"
+		},
+		{
+			"default": "0",
+			"fieldname": "allow_overbilling",
+			"fieldtype": "Check",
+			"label": "Allow Overbilling"
 		},
 		{
 			"fieldname": "section_details",

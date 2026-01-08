@@ -59,7 +59,9 @@ class BOQBill(Document):
 				COALESCE(SUM(prev_qty), 0) as prev_qty,
 				COALESCE(SUM(current_qty), 0) as current_qty,
 				COALESCE(SUM(to_date_qty), 0) as to_date_qty,
-				COALESCE(SUM(balance_qty), 0) as balance_qty
+				COALESCE(SUM(balance_qty), 0) as balance_qty,
+				COALESCE(SUM(total_retention_amount), 0) as total_retention_amount,
+				COALESCE(SUM(total_advance_deducted), 0) as total_advance_deducted
 			FROM `tabBOQ Item`
 			WHERE parent_bill = %s
 		""", self.name, as_dict=True)
@@ -74,6 +76,9 @@ class BOQBill(Document):
 			self.estimated_subcontract_cost = flt(totals[0].estimated_subcontract_cost)
 			self.estimated_asset_cost = flt(totals[0].estimated_asset_cost)
 			self.estimated_other_cost = flt(totals[0].estimated_other_cost)
+			# Financials
+			self.total_retention_amount = flt(totals[0].total_retention_amount)
+			self.total_advance_deducted = flt(totals[0].total_advance_deducted)
 			# Quantity tracking
 			if hasattr(self, 'prev_qty'):
 				self.prev_qty = flt(totals[0].prev_qty)

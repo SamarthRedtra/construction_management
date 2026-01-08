@@ -71,7 +71,8 @@ def export_boq_to_excel(project: str) -> str:
 		("Current Billing", 19, 20, billing_fill),
 		("Estimated Cost", 21, 26, estimated_fill),
 		("Actual Cost", 27, 32, actual_fill),
-		("Profitability", 33, 34, profit_fill),
+		("Profitability", 33, 36, profit_fill),
+		("Financial Summary", 37, 39, profit_fill) # Using profit fill for financial summary for consistency
 	]
 	
 	for label, start_col, end_col, fill in group_headers:
@@ -103,7 +104,9 @@ def export_boq_to_excel(project: str) -> str:
 		# Actual Cost
 		"Material", "Labour", "Asset", "S/C", "Other", "Total",
 		# Profitability
-		"GP", "GP%"
+		"Actual GP", "Actual GP%", "Est. GP", "Est. GP%",
+		# Financial Summary
+		"Retention", "Advances", "Net Amount"
 	]
 	
 	for col, header in enumerate(headers, 1):
@@ -131,10 +134,64 @@ def export_boq_to_excel(project: str) -> str:
 		ws.cell(row=row, column=5, value=qty.get('total', 0)).fill = bill_fill
 		
 		# Apply bill fill to all other cells in the row
-		for col in range(1, 35):
+		for col in range(1, 40):
 			if col != 5: # Already set above
 				ws.cell(row=row, column=col).fill = bill_fill
 			ws.cell(row=row, column=col).border = thin_border
+		
+		# Fill summary data for Bill row
+		ws.cell(row=row, column=6, value="") # Rate n/a
+		
+		# Revenue columns
+		ws.cell(row=row, column=7, value=revenue.get('proforma', 0))
+		ws.cell(row=row, column=8, value=revenue.get('pc', 0))
+		ws.cell(row=row, column=9, value=revenue.get('tax_invoice', 0))
+		ws.cell(row=row, column=10, value=revenue.get('variance', 0))
+		ws.cell(row=row, column=11, value=revenue.get('balance', 0))
+		ws.cell(row=row, column=12, value=revenue.get('total', 0))
+		
+		# Value Breakdown
+		ws.cell(row=row, column=13, value=amount.get('prev', 0))
+		ws.cell(row=row, column=14, value=amount.get('current', 0))
+		ws.cell(row=row, column=15, value=amount.get('to_date', 0))
+		
+		# Qty Breakdown
+		ws.cell(row=row, column=16, value=qty.get('prev', 0))
+		ws.cell(row=row, column=17, value=qty.get('current', 0))
+		ws.cell(row=row, column=18, value=qty.get('to_date', 0))
+		
+		# Current Billing
+		ws.cell(row=row, column=19, value=qty.get('current', 0))
+		ws.cell(row=row, column=20, value=amount.get('current', 0))
+		
+		# Estimated Cost
+		ws.cell(row=row, column=21, value=estimated.get('material', 0))
+		ws.cell(row=row, column=22, value=estimated.get('labour', 0))
+		ws.cell(row=row, column=23, value=estimated.get('asset', 0))
+		ws.cell(row=row, column=24, value=estimated.get('subcontract', 0))
+		ws.cell(row=row, column=25, value=estimated.get('other', 0))
+		ws.cell(row=row, column=26, value=estimated.get('total', 0))
+		
+		# Actual Cost
+		ws.cell(row=row, column=27, value=actual.get('material', 0))
+		ws.cell(row=row, column=28, value=actual.get('labour', 0))
+		ws.cell(row=row, column=29, value=actual.get('asset', 0))
+		ws.cell(row=row, column=30, value=actual.get('subcontract', 0))
+		ws.cell(row=row, column=31, value=actual.get('other', 0))
+		ws.cell(row=row, column=32, value=actual.get('total', 0))
+		
+		# Profitability
+		ws.cell(row=row, column=33, value=profitability.get('gp', 0))
+		ws.cell(row=row, column=34, value=profitability.get('gp_percent', 0))
+		ws.cell(row=row, column=35, value=profitability.get('estimated_gp', 0))
+		ws.cell(row=row, column=36, value=profitability.get('estimated_gp_percent', 0))
+		
+		# Financial Summary
+		bill_retention = totals.get('retention_amount', 0)
+		bill_advance = totals.get('advance_amount', 0)
+		ws.cell(row=row, column=37, value=bill_retention)
+		ws.cell(row=row, column=38, value=bill_advance)
+		ws.cell(row=row, column=39, value=flt(revenue.get('total', 0)) - flt(bill_retention) - flt(bill_advance))
 		
 		row += 1
 		
@@ -199,8 +256,17 @@ def export_boq_to_excel(project: str) -> str:
 			# Profitability
 			ws.cell(row=row, column=33, value=item_profit.get('gp', 0))
 			ws.cell(row=row, column=34, value=item_profit.get('gp_percent', 0))
+			ws.cell(row=row, column=35, value=item_profit.get('estimated_gp', 0))
+			ws.cell(row=row, column=36, value=item_profit.get('estimated_gp_percent', 0))
 			
-			for col in range(1, 35):
+			# Financial Summary
+			item_retention = item.get('retention_amount', 0)
+			item_advance = item.get('advance_amount', 0)
+			ws.cell(row=row, column=37, value=item_retention)
+			ws.cell(row=row, column=38, value=item_advance)
+			ws.cell(row=row, column=39, value=flt(item_revenue.get('total', 0)) - flt(item_retention) - flt(item_advance))
+			
+			for col in range(1, 40):
 				ws.cell(row=row, column=col).border = thin_border
 			
 			row += 1

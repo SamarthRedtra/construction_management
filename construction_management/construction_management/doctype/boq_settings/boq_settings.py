@@ -181,8 +181,12 @@ def create_default_boq_settings(company):
 		"auto_create_warehouse": 0,
 		"warehouse_naming_series": "PROJ-WH-.####",
 		"default_retention_percentage": 5.0,
-		"advance_deduction_item": "ADVANCE-DEDUCTION"
+		"advance_deduction_item": "ADVANCE-DEDUCTION",
+		"default_warehouse": None
 	})
+	
+	# Ensure the Advance Deduction item exists
+	create_advance_deduction_item()
 	
 	settings_doc.flags.ignore_permissions = True
 	settings_doc.insert()
@@ -254,3 +258,28 @@ def auto_create_project_warehouse(doc, method=None):
 			
 		except Exception as e:
 			frappe.logger().error(f"Error auto-creating warehouse for project {doc.name}: {str(e)}")
+
+
+def create_advance_deduction_item():
+	"""Create default Advance Deduction item if it doesn't exist"""
+	if not frappe.db.exists("Item", "ADVANCE-DEDUCTION"):
+		try:
+			item = frappe.new_doc("Item")
+			item.item_code = "ADVANCE-DEDUCTION"
+			item.item_name = "Advance Deduction"
+			
+			# Use generic group
+			item_group = "Services" if frappe.db.exists("Item Group", "Services") else "All Item Groups"
+			item.item_group = item_group
+			
+			item.is_stock_item = 0
+			item.is_sales_item = 1
+			item.is_purchase_item = 0
+			item.include_item_in_manufacturing = 0
+			
+			item.insert(ignore_permissions=True)
+			frappe.logger().info(f"Created default item: {item.name}")
+			
+		except Exception as e:
+			# Log error but don't fail, maybe manual creation is required due to custom validations
+			frappe.logger().error(f"Failed to create default ADVANCE-DEDUCTION item: {str(e)}")

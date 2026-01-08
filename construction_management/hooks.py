@@ -155,6 +155,9 @@ doc_events = {
 	},
 	"Daily Progress Record": {
 		"validate": "construction_management.construction_management.doctype.boq_settings.boq_settings.validate_warehouse_for_dpr"
+	},
+	"GL Entry": {
+		"on_update": "construction_management.api.gl_hook.update_cost_from_gl"
 	}
 }
 
@@ -269,7 +272,11 @@ fixtures = [
 			"Project-construction_dashboard_section",
 			"Project-construction_dashboard",
 			"Stock Entry Detail-boq_item",
-			"Stock Entry Detail-bill_no"
+			"Stock Entry Detail-bill_no",
+			"Project-budget_control_section",
+			"Project-budget_enforcement_level",
+			"Project-budget_mode",
+			"Project-budget_threshold_percent"
 		]]]
 	}
 ]

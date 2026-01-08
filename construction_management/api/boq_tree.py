@@ -236,7 +236,8 @@ def get_boq_items(bill_name: str) -> list:
 			"billing_status",
 			"estimated_material_cost", "estimated_labour_cost",
 			"estimated_subcontract_cost", "estimated_asset_cost",
-			"estimated_other_cost", "total_estimated_cost"
+			"estimated_other_cost", "total_estimated_cost",
+			"estimated_gp", "estimated_gp_percent"
 		],
 		order_by="idx"
 	)
@@ -269,8 +270,10 @@ def get_boq_items(bill_name: str) -> list:
 		item["revenue"] = revenue_breakdown
 		
 		# Calculate profitability (GP and GP%)
-		# Revenue = Tax Invoice total (actual collected) or PC total if no tax invoice
-		revenue_for_gp = flt(revenue_breakdown.get("tax_invoice_total", 0)) or flt(revenue_breakdown.get("pc_total", 0))
+		# Revenue for GP calculation
+		# Per Requirement 6: Use BOQ Ledger Value (Total Sales Value)
+		# This includes Net Proformas + Invoices, as per the correct Ledger logic
+		revenue_for_gp = flt(item.get("to_date_amount", 0))
 		actual_cost = flt(actual_costs.get("total", 0))
 		
 		gp = revenue_for_gp - actual_cost
@@ -278,11 +281,19 @@ def get_boq_items(bill_name: str) -> list:
 		
 		item["profitability"] = {
 			"gp": flt(gp),
-			"gp_percent": flt(gp_percent, 2)
+			"gp_percent": flt(gp_percent, 2),
+			# Include breakdown for transparency if needed
+			"revenue_basis": revenue_for_gp,
+			"cost_basis": actual_cost,
+			"estimated_gp": flt(item.get("estimated_gp", 0)),
+			"estimated_gp_percent": flt(item.get("estimated_gp_percent", 0))
 		}
 		
 		# Get advance payments for this item (Task 9.4)
 		item["advance_amount"] = get_item_advance_amount(item.name)
+		
+		# Get retention amount (pro-rata from invoice)
+		item["retention_amount"] = get_item_retention_amount(item.name)
 	
 	return items
 
@@ -388,13 +399,32 @@ def get_item_ledger_values(boq_item: str) -> dict:
 	# Get BOQ Item details
 	item = frappe.get_doc("BOQ Item", boq_item)
 	
-	prev_qty = get_previous_qty(boq_item)
-	prev_amount = get_previous_amount(boq_item)
-	to_date_qty = get_to_date_qty(boq_item)
-	to_date_amount = get_to_date_amount(boq_item)
+	# User Request: Show value from last proforma invoiced BOQ ledger entries (Snapshot)
+	# Instead of summing all entries, we fetch the accumulated value from the last active ledger entry.
+	last_entry = frappe.db.get_value("BOQ Progress Ledger", 
+		{"boq_item": boq_item, "docstatus": 1}, 
+		["accumulated_qty", "accumulated_amount"],
+		order_by="posting_date desc, creation desc",
+		as_dict=True
+	)
+	
+	if last_entry:
+		prev_qty = flt(last_entry.get('accumulated_qty'))
+		prev_amount = flt(last_entry.get('accumulated_amount'))
+	else:
+		prev_qty = get_previous_qty(boq_item)
+		prev_amount = get_previous_amount(boq_item)
+	
+	# Current is the difference (items being billed now but not yet submitted)
+	current_qty = flt(item.current_qty) if hasattr(item, 'current_qty') else 0
+	current_amount = flt(current_qty) * flt(item.rate)
+	
+	# Calculate To-Date
+	to_date_qty = prev_qty + current_qty
+	to_date_amount = prev_amount + current_amount
 	
 	# If no ledger entries exist, try to get values from Proforma Invoice items
-	if to_date_qty == 0 and to_date_amount == 0:
+	if to_date_qty == 0 and to_date_amount == 0 and not last_entry:
 		invoice_totals = frappe.db.sql("""
 			SELECT 
 				COALESCE(SUM(pii.qty), 0) as qty,
@@ -406,19 +436,15 @@ def get_item_ledger_values(boq_item: str) -> dict:
 		""", boq_item, as_dict=True)
 		
 		if invoice_totals and invoice_totals[0]:
-			to_date_qty = flt(invoice_totals[0].qty)
-			to_date_amount = flt(invoice_totals[0].amount)
 			# All invoiced amounts are "previous" since they're already submitted
-			prev_qty = to_date_qty
-			prev_amount = to_date_amount
-	
-	# Current is the difference (items being billed now but not yet submitted)
-	current_qty = flt(item.current_qty) if hasattr(item, 'current_qty') else 0
-	current_amount = flt(current_qty) * flt(item.rate)
+			prev_qty = flt(invoice_totals[0].qty)
+			prev_amount = flt(invoice_totals[0].amount)
+			to_date_qty = prev_qty + current_qty
+			to_date_amount = prev_amount + current_amount
 	
 	# Balance
-	balance_qty = flt(item.total_qty) - flt(to_date_qty) - flt(current_qty)
-	balance_amount = flt(item.total_amount) - flt(to_date_amount) - flt(current_amount)
+	balance_qty = flt(item.total_qty) - flt(to_date_qty)
+	balance_amount = flt(item.total_amount) - flt(to_date_amount)
 	
 	return {
 		"qty": {
@@ -480,8 +506,11 @@ def calculate_bill_totals(items: list) -> dict:
 			"variance": 0, "total": 0, "balance": 0
 		},
 		"profitability": {
-			"gp": 0, "gp_percent": 0
-		}
+			"gp": 0, "gp_percent": 0,
+			"estimated_gp": 0, "estimated_gp_percent": 0
+		},
+		"retention_amount": 0,
+		"advance_amount": 0
 	}
 	
 	for item in items:
@@ -513,12 +542,23 @@ def calculate_bill_totals(items: list) -> dict:
 		# Aggregate profitability
 		if "profitability" in item:
 			totals["profitability"]["gp"] += flt(item["profitability"].get("gp", 0))
+			totals["profitability"]["estimated_gp"] += flt(item["profitability"].get("estimated_gp", 0))
+			
+		totals["retention_amount"] += flt(item.get("retention_amount", 0))
+		totals["advance_amount"] += flt(item.get("advance_amount", 0))
 	
 	# Calculate bill-level GP%
 	revenue_for_gp = flt(totals["revenue"]["tax_invoice"]) or flt(totals["revenue"]["pc"])
 	if revenue_for_gp > 0:
 		totals["profitability"]["gp_percent"] = flt(totals["profitability"]["gp"] / revenue_for_gp * 100, 2)
 	
+	# Calculate total estimated GP
+	total_estimated_revenue = totals["amount"]["total"]
+	total_estimated_cost = totals["estimated_costs"]["total"]
+	totals["profitability"]["estimated_gp"] = total_estimated_revenue - total_estimated_cost
+	if total_estimated_revenue > 0:
+		totals["profitability"]["estimated_gp_percent"] = flt(totals["profitability"]["estimated_gp"] / total_estimated_revenue * 100, 2)
+		
 	return totals
 
 
@@ -551,12 +591,14 @@ def update_boq_item_current(boq_item: str, current_qty: float) -> dict:
 	balance_qty = flt(item.total_qty) - flt(to_date_qty)
 	
 	if current_qty > balance_qty:
-		frappe.throw(
-			_("Current quantity ({0}) exceeds available balance ({1})").format(
-				current_qty, balance_qty
-			),
-			title=_("Over-Billing Error")
-		)
+		# Check if overbilling is allowed
+		if not project_boq.allow_overbilling:
+			frappe.throw(
+				_("Current quantity ({0}) exceeds available balance ({1})").format(
+					current_qty, balance_qty
+				),
+				title=_("Over-Billing Error")
+			)
 	
 	if current_qty < 0:
 		frappe.throw(_("Current quantity cannot be negative"))
@@ -785,6 +827,19 @@ def get_boq_item_revenue_breakdown(boq_item: str) -> dict:
 	
 	boq_total = flt(item.total_amount)
 	
+	
+	if not item:
+		return {
+			"proforma_total": 0,
+			"pc_total": 0,
+			"tax_invoice_total": 0,
+			"variance_total": 0,
+			"total_billed": 0,
+			"balance": 0
+		}
+	
+	boq_total = flt(item.total_amount)
+	
 	# Get Proforma Invoice totals for this BOQ item
 	proforma_total = frappe.db.sql("""
 		SELECT COALESCE(SUM(pii.amount), 0) as total
@@ -793,8 +848,7 @@ def get_boq_item_revenue_breakdown(boq_item: str) -> dict:
 		WHERE pii.boq_item = %s AND pi.docstatus = 1
 	""", boq_item)[0][0] or 0
 	
-	# Get Payment Certificate totals and variance for this BOQ item
-	# PC is linked to Proforma Invoice, and may have different accepted_amount
+	# Get Payment Certificate totals and variance
 	pc_data = frappe.db.sql("""
 		SELECT 
 			COALESCE(SUM(pc.accepted_amount), 0) as pc_total,
@@ -806,7 +860,7 @@ def get_boq_item_revenue_breakdown(boq_item: str) -> dict:
 	pc_total = flt(pc_data.pc_total) if pc_data else 0
 	variance_total = flt(pc_data.variance_total) if pc_data else 0
 	
-	# Get Tax Invoice totals for this BOQ item
+	# Get Tax Invoice totals
 	tax_invoice_total = frappe.db.sql("""
 		SELECT COALESCE(SUM(sii.amount), 0) as total
 		FROM `tabSales Invoice Item` sii
@@ -814,19 +868,62 @@ def get_boq_item_revenue_breakdown(boq_item: str) -> dict:
 		WHERE sii.boq_item = %s AND si.docstatus = 1
 	""", boq_item)[0][0] or 0
 	
-	# Balance = BOQ Total - Proforma Total (NOT PC Total)
-	# This ensures variance (loss) doesn't affect the balance
-	balance = boq_total - flt(proforma_total)
+	# Balance = BOQ Total - Proforma Total
+	balance = boq_total - proforma_total
 	
 	return {
 		"proforma_total": flt(proforma_total),
 		"pc_total": flt(pc_total),
 		"tax_invoice_total": flt(tax_invoice_total),
 		"variance_total": flt(variance_total),
-		"total_billed": flt(proforma_total),  # What was actually billed
-		"balance": flt(balance),
-		"boq_total": boq_total
+		"total_billed": flt(proforma_total),
+		"balance": flt(balance)
 	}
+
+def get_item_retention_amount(boq_item: str) -> float:
+	"""
+	Calculate retention amount attributed to this BOQ item.
+	Retention is typically deducted at invoice level.
+	We allocate it pro-rata based on item amount in the invoice.
+	"""
+	# Get all invoices containing this item
+	invoices = frappe.db.sql("""
+		SELECT DISTINCT parent 
+		FROM `tabSales Invoice Item` 
+		WHERE boq_item = %s AND docstatus = 1
+	""", boq_item)
+	
+	total_retention = 0.0
+	
+	for inv in invoices:
+		inv_name = inv[0]
+		
+		# Get invoice totals
+		inv_data = frappe.db.sql("""
+			SELECT 
+				(SELECT COALESCE(SUM(amount), 0) FROM `tabSales Invoice Item` WHERE parent = %(name)s AND item_code != 'RETENTION-DEDUCTION') as total_sales,
+				(SELECT COALESCE(SUM(ABS(amount)), 0) FROM `tabSales Invoice Item` WHERE parent = %(name)s AND item_code = 'RETENTION-DEDUCTION') as retention_deduction
+			FROM `tabSales Invoice`
+			WHERE name = %(name)s
+		""", {"name": inv_name}, as_dict=True)[0]
+		
+		sales_total = flt(inv_data.total_sales)
+		retention_deduction = flt(inv_data.retention_deduction)
+		
+		if sales_total > 0 and retention_deduction > 0:
+			# Get amount of this BOQ item in this invoice
+			item_amount = frappe.db.sql("""
+				SELECT COALESCE(SUM(amount), 0) 
+				FROM `tabSales Invoice Item` 
+				WHERE parent = %s AND boq_item = %s
+			""", (inv_name, boq_item))[0][0] or 0
+			
+			share = (flt(item_amount) / sales_total) * retention_deduction
+			total_retention += share
+			
+	return total_retention
+	
+
 
 
 @frappe.whitelist()
@@ -996,9 +1093,10 @@ def get_boq_item_transactions_with_ledger(boq_item: str) -> list:
 	# Get BOQ Progress Ledger entries (includes project_boq)
 	ledger_entries = frappe.db.sql("""
 		SELECT 
-			reference_doctype as doctype,
-			reference_name as name,
+			reference_doctype,
+			reference_name,
 			posting_date as date,
+			creation,
 			qty,
 			amount,
 			source,
@@ -1009,37 +1107,213 @@ def get_boq_item_transactions_with_ledger(boq_item: str) -> list:
 			certified_amount,
 			tax_invoice,
 			tax_invoice_amount,
-			prev_qty,
-			prev_amount,
-			current_qty,
-			current_amount,
-			accumulated_qty,
-			accumulated_amount,
 			remarks
 		FROM `tabBOQ Progress Ledger`
 		WHERE boq_item = %s
-		ORDER BY posting_date DESC, creation DESC
+		ORDER BY posting_date ASC, creation ASC
 	""", boq_item, as_dict=True)
 	
-	# Add status from referenced documents
-	for entry in ledger_entries:
-		if entry.doctype and entry.name:
-			try:
-				status = frappe.db.get_value(entry.doctype, entry.name, "status")
-				entry["status"] = status or "Unknown"
-			except Exception:
-				entry["status"] = "Unknown"
-		else:
-			entry["status"] = entry.source or "Unknown"
-		
-		# Calculate variance if applicable
-		if entry.proforma_amount and entry.certified_amount:
-			entry["variance"] = flt(entry.proforma_amount) - flt(entry.certified_amount)
-		else:
-			entry["variance"] = 0
-		
-		entry["pc_amount"] = entry.certified_amount
-		
-		transactions.append(entry)
+	# Group by Proforma Invoice (Billing Cycle)
+	billing_cycles = {}
+	independent_entries = []
 	
-	return transactions
+	# Pre-fetch status of all referenced Proforma Invoices to filter revisions
+	pi_names = set(entry.proforma_invoice for entry in ledger_entries if entry.proforma_invoice)
+	cancelled_pis = set()
+	if pi_names:
+		cancelled_pis = set(frappe.db.sql("""
+			SELECT name FROM `tabProforma Invoice` 
+			WHERE name IN %s AND docstatus = 2
+		""", (list(pi_names),), as_list=1)[0] if pi_names else [])
+
+	# 1. Resolve Orphan Entries (Try to find PI for independent entries)
+	orphan_entries = [e for e in ledger_entries if not e.proforma_invoice]
+	
+	# Cache for resolved PIs
+	resolved_pis = {}
+	
+	# Helper to find PI from Sales Invoice
+	si_names = [e.reference_name for e in orphan_entries if e.reference_doctype == 'Sales Invoice']
+	if si_names:
+		# Check if SI is linked to a PC which has a PI
+		si_links = frappe.db.sql("""
+			SELECT si.name, pc.proforma_invoice
+			FROM `tabSales Invoice` si
+			LEFT JOIN `tabPayment Certificate` pc ON pc.tax_invoice = si.name
+			WHERE si.name IN %s AND pc.proforma_invoice IS NOT NULL
+		""", (si_names,), as_dict=True)
+		for link in si_links:
+			resolved_pis[link.name] = link.proforma_invoice
+			
+	# Helper to find PI from Payment Certificate
+	pc_names = [e.reference_name for e in orphan_entries if e.reference_doctype == 'Payment Certificate']
+	if pc_names:
+		pc_links = frappe.db.sql("""
+			SELECT name, proforma_invoice
+			FROM `tabPayment Certificate`
+			WHERE name IN %s AND proforma_invoice IS NOT NULL
+		""", (pc_names,), as_dict=True)
+		for link in pc_links:
+			resolved_pis[link.name] = link.proforma_invoice
+
+	for entry in ledger_entries:
+		# Try to resolve PI if missing
+		if not entry.proforma_invoice and entry.reference_name in resolved_pis:
+			entry.proforma_invoice = resolved_pis[entry.reference_name]
+
+		# Exclude entries related to cancelled PIs
+		if entry.proforma_invoice and entry.proforma_invoice in cancelled_pis:
+			continue
+
+		if entry.proforma_invoice:
+			if entry.proforma_invoice not in billing_cycles:
+				billing_cycles[entry.proforma_invoice] = []
+			billing_cycles[entry.proforma_invoice].append(entry)
+		else:
+			# If it's a "Sales Invoice" but we couldn't resolve a PI, 
+			# it might be a direct invoice. Treat it as independent.
+			independent_entries.append(entry)
+	
+	processed_transactions = []
+	
+	# Process Billing Cycles (PI -> PC -> TI)
+	for pi_name, entries in billing_cycles.items():
+		# Find the "Winner" entry for this cycle (TI > PC > PI > Other)
+		# Because we want to show ONE line representing the final state
+		winner = None
+		
+		# Sort inputs by hierarchy of maturity
+		# We look for the entry that represents the furthest stage
+		ti_entry = next((e for e in entries if e.tax_invoice), None)
+		pc_entry = next((e for e in entries if e.payment_certificate and not e.tax_invoice), None)
+		pi_entry = next((e for e in entries if e.reference_doctype == 'Proforma Invoice'), None)
+		
+		if ti_entry:
+			winner = ti_entry
+			# Ensure we use the TI amount/qty
+			# Ledger "amount" column normally holds the delta or actual value for that transaction
+			# But for the consolidated view, we want the magnitude of the stage
+			# If the ledger logic inserts entries cumulatively (PI then TI), the TI entry usually holds the *Difference*? 
+			# OR does it hold the full value?
+			# Standard Ledger Design: Rows are deltas. 
+			# User's Request: "PI created 3000... Tax Invoice 2500... Show 2500".
+			# This implies we should take the absolute value from the Document fields in the ledger, not necessarily the ledger amount column?
+			# The ledger columns: `proforma_amount`, `certified_amount`, `tax_invoice_amount`.
+			winner.amount = flt(winner.tax_invoice_amount)
+			# Qty logic: usually strictly tracked. Let's assume TI Qty is final.
+			# If ledger entry has `current_qty` (from our select earlier which we removed, let's trust `qty` if it is full magnitude)
+			# Actually, if ledger tracks deltas, `qty` might be 0 for TI if it didn't change from PI.
+			# We should probably use the explicit columns if available, or fall back to PI info.
+			# Let's trust the explicit amount columns which seem to be snapshots.
+		elif pc_entry:
+			winner = pc_entry
+			winner.amount = flt(winner.certified_amount)
+		elif pi_entry:
+			winner = pi_entry
+			winner.amount = flt(winner.proforma_amount)
+		else:
+			# Fallback to the last entry
+			winner = entries[-1]
+			
+		if winner:
+			# Normalize Fields for View
+			winner.proforma = winner.proforma_invoice
+			winner.pc = winner.payment_certificate
+			winner.tax = winner.tax_invoice
+			
+			# Determine status
+			if winner.tax_invoice:
+				winner.status = "Invoiced" # Or fetch status
+				winner.doctype = "Sales Invoice"
+				winner.name = winner.tax_invoice
+			elif winner.payment_certificate:
+				winner.status = "Certified"
+				winner.doctype = "Payment Certificate"
+				winner.name = winner.payment_certificate
+			else:
+				try:
+					winner.status = frappe.db.get_value("Proforma Invoice", winner.proforma_invoice, "status")
+				except:
+					winner.status = "Draft"
+				winner.doctype = "Proforma Invoice"
+				winner.name = winner.proforma_invoice
+			
+			processed_transactions.append(winner)
+	
+	# Add independent entries (e.g. manual adjustments)
+	for entry in independent_entries:
+		processed_transactions.append(entry)
+	
+	# Sort by Date
+	processed_transactions.sort(key=lambda x: (x.date or '', x.creation or '')) # Date Ascending
+	
+	# Re-calculate Running Totals
+	running_qty = 0.0
+	running_amount = 0.0
+	
+	final_transactions = []
+	
+	for tx in processed_transactions:
+		# Calculate Previous (Available before this tx)
+		tx.prev_qty = running_qty
+		tx.prev_amt = running_amount # Field name 'prev amt' requested? Maps to 'prev_amount' usually.
+		# User requested "prev amt" (space/underscore is ambiguous in text, adhering to snake_case for API)
+		tx.prev_amount = running_amount
+		
+		# Current
+		# Use the amount determined from the "Winner" logic
+		current_q = flt(tx.qty) # This might be risky if ledger is delta. 
+		# If `qty` is delta/difference, summing works. 
+		# If user wants "Snapshot" value:
+		# Re-read: "PI value 10000... PI is 3000... TI is 2500... Show 2500".
+		# This implies the row represents the Billing Event Magnitude.
+		# So `current_amount` = 2500.
+		# `accumulated` = `prev` + `current`.
+		
+		# However, `qty` in the ledger row:
+		# If PI had 3. TI has 3. Ledger for TI might have qty=0 (no change).
+		# We likely want the Absolute Quantity of the event.
+		# We don't have explicit `proforma_qty` columns in the select.
+		# But `accumulated_qty` in DB was snapshot.
+		# Let's rely on the fact that for specific Documents (PI, PC), normally `qty` IS the billed qty for that doc.
+		
+		# For robustness:
+		# If it's a TI/PC row, `qty` might be 0 or delta.
+		# Let's assume for now `qty` field holds the distinct quantity billed in this cycle.
+		
+		tx.current_qty = flt(tx.qty) 
+		tx.current_amount = flt(tx.amount)
+		
+		# Accumulated
+		running_qty += tx.current_qty
+		running_amount += tx.current_amount
+		
+		tx.accumulated_qty = running_qty # "accu qty"
+		tx.accumulated_amount = running_amount # "accu amt"
+		
+		# Variance
+		if tx.proforma_amount and tx.certified_amount:
+			tx.variance = flt(tx.proforma_amount) - flt(tx.certified_amount)
+		else:
+			tx.variance = 0
+			
+		# Mappings for specific requested keys if strictly needed by frontend
+		# "prev qty", "curr aty", "accu qty" etc are likely labels in UI, but API keys usually snake_case
+		# We'll stick to standard snake_case keys which the UI likely maps from.
+		
+		final_transactions.append(tx)
+		
+	# Reverse sort for display (Newest First) if that's the convention, 
+	# but user example: prev 0 -> 3000. Next prev 3000 -> ...
+	# This implies Chronological order for calculation, but Display order?
+	# "showing the BOQ ledger entries... visibility I want to be minimized"
+	# Usually ledgers are shown Newest Top.
+	# But the calculation description flows Top->Down (0->3000).
+	# I will return Chronological (Oldest First) or adhere to what the previous code did (Desc)?
+	# Previous code ordered DESC.
+	# If I order DESC, "Previous" usually refers to "Before this occurred".
+	# The user's example is clearly Chronological (0 -> 3000).
+	# If I return DESC, the first row shown (latest) will have proper Pref/Accu values.
+	final_transactions.reverse()
+	
+	return final_transactions

@@ -13,6 +13,7 @@ import frappe
 from frappe.utils import flt, getdate, cstr
 from typing import Dict, List, Any, Optional, Tuple
 import uuid
+import json
 from datetime import datetime
 
 
@@ -148,7 +149,7 @@ class TransactionGrouper:
         
         # Process ledger entries to identify billing cycles
         for entry in ledger_entries:
-            if entry.reference_doctype == 'Sales Invoice' and entry.is_proforma:
+            if entry.reference_doctype == 'Proforma Invoice':
                 cycle_id = self._generate_cycle_id(entry.reference_name)
                 
                 if cycle_id not in billing_cycles:
@@ -156,7 +157,7 @@ class TransactionGrouper:
                         cycle_id, entry, proforma_to_pc.get(entry.reference_name)
                     )
             
-            elif entry.reference_doctype == 'Sales Invoice' and not entry.is_proforma:
+            elif entry.reference_doctype == 'Sales Invoice':
                 # Handle tax invoices - find their parent cycle through payment certificate
                 parent_cycle_id = self._find_parent_cycle_for_tax_invoice(
                     entry.reference_name, payment_certificates
@@ -216,13 +217,18 @@ class TransactionGrouper:
     
     def _create_proforma_record(self, entry: Dict) -> Dict:
         """Create proforma invoice record for billing cycle."""
+        # Check if invoice_status is present (from LEFT JOIN query), otherwise default to Draft
+        status = 'Submitted' if entry.docstatus == 1 else 'Draft'
+        if hasattr(entry, 'invoice_status') and entry.invoice_status:
+            status = entry.invoice_status
+            
         return {
             'name': entry.reference_name,
             'date': entry.posting_date,
             'amount': flt(entry.current_amount),
             'qty': flt(entry.current_qty),
-            'status': entry.invoice_status or 'Draft',
-            'docstatus': entry.invoice_docstatus
+            'status': status,
+            'docstatus': entry.docstatus if hasattr(entry, 'docstatus') else 1
         }
     
     def _create_payment_certificate_record(self, pc: Dict) -> Dict:
@@ -318,8 +324,9 @@ class TransactionGrouper:
         """
         for entry in ledger_entries:
             # Skip entries already processed as main transactions
-            if (entry.reference_doctype == 'Sales Invoice' and 
-                (entry.is_proforma or self._is_tax_invoice_in_cycles(entry.reference_name, billing_cycles))):
+            if (entry.reference_doctype == 'Proforma Invoice' or 
+                (entry.reference_doctype == 'Sales Invoice' and 
+                 self._is_tax_invoice_in_cycles(entry.reference_name, billing_cycles))):
                 continue
             
             # Process deduction/adjustment entries
@@ -740,15 +747,27 @@ def optimize_ledger_query(boq_item: str) -> str:
             pl.accumulated_qty,
             pl.accumulated_amount,
             pl.remarks,
-            si.status as invoice_status,
-            si.docstatus as invoice_docstatus,
+            CASE 
+                WHEN pl.reference_doctype = 'Sales Invoice' THEN si.status
+                WHEN pl.reference_doctype = 'Proforma Invoice' THEN pi.status
+                ELSE NULL
+            END as invoice_status,
+            CASE 
+                WHEN pl.reference_doctype = 'Sales Invoice' THEN si.docstatus
+                WHEN pl.reference_doctype = 'Proforma Invoice' THEN pi.docstatus
+                ELSE NULL
+            END as invoice_docstatus,
             si.outstanding_amount,
-            si.custom_is_proforma as is_proforma
+            0 as is_proforma
         FROM `tabBOQ Progress Ledger` pl
         LEFT JOIN `tabSales Invoice` si 
             ON pl.reference_name = si.name 
             AND pl.reference_doctype = 'Sales Invoice'
             AND si.docstatus != 2
+        LEFT JOIN `tabProforma Invoice` pi
+            ON pl.reference_name = pi.name
+            AND pl.reference_doctype = 'Proforma Invoice'
+            AND pi.docstatus != 2
         WHERE pl.boq_item = %s
         ORDER BY pl.posting_date ASC, pl.creation ASC
     """

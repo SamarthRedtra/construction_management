@@ -15,7 +15,7 @@ class BOQFullScreenManager {
 		this.modalElement = null;
 		this.renderingInProgress = false;
 		this.expansionStates = new Map(); // Track expansion states
-		
+
 		// Bind methods to maintain context
 		this.handleKeydown = this.handleKeydown.bind(this);
 		this.handleResize = this.handleResize.bind(this);
@@ -48,10 +48,10 @@ class BOQFullScreenManager {
 			// Create and show full-screen modal
 			await this.createFullScreenModal(project, data);
 			this.isFullScreenActive = true;
-			
+
 			// Setup event listeners
 			this.setupEventListeners();
-			
+
 		} catch (error) {
 			console.error('Error initializing full-screen BOQ:', error);
 			frappe.show_alert({
@@ -73,14 +73,14 @@ class BOQFullScreenManager {
 			frappe.call({
 				method: 'construction_management.api.boq_tree.get_boq_tree_data',
 				args: { project: project },
-				callback: function(r) {
+				callback: function (r) {
 					if (r.message) {
 						resolve(r.message);
 					} else {
 						reject(new Error('No data received'));
 					}
 				},
-				error: function(err) {
+				error: function (err) {
 					reject(err);
 				}
 			});
@@ -99,16 +99,16 @@ class BOQFullScreenManager {
 		// Create modal HTML
 		const modalHtml = this.generateModalHTML(project);
 		this.modalElement = $(modalHtml);
-		
+
 		// Add to DOM
 		$('body').append(this.modalElement);
-		
+
 		// Apply styles
 		this.applyFullScreenStyles();
-		
+
 		// Show modal with animation
 		this.modalElement.hide().fadeIn(300);
-		
+
 		// Render BOQ content after modal is visible
 		setTimeout(() => {
 			this.renderBOQContent(data);
@@ -156,12 +156,15 @@ class BOQFullScreenManager {
 		try {
 			const contentContainer = this.modalElement.find('#fullscreen-bills-container');
 			const loadingContainer = this.modalElement.find('.loading-container');
-			
+
 			// Create mock frm object for compatibility
 			const mockFrm = {
-				doc: { name: this.currentProject }
+				doc: { name: this.currentProject },
+				reload_doc: () => console.log('Mock reload_doc called'),
+				refresh_field: () => console.log('Mock refresh_field called'),
+				set_value: () => console.log('Mock set_value called')
 			};
-			
+
 			// Render BOQ management table
 			if (typeof render_boq_management_table === 'function') {
 				render_boq_management_table(contentContainer, mockFrm, data.bills);
@@ -169,15 +172,15 @@ class BOQFullScreenManager {
 				console.error('render_boq_management_table function not found');
 				contentContainer.html('<div class="error-message">Failed to load BOQ table</div>');
 			}
-			
+
 			// Hide loading, show content
-			loadingContainer.fadeOut(200, () => {
-				contentContainer.fadeIn(200);
+			loadingContainer.stop(true, true).fadeOut(200, () => {
+				contentContainer.stop(true, true).fadeIn(200);
 			});
-			
+
 			// Setup content-specific event handlers
 			this.setupContentEventHandlers();
-			
+
 		} catch (error) {
 			console.error('Error rendering BOQ content:', error);
 			this.modalElement.find('.fullscreen-content').html(`
@@ -195,17 +198,17 @@ class BOQFullScreenManager {
 	setupEventListeners() {
 		// Keyboard events
 		$(document).on('keydown.boq-fullscreen', this.handleKeydown);
-		
+
 		// Window resize
 		$(window).on('resize.boq-fullscreen', this.handleResize);
-		
+
 		// Modal click events
 		this.modalElement.on('click', '.close-btn', () => this.closeFullScreen());
 		this.modalElement.on('click', '.refresh-btn', () => this.refreshContent());
-		
+
 		// Prevent modal close on content click
 		this.modalElement.on('click', '.fullscreen-content', (e) => e.stopPropagation());
-		
+
 		// Close on backdrop click
 		this.modalElement.on('click', this.handleModalClick);
 	}
@@ -214,16 +217,16 @@ class BOQFullScreenManager {
 	 * Setup content-specific event handlers
 	 */
 	setupContentEventHandlers() {
-		// Enhanced bill expansion handling
-		this.modalElement.find('.bill-header-row').off('click').on('click', (e) => {
+		// Enhanced bill expansion handling - Remove inline onclick to prevent double-toggling
+		this.modalElement.find('.bill-header-row').removeAttr('onclick').off('click').on('click', (e) => {
 			this.handleBillExpansion(e);
 		});
-		
-		// Enhanced item expansion handling
-		this.modalElement.find('.expand-btn').off('click').on('click', (e) => {
+
+		// Enhanced item expansion handling - Remove inline onclick to prevent double-toggling
+		this.modalElement.find('.expand-btn').removeAttr('onclick').off('click').on('click', (e) => {
 			this.handleItemExpansion(e);
 		});
-		
+
 		// Fix z-index for any modals/dialogs opened within full-screen
 		this.fixModalZIndex();
 	}
@@ -235,16 +238,16 @@ class BOQFullScreenManager {
 	handleBillExpansion(e) {
 		e.preventDefault();
 		e.stopPropagation();
-		
+
 		const header = $(e.currentTarget);
 		const section = header.closest('.bill-section');
 		const billName = section.data('bill');
 		const itemsContainer = section.find('.bill-items-container');
 		const isExpanded = section.hasClass('expanded');
-		
+
 		// Store expansion state
 		this.expansionStates.set(billName, !isExpanded);
-		
+
 		// Perform expansion/collapse with enhanced animation
 		if (isExpanded) {
 			itemsContainer.stop(true, false).slideUp(300, () => {
@@ -263,17 +266,17 @@ class BOQFullScreenManager {
 	handleItemExpansion(e) {
 		e.preventDefault();
 		e.stopPropagation();
-		
+
 		const button = $(e.currentTarget);
 		const itemName = button.closest('tr').data('item');
-		
+
 		// Prevent multiple rapid clicks
 		if (button.hasClass('processing')) {
 			return;
 		}
-		
+
 		button.addClass('processing');
-		
+
 		// Use existing transaction history toggle but with enhanced error handling
 		try {
 			if (typeof toggleTransactionHistory === 'function') {
@@ -299,7 +302,7 @@ class BOQFullScreenManager {
 	 */
 	handleKeydown(e) {
 		if (!this.isFullScreenActive) return;
-		
+
 		switch (e.key) {
 			case 'Escape':
 				this.closeFullScreen();
@@ -316,7 +319,7 @@ class BOQFullScreenManager {
 	 */
 	handleResize() {
 		if (!this.isFullScreenActive) return;
-		
+
 		// Debounce resize handling
 		clearTimeout(this.resizeTimeout);
 		this.resizeTimeout = setTimeout(() => {
@@ -339,11 +342,11 @@ class BOQFullScreenManager {
 	 */
 	adjustModalSize() {
 		if (!this.modalElement) return;
-		
+
 		const content = this.modalElement.find('.fullscreen-content');
 		const header = this.modalElement.find('.fullscreen-header');
 		const headerHeight = header.outerHeight() || 60;
-		
+
 		content.css({
 			'max-height': `calc(100vh - ${headerHeight + 20}px)`,
 			'height': `calc(100vh - ${headerHeight + 20}px)`
@@ -361,7 +364,7 @@ class BOQFullScreenManager {
 				$(e.target).next('.modal-backdrop').css('z-index', 10001);
 			}
 		});
-		
+
 		// Fix existing modals
 		$('.modal, .frappe-dialog').each((i, el) => {
 			if ($(el).is(':visible') && this.isFullScreenActive) {
@@ -376,23 +379,31 @@ class BOQFullScreenManager {
 	 */
 	async refreshContent() {
 		if (!this.currentProject) return;
-		
+
 		try {
+			frappe.show_alert({ message: __('Refreshing BOQ data...'), indicator: 'blue' });
+
 			// Show loading state
 			const contentContainer = this.modalElement.find('#fullscreen-bills-container');
 			const loadingContainer = this.modalElement.find('.loading-container');
-			
-			contentContainer.fadeOut(200);
-			loadingContainer.fadeIn(200);
-			
+
+			contentContainer.stop(true, true).fadeOut(200);
+			loadingContainer.stop(true, true).fadeIn(200);
+
 			// Fetch fresh data
 			const data = await this.fetchBOQData(this.currentProject);
-			
+
 			// Re-render content
 			this.renderBOQContent(data);
-			
+
+			frappe.show_alert({ message: __('BOQ data refreshed'), indicator: 'green' });
+
 		} catch (error) {
 			console.error('Error refreshing BOQ content:', error);
+			// Restore UI state
+			this.modalElement.find('.loading-container').hide();
+			this.modalElement.find('#fullscreen-bills-container').fadeIn(200);
+
 			frappe.show_alert({
 				message: __('Failed to refresh BOQ data'),
 				indicator: 'red'
@@ -405,7 +416,7 @@ class BOQFullScreenManager {
 	 */
 	applyFullScreenStyles() {
 		if ($('#boq-fullscreen-styles').length) return;
-		
+
 		const styles = `
 			<style id="boq-fullscreen-styles">
 				.boq-fullscreen-modal {
@@ -547,7 +558,7 @@ class BOQFullScreenManager {
 				}
 			</style>
 		`;
-		
+
 		$('head').append(styles);
 	}
 
@@ -556,16 +567,16 @@ class BOQFullScreenManager {
 	 */
 	closeFullScreen() {
 		if (!this.isFullScreenActive) return;
-		
+
 		// Remove event listeners
 		$(document).off('.boq-fullscreen');
 		$(window).off('.boq-fullscreen');
-		
+
 		// Exit browser full-screen if active
 		if (document.fullscreenElement) {
 			document.exitFullscreen().catch(console.error);
 		}
-		
+
 		// Remove modal with animation
 		if (this.modalElement) {
 			this.modalElement.fadeOut(300, () => {
@@ -573,17 +584,17 @@ class BOQFullScreenManager {
 				this.modalElement = null;
 			});
 		}
-		
+
 		// Restore scroll position
 		if (this.originalScrollPosition) {
 			window.scrollTo(0, this.originalScrollPosition);
 		}
-		
+
 		// Reset state
 		this.isFullScreenActive = false;
 		this.currentProject = null;
 		this.expansionStates.clear();
-		
+
 		// Remove styles
 		$('#boq-fullscreen-styles').remove();
 	}
@@ -609,15 +620,15 @@ class BOQFullScreenManager {
 window.boqFullScreenManager = new BOQFullScreenManager();
 
 // Enhanced global functions for backward compatibility
-window.openFullScreenBOQ = function(project) {
+window.openFullScreenBOQ = function (project) {
 	window.boqFullScreenManager.initializeFullScreen(project);
 };
 
-window.closeFullScreenBOQ = function() {
+window.closeFullScreenBOQ = function () {
 	window.boqFullScreenManager.closeFullScreen();
 };
 
-window.refreshFullScreenBOQ = function() {
+window.refreshFullScreenBOQ = function () {
 	window.boqFullScreenManager.refreshContent();
 };
 

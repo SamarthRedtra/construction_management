@@ -68,6 +68,10 @@ function render_bill_section(bill, frm, isExpanded) {
 					<div class="bill-stat"><span class="stat-label">COST</span><span class="stat-value">${format_currency(actual.total || 0)}</span></div>
 					<div class="bill-stat"><span class="stat-label">GP</span><span class="stat-value ${profitability.gp >= 0 ? 'positive' : 'negative'}">${format_currency(profitability.gp || 0)}</span></div>
 					<div class="bill-stat"><span class="stat-label">GP%</span><span class="stat-value">${(profitability.gp_percent || 0).toFixed(1)}%</span></div>
+					<div class="bill-stat"><span class="stat-label">EST. GP</span><span class="stat-value ${profitability.estimated_gp >= 0 ? 'positive' : 'negative'}">${format_currency(profitability.estimated_gp || 0)}</span></div>
+					<div class="bill-stat"><span class="stat-label">EST. GP%</span><span class="stat-value">${(profitability.estimated_gp_percent || 0).toFixed(1)}%</span></div>
+					<div class="bill-stat"><span class="stat-label">RETENTION</span><span class="stat-value">${format_currency(totals.retention_amount || 0)}</span></div>
+					<div class="bill-stat"><span class="stat-label">ADVANCE</span><span class="stat-value">${format_currency(totals.advance_amount || 0)}</span></div>
 				</div>
 			</div>
 			<div class="bill-items-container" style="${isExpanded ? '' : 'display: none;'}">
@@ -134,8 +138,8 @@ function render_comprehensive_items_table(items, frm) {
 						<th class="col-num">PC</th>
 						<th class="col-num">Tax Inv</th>
 						<th class="col-num">Variance</th>
-						<th class="col-num">BOQ Balance</th>
-						<th class="col-num">Total</th>
+						<th class="col-num">BOQ Balance PI</th>
+						<th class="col-num">BOQ Balance TI</th>
 						<!-- Estimated Cost -->
 						<th class="col-num">Material</th>
 						<th class="col-num">Labour</th>
@@ -184,13 +188,13 @@ function render_comprehensive_items_table(items, frm) {
  */
 function render_item_row(item, frm) {
 	const revenue = item.revenue || {};
-	const qty = item.qty || {};
-	const amount = item.amount || {};
+	const ledgerQty = item.qty || {};
+	const ledgerAmount = item.amount || {};
 	const estimated = item.estimated_costs || {};
 	const actual = item.actual_costs || {};
 	const profitability = item.profitability || {};
 	const isFullyBilled = item.billing_status === 'Fully Billed';
-	const totalQty = item.total_qty ?? qty.total ?? 0;
+	const totalQty = item.total_qty ?? ledgerQty.total ?? 0;
 
 	const varianceClass = revenue.variance > 0 ? 'text-danger' : '';
 
@@ -236,30 +240,30 @@ function render_item_row(item, frm) {
 			</td>
 			<td class="col-unit sticky-col">${item.unit || '-'}</td>
 			<td class="col-total-qty sticky-col">${format_number(totalQty)}</td>
-			<td class="col-rate sticky-col">${format_currency(amount.rate || 0)}</td>
-			<td class="col-amount sticky-col sticky-col-last">${format_currency(amount.total || 0)}</td>
+			<td class="col-rate sticky-col">${format_currency(ledgerAmount.rate || 0)}</td>
+			<td class="col-amount sticky-col sticky-col-last">${format_currency(ledgerAmount.total || 0)}</td>
 			
 			<!-- Qty Breakdown (moved before Value) -->
-			<td class="col-num">${format_number(qty.prev || 0)}</td>
-			<td class="col-num curr-qty-cell" data-item="${item.name}">${format_number(qty.current || 0)}</td>
-			<td class="col-num font-bold">${format_number(qty.to_date || 0)}</td>
+	<td class="col-num">${format_number(ledgerQty.prev || 0)}</td>
+	<td class="col-num curr-qty-cell" data-item="${item.name}">${format_number(ledgerQty.current || 0)}</td>
+	<td class="col-num font-bold">${format_number(ledgerQty.to_date || 0)}</td>
 			
 			<!-- Value Breakdown -->
-			<td class="col-num">${format_currency(amount.prev || 0)}</td>
-			<td class="col-num curr-value-cell" data-item="${item.name}">${format_currency(amount.current || 0)}</td>
-			<td class="col-num font-bold accum-value-cell" data-item="${item.name}">${format_currency(amount.to_date || 0)}</td>
+	<td class="col-num">${format_currency(ledgerAmount.prev || 0)}</td>
+	<td class="col-num curr-value-cell" data-item="${item.name}">${format_currency(ledgerAmount.current || 0)}</td>
+	<td class="col-num font-bold accum-value-cell" data-item="${item.name}">${format_currency(ledgerAmount.to_date || 0)}</td>
 			
 			<!-- Current Billing Inputs -->
 			<td class="col-num">
-				<input type="number" class="current-qty-input" value="${qty.current || 0}" 
-					data-item="${item.name}" data-max="${qty.balance + (qty.current || 0)}" data-rate="${amount.rate || 0}"
-					data-prev-amount="${amount.prev || 0}" data-total-amount="${amount.total || 0}"
+				<input type="number" class="current-qty-input" value="0"
+					data-item="${item.name}" data-max="${ledgerQty.balance || 0}" data-rate="${ledgerAmount.rate || 0}"
+					data-prev-amount="${ledgerAmount.prev || 0}" data-total-amount="${ledgerAmount.total || 0}"
 					step="0.001" min="0" ${isFullyBilled ? 'disabled' : ''} aria-label="Current billing quantity" tabindex="0">
 			</td>
 			<td class="col-num">
-				<input type="number" class="current-value-input" value="${amount.current || 0}" 
-					data-item="${item.name}" data-max="${amount.balance + (amount.current || 0)}" data-rate="${amount.rate || 0}"
-					data-prev-amount="${amount.prev || 0}" data-total-amount="${amount.total || 0}"
+				<input type="number" class="current-value-input" value="0"
+					data-item="${item.name}" data-max="${ledgerAmount.balance || 0}" data-rate="${ledgerAmount.rate || 0}"
+					data-prev-amount="${ledgerAmount.prev || 0}" data-total-amount="${ledgerAmount.total || 0}"
 					step="0.01" min="0" ${isFullyBilled ? 'disabled' : ''} aria-label="Current billing value" tabindex="0">
 			</td>
 			
@@ -269,7 +273,7 @@ function render_item_row(item, frm) {
 			<td class="col-num">${format_currency(revenue.tax_invoice || 0)}</td>
 			<td class="col-num ${varianceClass}">${format_currency(revenue.variance || 0)}</td>
 			<td class="col-num balance-value">${format_currency(revenue.balance || 0)}</td>
-			<td class="col-num font-bold">${format_currency(revenue.total || 0)}</td>
+			<td class="col-num font-bold">${format_currency((ledgerAmount.total || 0) - ((revenue.tax_invoice || 0) + (revenue.variance || 0)))}</td>
 			
 			<!-- Estimated Cost -->
 			<td class="col-num">${format_currency(estimated.material || 0)}</td>
@@ -292,8 +296,9 @@ function render_item_row(item, frm) {
 			<td class="col-num ${profitability.gp_percent >= 0 ? 'text-success' : 'text-danger'}">${(profitability.gp_percent || 0).toFixed(1)}%</td>
 			
 			<!-- Estimated GP -->
-			<td class="col-num ${(estimated.estimated_gp || 0) >= 0 ? 'text-success' : 'text-danger'} font-bold">${format_currency(estimated.estimated_gp || 0)}</td>
-			<td class="col-num ${(estimated.estimated_gp_percent || 0) >= 0 ? 'text-success' : 'text-danger'}">${(estimated.estimated_gp_percent || 0).toFixed(1)}%</td>
+			<!-- Estimated GP -->
+			<td class="col-num ${(profitability.estimated_gp || 0) >= 0 ? 'text-success' : 'text-danger'} font-bold">${format_currency(profitability.estimated_gp || 0)}</td>
+			<td class="col-num ${(profitability.estimated_gp_percent || 0) >= 0 ? 'text-success' : 'text-danger'}">${(profitability.estimated_gp_percent || 0).toFixed(1)}%</td>
 			
 			<!-- Financial Summary -->
 			<td class="col-num text-warning">${format_currency(item.retention_amount || 0)}</td>
@@ -529,12 +534,13 @@ window.generateBulkProforma = function () {
 						cur_frm.reload_doc();
 					}
 					frappe.set_route('Form', 'Proforma Invoice', r.message.name);
+					window.open(`/app/proforma-invoice/${r.message.name}`, '_blank');
 				} else if (r.message.status === 'error') {
 					frappe.show_alert({ message: r.message.error_message || __('Failed to create proforma invoice'), indicator: 'red' });
 				} else if (r.message.name) {
 					// Backward compatibility
 					frappe.show_alert({ message: __('Proforma Invoice {0} created', [r.message.name]), indicator: 'green' });
-					frappe.set_route('Form', 'Proforma Invoice', r.message.name);
+					window.open(`/app/proforma-invoice/${r.message.name}`, '_blank');
 				}
 			}
 		}
@@ -551,7 +557,15 @@ window.createPaymentCertificate = function () {
 	frappe.prompt([
 		{
 			fieldname: 'proforma_invoice', fieldtype: 'Link', label: 'Proforma Invoice', options: 'Proforma Invoice', reqd: 1,
-			get_query: function () { return { filters: { docstatus: 1, status: ['in', ['Submitted', 'Partially Certified']] } }; }
+			get_query: function () {
+				return {
+					filters: {
+						project: cur_frm.doc.name,
+						docstatus: 1,
+						status: ['in', ['Submitted', 'Partially Certified']]
+					}
+				};
+			}
 		},
 		{ fieldname: 'posting_date', fieldtype: 'Date', label: 'Posting Date', default: frappe.datetime.get_today(), reqd: 1 }
 	], function (values) {
@@ -563,7 +577,7 @@ window.createPaymentCertificate = function () {
 			callback: function (r) {
 				if (r.message) {
 					frappe.show_alert({ message: __('Payment Certificate {0} created', [r.message]), indicator: 'green' });
-					frappe.set_route('Form', 'Payment Certificate', r.message);
+					window.open(`/app/payment-certificate/${r.message}`, '_blank');
 				}
 			}
 		});
@@ -595,22 +609,32 @@ window.toggleBillSection = function (header) {
  * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7
  */
 window.toggleTransactionHistory = function (itemName) {
-	const row = $(`tr.item-row[data-item="${itemName}"]`);
+	let row;
+	// Context-aware selection to support Full Screen mode (Issue #6)
+	if ((window.boqFullScreenManager && typeof window.boqFullScreenManager.isActive === 'function' && window.boqFullScreenManager.isActive()) ||
+		$('.boq-fullscreen-modal').is(':visible')) {
+		row = $('.boq-fullscreen-modal').find(`tr.item-row[data-item="${itemName}"]`);
+	} else {
+		row = $(`tr.item-row[data-item="${itemName}"]`).not('.boq-fullscreen-modal *');
+	}
+
+	if (row.length === 0) {
+		row = $(`tr.item-row[data-item="${itemName}"]`);
+	}
+
 	const expandBtn = row.find('.expand-btn');
 	const existingInline = row.next('.inline-breakdown-row');
 
 	// If inline section exists, toggle it
 	if (existingInline.length > 0) {
 		if (existingInline.is(':visible')) {
-			existingInline.slideUp(200, function () {
-				expandBtn.removeClass('expanded');
-				expandBtn.attr('aria-expanded', 'false');
-			});
+			existingInline.hide();
+			expandBtn.removeClass('expanded');
+			expandBtn.attr('aria-expanded', 'false');
 		} else {
-			existingInline.slideDown(200, function () {
-				expandBtn.addClass('expanded');
-				expandBtn.attr('aria-expanded', 'true');
-			});
+			existingInline.show();
+			expandBtn.addClass('expanded');
+			expandBtn.attr('aria-expanded', 'true');
 		}
 		return;
 	}
@@ -620,21 +644,19 @@ window.toggleTransactionHistory = function (itemName) {
 
 	frappe.call({
 		method: 'construction_management.api.boq_invoice.get_boq_invoice_history',
-		args: { 
+		args: {
 			boq_item: itemName,
 			grouped_view: 1  // Request grouped view
 		},
 		callback: function (r) {
 			expandBtn.removeClass('loading');
 			if (r.message) {
-				const inlineHtml = renderTransactionHistorySection(itemName, r.message);
+				const inlineHtml = renderTransactionHistorySection(itemName, r.message, row.find('td').length);
 				const inlineRow = $(inlineHtml);
-				inlineRow.hide();
 				row.after(inlineRow);
-				inlineRow.slideDown(200, function () {
-					expandBtn.addClass('expanded');
-					expandBtn.attr('aria-expanded', 'true');
-				});
+				inlineRow.show();
+				expandBtn.addClass('expanded');
+				expandBtn.attr('aria-expanded', 'true');
 			} else {
 				frappe.show_alert({ message: __('No transaction history found'), indicator: 'blue' });
 			}
@@ -650,7 +672,7 @@ window.toggleTransactionHistory = function (itemName) {
  * Render transaction history section for a BOQ Item with support for grouped transactions
  * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6
  */
-function renderTransactionHistorySection(itemName, data) {
+function renderTransactionHistorySection(itemName, data, colSpan) {
 	const boqItem = data.boq_item || {};
 	const summary = data.summary || {};
 	const ledgerEntries = data.ledger_entries || [];
@@ -659,12 +681,12 @@ function renderTransactionHistorySection(itemName, data) {
 	const groupedTransactions = data.grouped_transactions || [];
 	const viewMode = data.view_mode || 'raw';
 
-	// Get column count from parent table
-	const colSpan = $(`tr.item-row[data-item="${itemName}"]`).find('td').length;
+	// Get column count from parent table if not provided
+	const finalColSpan = colSpan || $(`tr.item-row[data-item="${itemName}"]`).first().find('td').length;
 
 	return `
 		<tr class="inline-breakdown-row" data-item="${itemName}">
-			<td colspan="${colSpan}">
+			<td colspan="${finalColSpan}">
 				<div class="transaction-history-container">
 					<!-- Header with BOQ Item Summary -->
 					<div class="transaction-header">
@@ -702,10 +724,10 @@ function renderTransactionHistorySection(itemName, data) {
 						</div>
 					</div>
 					
-					${viewMode === 'grouped' && groupedTransactions.length > 0 ? 
-						renderGroupedTransactionsSection(groupedTransactions) : 
-						renderRawTransactionsSection(ledgerEntries, paymentCertificates, pendingProformas)
-					}
+					${viewMode === 'grouped' && groupedTransactions.length > 0 ?
+			renderGroupedTransactionsSection(groupedTransactions) :
+			renderRawTransactionsSection(ledgerEntries, paymentCertificates, pendingProformas)
+		}
 				</div>
 				${getTransactionHistoryStyles()}
 			</td>
@@ -810,25 +832,25 @@ function renderGroupedTransactionsTable(groupedTransactions) {
 					</div>
 				</td>
 				<td class="doc-name">
-					${cycle.proforma_invoice ? 
-						`<a href="/app/sales-invoice/${cycle.proforma_invoice.name}" target="_blank" title="${cycle.proforma_invoice.date}">
+					${cycle.proforma_invoice ?
+				`<a href="/app/sales-invoice/${cycle.proforma_invoice.name}" target="_blank" title="${cycle.proforma_invoice.date}">
 							${cycle.proforma_invoice.name}
 						</a>` : '-'
-					}
+			}
 				</td>
 				<td class="doc-name">
-					${cycle.payment_certificate ? 
-						`<a href="/app/payment-certificate/${cycle.payment_certificate.name}" target="_blank" title="${cycle.payment_certificate.date}">
+					${cycle.payment_certificate ?
+				`<a href="/app/payment-certificate/${cycle.payment_certificate.name}" target="_blank" title="${cycle.payment_certificate.date}">
 							${cycle.payment_certificate.name}
 						</a>` : '-'
-					}
+			}
 				</td>
 				<td class="doc-name">
-					${cycle.tax_invoice ? 
-						`<a href="/app/sales-invoice/${cycle.tax_invoice.name}" target="_blank" title="${cycle.tax_invoice.date}">
+					${cycle.tax_invoice ?
+				`<a href="/app/sales-invoice/${cycle.tax_invoice.name}" target="_blank" title="${cycle.tax_invoice.date}">
 							${cycle.tax_invoice.name}
 						</a>` : '-'
-					}
+			}
 				</td>
 				<td class="text-right">${format_number(consolidated.prev_qty || 0)}</td>
 				<td class="text-right highlight-current">${format_number(consolidated.current_qty || 0)}</td>
@@ -847,11 +869,11 @@ function renderGroupedTransactionsTable(groupedTransactions) {
 				</td>
 				<td>
 					<div class="cycle-actions">
-						${cycle.adjustments && cycle.adjustments.length > 0 ? 
-							`<button class="btn btn-xs btn-info" onclick="showAdjustments('${cycle.cycle_id}')" title="View Adjustments">
+						${cycle.adjustments && cycle.adjustments.length > 0 ?
+				`<button class="btn btn-xs btn-info" onclick="showAdjustments('${cycle.cycle_id}')" title="View Adjustments">
 								<i class="fa fa-list"></i> ${cycle.adjustments.length}
 							</button>` : ''
-						}
+			}
 					</div>
 				</td>
 			</tr>
@@ -935,31 +957,32 @@ function renderCycleDetails(cycle) {
 /**
  * Toggle view mode between grouped and raw
  */
-window.toggleViewMode = function(itemName, currentMode) {
+window.toggleViewMode = function (itemName, currentMode) {
 	const row = $(`tr.item-row[data-item="${itemName}"]`);
 	const inlineRow = row.next('.inline-breakdown-row');
-	
+
 	if (inlineRow.length === 0) return;
-	
+
 	const newMode = currentMode === 'grouped' ? 0 : 1;
-	
+
 	// Show loading state
 	inlineRow.find('.transaction-history-container').html('<div class="loading-state">Switching view...</div>');
-	
+
 	frappe.call({
 		method: 'construction_management.api.boq_invoice.get_boq_invoice_history',
-		args: { 
+		args: {
 			boq_item: itemName,
 			grouped_view: newMode
 		},
-		callback: function(r) {
+		callback: function (r) {
 			if (r.message) {
-				const newHtml = renderTransactionHistorySection(itemName, r.message);
+				const colSpan = inlineRow.find('td').attr('colspan');
+				const newHtml = renderTransactionHistorySection(itemName, r.message, colSpan);
 				const newInlineRow = $(newHtml);
 				inlineRow.replaceWith(newInlineRow);
 			}
 		},
-		error: function() {
+		error: function () {
 			frappe.show_alert({ message: __('Failed to switch view mode'), indicator: 'red' });
 		}
 	});
@@ -968,10 +991,10 @@ window.toggleViewMode = function(itemName, currentMode) {
 /**
  * Toggle cycle details
  */
-window.toggleCycleDetails = function(cycleId) {
+window.toggleCycleDetails = function (cycleId) {
 	const detailsRow = $(`#cycle-details-${cycleId}`);
 	const expandBtn = $(`.grouped-transaction-row[data-cycle-id="${cycleId}"] .expand-cycle-btn i`);
-	
+
 	if (detailsRow.is(':visible')) {
 		detailsRow.slideUp(200);
 		expandBtn.removeClass('fa-chevron-up').addClass('fa-chevron-down');
@@ -3132,9 +3155,6 @@ function get_table_styles() {
 		}
 	</style>`;
 }
-
-
-
 /**
  * Create Payment Certificate from a BOQ Item row
  * This is triggered from the PC button on highlighted rows (Issue #3)
@@ -3398,11 +3418,11 @@ window.refresh_profit_indicators = refresh_profit_indicators;
 /**
  * Show adjustments for a billing cycle
  */
-window.showAdjustments = function(cycleId) {
+window.showAdjustments = function (cycleId) {
 	// Find the cycle data from the current display
 	const cycleRow = $(`.grouped-transaction-row[data-cycle-id="${cycleId}"]`);
 	if (cycleRow.length === 0) return;
-	
+
 	// Toggle the cycle details to show adjustments
 	toggleCycleDetails(cycleId);
 };
@@ -3447,7 +3467,7 @@ function get_short_doctype(doctype) {
 /**
  * Test transaction grouping functionality
  */
-window.testTransactionGrouping = function(boqItem) {
+window.testTransactionGrouping = function (boqItem) {
 	if (!boqItem) {
 		frappe.prompt([
 			{
@@ -3457,22 +3477,22 @@ window.testTransactionGrouping = function(boqItem) {
 				label: 'BOQ Item',
 				reqd: 1
 			}
-		], function(values) {
+		], function (values) {
 			testTransactionGrouping(values.boq_item);
 		}, 'Test Transaction Grouping');
 		return;
 	}
-	
+
 	frappe.call({
 		method: 'construction_management.api.transaction_grouping_test.test_transaction_grouping',
 		args: { boq_item: boqItem },
-		callback: function(r) {
+		callback: function (r) {
 			if (r.message) {
 				const result = r.message;
 				let message = `<h4>Transaction Grouping Test Results</h4>`;
 				message += `<p><strong>BOQ Item:</strong> ${result.boq_item}</p>`;
 				message += `<p><strong>Status:</strong> ${result.status}</p>`;
-				
+
 				if (result.status === 'success') {
 					message += `<h5>Raw Data Summary:</h5>`;
 					message += `<ul>`;
@@ -3480,13 +3500,13 @@ window.testTransactionGrouping = function(boqItem) {
 					message += `<li>Payment Certificates: ${result.raw_data_summary.payment_certificates}</li>`;
 					message += `<li>Total Amount: ${format_currency(result.raw_data_summary.total_amount)}</li>`;
 					message += `</ul>`;
-					
+
 					message += `<h5>Grouped Data Summary:</h5>`;
 					message += `<ul>`;
 					message += `<li>Billing Cycles: ${result.grouped_data_summary.billing_cycles}</li>`;
 					message += `<li>Total Amount: ${format_currency(result.grouped_data_summary.total_amount)}</li>`;
 					message += `</ul>`;
-					
+
 					const validation = result.validation_results;
 					message += `<h5>Validation Results:</h5>`;
 					message += `<ul>`;
@@ -3499,7 +3519,7 @@ window.testTransactionGrouping = function(boqItem) {
 				} else {
 					message += `<p><strong>Error:</strong> ${result.error_message}</p>`;
 				}
-				
+
 				frappe.msgprint({
 					title: 'Transaction Grouping Test',
 					message: message,
@@ -3513,14 +3533,14 @@ window.testTransactionGrouping = function(boqItem) {
 /**
  * Run comprehensive transaction grouping tests
  */
-window.runComprehensiveGroupingTest = function() {
+window.runComprehensiveGroupingTest = function () {
 	frappe.call({
 		method: 'construction_management.api.transaction_grouping_test.run_comprehensive_test',
-		callback: function(r) {
+		callback: function (r) {
 			if (r.message) {
 				const result = r.message;
 				let message = `<h4>Comprehensive Transaction Grouping Test Results</h4>`;
-				
+
 				if (result.status === 'completed') {
 					const summary = result.summary;
 					message += `<h5>Test Summary:</h5>`;
@@ -3531,7 +3551,7 @@ window.runComprehensiveGroupingTest = function() {
 					message += `<li>Integrity Passes: ${summary.integrity_passes}</li>`;
 					message += `<li>Integrity Failures: ${summary.integrity_failures}</li>`;
 					message += `</ul>`;
-					
+
 					message += `<h5>Items Tested:</h5>`;
 					message += `<ul>`;
 					result.sample_items_tested.forEach(item => {
@@ -3541,7 +3561,7 @@ window.runComprehensiveGroupingTest = function() {
 				} else {
 					message += `<p><strong>Error:</strong> ${result.error_message}</p>`;
 				}
-				
+
 				frappe.msgprint({
 					title: 'Comprehensive Test Results',
 					message: message,
@@ -3568,30 +3588,30 @@ function renderWorkflowProgressBar(cycle) {
 		{ key: 'payment_certificate', label: 'Payment Cert', icon: 'fa-certificate' },
 		{ key: 'tax_invoice', label: 'Tax Invoice', icon: 'fa-file-text' }
 	];
-	
+
 	let progressHtml = '<div class="workflow-progress-bar">';
-	
+
 	steps.forEach((step, index) => {
 		let stepClass = 'pending';
-		
+
 		if (cycle[step.key]) {
 			stepClass = 'completed';
 		} else if (index === 0 || (index === 1 && cycle.proforma_invoice) || (index === 2 && cycle.payment_certificate)) {
 			stepClass = 'current';
 		}
-		
+
 		progressHtml += `
 			<div class="progress-step ${stepClass}">
 				<i class="fa ${step.icon}"></i>
 				<span>${step.label}</span>
 			</div>
 		`;
-		
+
 		if (index < steps.length - 1) {
 			progressHtml += '<i class="fa fa-arrow-right progress-arrow"></i>';
 		}
 	});
-	
+
 	progressHtml += '</div>';
 	return progressHtml;
 }
@@ -3599,14 +3619,14 @@ function renderWorkflowProgressBar(cycle) {
 /**
  * Enhanced expand/collapse functionality with animation
  */
-window.toggleCycleDetailsEnhanced = function(cycleId) {
+window.toggleCycleDetailsEnhanced = function (cycleId) {
 	const detailsRow = $(`#cycle-details-${cycleId}`);
 	const expandBtn = $(`.grouped-transaction-row[data-cycle-id="${cycleId}"] .expand-cycle-btn i`);
 	const cycleRow = $(`.grouped-transaction-row[data-cycle-id="${cycleId}"]`);
-	
+
 	if (detailsRow.is(':visible')) {
 		// Collapse with animation
-		detailsRow.find('.cycle-details-container').slideUp(300, function() {
+		detailsRow.find('.cycle-details-container').slideUp(300, function () {
 			detailsRow.hide();
 			expandBtn.removeClass('fa-chevron-up').addClass('fa-chevron-down');
 			cycleRow.removeClass('expanded');
@@ -3617,13 +3637,13 @@ window.toggleCycleDetailsEnhanced = function(cycleId) {
 		detailsRow.find('.cycle-details-container').hide().slideDown(300);
 		expandBtn.removeClass('fa-chevron-down').addClass('fa-chevron-up');
 		cycleRow.addClass('expanded');
-		
+
 		// Scroll to details if needed
 		setTimeout(() => {
 			const detailsTop = detailsRow.offset().top;
 			const windowTop = $(window).scrollTop();
 			const windowHeight = $(window).height();
-			
+
 			if (detailsTop > windowTop + windowHeight - 200) {
 				$('html, body').animate({
 					scrollTop: detailsTop - 100
@@ -3636,11 +3656,11 @@ window.toggleCycleDetailsEnhanced = function(cycleId) {
 /**
  * Show detailed variance breakdown
  */
-window.showVarianceBreakdown = function(cycleId, proformaAmount, pcAmount, variance) {
+window.showVarianceBreakdown = function (cycleId, proformaAmount, pcAmount, variance) {
 	const variancePercent = proformaAmount > 0 ? ((variance / proformaAmount) * 100).toFixed(2) : 0;
 	const varianceType = variance > 0 ? 'Loss' : variance < 0 ? 'Gain' : 'No Variance';
 	const varianceClass = variance > 0 ? 'text-danger' : variance < 0 ? 'text-success' : 'text-muted';
-	
+
 	const message = `
 		<div class="variance-breakdown">
 			<h5>Variance Breakdown - Cycle ${cycleId}</h5>
@@ -3663,17 +3683,17 @@ window.showVarianceBreakdown = function(cycleId, proformaAmount, pcAmount, varia
 			</table>
 			<div class="variance-explanation">
 				<small class="text-muted">
-					${variance > 0 ? 
-						'Positive variance indicates the Payment Certificate amount is less than the Proforma amount (potential loss).' :
-						variance < 0 ?
-						'Negative variance indicates the Payment Certificate amount is more than the Proforma amount (potential gain).' :
-						'No variance - Payment Certificate amount matches Proforma amount exactly.'
-					}
+					${variance > 0 ?
+			'Positive variance indicates the Payment Certificate amount is less than the Proforma amount (potential loss).' :
+			variance < 0 ?
+				'Negative variance indicates the Payment Certificate amount is more than the Proforma amount (potential gain).' :
+				'No variance - Payment Certificate amount matches Proforma amount exactly.'
+		}
 				</small>
 			</div>
 		</div>
 	`;
-	
+
 	frappe.msgprint({
 		title: 'Variance Details',
 		message: message,
@@ -3684,10 +3704,10 @@ window.showVarianceBreakdown = function(cycleId, proformaAmount, pcAmount, varia
 /**
  * Toggle between detailed and summary view for adjustments
  */
-window.toggleAdjustmentDetails = function(cycleId) {
+window.toggleAdjustmentDetails = function (cycleId) {
 	const adjustmentSection = $(`#cycle-details-${cycleId} .cycle-adjustments`);
 	const toggleBtn = adjustmentSection.find('.adjustment-toggle-btn');
-	
+
 	if (adjustmentSection.hasClass('detailed-view')) {
 		// Switch to summary view
 		adjustmentSection.removeClass('detailed-view');
@@ -3704,14 +3724,14 @@ window.toggleAdjustmentDetails = function(cycleId) {
 /**
  * Enhanced document navigation with context
  */
-window.openDocumentWithContext = function(doctype, name, context) {
+window.openDocumentWithContext = function (doctype, name, context) {
 	if (!name || name === '-') return;
-	
+
 	// Store context for the document view
 	if (context) {
 		sessionStorage.setItem(`doc_context_${name}`, JSON.stringify(context));
 	}
-	
+
 	const route = doctype.toLowerCase().replace(' ', '-');
 	window.open(`/app/${route}/${name}`, '_blank');
 };
@@ -3733,18 +3753,18 @@ function getViewModePreference(itemName) {
 /**
  * Enhanced view mode toggle with preference saving
  */
-window.toggleViewModeEnhanced = function(itemName, currentMode) {
+window.toggleViewModeEnhanced = function (itemName, currentMode) {
 	const row = $(`tr.item-row[data-item="${itemName}"]`);
 	const inlineRow = row.next('.inline-breakdown-row');
-	
+
 	if (inlineRow.length === 0) return;
-	
+
 	const newMode = currentMode === 'grouped' ? 0 : 1;
 	const newModeLabel = newMode ? 'grouped' : 'raw';
-	
+
 	// Save preference
 	saveViewModePreference(itemName, newModeLabel);
-	
+
 	// Show loading state with better UX
 	const loadingHtml = `
 		<div class="loading-state">
@@ -3753,19 +3773,19 @@ window.toggleViewModeEnhanced = function(itemName, currentMode) {
 		</div>
 	`;
 	inlineRow.find('.transaction-history-container').html(loadingHtml);
-	
+
 	frappe.call({
 		method: 'construction_management.api.boq_invoice.get_boq_invoice_history',
-		args: { 
+		args: {
 			boq_item: itemName,
 			grouped_view: newMode
 		},
-		callback: function(r) {
+		callback: function (r) {
 			if (r.message) {
 				const newHtml = renderTransactionHistorySection(itemName, r.message);
 				const newInlineRow = $(newHtml);
 				inlineRow.replaceWith(newInlineRow);
-				
+
 				// Show success indicator
 				frappe.show_alert({
 					message: `Switched to ${newModeLabel} view`,
@@ -3773,12 +3793,12 @@ window.toggleViewModeEnhanced = function(itemName, currentMode) {
 				});
 			}
 		},
-		error: function() {
-			frappe.show_alert({ 
-				message: __('Failed to switch view mode'), 
-				indicator: 'red' 
+		error: function () {
+			frappe.show_alert({
+				message: __('Failed to switch view mode'),
+				indicator: 'red'
 			});
-			
+
 			// Restore original content on error
 			setTimeout(() => {
 				toggleTransactionHistory(itemName);

@@ -202,6 +202,9 @@ class PaymentCertificate(Document):
 				frappe.msgprint(_("Purchase Invoice {0} cancelled").format(self.purchase_invoice))
 			elif flt(pi.outstanding_amount) < flt(pi.grand_total):
 				frappe.throw(_("Cannot cancel - Purchase Invoice has payments made"))
+		
+		# Roll back BOQ ledger values linked to this Payment Certificate
+		self.revert_boq_progress_ledger()
 	
 	def create_tax_invoice(self):
 		"""
@@ -232,6 +235,7 @@ class PaymentCertificate(Document):
 		invoice.posting_date = self.posting_date or today()
 		invoice.due_date = self.posting_date or today()
 		invoice.custom_payment_certificate = self.name
+		invoice.custom_proforma_invoice = self.proforma_invoice
 		invoice.custom_is_proforma = 0  # This is a final tax invoice
 		
 		# Add bill_no and boq_item as dimensions if fields exist
@@ -378,18 +382,147 @@ class PaymentCertificate(Document):
 		if not frappe.db.exists("DocType", "BOQ Progress Ledger"):
 			return
 		
+		from construction_management.api.boq_ledger import create_ledger_entry, recalculate_ledger_for_item
+		
 		try:
-			ledger = frappe.new_doc("BOQ Progress Ledger")
-			ledger.boq_item = self.boq_item
-			ledger.project = self.project
-			ledger.bill_no = self.bill_no
-			ledger.posting_date = self.posting_date
-			ledger.payment_certificate = self.name
-			ledger.certified_amount = flt(self.accepted_amount)  # Use accepted, not proforma
-			ledger.tax_invoice = self.tax_invoice
-			ledger.insert()
+			# Prefer updating the original Proforma ledger row to keep a single chain (PI -> PC -> TI)
+			ledger_entry = None
+			
+			if self.proforma_invoice:
+				ledger_entry = frappe.db.get_value(
+					"BOQ Progress Ledger",
+					{
+						"boq_item": self.boq_item,
+						"proforma_invoice": self.proforma_invoice
+					},
+					"name"
+				)
+				
+				if not ledger_entry:
+					ledger_entry = frappe.db.get_value(
+						"BOQ Progress Ledger",
+						{
+							"boq_item": self.boq_item,
+							"reference_doctype": "Proforma Invoice",
+							"reference_name": self.proforma_invoice
+						},
+						"name"
+					)
+			
+			if ledger_entry:
+				frappe.db.set_value(
+					"BOQ Progress Ledger",
+					ledger_entry,
+					{
+						"payment_certificate": self.name,
+						"certified_amount": flt(self.accepted_amount),
+						"tax_invoice": self.tax_invoice,
+						"tax_invoice_amount": flt(self.tax_invoice_amount) if self.tax_invoice else 0,
+						"proforma_invoice": self.proforma_invoice,
+						"proforma_amount": flt(self.proforma_amount) or flt(self.accepted_amount),
+						"posting_date": self.posting_date
+					},
+					update_modified=False
+				)
+			else:
+				# Safety net: rebuild the missing ledger row from the Proforma context
+				qty = 0
+				amount = flt(self.proforma_amount) or flt(self.accepted_amount)
+				
+				if self.proforma_invoice:
+					proforma_item = frappe.db.get_value(
+						"Proforma Invoice Item",
+						{
+							"parent": self.proforma_invoice,
+							"boq_item": self.boq_item
+						},
+						["qty", "amount"],
+						as_dict=True
+					)
+					if proforma_item:
+						qty = flt(proforma_item.qty)
+						amount = flt(proforma_item.amount)
+				
+				create_ledger_entry(
+					boq_item=self.boq_item,
+					qty=qty,
+					amount=amount,
+					source="Proforma",
+					reference_doctype="Proforma Invoice" if self.proforma_invoice else None,
+					reference_name=self.proforma_invoice,
+					posting_date=self.posting_date,
+					remarks=f"Auto-created from Payment Certificate {self.name}",
+					proforma_invoice=self.proforma_invoice,
+					proforma_amount=amount,
+					payment_certificate=self.name,
+					certified_amount=flt(self.accepted_amount),
+					tax_invoice=self.tax_invoice,
+					tax_invoice_amount=flt(self.tax_invoice_amount) if self.tax_invoice else 0
+				)
+			
+			# Refresh progressive values so the chain stays balanced
+			recalculate_ledger_for_item(self.boq_item)
 		except Exception as e:
 			frappe.log_error(f"Error creating BOQ Progress Ledger: {str(e)}")
+
+	def revert_boq_progress_ledger(self):
+		"""
+		Undo Payment Certificate impact on BOQ Progress Ledger (single-row lifecycle).
+		"""
+		if not self.boq_item:
+			return
+		if not frappe.db.exists("DocType", "BOQ Progress Ledger"):
+			return
+		
+		from construction_management.api.boq_ledger import recalculate_ledger_for_item
+		
+		# Prefer targeting by proforma -> PC linkage, then fallback to PC or TI
+		ledger_entry = None
+		if self.proforma_invoice:
+			ledger_entry = frappe.db.get_value(
+				"BOQ Progress Ledger",
+				{
+					"boq_item": self.boq_item,
+					"proforma_invoice": self.proforma_invoice
+				},
+				"name"
+			)
+		
+		if not ledger_entry:
+			ledger_entry = frappe.db.get_value(
+				"BOQ Progress Ledger",
+				{
+					"boq_item": self.boq_item,
+					"payment_certificate": self.name
+				},
+				"name"
+			)
+		
+		if not ledger_entry and self.tax_invoice:
+			ledger_entry = frappe.db.get_value(
+				"BOQ Progress Ledger",
+				{
+					"boq_item": self.boq_item,
+					"tax_invoice": self.tax_invoice
+				},
+				"name"
+			)
+		
+		if ledger_entry:
+			frappe.db.set_value(
+				"BOQ Progress Ledger",
+				ledger_entry,
+				{
+					"payment_certificate": None,
+					"certified_amount": 0,
+					"tax_invoice": None,
+					"tax_invoice_amount": 0,
+					"remarks": f"Payment Certificate {self.name} cancelled",
+					"source": "Proforma" if self.proforma_invoice else "Adjustment"
+				},
+				update_modified=False
+			)
+			recalculate_ledger_for_item(self.boq_item)
 	
 	def close_proforma_invoice(self):
 		"""Mark proforma invoice as converted to tax invoice"""

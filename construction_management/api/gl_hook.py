@@ -1,6 +1,9 @@
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import flt, today
+
+from construction_management.api.boq_ledger import recalculate_ledger_for_item
+from construction_management.construction_management.doctype.boq_progress_ledger.boq_progress_ledger import BOQProgressLedger
 
 def update_cost_from_gl(doc, method):
 	"""
@@ -27,6 +30,61 @@ def update_cost_from_gl(doc, method):
 				boq_item.save(ignore_permissions=True)
 			except Exception as e:
 				frappe.log_error(f"Failed to update BOQ Item {dpr.boq_item} from GL Hook: {e}")
+
+	# Capture BOQ ledger entry if this GL entry is explicitly linked to a bill/boq item
+	process_gl_entry_for_boq(doc)
+
+
+def process_gl_entry_for_boq(doc):
+	"""Create BOQ ledger entry when GL Entry carries bill and BOQ item linkage."""
+	# Disabled: BOQ Progress Ledger should be driven only by PI/PC/TI documents, not GL.
+	return
+
+	bill_no = doc.get("bill_no")
+	boq_item_name = doc.get("boq_item")
+
+	if not bill_no or not boq_item_name or not doc.project:
+		return
+
+	if frappe.db.exists("BOQ Progress Ledger", {"reference_name": doc.name}):
+		return
+
+	amount = flt(doc.debit) - flt(doc.credit)
+	if amount == 0:
+		return
+
+	try:
+		boq_item = frappe.get_doc("BOQ Item", boq_item_name)
+	except frappe.DoesNotExistError:
+		return
+
+	if not boq_item.project_boq:
+		return
+
+	source = "Adjustment"
+	if doc.get("voucher_type") in ("Sales Invoice", "Payment Certificate"):
+		source = "Invoice"
+	elif doc.get("voucher_type") == "Purchase Invoice":
+		source = "Adjustment"
+
+	qty = flt(doc.get("qty") or 0)
+	posting_date = doc.get("posting_date") or today()
+
+	BOQProgressLedger.create_entry(
+		project=doc.project,
+		project_boq=boq_item.project_boq,
+		bill_no=bill_no,
+		boq_item=boq_item_name,
+		posting_date=posting_date,
+		qty=qty,
+		amount=amount,
+		source=source,
+		reference_doctype="GL Entry",
+		reference_name=doc.name,
+		remarks=doc.get("remarks") or f"GL Entry {doc.name}"
+	)
+
+	recalculate_ledger_for_item(boq_item_name)
 
 def update_project_cost(project_name):
 	# Calculate total project cost from GL (Expense + WIP)
