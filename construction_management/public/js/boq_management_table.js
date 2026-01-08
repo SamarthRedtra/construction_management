@@ -681,6 +681,26 @@ function renderTransactionHistorySection(itemName, data, colSpan) {
 	const groupedTransactions = data.grouped_transactions || [];
 	const viewMode = data.view_mode || 'raw';
 
+	const latestEntry = (ledgerEntries || [])
+		.slice()
+		.sort((a, b) => {
+			const aDate = new Date(a.creation || a.posting_date || 0);
+			const bDate = new Date(b.creation || b.posting_date || 0);
+			return bDate - aDate;
+		})[0] || {};
+
+	const latestQty = {
+		prev: flt(latestEntry.prev_qty || 0),
+		curr: flt(latestEntry.current_qty || 0),
+		accum: flt(latestEntry.accumulated_qty || summary.accumulated_qty || 0)
+	};
+
+	const latestAmount = {
+		prev: flt(latestEntry.prev_amount || 0),
+		curr: flt(latestEntry.current_amount || 0),
+		accum: flt(latestEntry.accumulated_amount || summary.accumulated_amount || 0)
+	};
+
 	// Get column count from parent table if not provided
 	const finalColSpan = colSpan || $(`tr.item-row[data-item="${itemName}"]`).first().find('td').length;
 
@@ -708,6 +728,14 @@ function renderTransactionHistorySection(itemName, data, colSpan) {
 								<div class="stat-item">
 									<span class="stat-label">Balance</span>
 									<span class="stat-value">${format_currency(summary.balance_amount || 0)}</span>
+								</div>
+								<div class="stat-item triple">
+									<span class="stat-label">Qty (Prev / Curr / Accum)</span>
+									<span class="stat-value">${format_number(latestQty.prev)} / ${format_number(latestQty.curr)} / ${format_number(latestQty.accum)}</span>
+								</div>
+								<div class="stat-item triple">
+									<span class="stat-label">Value (Prev / Curr / Accum)</span>
+									<span class="stat-value">${format_currency(latestAmount.prev)} / ${format_currency(latestAmount.curr)} / ${format_currency(latestAmount.accum)}</span>
 								</div>
 								${viewMode === 'grouped' && data.grouping_summary ? `
 								<div class="stat-item">
@@ -1076,16 +1104,31 @@ function renderLedgerEntriesTable(entries) {
 	`;
 
 	entries.forEach(entry => {
-		const docTypeClass = getDocTypeClass(entry.reference_doctype);
-		const statusClass = getStatusClass(entry.invoice_status || 'Draft');
-		const isProforma = entry.is_proforma ? 'PI' : 'Tax Inv';
-		const docType = entry.reference_doctype === 'Sales Invoice' ? isProforma : entry.reference_doctype;
+		const hasTaxInvoice = !!entry.tax_invoice;
+		let docTypeLabel = entry.reference_doctype || '-';
+		let docName = hasTaxInvoice ? entry.tax_invoice : entry.reference_name;
+		let docRouteType = hasTaxInvoice ? 'Sales Invoice' : entry.reference_doctype;
+
+		if (hasTaxInvoice) {
+			docTypeLabel = 'Tax Invoice';
+			docRouteType = 'Sales Invoice';
+		} else if (entry.reference_doctype === 'Sales Invoice') {
+			docTypeLabel = entry.is_proforma ? 'Proforma Invoice' : 'Sales Invoice';
+		}
+
+		const displayStatus = hasTaxInvoice
+			? 'Tax Invoiced'
+			: (entry.reference_doctype === 'Proforma Invoice' ? 'Proforma' : (entry.invoice_status || 'Draft'));
+
+		const docTypeClass = getDocTypeClass(docTypeLabel);
+		const statusClass = getStatusClass(displayStatus);
+		const pcLink = entry.payment_certificate || entry.pay_cert;
 
 		html += `
-			<tr class="ledger-entry-row" onclick="openDocument('${entry.reference_doctype}', '${entry.reference_name}')">
+			<tr class="ledger-entry-row" onclick="openDocument('${docRouteType}', '${docName}')">
 				<td>${entry.posting_date || '-'}</td>
-				<td class="doc-name">${entry.reference_name || '-'}</td>
-				<td><span class="doc-type-badge ${docTypeClass}">${docType}</span></td>
+				<td class="doc-name">${docName || '-'}</td>
+				<td><span class="doc-type-badge ${docTypeClass}">${docTypeLabel}</span></td>
 				<td class="text-right">${format_number(entry.prev_qty || 0)}</td>
 				<td class="text-right highlight-current">${format_number(entry.current_qty || 0)}</td>
 				<td class="text-right font-bold">${format_number(entry.accumulated_qty || 0)}</td>
@@ -1093,8 +1136,8 @@ function renderLedgerEntriesTable(entries) {
 				<td class="text-right highlight-current">${format_currency(entry.current_amount || 0)}</td>
 				<td class="text-right font-bold">${format_currency(entry.accumulated_amount || 0)}</td>
 				<td class="text-right">${format_currency(entry.rate || 0)}</td>
-				<td><span class="status-badge ${statusClass}">${entry.invoice_status || 'Draft'}</span></td>
-				<td>${entry.pay_cert ? `<a href="/app/payment-certificate/${entry.pay_cert}" target="_blank">${entry.pay_cert}</a>` : '-'}</td>
+				<td><span class="status-badge ${statusClass}">${displayStatus}</span></td>
+				<td>${pcLink ? `<a href="/app/payment-certificate/${pcLink}" target="_blank">${pcLink}</a>` : '-'}</td>
 			</tr>
 		`;
 	});
@@ -1209,6 +1252,7 @@ function renderPendingProformasTable(proformas) {
 function getDocTypeClass(doctype) {
 	const classMap = {
 		'Sales Invoice': 'doc-type-invoice',
+		'Tax Invoice': 'doc-type-invoice',
 		'Proforma Invoice': 'doc-type-proforma',
 		'Payment Certificate': 'doc-type-pc'
 	};
@@ -1221,7 +1265,9 @@ function getDocTypeClass(doctype) {
 function getStatusClass(status) {
 	const classMap = {
 		'Draft': 'status-draft',
+		'Proforma': 'status-draft',
 		'Submitted': 'status-submitted',
+		'Tax Invoiced': 'status-submitted',
 		'Paid': 'status-paid',
 		'Cancelled': 'status-cancelled',
 		'Approved': 'status-approved',
@@ -1320,11 +1366,16 @@ function getTransactionHistoryStyles() {
 		
 		.summary-stats {
 			display: flex;
-			gap: 20px;
+			gap: 14px;
+			flex-wrap: wrap;
 		}
 		
 		.stat-item {
 			text-align: right;
+		}
+
+		.stat-item.triple .stat-value {
+			white-space: nowrap;
 		}
 		
 		.stat-label {
@@ -1378,13 +1429,14 @@ function getTransactionHistoryStyles() {
 			border-radius: 6px;
 			overflow: hidden;
 			border: 1px solid #e8e8e8;
+			table-layout: fixed;
 		}
 		
 		.ledger-entries-table th,
 		.payment-certificates-table th,
 		.pending-proformas-table th {
 			background: #f7f7f7;
-			padding: 8px 10px;
+			padding: 6px 8px;
 			font-size: 10px;
 			font-weight: 500;
 			color: #6c7680;
@@ -1395,9 +1447,32 @@ function getTransactionHistoryStyles() {
 		.ledger-entries-table td,
 		.payment-certificates-table td,
 		.pending-proformas-table td {
-			padding: 8px 10px;
+			padding: 6px 8px;
 			font-size: 11px;
 			border-bottom: 1px solid #f0f0f0;
+			white-space: normal;
+			word-break: break-word;
+		}
+
+		.ledger-entries-table th:nth-child(4),
+		.ledger-entries-table th:nth-child(5),
+		.ledger-entries-table th:nth-child(6),
+		.ledger-entries-table th:nth-child(7),
+		.ledger-entries-table th:nth-child(8),
+		.ledger-entries-table th:nth-child(9),
+		.ledger-entries-table td:nth-child(4),
+		.ledger-entries-table td:nth-child(5),
+		.ledger-entries-table td:nth-child(6),
+		.ledger-entries-table td:nth-child(7),
+		.ledger-entries-table td:nth-child(8),
+		.ledger-entries-table td:nth-child(9) {
+			min-width: 60px;
+			text-align: right;
+		}
+
+		.ledger-entries-table th:nth-child(2),
+		.ledger-entries-table td:nth-child(2) {
+			max-width: 120px;
 		}
 		
 		.ledger-entry-row,

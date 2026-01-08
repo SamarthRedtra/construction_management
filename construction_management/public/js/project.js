@@ -5355,11 +5355,13 @@ function showFullScreenBOQModal(project, data, isLoading = false) {
 }
 
 function updateFullScreenBOQContent(project, data) {
+	if (!data) return;
+
 	const wrapper = $('#fullscreen-content-wrapper');
 	wrapper.html(renderFullScreenBody(project, data));
 
 	const container = wrapper.find('.boq-fullscreen-container');
-	if (container.length) {
+	if (container.length && data.bills) {
 		render_boq_management_table(container, { doc: { name: project } }, data.bills);
 		renderFullScreenScripts(project, data);
 	}
@@ -5692,8 +5694,7 @@ window.refreshFullScreenBOQ = function (project) {
 
 	if (project) {
 		// Show loading
-		updateFullScreenBOQContent(project, null); // null data triggers loading state if we handled it, but updateFullScreenBOQContent expects data.
-		// Actually, let's use the explicit loading html
+		// Explicitly use the loading html
 		$('#fullscreen-content-wrapper').html(`
 			<div class="fullscreen-loading">
 				<div class="loading-spinner"></div>

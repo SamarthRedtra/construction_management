@@ -400,28 +400,36 @@ def get_item_ledger_values(boq_item: str) -> dict:
 	item = frappe.get_doc("BOQ Item", boq_item)
 	
 	# User Request: Show value from last proforma invoiced BOQ ledger entries (Snapshot)
-	# Instead of summing all entries, we fetch the accumulated value from the last active ledger entry.
-	last_entry = frappe.db.get_value("BOQ Progress Ledger", 
-		{"boq_item": boq_item, "docstatus": 1}, 
-		["accumulated_qty", "accumulated_amount"],
+	# Instead of summing all entries, we fetch the latest ledger entry and use its prev/curr/accumulated snapshot.
+	last_entry = frappe.db.get_value(
+		"BOQ Progress Ledger",
+		{"boq_item": boq_item},
+		[
+			"prev_qty", "current_qty", "accumulated_qty",
+			"prev_amount", "current_amount", "accumulated_amount"
+		],
 		order_by="posting_date desc, creation desc",
 		as_dict=True
 	)
 	
 	if last_entry:
-		prev_qty = flt(last_entry.get('accumulated_qty'))
-		prev_amount = flt(last_entry.get('accumulated_amount'))
+		prev_qty = flt(last_entry.get('prev_qty'))
+		current_qty = flt(last_entry.get('current_qty'))
+		to_date_qty = flt(last_entry.get('accumulated_qty'))
+		
+		prev_amount = flt(last_entry.get('prev_amount'))
+		current_amount = flt(last_entry.get('current_amount'))
+		to_date_amount = flt(last_entry.get('accumulated_amount'))
 	else:
 		prev_qty = get_previous_qty(boq_item)
 		prev_amount = get_previous_amount(boq_item)
-	
-	# Current is the difference (items being billed now but not yet submitted)
-	current_qty = flt(item.current_qty) if hasattr(item, 'current_qty') else 0
-	current_amount = flt(current_qty) * flt(item.rate)
-	
-	# Calculate To-Date
-	to_date_qty = prev_qty + current_qty
-	to_date_amount = prev_amount + current_amount
+		
+		# If no ledger entry exists, current comes from pending (unsaved) qty
+		current_qty = flt(item.current_qty) if hasattr(item, 'current_qty') else 0
+		current_amount = flt(current_qty) * flt(item.rate)
+		
+		to_date_qty = prev_qty + current_qty
+		to_date_amount = prev_amount + current_amount
 	
 	# If no ledger entries exist, try to get values from Proforma Invoice items
 	if to_date_qty == 0 and to_date_amount == 0 and not last_entry:
