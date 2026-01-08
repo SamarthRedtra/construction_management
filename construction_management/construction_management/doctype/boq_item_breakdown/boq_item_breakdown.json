@@ -1,0 +1,71 @@
+{
+    "actions": [],
+    "creation": "2024-01-02 12:00:00",
+    "doctype": "DocType",
+    "editable_grid": 1,
+    "engine": "InnoDB",
+    "field_order": [
+        "cost_type",
+        "resource",
+        "description",
+        "uom",
+        "qty_per_unit",
+        "rate",
+        "amount"
+    ],
+    "fields": [
+        {
+            "fieldname": "cost_type",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "label": "Cost Type",
+            "options": "Material\nLabour\nSubcontract\nAsset\nOther",
+            "reqd": 1
+        },
+        {
+            "fieldname": "resource",
+            "fieldtype": "Link",
+            "label": "Resource (Item)",
+            "options": "Item"
+        },
+        {
+            "fieldname": "description",
+            "fieldtype": "Data",
+            "label": "Description",
+            "reqd": 1
+        },
+        {
+            "fieldname": "uom",
+            "fieldtype": "Link",
+            "label": "UOM",
+            "options": "UOM"
+        },
+        {
+            "fieldname": "qty_per_unit",
+            "fieldtype": "Float",
+            "in_list_view": 1,
+            "label": "Qty per Unit",
+            "reqd": 1
+        },
+        {
+            "fieldname": "rate",
+            "fieldtype": "Currency",
+            "in_list_view": 1,
+            "label": "Rate",
+            "reqd": 1
+        },
+        {
+            "fieldname": "amount",
+            "fieldtype": "Currency",
+            "in_list_view": 1,
+            "label": "Amount (Unit)",
+            "read_only": 1
+        }
+    ],
+    "istable": 1,
+    "modified": "2024-01-02 12:00:00",
+    "modified_by": "Administrator",
+    "module": "Construction Management",
+    "name": "BOQ Item Breakdown",
+    "owner": "Administrator"
+}
