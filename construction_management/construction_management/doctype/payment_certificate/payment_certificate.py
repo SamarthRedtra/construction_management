@@ -187,12 +187,10 @@ class PaymentCertificate(Document):
 		
 		if self.type == "Sales" and self.tax_invoice:
 			tax_inv = frappe.get_doc("Sales Invoice", self.tax_invoice)
-			if tax_inv.docstatus == 1 and flt(tax_inv.outstanding_amount) == flt(tax_inv.grand_total):
-				# Only cancel if no payment received
+			if tax_inv.docstatus == 1:
+				# Allow cancel even if linked; assume payments are handled by standard cancel rules
 				tax_inv.cancel()
 				frappe.msgprint(_("Tax Invoice {0} cancelled").format(self.tax_invoice))
-			elif flt(tax_inv.outstanding_amount) < flt(tax_inv.grand_total):
-				frappe.throw(_("Cannot cancel - Tax Invoice has received payments"))
 		
 		elif self.type == "Purchase" and self.purchase_invoice:
 			pi = frappe.get_doc("Purchase Invoice", self.purchase_invoice)

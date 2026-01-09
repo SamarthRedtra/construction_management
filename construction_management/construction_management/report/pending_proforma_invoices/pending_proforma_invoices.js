@@ -88,6 +88,25 @@ frappe.query_reports["Pending Proforma Invoices"] = {
 	},
 	
 	"onload": function(report) {
+		// Inject compact column styles to keep Bill No and filters aligned
+		if (!window._pending_pi_report_css_applied) {
+			const style = document.createElement('style');
+			style.innerHTML = `
+				.query-report .datatable .dt-row > .dt-cell {
+					padding: 6px 8px;
+					white-space: nowrap;
+				}
+				.query-report .datatable .dt-row > .dt-cell:nth-child(3) {
+					min-width: 120px; /* Bill No */
+				}
+				.query-report .datatable .dt-row > .dt-cell:nth-child(4) {
+					min-width: 140px; /* BOQ Item/Customer mix */
+				}
+			`;
+			document.head.appendChild(style);
+			window._pending_pi_report_css_applied = true;
+		}
+
 		report.page.add_inner_button(__("Create Payment Certificate"), function() {
 			let selected = report.get_checked_items();
 			if (selected.length === 0) {

@@ -634,6 +634,9 @@ def revise_proforma_invoice(
 		if proforma.status == "Converted":
 			return {"status": "error", "error_message": _("Cannot revise a converted Proforma Invoice")}
 		
+		if proforma.payment_certificate:
+			return {"status": "error", "error_message": _("Cannot revise Proforma Invoice that already has a Payment Certificate")}
+		
 		# Build a map of new items
 		new_items_map = {}
 		for item_data in items:

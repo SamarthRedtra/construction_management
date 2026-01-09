@@ -41,10 +41,27 @@ def process_gl_entry_for_boq(doc):
 	Sales-side (PI/PC/TI) is ignored to avoid double-counting; purchases are allowed.
 	"""
 	voucher_type = doc.get("voucher_type")
+	
+	# Explicit handling for Purchase Invoice GL updates
+	if voucher_type == "Purchase Invoice":
+		bill_no = doc.get("bill_no")
+		boq_item_name = doc.get("boq_item")
+
+		if bill_no and boq_item_name and doc.project:
+			try:
+				boq_item = frappe.get_doc("BOQ Item", boq_item_name)
+				if boq_item.project == doc.project: # Verify project match
+					boq_item.calculate_amounts()
+					boq_item.db_update()
+			except Exception as e:
+				frappe.log_error(f"GL hook cost recalc failed for Purchase Invoice {doc.voucher_no}, BOQ Item {boq_item_name}: {str(e)}")
+		return
+
+	# Logic for other voucher types (Journal Entry, Stock Entry via DPR)
 	if voucher_type in ("Sales Invoice", "Payment Certificate"):
 		return  # safeguard: no sales-side duplication
 	
-	allowed_purchase_types = ("Purchase Invoice", "Purchase Receipt", "Journal Entry", "Stock Entry")
+	allowed_purchase_types = ("Purchase Receipt", "Journal Entry", "Stock Entry")
 	if voucher_type not in allowed_purchase_types:
 		return
 
@@ -69,7 +86,7 @@ def process_gl_entry_for_boq(doc):
 	if not boq_item.project_boq:
 		return
 
-	# For purchases, just recalc BOQ item costs (no ledger entry to avoid revenue duplication)
+	# For purchases, just recalc BOQ item costs
 	try:
 		boq_item.calculate_amounts()
 		boq_item.db_update()

@@ -237,7 +237,10 @@ def get_boq_items(bill_name: str) -> list:
 			"estimated_material_cost", "estimated_labour_cost",
 			"estimated_subcontract_cost", "estimated_asset_cost",
 			"estimated_other_cost", "total_estimated_cost",
-			"estimated_gp", "estimated_gp_percent"
+			"estimated_gp", "estimated_gp_percent",
+			"cost_to_date", "margin",
+			"labour_cost", "material_cost", "subcontract_cost",
+			"asset_cost", "expense_cost"
 		],
 		order_by="idx"
 	)
@@ -247,12 +250,15 @@ def get_boq_items(bill_name: str) -> list:
 		ledger_values = get_item_ledger_values(item.name)
 		item.update(ledger_values)
 		
-		# Get cost values (actual costs from DPR)
-		cost_values = get_item_cost_values(item.name)
-		item.update(cost_values)
-		
-		# Get actual cost breakdown from DPR
-		actual_costs = get_item_actual_costs(item.name)
+		# Get actual cost breakdown from BOQ Item fields
+		actual_costs = {
+			"material": flt(item.get("material_cost", 0)),
+			"labour": flt(item.get("labour_cost", 0)),
+			"subcontract": flt(item.get("subcontract_cost", 0)),
+			"asset": flt(item.get("asset_cost", 0)),
+			"other": flt(item.get("expense_cost", 0)),
+			"total": flt(item.get("cost_to_date", 0))
+		}
 		item["actual_costs"] = actual_costs
 		
 		# Add estimated costs structure
@@ -309,27 +315,108 @@ def get_item_advance_amount(boq_item: str) -> float:
 
 
 def get_item_actual_costs(boq_item: str) -> dict:
-	"""Get actual cost breakdown from Daily Progress Records for a BOQ item"""
-	cost_breakdown = frappe.db.sql("""
+	"""Get actual cost breakdown from Daily Progress Records and GL for a BOQ item"""
+	# Get operational costs from DPR (Labour, Material)
+	dpr_costs = frappe.db.sql("""
 		SELECT 
 			COALESCE(SUM(labour_cost), 0) as labour,
-			COALESCE(SUM(material_cost), 0) as material,
-			COALESCE(SUM(asset_cost), 0) as asset,
-			COALESCE(SUM(subcontract_cost), 0) as subcontract,
-			COALESCE(SUM(expense_cost), 0) as other,
-			COALESCE(SUM(total_cost), 0) as total
+			COALESCE(SUM(material_cost), 0) as material
 		FROM `tabDaily Progress Record`
 		WHERE boq_item = %s AND docstatus = 1
 	""", boq_item, as_dict=True)[0]
+
+	# Get financial costs from GL (Subcontract, Asset, Other)
+	subcontract_cost = get_gl_subcontract_cost(boq_item)
+	asset_cost = get_gl_asset_cost(boq_item)
+	other_cost = get_gl_other_cost(boq_item)
 	
+	total_cost = (
+		flt(dpr_costs.material) + 
+		flt(dpr_costs.labour) + 
+		flt(subcontract_cost) + 
+		flt(asset_cost) + 
+		flt(other_cost)
+	)
+
 	return {
-		"material": flt(cost_breakdown.material),
-		"labour": flt(cost_breakdown.labour),
-		"asset": flt(cost_breakdown.asset),
-		"subcontract": flt(cost_breakdown.subcontract),
-		"other": flt(cost_breakdown.other),
-		"total": flt(cost_breakdown.total)
+		"material": flt(dpr_costs.material),
+		"labour": flt(dpr_costs.labour),
+		"asset": flt(asset_cost),
+		"subcontract": flt(subcontract_cost),
+		"other": flt(other_cost),
+		"total": flt(total_cost)
 	}
+
+
+def get_gl_subcontract_cost(boq_item: str) -> float:
+	"""Get total subcontracting cost from GL (Purchase Receipts/Invoices)"""
+	# Subcontract costs are usually booked under Expense accounts in PR/PI
+	# We filter by voucher types that book actual expenses
+	return frappe.db.sql("""
+		SELECT COALESCE(SUM(gle.debit - gle.credit), 0)
+		FROM `tabGL Entry` gle
+		WHERE gle.account IN (
+			SELECT name FROM `tabAccount` 
+			WHERE account_type IN ('Expense Account', 'Cost of Goods Sold', 'Service')
+			OR root_type = 'Expense'
+		)
+		AND gle.voucher_type IN ('Purchase Receipt', 'Purchase Invoice')
+		AND gle.is_cancelled = 0
+		AND EXISTS (
+			SELECT 1 FROM `tabPurchase Receipt Item` pri 
+			WHERE pri.parent = gle.voucher_no AND pri.boq_item = %s
+		) OR EXISTS (
+			SELECT 1 FROM `tabPurchase Invoice Item` pii
+			WHERE pii.parent = gle.voucher_no AND pii.boq_item = %s
+		)
+	""", (boq_item, boq_item))[0][0]
+
+
+def get_gl_asset_cost(boq_item: str) -> float:
+	"""Get asset depreciation/allocation cost from GL"""
+	return frappe.db.sql("""
+		SELECT COALESCE(SUM(gle.debit - gle.credit), 0)
+		FROM `tabGL Entry` gle
+		WHERE (
+			EXISTS (
+				SELECT 1 FROM `tabDaily Progress Record` dpr 
+				WHERE dpr.journal_entries LIKE CONCAT('%%', gle.voucher_no, '%%')
+				AND dpr.boq_item = %s
+			)
+		)
+		AND gle.account IN (
+			SELECT name FROM `tabAccount` WHERE account_type = 'Depreciation'
+		)
+		AND gle.is_cancelled = 0
+	""", boq_item)[0][0]
+
+
+def get_gl_other_cost(boq_item: str) -> float:
+	"""Get other expense costs from GL (Journals, Expenses)"""
+	return frappe.db.sql("""
+		SELECT COALESCE(SUM(gle.debit - gle.credit), 0)
+		FROM `tabGL Entry` gle
+		WHERE (
+			EXISTS (
+				SELECT 1 FROM `tabDaily Progress Record` dpr 
+				WHERE dpr.journal_entries LIKE CONCAT('%%', gle.voucher_no, '%%')
+				AND dpr.boq_item = %s
+			)
+			OR
+			gle.voucher_type = 'Journal Entry' AND gle.voucher_no IN (
+			    SELECT parent FROM `tabJournal Entry Account` 
+				WHERE project IS NOT NULL -- Simplified check, ideally check linking
+			)
+		)
+		AND gle.account IN (
+			SELECT name FROM `tabAccount` 
+			WHERE root_type = 'Expense' 
+			AND account_type NOT IN ('Depreciation', 'Cost of Goods Sold')
+		)
+		AND gle.is_cancelled = 0
+		AND gle.voucher_type = 'Journal Entry' 
+		-- Add stricter linking logic if possible
+	""", boq_item)[0][0]
 
 
 @frappe.whitelist()

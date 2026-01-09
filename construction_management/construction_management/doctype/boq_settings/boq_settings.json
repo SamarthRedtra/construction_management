@@ -2,7 +2,7 @@
  "actions": [],
  "allow_rename": 1,
  "autoname": "field:company",
- "creation": "2024-12-31 10:00:00.000000",
+ "creation": "2024-12-31 10:00:00",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
@@ -14,7 +14,6 @@
   "column_break_5",
   "auto_create_warehouse",
   "warehouse_naming_series",
-  "section_break_8",
   "retention_settings_section",
   "default_retention_percentage",
   "retention_account",
@@ -47,17 +46,17 @@
   },
   {
    "default": "0",
+   "description": "Enforce warehouse/site location selection in Daily Progress Records",
    "fieldname": "mandatory_site_location",
    "fieldtype": "Check",
-   "label": "Mandatory Site Location in DPR",
-   "description": "Enforce warehouse/site location selection in Daily Progress Records"
+   "label": "Mandatory Site Location in DPR"
   },
   {
+   "description": "Default warehouse for projects without site location",
    "fieldname": "default_warehouse",
    "fieldtype": "Link",
    "label": "Default Warehouse",
-   "options": "Warehouse",
-   "description": "Default warehouse for projects without site location"
+   "options": "Warehouse"
   },
   {
    "fieldname": "column_break_5",
@@ -65,22 +64,18 @@
   },
   {
    "default": "0",
+   "description": "Automatically create warehouse for each project",
    "fieldname": "auto_create_warehouse",
    "fieldtype": "Check",
-   "label": "Auto Create Project Warehouses",
-   "description": "Automatically create warehouse for each project"
+   "label": "Auto Create Project Warehouses"
   },
   {
+   "default": "PROJ-WH-.####",
+   "depends_on": "eval:doc.auto_create_warehouse",
    "fieldname": "warehouse_naming_series",
    "fieldtype": "Select",
    "label": "Warehouse Naming Series",
-   "options": "PROJ-WH-.####\nSITE-.####\nWH-.YYYY.-.####",
-   "default": "PROJ-WH-.####",
-   "depends_on": "eval:doc.auto_create_warehouse"
-  },
-  {
-   "fieldname": "section_break_8",
-   "fieldtype": "Section Break"
+   "options": "PROJ-WH-.####\nSITE-.####\nWH-.YYYY.-.####"
   },
   {
    "fieldname": "retention_settings_section",
@@ -88,17 +83,17 @@
    "label": "Retention Settings"
   },
   {
+   "description": "Default retention percentage for new projects",
    "fieldname": "default_retention_percentage",
    "fieldtype": "Percent",
-   "label": "Default Retention %",
-   "description": "Default retention percentage for new projects"
+   "label": "Default Retention %"
   },
   {
+   "description": "Account for retention deductions",
    "fieldname": "retention_account",
    "fieldtype": "Link",
    "label": "Retention Account",
-   "options": "Account",
-   "description": "Account for retention deductions"
+   "options": "Account"
   },
   {
    "fieldname": "column_break_12",
@@ -110,19 +105,19 @@
    "label": "Advance Settings"
   },
   {
+   "description": "Account for advance payments",
    "fieldname": "advance_account",
    "fieldtype": "Link",
    "label": "Advance Account",
-   "options": "Account",
-   "description": "Account for advance payments"
+   "options": "Account"
   },
   {
+   "default": "ADVANCE-DEDUCTION",
+   "description": "Service item for advance deductions in invoices",
    "fieldname": "advance_deduction_item",
    "fieldtype": "Link",
    "label": "Advance Deduction Item",
-   "options": "Item",
-   "description": "Service item for advance deductions in invoices",
-   "default": "ADVANCE-DEDUCTION"
+   "options": "Item"
   },
   {
    "fieldname": "section_break_cost",
@@ -130,49 +125,48 @@
    "label": "Cost Accounting Accounts"
   },
   {
+   "description": "Expense account for capitalised/allocated labour cost on assets",
    "fieldname": "asset_labor_cost_account",
    "fieldtype": "Link",
-   "label": "Asset Labour Cost (Liability)",
-   "options": "Account",
-   "description": "Liability account for capitalised/allocated labour cost on assets"
+   "label": "Asset Labour Cost",
+   "options": "Account"
   },
   {
+   "description": "Expense account for asset cost allocation",
    "fieldname": "asset_cost_account",
    "fieldtype": "Link",
-   "label": "Asset Cost (Liability)",
-   "options": "Account",
-   "description": "Liability account for asset cost allocation"
+   "label": "Asset Cost",
+   "options": "Account"
   },
   {
    "fieldname": "column_break_cost",
    "fieldtype": "Column Break"
   },
   {
+   "description": "Default expense/overhead account for DPR JVs",
    "fieldname": "expenses_account",
    "fieldtype": "Link",
    "label": "Expenses & Overhead Account",
-   "options": "Account",
-   "description": "Default expense/overhead account for DPR JVs"
+   "options": "Account"
   },
   {
+   "description": "Default overhead account for DPR postings",
    "fieldname": "overhead_account",
    "fieldtype": "Link",
    "label": "Overhead Account",
-   "options": "Account",
-   "description": "Default overhead account for DPR postings"
+   "options": "Account"
   },
   {
+   "description": "Account used for labour cost mapping / salary payout reconciliation",
    "fieldname": "salary_labor_account",
    "fieldtype": "Link",
    "label": "Salary Labour Account",
-   "options": "Account",
-   "description": "Account used for labour cost mapping / salary payout reconciliation"
+   "options": "Account"
   }
  ],
  "index_web_pages_for_search": 1,
- "issingle": 0,
  "links": [],
- "modified": "2024-12-31 10:00:00.000000",
+ "modified": "2026-01-09 15:05:26.903409",
  "modified_by": "Administrator",
  "module": "Construction Management",
  "name": "BOQ Settings",
@@ -213,6 +207,7 @@
    "share": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

@@ -533,7 +533,6 @@ window.generateBulkProforma = function () {
 					if (cur_frm) {
 						cur_frm.reload_doc();
 					}
-					frappe.set_route('Form', 'Proforma Invoice', r.message.name);
 					window.open(`/app/proforma-invoice/${r.message.name}`, '_blank');
 				} else if (r.message.status === 'error') {
 					frappe.show_alert({ message: r.message.error_message || __('Failed to create proforma invoice'), indicator: 'red' });

@@ -151,8 +151,29 @@ def get_cost_to_date(boq_item: str) -> float:
 		)
 	""", (boq_item, posting_date))
 
+	purchase_receipt_cost = frappe.db.sql("""
+		SELECT SUM(gle.debit - gle.credit)
+		FROM `tabGL Entry` gle
+		WHERE gle.voucher_type = 'Purchase Receipt'
+		AND gle.voucher_no IN (
+			SELECT pri.parent
+			FROM `tabPurchase Receipt Item` pri
+			JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
+			WHERE pri.boq_item = %s
+			AND pr.docstatus = 1
+		)
+		AND gle.is_cancelled = 0
+		AND gle.posting_date <= %s
+		AND gle.account IN (
+			SELECT name FROM `tabAccount`
+			WHERE root_type = 'Expense'
+			OR account_type = 'Work In Progress'
+		)
+	""", (boq_item, posting_date))
+
 	total = flt(base_cost[0][0] if base_cost and base_cost[0][0] else 0) + \
-		flt(purchase_gl_cost[0][0] if purchase_gl_cost and purchase_gl_cost[0][0] else 0)
+		flt(purchase_gl_cost[0][0] if purchase_gl_cost and purchase_gl_cost[0][0] else 0) + \
+		flt(purchase_receipt_cost[0][0] if purchase_receipt_cost and purchase_receipt_cost[0][0] else 0)
 
 	return total
 

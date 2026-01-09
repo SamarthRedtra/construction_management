@@ -338,8 +338,14 @@ class DailyProgressRecord(Document):
 			self.db_set("stock_entries", ", ".join(stock_entry_names))
 
 	def create_journal_entries(self):
-		"""Create Journal Entries for overheads and expenses"""
+		"""Create Journal Entries for overheads, expenses, and labour"""
 		journal_entry_names = []
+		
+		# Create JE for labour
+		if self.employees and flt(self.labour_cost) > 0:
+			je = self._create_labour_journal_entry()
+			if je:
+				journal_entry_names.append(je)
 		
 		# Create JE for overheads
 		if self.overheads and flt(self.overhead_cost) > 0:
@@ -360,6 +366,59 @@ class DailyProgressRecord(Document):
 		if journal_entry_names:
 			self.db_set("journal_entries", ", ".join(journal_entry_names))
 	
+	def _create_labour_journal_entry(self):
+		"""Create Journal Entry for labour costs"""
+		if not self.employees or flt(self.labour_cost) <= 0:
+			return None
+			
+		company = self.get_company()
+		if not company:
+			frappe.msgprint(_("Cannot create Journal Entry - no company found"), indicator="orange")
+			return None
+			
+		settings = frappe.db.get_value("BOQ Settings", company, ["salary_labor_account", "asset_labor_cost_account"], as_dict=True) or {}
+		
+		debit_account = settings.get("asset_labor_cost_account") #expense
+		credit_account = settings.get("salary_labor_account") #liability
+		
+		if not debit_account or not credit_account:
+			frappe.msgprint(_("Cannot create Labour JE - Salary Labour Account or Asset Labour Cost Account not configured in BOQ Settings"), indicator="orange")
+			return None
+			
+		try:
+			je = frappe.new_doc("Journal Entry")
+			je.voucher_type = "Journal Entry"
+			je.posting_date = self.date
+			je.company = company
+			je.user_remark = f"Labour costs for DPR {self.name}"
+			
+			cost_center = frappe.db.get_value("Company", company, "cost_center")
+			
+			# Debit Salary Labour Account (Expense)
+			je.append("accounts", {
+				"account": debit_account,
+				"debit_in_account_currency": flt(self.labour_cost),
+				"project": self.project,
+				"cost_center": cost_center
+			})
+			
+			# Credit Asset Labour Cost Account (Liability)
+			je.append("accounts", {
+				"account": credit_account,
+				"credit_in_account_currency": flt(self.labour_cost),
+				"project": self.project,
+				"cost_center": cost_center
+			})
+			
+			je.insert()
+			je.submit()
+			return je.name
+			
+		except Exception as e:
+			frappe.log_error(f"Error creating Labour JE for DPR {self.name}: {str(e)}")
+			frappe.msgprint(_("Could not create Journal Entry for labour: {0}").format(str(e)), indicator="orange")
+			return None
+	
 	def _create_overhead_journal_entry(self):
 		"""Create Journal Entry for overhead costs"""
 		if not self.overheads or flt(self.overhead_cost) <= 0:
@@ -372,16 +431,19 @@ class DailyProgressRecord(Document):
 		
 		settings = frappe.db.get_value("BOQ Settings", company, ["overhead_account", "expenses_account"], as_dict=True) or {}
 		
-		# Get default payable account
-		default_payable = frappe.db.get_value("Company", company, "default_payable_account")
-		if not default_payable:
-			default_payable = frappe.db.get_value(
+		# Get payable account from BOQ Settings or Company default
+		payable_account = settings.get("overhead_account")
+		if not payable_account:
+			payable_account = frappe.db.get_value("Company", company, "default_payable_account")
+			
+		if not payable_account:
+			payable_account = frappe.db.get_value(
 				"Account",
 				{"company": company, "account_type": "Payable", "is_group": 0},
 				"name"
 			)
 		
-		if not default_payable:
+		if not payable_account:
 			frappe.msgprint(_("Cannot create Overhead JE - no payable account found for company {0}").format(company), indicator="orange")
 			return None
 		
@@ -396,7 +458,7 @@ class DailyProgressRecord(Document):
 			
 			# Debit entries for each overhead account
 			for row in self.overheads:
-				target_account = row.account or settings.get("overhead_account")
+				target_account = row.account
 				if flt(row.amount) > 0 and target_account:
 					je.append("accounts", {
 						"account": target_account,
@@ -407,7 +469,7 @@ class DailyProgressRecord(Document):
 			
 			# Credit entry to payable account
 			je.append("accounts", {
-				"account": default_payable,
+				"account": payable_account,
 				"credit_in_account_currency": flt(self.overhead_cost),
 				"project": self.project,
 				"cost_center": cost_center
@@ -434,16 +496,19 @@ class DailyProgressRecord(Document):
 		
 		settings = frappe.db.get_value("BOQ Settings", company, ["expenses_account"], as_dict=True) or {}
 		
-		# Get default payable account
-		default_payable = frappe.db.get_value("Company", company, "default_payable_account")
-		if not default_payable:
-			default_payable = frappe.db.get_value(
+		# Get payable account from BOQ Settings or Company default
+		payable_account = settings.get("expenses_account")
+		if not payable_account:
+			payable_account = frappe.db.get_value("Company", company, "default_payable_account")
+
+		if not payable_account:
+			payable_account = frappe.db.get_value(
 				"Account",
 				{"company": company, "account_type": "Payable", "is_group": 0},
 				"name"
 			)
 		
-		if not default_payable:
+		if not payable_account:
 			frappe.msgprint(_("Cannot create Expense JE - no payable account found for company {0}").format(company), indicator="orange")
 			return None
 		
@@ -477,7 +542,7 @@ class DailyProgressRecord(Document):
 						)
 					
 					if not expense_account:
-						expense_account = settings.get("expenses_account") or default_expense
+						expense_account = default_expense
 					
 					if expense_account:
 						je.append("accounts", {
@@ -489,7 +554,7 @@ class DailyProgressRecord(Document):
 			
 			# Credit entry to payable account
 			je.append("accounts", {
-				"account": default_payable,
+				"account": payable_account,
 				"credit_in_account_currency": flt(self.expense_cost),
 				"project": self.project,
 				"cost_center": cost_center

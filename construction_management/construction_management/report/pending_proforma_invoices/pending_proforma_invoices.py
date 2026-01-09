@@ -34,91 +34,77 @@ def get_columns():
 			"label": _("Proforma No"),
 			"fieldtype": "Link",
 			"options": "Proforma Invoice",
-			"width": 140
 		},
 		{
 			"fieldname": "project",
 			"label": _("Project"),
 			"fieldtype": "Link",
 			"options": "Project",
-			"width": 150
 		},
 		{
 			"fieldname": "customer",
 			"label": _("Customer"),
 			"fieldtype": "Link",
 			"options": "Customer",
-			"width": 150
 		},
 		{
 			"fieldname": "bill_no",
 			"label": _("Bill No"),
 			"fieldtype": "Link",
 			"options": "BOQ Bill",
-			"width": 120
 		},
 		{
 			"fieldname": "boq_item",
 			"label": _("BOQ Item"),
 			"fieldtype": "Link",
 			"options": "BOQ Item",
-			"width": 120
 		},
 		{
 			"fieldname": "description",
 			"label": _("Description"),
 			"fieldtype": "Data",
-			"width": 250
 		},
 		{
 			"fieldname": "posting_date",
 			"label": _("Date"),
 			"fieldtype": "Date",
-			"width": 100
 		},
 		{
 			"fieldname": "amount",
 			"label": _("Amount"),
 			"fieldtype": "Currency",
-			"width": 120
 		},
 		{
 			"fieldname": "net_amount",
 			"label": _("Net Amount"),
-			"fieldtype": "Currency",
-			"width": 120
+			"fieldtype": "Currency"
 		},
 		{
 			"fieldname": "age_days",
 			"label": _("Age (Days)"),
-			"fieldtype": "Int",
-			"width": 90
+			"fieldtype": "Int"
 		},
 		{
 			"fieldname": "pc_status",
 			"label": _("PC Status"),
 			"fieldtype": "HTML",
-			"width": 110
 		},
 		{
 			"fieldname": "payment_certificate",
 			"label": _("Payment Certificate"),
 			"fieldtype": "Link",
 			"options": "Payment Certificate",
-			"width": 140
 		},
 		{
 			"fieldname": "tax_invoice",
 			"label": _("Tax Invoice"),
 			"fieldtype": "Link",
 			"options": "Sales Invoice",
-			"width": 140
 		},
 		{
 			"fieldname": "action",
 			"label": _("Action"),
 			"fieldtype": "HTML",
-			"width": 120,
 			"align": "center"
 		}
 	]
@@ -140,26 +126,26 @@ def get_data(filters):
 	# Get proformas with PC status
 	data = frappe.db.sql("""
 		SELECT 
-			pi.name,
-			pi.project,
-			pi.bill_no,
-			pi.boq_item,
-			pi.customer,
-			pi.posting_date,
-			pi.amount,
-			pi.net_amount,
-			pi.description,
+			pi.name as name,
+			COALESCE(pi.project, 'None') as project,
+			COALESCE(pi.customer, 'None') as customer,
+			COALESCE(pi.bill_no, 'None') as bill_no,
+			COALESCE(pi.boq_item, 'None') as boq_item,
+			COALESCE(pi.description, 'None') as description,
+			pi.posting_date as posting_date,
+			pi.amount as amount,
+			pi.net_amount as net_amount,
 			DATEDIFF(CURDATE(), pi.posting_date) as age_days,
-			pc.name as payment_certificate,
-			pc.status as pc_status,
-			pc.tax_invoice
+			COALESCE(pc.status, 'None') as pc_status,
+			COALESCE(pc.name, 'None') as payment_certificate,
+			COALESCE(pc.tax_invoice, 'None') as tax_invoice
 		FROM `tabProforma Invoice` pi
 		LEFT JOIN `tabPayment Certificate` pc ON pc.proforma_invoice = pi.name AND pc.docstatus != 2
 		WHERE pi.docstatus = 1
 		AND pi.status IN ('Submitted', 'Partially Certified')
 		{conditions}
 		ORDER BY pi.posting_date DESC
-	""".format(conditions=conditions), filters, as_dict=True)
+	""".format(conditions=conditions), filters, as_dict=1)
 	
 	# Add action based on PC status
 	for row in data:

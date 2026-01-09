@@ -197,21 +197,22 @@ def validate_dpr_costs(boq_item_name, dpr_costs, dpr_name=None):
 		Object with has_warnings property and warnings list
 	"""
 	from collections import namedtuple
-	Result = namedtuple('Result', ['has_warnings', 'warnings'])
+	Result = namedtuple('Result', ['has_warnings', 'warnings', 'has_errors', 'errors'])
 	warnings = []
+	errors = []
 	
 	if not boq_item_name:
-		return Result(False, warnings)
+		return Result(False, [], False, [])
 		
 	# Skip if not a valid BOQ Item
 	if not frappe.db.exists("BOQ Item", boq_item_name):
-		return Result(False, warnings)
+		return Result(False, [], False, [])
 
 	boq_item = frappe.get_doc("BOQ Item", boq_item_name)
 	
 	# Skip if estimates are not set (zero)
 	if flt(boq_item.total_estimated_cost) <= 0:
-		return Result(False, warnings)
+		return Result(False, [], False, [])
 		
 	# Get current costs to date (excluding this DPR)
 	from construction_management.api.boq_ledger import get_cost_to_date
@@ -234,5 +235,6 @@ def validate_dpr_costs(boq_item_name, dpr_costs, dpr_name=None):
 			boq_item.name
 		)
 		warnings.append(msg)
+		errors.append(msg)
 		
-	return Result(len(warnings) > 0, warnings)
+	return Result(len(warnings) > 0, warnings, len(errors) > 0, errors)
