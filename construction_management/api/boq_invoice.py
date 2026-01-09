@@ -779,6 +779,9 @@ def get_boq_invoice_history(boq_item: str, grouped_view: int = 0) -> dict:
 		
 		filtered_entries.append(entry)
 	
+	# Append Sales Invoices without PI/PC ledger rows for visibility
+	_append_orphan_sales_invoices(boq_item, filtered_entries, boq_item_doc)
+	
 	# Get all invoices for summary calculation
 	invoices = frappe.db.sql("""
 		SELECT 
@@ -912,6 +915,61 @@ def get_boq_invoice_history(boq_item: str, grouped_view: int = 0) -> dict:
 		response["view_mode"] = "raw"
 	
 	return response
+
+
+def _append_orphan_sales_invoices(boq_item, filtered_entries, boq_item_doc):
+	"""
+	Add Sales Invoices without PI/PC linkage to the history for visibility.
+	Only include SIs that have neither custom_payment_certificate nor custom_proforma_invoice.
+	"""
+	# Collect existing reference names to avoid duplicates
+	existing_refs = {e.reference_name for e in filtered_entries if e.reference_name}
+	
+	orphan_si = frappe.db.sql("""
+		SELECT si.name, si.posting_date, sii.qty, sii.amount
+		FROM `tabSales Invoice` si
+		JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
+		WHERE sii.boq_item = %s
+		AND si.docstatus = 1
+		AND si.custom_is_proforma = 0
+		AND IFNULL(si.custom_payment_certificate, '') = ''
+		AND IFNULL(si.custom_proforma_invoice, '') = ''
+	""", boq_item, as_dict=True)
+	
+	acc_qty = flt(filtered_entries[-1].accumulated_qty) if filtered_entries else 0
+	acc_amount = flt(filtered_entries[-1].accumulated_amount) if filtered_entries else 0
+	
+	for inv in orphan_si:
+		if inv.name in existing_refs:
+			continue
+		current_qty = flt(inv.qty)
+		current_amount = flt(inv.amount)
+		entry = frappe._dict({
+			"name": f"ORPHAN-{inv.name}",
+			"posting_date": inv.posting_date,
+			"creation": inv.posting_date,
+			"source": "Invoice",
+			"reference_doctype": "Sales Invoice",
+			"reference_name": inv.name,
+			"qty": current_qty,
+			"amount": current_amount,
+			"prev_qty": acc_qty,
+			"prev_amount": acc_amount,
+			"current_qty": current_qty,
+			"current_amount": current_amount,
+			"accumulated_qty": acc_qty + current_qty,
+			"accumulated_amount": acc_amount + current_amount,
+			"unit": boq_item_doc.unit,
+			"rate": boq_item_doc.rate,
+			"invoice_status": "Submitted",
+			"invoice_docstatus": 1,
+			"is_proforma": 0,
+			"tax_invoice": inv.name,
+			"tax_invoice_amount": current_amount
+		})
+		filtered_entries.append(entry)
+		acc_qty += current_qty
+		acc_amount += current_amount
 
 
 

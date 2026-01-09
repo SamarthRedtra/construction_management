@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, getdate
+from construction_management.api.budget_control import validate_dpr_budget
 
 
 class DailyProgressRecord(Document):
@@ -19,10 +20,12 @@ class DailyProgressRecord(Document):
 		self.calculate_expense_costs()
 		self.calculate_total_cost()
 		self.calculate_quantity_totals()
+		self.run_budget_controls()
 	
 	def before_submit(self):
 		"""Validate costs against BOQ estimates before submission"""
 		self.validate_cost_against_estimates()
+		self.run_budget_controls()
 	
 	def fetch_bill_no(self):
 		"""Fetch Bill No from BOQ Item"""
@@ -101,9 +104,18 @@ class DailyProgressRecord(Document):
 			billing = get_billing_rate(self.project, row.asset, self.date)
 			hours = flt(row.hours) or 8
 			
+			if flt(billing.rate) <= 0:
+				frappe.throw(
+					_("No billing rate configured for Asset {0} in Project {1}. Please set Project Asset Billing.").format(
+						row.asset, self.project
+					),
+					title=_("Missing Asset Rate")
+				)
+			
 			# Set rate fields based on frequency
 			row.rate_per_hour = billing.value_per_hour
 			row.rate_per_day = billing.value_per_day or (billing.value_per_hour * 8)
+			row.rate = billing.rate
 			
 			# Calculate cost based on frequency
 			if billing.frequency == "Hourly":
@@ -167,6 +179,14 @@ class DailyProgressRecord(Document):
 			flt(self.overhead_cost) +
 			flt(self.expense_cost)
 		)
+
+	def run_budget_controls(self):
+		"""Enforce project/BOQ budget limits (soft/hard) per project settings."""
+		try:
+			validate_dpr_budget(self)
+		except Exception:
+			# Re-raise to respect hard limits / validation errors
+			raise
 	
 	def calculate_quantity_totals(self):
 		"""
@@ -350,6 +370,8 @@ class DailyProgressRecord(Document):
 			frappe.msgprint(_("Cannot create Journal Entry - no company found"), indicator="orange")
 			return None
 		
+		settings = frappe.db.get_value("BOQ Settings", company, ["overhead_account", "expenses_account"], as_dict=True) or {}
+		
 		# Get default payable account
 		default_payable = frappe.db.get_value("Company", company, "default_payable_account")
 		if not default_payable:
@@ -374,9 +396,10 @@ class DailyProgressRecord(Document):
 			
 			# Debit entries for each overhead account
 			for row in self.overheads:
-				if flt(row.amount) > 0 and row.account:
+				target_account = row.account or settings.get("overhead_account")
+				if flt(row.amount) > 0 and target_account:
 					je.append("accounts", {
-						"account": row.account,
+						"account": target_account,
 						"debit_in_account_currency": flt(row.amount),
 						"project": self.project,
 						"cost_center": cost_center
@@ -408,6 +431,8 @@ class DailyProgressRecord(Document):
 		if not company:
 			frappe.msgprint(_("Cannot create Journal Entry - no company found"), indicator="orange")
 			return None
+		
+		settings = frappe.db.get_value("BOQ Settings", company, ["expenses_account"], as_dict=True) or {}
 		
 		# Get default payable account
 		default_payable = frappe.db.get_value("Company", company, "default_payable_account")
@@ -452,7 +477,7 @@ class DailyProgressRecord(Document):
 						)
 					
 					if not expense_account:
-						expense_account = default_expense
+						expense_account = settings.get("expenses_account") or default_expense
 					
 					if expense_account:
 						je.append("accounts", {

@@ -12,6 +12,10 @@ frappe.ui.form.on('Project', {
 
 			// Set up a mutation observer to watch for dashboard changes
 			setup_dashboard_protection();
+
+			if (frm.doc.site_location) {
+				add_site_stock_button(frm);
+			}
 		}
 	},
 
@@ -49,6 +53,72 @@ function setup_dashboard_protection() {
 
 	// Store observer reference to disconnect later if needed
 	window._dashboard_observer = observer;
+}
+
+function add_site_stock_button(frm) {
+	if (!frm.custom_site_stock_btn_added) {
+		frm.add_custom_button(__('Site Stock'), () => show_site_stock_dialog(frm), __('Construction'));
+		frm.custom_site_stock_btn_added = true;
+	}
+}
+
+function show_site_stock_dialog(frm) {
+	frappe.call({
+		method: 'construction_management.api.dpr_utils.get_site_location_stock',
+		args: { project: frm.doc.name },
+		callback: function (r) {
+			const data = r.message || [];
+			const dialog = new frappe.ui.Dialog({
+				title: __('Site Stock - {0}', [frm.doc.site_location || 'Warehouse']),
+				size: 'large',
+				primary_action_label: __('Close'),
+				primary_action: () => dialog.hide()
+			});
+
+			if (!data.length) {
+				dialog.set_message(__('No stock found for this site.'));
+				dialog.show();
+				return;
+			}
+
+			const rows = data.map(d => `
+				<tr>
+					<td>${frappe.utils.escape_html(d.item_code || '')}</td>
+					<td>${frappe.utils.escape_html(d.item_name || '')}</td>
+					<td class="text-right">${frappe.format(d.actual_qty || 0, {fieldtype:'Float', precision:2})}</td>
+					<td class="text-right">${frappe.format(d.reserved_qty || 0, {fieldtype:'Float', precision:2})}</td>
+					<td class="text-right">${frappe.format(d.projected_qty || 0, {fieldtype:'Float', precision:2})}</td>
+					<td class="text-right">${frappe.format(d.valuation_rate || 0, {fieldtype:'Currency'})}</td>
+					<td>${frappe.utils.escape_html(d.stock_uom || '')}</td>
+				</tr>
+			`).join('');
+
+			dialog.$body.html(`
+				<style>
+					.site-stock-table { width: 100%; border-collapse: collapse; }
+					.site-stock-table th, .site-stock-table td { padding: 6px 8px; border-bottom: 1px solid #e5e5e5; }
+					.site-stock-table th { background: #f7f7f7; text-transform: uppercase; font-size: 10px; color: #6c7680; }
+					.site-stock-table td.text-right { text-align: right; }
+				</style>
+				<table class="site-stock-table">
+					<thead>
+						<tr>
+							<th>${__('Item Code')}</th>
+							<th>${__('Item Name')}</th>
+							<th class="text-right">${__('On Hand')}</th>
+							<th class="text-right">${__('Reserved')}</th>
+							<th class="text-right">${__('Projected')}</th>
+							<th class="text-right">${__('Valuation')}</th>
+							<th>${__('UOM')}</th>
+						</tr>
+					</thead>
+					<tbody>${rows}</tbody>
+				</table>
+			`);
+
+			dialog.show();
+		}
+	});
 }
 
 function render_construction_dashboard(frm) {
@@ -3681,7 +3751,10 @@ window.show_dpr_dialog_enhanced = function (project) {
 			{ fieldtype: 'Section Break', label: __('🚜 Asset Cost') },
 			{
 				fieldname: 'asset', label: __('Add Asset'), fieldtype: 'Link', options: 'Asset',
-				get_query: () => ({ filters: { status: ['in', ['Submitted', 'Partially Depreciated']] } }),
+				get_query: () => ({
+					query: 'construction_management.api.asset_billing.get_assets_with_billing',
+					filters: { project }
+				}),
 				change: function () {
 					const asset = d.get_value('asset');
 					if (asset) add_asset_to_list(d, asset, project);
@@ -3813,44 +3886,27 @@ function add_asset_to_list(d, asset, project) {
 				const rate_per_hour = assetData.rate_per_hour || 0;
 				const default_hours = 8;
 
+				// Enforce billing presence: if no rate, block selection
 				if (!rate_per_hour) {
-					// Prompt for manual rate entry when no Project Asset Billing exists
-					frappe.prompt([
-						{
-							fieldname: 'rate_per_hour', label: __('Hourly Rate'), fieldtype: 'Currency', reqd: 1,
-							description: __('No hourly rate configured in Project Asset Billing. Please enter rate per hour manually.')
-						},
-						{
-							fieldname: 'hours', label: __('Hours'), fieldtype: 'Float', default: default_hours,
-							description: __('Number of hours the asset was used')
-						}
-					], function (values) {
-						const hours = flt(values.hours) || default_hours;
-						const amount = flt(values.rate_per_hour) * hours;
-						dpr_selected_assets.push({
-							asset: asset,
-							asset_name: assetData.asset_name,
-							hours: hours,
-							rate_per_hour: values.rate_per_hour,
-							rate_per_day: values.rate_per_hour * 8, // For backward compat
-							amount: amount
-						});
-						render_assets_list();
-						update_dpr_totals(d);
-					}, __('Enter Hourly Rate for ' + assetData.asset_name), __('Add'));
-				} else {
-					const amount = rate_per_hour * default_hours;
-					dpr_selected_assets.push({
-						asset: asset,
-						asset_name: assetData.asset_name,
-						hours: default_hours,
-						rate_per_hour: rate_per_hour,
-						rate_per_day: rate_per_hour * 8, // For backward compat
-						amount: amount
+					frappe.show_alert({
+						message: __('No Project Asset Billing rate found for asset {0}. Please configure it before using in DPR.', [assetData.asset_name || asset]),
+						indicator: 'red'
 					});
-					render_assets_list();
-					update_dpr_totals(d);
+					d.set_value('asset', '');
+					return;
 				}
+
+				const amount = rate_per_hour * default_hours;
+				dpr_selected_assets.push({
+					asset: asset,
+					asset_name: assetData.asset_name,
+					hours: default_hours,
+					rate_per_hour: rate_per_hour,
+					rate_per_day: rate_per_hour * 8, // For backward compat
+					amount: amount
+				});
+				render_assets_list();
+				update_dpr_totals(d);
 			}
 			d.set_value('asset', '');
 		}

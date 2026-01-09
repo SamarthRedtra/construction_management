@@ -44,6 +44,13 @@ def get_columns():
 			"width": 150
 		},
 		{
+			"fieldname": "customer",
+			"label": _("Customer"),
+			"fieldtype": "Link",
+			"options": "Customer",
+			"width": 150
+		},
+		{
 			"fieldname": "bill_no",
 			"label": _("Bill No"),
 			"fieldtype": "Link",
@@ -58,11 +65,10 @@ def get_columns():
 			"width": 120
 		},
 		{
-			"fieldname": "customer",
-			"label": _("Customer"),
-			"fieldtype": "Link",
-			"options": "Customer",
-			"width": 150
+			"fieldname": "description",
+			"label": _("Description"),
+			"fieldtype": "Data",
+			"width": 250
 		},
 		{
 			"fieldname": "posting_date",
@@ -91,8 +97,8 @@ def get_columns():
 		{
 			"fieldname": "pc_status",
 			"label": _("PC Status"),
-			"fieldtype": "Data",
-			"width": 100
+			"fieldtype": "HTML",
+			"width": 110
 		},
 		{
 			"fieldname": "payment_certificate",
@@ -111,14 +117,9 @@ def get_columns():
 		{
 			"fieldname": "action",
 			"label": _("Action"),
-			"fieldtype": "Data",
-			"width": 100
-		},
-		{
-			"fieldname": "description",
-			"label": _("Description"),
-			"fieldtype": "Data",
-			"width": 200
+			"fieldtype": "HTML",
+			"width": 120,
+			"align": "center"
 		}
 	]
 
@@ -133,6 +134,7 @@ def get_data(filters):
 	Property 18: For any filter applied, the results SHALL only include 
 	records matching all filter criteria.
 	"""
+	filters = filters or {}
 	conditions = get_conditions(filters)
 	
 	# Get proformas with PC status

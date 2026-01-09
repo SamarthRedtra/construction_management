@@ -21,6 +21,14 @@ frappe.ui.form.on('Daily Progress Record', {
 				};
 			});
 
+			// Asset filter: only assets with Project Asset Billing for this project
+			frm.set_query('asset', 'assets', function () {
+				return {
+					query: 'construction_management.api.asset_billing.get_assets_with_billing',
+					filters: { project: frm.doc.project }
+				};
+			});
+
 			// Set item_code query to filter by warehouse stock
 			frm.set_query('item_code', 'materials', function (doc, cdt, cdn) {
 				let row = locals[cdt][cdn];
@@ -77,6 +85,14 @@ frappe.ui.form.on('Daily Progress Record', {
 				};
 			});
 
+			// Asset filter: only assets with Project Asset Billing configured for this project
+			frm.set_query('asset', 'assets', function () {
+				return {
+					query: 'construction_management.api.asset_billing.get_assets_with_billing',
+					filters: { project: frm.doc.project }
+				};
+			});
+
 			// Set item_code query to filter by warehouse stock
 			frm.set_query('item_code', 'materials', function (doc, cdt, cdn) {
 				let row = locals[cdt][cdn];
@@ -128,6 +144,10 @@ frappe.ui.form.on('DPR Asset', {
 					if (rate > 0) {
 						frappe.model.set_value(cdt, cdn, 'rate_per_hour', rate);
 						frappe.model.set_value(cdt, cdn, 'rate_per_day', rate * 8); // Default 8h day
+						frappe.show_alert({
+							message: __('Asset rate loaded: {0} per hour', [format_currency(rate)]),
+							indicator: 'green'
+						});
 					} else {
 						// Optional: warn user no rate found
 						frappe.show_alert({
@@ -351,6 +371,27 @@ frappe.ui.form.on('DPR Material', {
 							indicator: 'orange'
 						});
 					}
+				}
+			});
+
+			// Show inline stock snapshot
+			frappe.call({
+				method: 'construction_management.api.dpr_utils.get_bin_snapshot',
+				args: {
+					warehouse: row.warehouse,
+					item_code: row.item_code
+				},
+				callback: function (r) {
+					if (!r.message) return;
+					const bin = r.message;
+					const msg = __('Stock @ {0}: On-hand {1}, Reserved {2}, Projected {3}, Valuation {4}', [
+						row.warehouse,
+						flt(bin.actual_qty || 0),
+						flt(bin.reserved_qty || 0),
+						flt(bin.projected_qty || 0),
+						format_currency(bin.valuation_rate || 0)
+					]);
+					frappe.show_alert({ message: msg, indicator: 'blue' });
 				}
 			});
 		}

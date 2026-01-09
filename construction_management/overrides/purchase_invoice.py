@@ -17,9 +17,7 @@ def on_cancel(doc, method):
 	"""Reverse cost tracking for BOQ items on Purchase Invoice cancel"""
 	for item in doc.items:
 		if item.get("boq_item"):
-			# Cost tracking is done via DPR, not directly from Purchase Invoice
-			# This hook is for future enhancement if needed
-			pass
+			update_boq_item_cost(item)
 
 
 def update_boq_item_cost(item):

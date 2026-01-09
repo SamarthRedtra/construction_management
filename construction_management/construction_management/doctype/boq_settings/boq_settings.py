@@ -20,6 +20,7 @@ class BOQSettings(Document):
 		self.validate_warehouse_settings()
 		self.validate_retention_settings()
 		self.validate_advance_settings()
+		self.validate_cost_accounts()
 	
 	def validate_warehouse_settings(self):
 		"""Validate warehouse/site location settings"""
@@ -63,6 +64,23 @@ class BOQSettings(Document):
 		# Validate advance deduction item exists
 		if self.advance_deduction_item and not frappe.db.exists("Item", self.advance_deduction_item):
 			frappe.throw(_("Advance Deduction Item {0} does not exist").format(self.advance_deduction_item))
+
+	def validate_cost_accounts(self):
+		"""Validate cost account mappings belong to the same company (if set)."""
+		account_fields = [
+			("asset_labor_cost_account", _("Asset Labour Cost (Liability)")),
+			("asset_cost_account", _("Asset Cost (Liability)")),
+			("expenses_account", _("Expenses & Overhead Account")),
+			("overhead_account", _("Overhead Account")),
+			("salary_labor_account", _("Salary Labour Account")),
+		]
+		for field, label in account_fields:
+			account = self.get(field)
+			if not account:
+				continue
+			account_company = frappe.db.get_value("Account", account, "company")
+			if account_company and account_company != self.company:
+				frappe.throw(_("{0} must belong to company {1}").format(label, self.company))
 	
 	def on_update(self):
 		"""Actions to perform after updating BOQ Settings"""

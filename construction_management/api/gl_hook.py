@@ -36,9 +36,17 @@ def update_cost_from_gl(doc, method):
 
 
 def process_gl_entry_for_boq(doc):
-	"""Create BOQ ledger entry when GL Entry carries bill and BOQ item linkage."""
-	# Disabled: BOQ Progress Ledger should be driven only by PI/PC/TI documents, not GL.
-	return
+	"""
+	Update BOQ cost context from GL when bill/boq_item dimensions are present.
+	Sales-side (PI/PC/TI) is ignored to avoid double-counting; purchases are allowed.
+	"""
+	voucher_type = doc.get("voucher_type")
+	if voucher_type in ("Sales Invoice", "Payment Certificate"):
+		return  # safeguard: no sales-side duplication
+	
+	allowed_purchase_types = ("Purchase Invoice", "Purchase Receipt", "Journal Entry", "Stock Entry")
+	if voucher_type not in allowed_purchase_types:
+		return
 
 	bill_no = doc.get("bill_no")
 	boq_item_name = doc.get("boq_item")
@@ -61,30 +69,12 @@ def process_gl_entry_for_boq(doc):
 	if not boq_item.project_boq:
 		return
 
-	source = "Adjustment"
-	if doc.get("voucher_type") in ("Sales Invoice", "Payment Certificate"):
-		source = "Invoice"
-	elif doc.get("voucher_type") == "Purchase Invoice":
-		source = "Adjustment"
-
-	qty = flt(doc.get("qty") or 0)
-	posting_date = doc.get("posting_date") or today()
-
-	BOQProgressLedger.create_entry(
-		project=doc.project,
-		project_boq=boq_item.project_boq,
-		bill_no=bill_no,
-		boq_item=boq_item_name,
-		posting_date=posting_date,
-		qty=qty,
-		amount=amount,
-		source=source,
-		reference_doctype="GL Entry",
-		reference_name=doc.name,
-		remarks=doc.get("remarks") or f"GL Entry {doc.name}"
-	)
-
-	recalculate_ledger_for_item(boq_item_name)
+	# For purchases, just recalc BOQ item costs (no ledger entry to avoid revenue duplication)
+	try:
+		boq_item.calculate_amounts()
+		boq_item.db_update()
+	except Exception as e:
+		frappe.log_error(f"GL hook cost recalc failed for BOQ Item {boq_item_name} from GL {doc.name}: {str(e)}")
 
 def update_project_cost(project_name):
 	# Calculate total project cost from GL (Expense + WIP)

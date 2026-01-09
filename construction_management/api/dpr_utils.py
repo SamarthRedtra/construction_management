@@ -119,6 +119,48 @@ def get_employee_with_rate(employee: str) -> dict:
 
 
 @frappe.whitelist()
+def get_bin_snapshot(warehouse: str, item_code: str) -> dict:
+	"""
+	Get warehouse stock snapshot for an item (on-hand, reserved, projected, valuation).
+	"""
+	if not warehouse or not item_code:
+		return {}
+	return frappe.db.get_value(
+		"Bin",
+		{"warehouse": warehouse, "item_code": item_code},
+		["actual_qty", "reserved_qty", "projected_qty", "valuation_rate"],
+		as_dict=True
+	) or {}
+
+
+@frappe.whitelist()
+def get_site_location_stock(project: str) -> list:
+	"""
+	Return stock snapshot for the project's site_location warehouse.
+	Fields: item_code, item_name, stock_uom, actual_qty, reserved_qty, projected_qty, valuation_rate.
+	"""
+	if not project:
+		return []
+	warehouse = frappe.db.get_value("Project", project, "site_location")
+	if not warehouse:
+		return []
+	return frappe.db.sql("""
+		SELECT 
+			b.item_code,
+			i.item_name,
+			i.stock_uom,
+			b.actual_qty,
+			b.reserved_qty,
+			b.projected_qty,
+			b.valuation_rate
+		FROM `tabBin` b
+		JOIN `tabItem` i ON i.name = b.item_code
+		WHERE b.warehouse = %s
+		ORDER BY b.actual_qty DESC, i.item_name ASC
+	""", warehouse, as_dict=True)
+
+
+@frappe.whitelist()
 def get_asset_with_rate(asset: str, project: str, date: str = None) -> dict:
 	"""Get single asset with its hourly rate for a project"""
 	from frappe.utils import today

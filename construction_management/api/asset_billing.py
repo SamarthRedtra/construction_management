@@ -236,6 +236,32 @@ def calculate_dpr_asset_cost(
 	}
 
 
+@frappe.whitelist()
+def get_assets_with_billing(doctype, txt, searchfield, start, page_len, filters):
+	"""
+	Query for assets that have Project Asset Billing configured for the given project.
+	Used to limit DPR asset selection to priced assets.
+	"""
+	project = filters.get("project")
+	if not project:
+		return []
+	return frappe.db.sql("""
+		SELECT pab.asset, a.asset_name
+		FROM `tabProject Asset Billing` pab
+		JOIN `tabAsset` a ON a.name = pab.asset
+		WHERE pab.project = %(project)s
+		AND (pab.asset LIKE %(txt)s OR a.asset_name LIKE %(txt)s)
+		GROUP BY pab.asset, a.asset_name
+		ORDER BY a.asset_name
+		LIMIT %(start)s, %(page_len)s
+	""", {
+		"project": project,
+		"txt": "%%%s%%" % txt,
+		"start": start,
+		"page_len": page_len
+	})
+
+
 # Backward compatibility functions
 @frappe.whitelist()
 def get_asset_hourly_rate(project: str, asset: str, date: str = None) -> float:

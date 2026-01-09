@@ -21,7 +21,14 @@
   "column_break_12",
   "advance_settings_section",
   "advance_account",
-  "advance_deduction_item"
+  "advance_deduction_item",
+  "section_break_cost",
+  "asset_labor_cost_account",
+  "asset_cost_account",
+  "column_break_cost",
+  "expenses_account",
+  "overhead_account",
+  "salary_labor_account"
  ],
  "fields": [
   {
@@ -116,6 +123,50 @@
    "options": "Item",
    "description": "Service item for advance deductions in invoices",
    "default": "ADVANCE-DEDUCTION"
+  },
+  {
+   "fieldname": "section_break_cost",
+   "fieldtype": "Section Break",
+   "label": "Cost Accounting Accounts"
+  },
+  {
+   "fieldname": "asset_labor_cost_account",
+   "fieldtype": "Link",
+   "label": "Asset Labour Cost (Liability)",
+   "options": "Account",
+   "description": "Liability account for capitalised/allocated labour cost on assets"
+  },
+  {
+   "fieldname": "asset_cost_account",
+   "fieldtype": "Link",
+   "label": "Asset Cost (Liability)",
+   "options": "Account",
+   "description": "Liability account for asset cost allocation"
+  },
+  {
+   "fieldname": "column_break_cost",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "expenses_account",
+   "fieldtype": "Link",
+   "label": "Expenses & Overhead Account",
+   "options": "Account",
+   "description": "Default expense/overhead account for DPR JVs"
+  },
+  {
+   "fieldname": "overhead_account",
+   "fieldtype": "Link",
+   "label": "Overhead Account",
+   "options": "Account",
+   "description": "Default overhead account for DPR postings"
+  },
+  {
+   "fieldname": "salary_labor_account",
+   "fieldtype": "Link",
+   "label": "Salary Labour Account",
+   "options": "Account",
+   "description": "Account used for labour cost mapping / salary payout reconciliation"
   }
  ],
  "index_web_pages_for_search": 1,
