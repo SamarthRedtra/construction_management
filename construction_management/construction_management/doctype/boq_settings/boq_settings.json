@@ -25,9 +25,10 @@
   "asset_labor_cost_account",
   "asset_cost_account",
   "column_break_cost",
+  "salary_labor_account",
+  "asset_cost_credit",
   "expenses_account",
-  "overhead_account",
-  "salary_labor_account"
+  "overhead_account"
  ],
  "fields": [
   {
@@ -128,14 +129,14 @@
    "description": "Expense account for capitalised/allocated labour cost on assets",
    "fieldname": "asset_labor_cost_account",
    "fieldtype": "Link",
-   "label": "Asset Labour Cost",
+   "label": "Labour Cost",
    "options": "Account"
   },
   {
    "description": "Expense account for asset cost allocation",
    "fieldname": "asset_cost_account",
    "fieldtype": "Link",
-   "label": "Asset Cost",
+   "label": "Debit Asset Cost",
    "options": "Account"
   },
   {
@@ -162,11 +163,18 @@
    "fieldtype": "Link",
    "label": "Salary Labour Account",
    "options": "Account"
+  },
+  {
+   "description": "Expense account for asset cost allocation",
+   "fieldname": "asset_cost_credit",
+   "fieldtype": "Link",
+   "label": "Asset Cost Credit",
+   "options": "Account"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-09 15:05:26.903409",
+ "modified": "2026-01-09 22:40:58.275002",
  "modified_by": "Administrator",
  "module": "Construction Management",
  "name": "BOQ Settings",

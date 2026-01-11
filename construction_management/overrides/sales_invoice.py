@@ -110,7 +110,20 @@ def create_boq_ledger_entry(invoice, item):
 		)
 		return
 	
-	# - Otherwise (direct invoice not tied to PI/PC), create a new ledger entry
+	# - Otherwise (direct invoice not tied to PI/PC), create a new ledger entry if not already existing
+	existing = frappe.db.get_value(
+		"BOQ Progress Ledger",
+		{
+			"boq_item": boq_item,
+			"reference_doctype": "Sales Invoice",
+			"reference_name": invoice.name
+		},
+		"name"
+	)
+	if existing:
+		frappe.logger().info(f"Ledger entry already exists for {invoice.name} / {boq_item}, skipping duplicate.")
+		return
+	
 	create_ledger_entry(
 		boq_item=boq_item,
 		qty=flt(item.qty),

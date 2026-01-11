@@ -59,7 +59,8 @@ function render_bill_section(bill, frm, isExpanded) {
 					</svg>
 					<div class="bill-info">
 						<span class="bill-title">${bill.bill_no}</span>
-						${bill.description ? `<span class="bill-desc">${bill.description}</span>` : ''}
+						<span class="bill-title"> <a href="/app/boq-bill/${bill.name}" onclick="event.stopPropagation()">${bill.name}</a></span>
+						${bill.description ? `<span class="bill-desc"><a href="/app/boq-bill/${bill.name}" onclick="event.stopPropagation()">${bill.description}</a></span>` : ''}
 					</div>
 				</div>
 				<div class="bill-header-stats">
@@ -233,6 +234,7 @@ function render_item_row(item, frm) {
 				<div class="item-desc-wrapper">
 					${rowStatusIcon ? `<span class="row-status-icon" title="${rowStatusTooltip}">${rowStatusIcon}</span>` : ''}
 					${item.item_code ? `<span class="item-code">${item.item_code}</span>` : ''}
+					<span class="item-desc"><a href="/app/boq-item/${item.name}" onclick="event.stopPropagation()">${item.name || 'No description'}</a></span>
 					<span class="item-desc">${item.description || 'No description'}</span>
 				</div>
 				<!-- Profit/Loss Indicator - Requirements: 8.1, 8.2, 8.3, 8.4 -->

@@ -277,6 +277,7 @@ class DailyProgressRecord(Document):
 		"""Create accounting entries on submit"""
 		self.create_stock_entries()
 		self.create_journal_entries()
+		self._assert_required_entries_created()
 		self.update_boq_item_costs()
 		self.update_project_costs()
 	
@@ -365,6 +366,9 @@ class DailyProgressRecord(Document):
 		
 		if journal_entry_names:
 			self.db_set("journal_entries", ", ".join(journal_entry_names))
+		
+		# Track whether any JE was created (used for submit enforcement)
+		self._je_created = bool(journal_entry_names)
 	
 	def _create_labour_journal_entry(self):
 		"""Create Journal Entry for labour costs"""
@@ -609,6 +613,10 @@ class DailyProgressRecord(Document):
 		
 		if cancelled_entries:
 			frappe.msgprint(_("Cancelled Stock Entries: {0}").format(", ".join(cancelled_entries)), indicator="blue")
+		
+		if cancelled_entries:
+			self._stock_entries_cancelled = True
+		return cancelled_entries
 	
 	def cancel_journal_entries(self):
 		"""Cancel linked Journal Entries"""
@@ -666,6 +674,28 @@ class DailyProgressRecord(Document):
 		
 		if cancelled_entries:
 			frappe.msgprint(_("Cancelled Journal Entries: {0}").format(", ".join(cancelled_entries)), indicator="blue")
+		
+		if cancelled_entries:
+			self._journal_entries_cancelled = True
+		return cancelled_entries
+
+	def _assert_required_entries_created(self):
+		"""Ensure required accounting docs are created when costs exist."""
+		labour_needed = flt(self.labour_cost) > 0
+		overhead_needed = flt(self.overhead_cost) > 0
+		expense_needed = flt(self.expense_cost) > 0
+		material_needed = flt(self.material_cost) > 0
+		
+		stock_created = bool(self.stock_entries)
+		je_created = bool(self.journal_entries) or getattr(self, "_je_created", False)
+		
+		# If any cost exists but no JE created, block submit
+		if (labour_needed or overhead_needed or expense_needed) and not je_created:
+			frappe.throw(_("Journal Entries were not created for labour/overhead/expenses. Please try again."))
+		
+		# If material cost present, ensure stock entry exists
+		if material_needed and not stock_created:
+			frappe.throw(_("Stock Entries were not created for materials. Please try again."))
 	
 	def update_boq_item_costs(self):
 		"""Update the BOQ Item's cost tracking fields"""

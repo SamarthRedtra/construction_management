@@ -4,6 +4,7 @@
 import frappe
 from frappe import _
 from frappe.utils import flt, today, getdate
+from construction_management.api.boq_ledger import create_ledger_entry, recalculate_ledger_for_item
 
 
 def has_invoice_permission() -> bool:
@@ -660,6 +661,79 @@ def create_invoice_from_selected_bills(project: str, bill_names: list,
 		"net_amount": net_amount,
 		"status": "Draft",
 		"is_proforma": is_proforma
+	}
+
+
+@frappe.whitelist()
+def rebuild_orphan_si_ledgers(project: str = None, si: str = None):
+	"""
+	Backfill BOQ Progress Ledger entries for Sales Invoices created outside PI/PC flow.
+	- Considers Sales Invoices with boq_item set, docstatus=1, custom_is_proforma=0,
+	- custom_payment_certificate is empty, custom_proforma_invoice is empty.
+	- Skips if a ledger entry already exists for the SI/boq_item combo.
+	Recalculates progressive values per BOQ item after inserts.
+	"""
+	filters = {"docstatus": 1, "custom_is_proforma": 0}
+	if project:
+		filters["project"] = project
+	if si:
+		filters["name"] = si
+	
+	sis = frappe.get_all(
+		"Sales Invoice",
+		filters=filters,
+		fields=["name", "posting_date", "project", "custom_payment_certificate", "custom_proforma_invoice"]
+	)
+	
+	count_created = 0
+	for inv in sis:
+		# Skip if linked to PC/PI
+		if inv.custom_payment_certificate or inv.custom_proforma_invoice:
+			continue
+		
+		si_doc = frappe.get_doc("Sales Invoice", inv.name)
+		for item in si_doc.items:
+			boq_item = item.get("boq_item")
+			if not boq_item:
+				continue
+			
+			# Duplicate guard
+			existing = frappe.db.get_value(
+				"BOQ Progress Ledger",
+				{
+					"boq_item": boq_item,
+					"reference_doctype": "Sales Invoice",
+					"reference_name": inv.name
+				},
+				"name"
+			)
+			if existing:
+				continue
+			
+			# Bill No fallback
+			bill_no = item.get("bill_no") or frappe.db.get_value("BOQ Item", boq_item, "parent_bill")
+			
+			create_ledger_entry(
+				boq_item=boq_item,
+				qty=flt(item.qty),
+				amount=flt(item.amount),
+				source="Invoice",
+				reference_doctype="Sales Invoice",
+				reference_name=inv.name,
+				posting_date=si_doc.posting_date,
+				remarks=f"Invoice {inv.name} (orphan backfill)",
+				bill_no=bill_no,
+				tax_invoice=inv.name,
+				tax_invoice_amount=flt(item.amount)
+			)
+			
+			# Recalc per BOQ item
+			recalculate_ledger_for_item(boq_item)
+			count_created += 1
+	
+	return {
+		"status": "success",
+		"created": count_created
 	}
 
 

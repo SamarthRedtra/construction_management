@@ -141,8 +141,7 @@ class BOQItem(Document):
 		if not self.is_new():
 			from construction_management.api.boq_ledger import (
 				get_previous_qty, get_previous_amount,
-				get_to_date_qty, get_to_date_amount,
-				get_cost_to_date
+				get_to_date_qty, get_to_date_amount
 			)
 			
 			self.prev_qty = get_previous_qty(self.name)
@@ -156,33 +155,24 @@ class BOQItem(Document):
 			self.balance_qty = flt(self.total_qty) - flt(self.to_date_qty)
 			self.balance_amount = flt(self.total_amount) - flt(self.to_date_amount)
 			
-			# Cost tracking
-			self.cost_to_date = get_cost_to_date(self.name)
+			# Cost tracking from operational sources (not billing ledger)
+			costs = self._get_operational_costs()
+			self.labour_cost = costs.get("labour_cost", 0)
+			self.material_cost = costs.get("material_cost", 0)
+			self.asset_cost = costs.get("asset_cost", 0)
+			self.subcontract_cost = costs.get("subcontract_cost", 0)
+			self.expense_cost = costs.get("expense_cost", 0)
+			
+			self.cost_to_date = (
+				flt(self.labour_cost) +
+				flt(self.material_cost) +
+				flt(self.asset_cost) +
+				flt(self.subcontract_cost) +
+				flt(self.expense_cost)
+			)
 			self.margin = flt(self.to_date_amount) - flt(self.cost_to_date)
 			
-			purchase_cost = self._get_purchase_invoice_subcontract_cost()
-			# Get cost breakdown from DPR
-			cost_breakdown = frappe.db.sql("""
-				SELECT 
-					COALESCE(SUM(labour_cost), 0) as labour_cost,
-					COALESCE(SUM(material_cost), 0) as material_cost,
-					COALESCE(SUM(asset_cost), 0) as asset_cost,
-					COALESCE(SUM(subcontract_cost), 0) as subcontract_cost,
-					COALESCE(SUM(expense_cost), 0) as expense_cost
-				FROM `tabDaily Progress Record`
-				WHERE boq_item = %s
-			""", self.name, as_dict=True)
-			
-			if cost_breakdown:
-				self.labour_cost = flt(cost_breakdown[0].labour_cost)
-				self.material_cost = flt(cost_breakdown[0].material_cost)
-				self.asset_cost = flt(cost_breakdown[0].asset_cost)
-				self.subcontract_cost = flt(cost_breakdown[0].subcontract_cost) + flt(purchase_cost)
-				self.expense_cost = flt(cost_breakdown[0].expense_cost)
-			else:
-				self.subcontract_cost = flt(purchase_cost)
-			
-			# Calculate Total Retention and Advance from Ledger
+			# Calculate Total Retention and Advance from billing ledger
 			ret_adv = frappe.db.sql("""
 				SELECT 
 					COALESCE(SUM(retention_amount), 0),
@@ -222,6 +212,73 @@ class BOQItem(Document):
 		""", self.name)
 
 		return flt(result[0][0]) if result else 0.0
+
+	def _get_operational_costs(self) -> dict:
+		"""
+		Aggregate costs from operational sources (DPR + PI), excluding billing ledger.
+		Returns a dict with labour_cost, material_cost, asset_cost, subcontract_cost, expense_cost.
+		"""
+		project = getattr(self, "project", None)
+		
+		# DPR costs
+		dpr_totals = frappe.db.sql("""
+			SELECT 
+				COALESCE(SUM(labour_cost), 0) as labour_cost,
+				COALESCE(SUM(material_cost), 0) as material_cost,
+				COALESCE(SUM(asset_cost), 0) as asset_cost,
+				COALESCE(SUM(subcontract_cost), 0) as subcontract_cost,
+				COALESCE(SUM(expense_cost), 0) as expense_cost
+			FROM `tabDaily Progress Record`
+			WHERE boq_item = %s AND docstatus = 1
+		""", self.name, as_dict=True)
+		
+		dpr_costs = dpr_totals[0] if dpr_totals else frappe._dict({})
+		# Avoid double counting: subcontracting cost will be sourced from PI/JE/SE, not DPR
+		dpr_subcontract_cost = 0
+		
+		# Purchase Invoice subcontract/expense adders
+		pi_totals = frappe.db.sql("""
+			SELECT 
+				COALESCE(SUM(CASE WHEN pii.expense_account IS NOT NULL THEN pii.amount ELSE 0 END), 0) as pi_expense,
+				COALESCE(SUM(CASE WHEN pi.is_subcontracted = 1 THEN pii.amount ELSE 0 END), 0) as pi_subcontract
+			FROM `tabPurchase Invoice Item` pii
+			JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
+			WHERE pii.boq_item = %s AND pi.docstatus = 1
+		""", self.name, as_dict=True)
+		
+		pi_costs = pi_totals[0] if pi_totals else frappe._dict({})
+		
+		# Non-DPR Journal/Stock Entries carrying BOQ dimensions (project + boq_item)
+		je_se_totals = frappe.db.sql("""
+			SELECT 
+				COALESCE(SUM(CASE WHEN acc.root_type = 'Expense' THEN GREATEST(gle.debit - gle.credit, 0) ELSE 0 END), 0) AS je_se_expense,
+				COALESCE(SUM(CASE WHEN acc.root_type <> 'Expense' THEN GREATEST(gle.debit - gle.credit, 0) ELSE 0 END), 0) AS je_se_subcontract
+			FROM `tabGL Entry` gle
+			LEFT JOIN `tabAccount` acc ON acc.name = gle.account
+			WHERE gle.boq_item = %s
+			AND gle.project = %s
+			AND gle.is_cancelled = 0
+			AND gle.docstatus = 1
+			AND gle.voucher_type IN ('Journal Entry', 'Stock Entry')
+			AND NOT EXISTS (
+				SELECT 1 FROM `tabDaily Progress Record` dpr
+				WHERE dpr.docstatus = 1
+				AND (
+					dpr.journal_entries LIKE CONCAT('%%', gle.voucher_no, '%%')
+					OR dpr.stock_entries LIKE CONCAT('%%', gle.voucher_no, '%%')
+				)
+			)
+		""", (self.name, project), as_dict=True) if project else []
+		
+		je_se_costs = je_se_totals[0] if je_se_totals else frappe._dict({})
+		
+		return {
+			"labour_cost": flt(dpr_costs.get("labour_cost")),
+			"material_cost": flt(dpr_costs.get("material_cost")),
+			"asset_cost": flt(dpr_costs.get("asset_cost")),
+			"subcontract_cost": dpr_subcontract_cost + flt(pi_costs.get("pi_subcontract")) + flt(je_se_costs.get("je_se_subcontract")),
+			"expense_cost": flt(dpr_costs.get("expense_cost")) + flt(pi_costs.get("pi_expense")) + flt(je_se_costs.get("je_se_expense"))
+		}
 	
 	def update_billing_status(self):
 		"""Update billing status based on progress"""
