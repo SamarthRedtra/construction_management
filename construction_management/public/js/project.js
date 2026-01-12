@@ -3485,15 +3485,61 @@ function show_dpr_dialog(project, boq_items) {
 				reqd: 1
 			},
 			{
+				fieldname: 'bill_no',
+				label: __('Bill No'),
+				fieldtype: 'Link',
+				options: 'BOQ Bill',
+				reqd: 1,
+				get_query: () => ({ filters: { project: project } }),
+				change: function () {
+					// When bill is chosen, adjust BOQ item query and set project if available
+					const bill = d.get_value('bill_no');
+					if (bill) {
+						d.set_query('boq_item', () => ({ filters: { parent_bill: bill } }));
+						// Auto-populate project from bill if not already
+						if (!project) {
+							frappe.db.get_value('BOQ Bill', bill, 'project', (r) => {
+								if (r && r.project) project = r.project;
+							});
+						}
+					}
+				}
+			},
+			{
 				fieldname: 'boq_item',
 				label: __('BOQ Item'),
 				fieldtype: 'Link',
 				options: 'BOQ Item',
 				reqd: 1,
 				get_query: function () {
-					return {
-						filters: { project: project }
-					};
+					const bill = d.get_value('bill_no');
+					if (bill) {
+						return { filters: { parent_bill: bill } };
+					}
+					return { filters: { project: project } };
+				},
+				change: function () {
+					// Auto set bill_no from BOQ item if missing
+					if (!d.get_value('bill_no')) {
+						const item = d.get_value('boq_item');
+						if (item) {
+							frappe.db.get_value('BOQ Item', item, 'parent_bill', (r) => {
+								if (r && r.parent_bill) d.set_value('bill_no', r.parent_bill);
+							});
+						}
+					}
+				}
+			},
+			{
+				fieldname: 'warehouse',
+				label: __('Warehouse / Site'),
+				fieldtype: 'Link',
+				options: 'Warehouse',
+				reqd: !!cur_frm?.doc?.site_location,
+				default: cur_frm?.doc?.site_location || '',
+				get_query: () => {
+					const site = cur_frm?.doc?.site_location;
+					return site ? { filters: { name: site } } : { filters: { project: project } };
 				}
 			},
 			{
@@ -3712,8 +3758,48 @@ window.show_dpr_dialog_enhanced = function (project) {
 			},
 			{ fieldname: 'date', label: __('Date'), fieldtype: 'Date', default: frappe.datetime.get_today(), reqd: 1 },
 			{
+				fieldname: 'bill_no', label: __('Bill No'), fieldtype: 'Link', options: 'BOQ Bill', reqd: 1,
+				get_query: () => ({ filters: { project: project } }),
+				change: function () {
+					const bill = d.get_value('bill_no');
+					if (bill) {
+						d.set_query('boq_item', () => ({ filters: { parent_bill: bill } }));
+					}
+				}
+			},
+			{
 				fieldname: 'boq_item', label: __('BOQ Item'), fieldtype: 'Link', options: 'BOQ Item', reqd: 1,
-				get_query: () => ({ filters: { project: project } })
+				get_query: () => {
+					const bill = d.get_value('bill_no');
+					if (bill) {
+						return { filters: { parent_bill: bill } };
+					}
+					return { filters: { project: project } };
+				},
+				change: function () {
+					if (!d.get_value('bill_no')) {
+						const item = d.get_value('boq_item');
+						if (item) {
+							frappe.db.get_value('BOQ Item', item, 'parent_bill', (r) => {
+								if (r && r.parent_bill) d.set_value('bill_no', r.parent_bill);
+							});
+						}
+					}
+				}
+			},
+			{
+				fieldname: 'warehouse',
+				label: __('Warehouse / Site'),
+				fieldtype: 'Link',
+				options: 'Warehouse',
+				reqd: !!cur_frm?.doc?.site_location,
+				default: cur_frm?.doc?.site_location || '',
+				get_query: () => {
+					const selected = d.get_value('warehouse');
+					if (selected) return { filters: { name: selected } };
+					const site = cur_frm?.doc?.site_location;
+					return site ? { filters: { name: site } } : { filters: { project: project } };
+				}
 			},
 			// Labour Section
 			{ fieldtype: 'Section Break', label: __('👷 Labour Cost') },
@@ -3731,8 +3817,8 @@ window.show_dpr_dialog_enhanced = function (project) {
 			{
 				fieldname: 'item_code', label: __('Add Item'), fieldtype: 'Link', options: 'Item',
 				get_query: () => {
-					// Get site_location warehouse from project
-					const site_warehouse = cur_frm?.doc?.site_location;
+					const selected_wh = d.get_value('warehouse');
+					const site_warehouse = selected_wh || cur_frm?.doc?.site_location;
 					if (site_warehouse) {
 						return {
 							query: 'construction_management.api.dpr_utils.get_warehouse_items_query',
@@ -3920,8 +4006,8 @@ function show_material_qty_dialog(d, item_code, project) {
 		return;
 	}
 
-	// Get site_location warehouse from project
-	const site_warehouse = cur_frm?.doc?.site_location || '';
+	// Prefer warehouse chosen in dialog, fallback to project site_location
+	const site_warehouse = d.get_value('warehouse') || cur_frm?.doc?.site_location || '';
 
 	frappe.call({
 		method: 'construction_management.api.dpr_utils.get_item_details',
@@ -4121,6 +4207,8 @@ function create_dpr_from_dialog(d, project) {
 		args: {
 			project: project,
 			boq_item: values.boq_item,
+			bill_no: values.bill_no,
+			warehouse: values.warehouse,
 			date: values.date,
 			employees: JSON.stringify(dpr_selected_employees),
 			assets: JSON.stringify(dpr_selected_assets),

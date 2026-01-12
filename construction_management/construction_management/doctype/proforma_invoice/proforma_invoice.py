@@ -167,6 +167,10 @@ class ProformaInvoice(Document):
 			
 			if existing:
 				# Update the existing ledger row in place (single-row lifecycle)
+				retention_share = 0
+				if flt(self.amount):
+					retention_share = flt(self.retention_amount) * (flt(item.amount) / flt(self.amount))
+				advance_deduction = 0
 				frappe.db.set_value(
 					"BOQ Progress Ledger",
 					existing.name,
@@ -174,6 +178,8 @@ class ProformaInvoice(Document):
 						"qty": flt(item.qty),
 						"amount": flt(item.amount),
 						"proforma_amount": flt(item.amount),
+						"retention_amount": flt(retention_share),
+						"advance_deduction": flt(advance_deduction),
 						"posting_date": self.posting_date,
 						"remarks": f"Revised Proforma Invoice {self.name}",
 						"source": "Proforma",
@@ -186,6 +192,10 @@ class ProformaInvoice(Document):
 			else:
 				# New item added during revision
 				try:
+					retention_share = 0
+					if flt(self.amount):
+						retention_share = flt(self.retention_amount) * (flt(item.amount) / flt(self.amount))
+					advance_deduction = 0
 					create_ledger_entry(
 						boq_item=item.boq_item,
 						qty=flt(item.qty),
@@ -196,7 +206,9 @@ class ProformaInvoice(Document):
 						posting_date=self.posting_date,
 						remarks=f"Added in revision of Proforma Invoice {self.name}",
 						proforma_invoice=self.name,
-						proforma_amount=flt(item.amount)
+						proforma_amount=flt(item.amount),
+						retention_amount=flt(retention_share),
+						advance_deduction=flt(advance_deduction)
 					)
 				except Exception as e:
 					frappe.log_error(
@@ -216,6 +228,8 @@ class ProformaInvoice(Document):
 					"qty": 0,
 					"amount": 0,
 					"proforma_amount": 0,
+					"retention_amount": 0,
+					"advance_deduction": 0,
 					"remarks": f"Removed in revision of Proforma Invoice {self.name}",
 					"source": "Proforma Reversal"
 				},
@@ -284,6 +298,14 @@ class ProformaInvoice(Document):
 				continue
 			
 			try:
+				# Pro-rate retention to this item (if total retention exists)
+				retention_share = 0
+				if flt(self.amount):
+					retention_share = flt(self.retention_amount) * (flt(item.amount) / flt(self.amount))
+				
+				# Advance deduction (if any advance logic added later). Currently zero.
+				advance_deduction = 0
+				
 				ledger_entry = frappe.db.get_value(
 					"BOQ Progress Ledger",
 					{
@@ -302,6 +324,8 @@ class ProformaInvoice(Document):
 							"qty": flt(item.qty),
 							"amount": flt(item.amount),
 							"proforma_amount": flt(item.amount),
+							"retention_amount": flt(retention_share),
+							"advance_deduction": flt(advance_deduction),
 							"posting_date": self.posting_date,
 							"source": "Proforma",
 							"reference_doctype": "Proforma Invoice",
@@ -321,7 +345,9 @@ class ProformaInvoice(Document):
 						posting_date=self.posting_date,
 						remarks=f"Proforma Invoice {self.name}",
 						proforma_invoice=self.name,
-						proforma_amount=flt(item.amount)
+						proforma_amount=flt(item.amount),
+						retention_amount=flt(retention_share),
+						advance_deduction=flt(advance_deduction)
 					)
 				
 				recalculate_ledger_for_item(item.boq_item)
@@ -364,6 +390,8 @@ class ProformaInvoice(Document):
 						"qty": 0,
 						"amount": 0,
 						"proforma_amount": 0,
+						"retention_amount": 0,
+						"advance_deduction": 0,
 						"payment_certificate": None,
 						"certified_amount": 0,
 						"tax_invoice": None,

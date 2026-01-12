@@ -280,6 +280,11 @@ def get_boq_items(bill_name: str) -> list:
 		# Per Requirement 6: Use BOQ Ledger Value (Total Sales Value)
 		# This includes Net Proformas + Invoices, as per the correct Ledger logic
 		revenue_for_gp = flt(item.get("to_date_amount", 0))
+		# If no cost yet, use collected Sales Invoice amount as GP basis (user request)
+		# Fallback to ledger to_date_amount if no SI value
+		tax_invoice_revenue = flt(revenue_breakdown.get("tax_invoice", 0))
+		if flt(actual_costs.get("total", 0)) <= 0 and tax_invoice_revenue > 0:
+			revenue_for_gp = tax_invoice_revenue
 		actual_cost = flt(actual_costs.get("total", 0))
 		
 		gp = revenue_for_gp - actual_cost
@@ -307,8 +312,8 @@ def get_boq_items(bill_name: str) -> list:
 def get_item_advance_amount(boq_item: str) -> float:
 	"""Get total advance amount collected for a specific BOQ item"""
 	result = frappe.db.sql("""
-		SELECT COALESCE(SUM(amount), 0) as total
-		FROM `tabBOQ Advance Payment`
+		SELECT COALESCE(SUM(advance_deduction), 0) as total
+		FROM `tabBOQ Progress Ledger`
 		WHERE boq_item = %s AND docstatus = 1
 	""", boq_item)
 	return flt(result[0][0]) if result else 0
@@ -978,45 +983,14 @@ def get_boq_item_revenue_breakdown(boq_item: str) -> dict:
 def get_item_retention_amount(boq_item: str) -> float:
 	"""
 	Calculate retention amount attributed to this BOQ item.
-	Retention is typically deducted at invoice level.
-	We allocate it pro-rata based on item amount in the invoice.
+	Use BOQ Progress Ledger retention_amount totals.
 	"""
-	# Get all invoices containing this item
-	invoices = frappe.db.sql("""
-		SELECT DISTINCT parent 
-		FROM `tabSales Invoice Item` 
+	total_retention = frappe.db.sql("""
+		SELECT COALESCE(SUM(retention_amount), 0)
+		FROM `tabBOQ Progress Ledger`
 		WHERE boq_item = %s AND docstatus = 1
-	""", boq_item)
-	
-	total_retention = 0.0
-	
-	for inv in invoices:
-		inv_name = inv[0]
-		
-		# Get invoice totals
-		inv_data = frappe.db.sql("""
-			SELECT 
-				(SELECT COALESCE(SUM(amount), 0) FROM `tabSales Invoice Item` WHERE parent = %(name)s AND item_code != 'RETENTION-DEDUCTION') as total_sales,
-				(SELECT COALESCE(SUM(ABS(amount)), 0) FROM `tabSales Invoice Item` WHERE parent = %(name)s AND item_code = 'RETENTION-DEDUCTION') as retention_deduction
-			FROM `tabSales Invoice`
-			WHERE name = %(name)s
-		""", {"name": inv_name}, as_dict=True)[0]
-		
-		sales_total = flt(inv_data.total_sales)
-		retention_deduction = flt(inv_data.retention_deduction)
-		
-		if sales_total > 0 and retention_deduction > 0:
-			# Get amount of this BOQ item in this invoice
-			item_amount = frappe.db.sql("""
-				SELECT COALESCE(SUM(amount), 0) 
-				FROM `tabSales Invoice Item` 
-				WHERE parent = %s AND boq_item = %s
-			""", (inv_name, boq_item))[0][0] or 0
-			
-			share = (flt(item_amount) / sales_total) * retention_deduction
-			total_retention += share
-			
-	return total_retention
+	""", boq_item)[0][0] or 0
+	return flt(total_retention)
 	
 
 

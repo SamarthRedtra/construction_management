@@ -318,12 +318,18 @@ class DailyProgressRecord(Document):
 				se.posting_date = self.date
 				se.project = self.project
 				se.company = self.get_company()
+				if hasattr(se, "boq_item"):
+					se.boq_item = self.boq_item
+				if hasattr(se, "bill_no"):
+					se.bill_no = self.bill_no
 				
 				se.append("items", {
 					"item_code": row.item_code,
 					"qty": row.qty,
 					"s_warehouse": row.warehouse,
-					"project": self.project
+					"project": self.project,
+					"boq_item": self.boq_item,
+					"bill_no": self.bill_no
 				})
 				
 				se.insert()
@@ -339,16 +345,22 @@ class DailyProgressRecord(Document):
 			self.db_set("stock_entries", ", ".join(stock_entry_names))
 
 	def create_journal_entries(self):
-		"""Create Journal Entries for overheads, expenses, and labour"""
+		"""Create Journal Entries for assets, labour, overheads, and expenses"""
 		journal_entry_names = []
 		
-		# Create JE for labour
+		# Assets (debit asset_cost_account, credit asset_cost_credit)
+		if self.assets and flt(self.asset_cost) > 0:
+			je = self._create_asset_journal_entry()
+			if je:
+				journal_entry_names.append(je)
+		
+		# Labour
 		if self.employees and flt(self.labour_cost) > 0:
 			je = self._create_labour_journal_entry()
 			if je:
 				journal_entry_names.append(je)
 		
-		# Create JE for overheads
+		# Overheads
 		if self.overheads and flt(self.overhead_cost) > 0:
 			je = self._create_overhead_journal_entry()
 			if je:
@@ -356,7 +368,7 @@ class DailyProgressRecord(Document):
 				for row in self.overheads:
 					row.db_set("journal_entry", je)
 		
-		# Create JE for expenses
+		# Expenses
 		if self.expenses and flt(self.expense_cost) > 0:
 			je = self._create_expense_journal_entry()
 			if je:
@@ -369,6 +381,73 @@ class DailyProgressRecord(Document):
 		
 		# Track whether any JE was created (used for submit enforcement)
 		self._je_created = bool(journal_entry_names)
+	
+	def _create_asset_journal_entry(self):
+		"""Create Journal Entry for asset costs"""
+		if not self.assets or flt(self.asset_cost) <= 0:
+			return None
+		
+		company = self.get_company()
+		if not company:
+			frappe.msgprint(_("Cannot create Journal Entry - no company found"), indicator="orange")
+			return None
+		
+		settings = frappe.db.get_value(
+			"BOQ Settings",
+			company,
+			["asset_cost_account", "asset_cost_credit"],
+			as_dict=True
+		) or {}
+		
+		debit_account = settings.get("asset_cost_account")
+		credit_account = settings.get("asset_cost_credit")
+		
+		if not debit_account or not credit_account:
+			frappe.msgprint(_("Cannot create Asset JE - Asset Cost Account or Asset Cost Credit not configured in BOQ Settings"), indicator="orange")
+			return None
+		
+		try:
+			je = frappe.new_doc("Journal Entry")
+			je.voucher_type = "Journal Entry"
+			je.posting_date = self.date
+			je.company = company
+			je.user_remark = f"Asset costs for DPR {self.name}"
+			# Dimensions on header if available
+			if hasattr(je, "project"):
+				je.project = self.project
+			if hasattr(je, "bill_no"):
+				je.bill_no = self.bill_no
+			if hasattr(je, "boq_item"):
+				je.boq_item = self.boq_item
+			
+			cost_center = frappe.db.get_value("Company", company, "cost_center")
+			
+			je.append("accounts", {
+				"account": debit_account,
+				"debit_in_account_currency": flt(self.asset_cost),
+				"project": self.project,
+				"cost_center": cost_center,
+				"boq_item": self.boq_item,
+				"bill_no": self.bill_no
+			})
+			
+			je.append("accounts", {
+				"account": credit_account,
+				"credit_in_account_currency": flt(self.asset_cost),
+				"project": self.project,
+				"cost_center": cost_center,
+				"boq_item": self.boq_item,
+				"bill_no": self.bill_no
+			})
+			
+			je.insert()
+			je.submit()
+			return je.name
+			
+		except Exception as e:
+			frappe.log_error(f"Error creating Asset JE for DPR {self.name}: {str(e)}")
+			frappe.msgprint(_("Could not create Journal Entry for asset: {0}").format(str(e)), indicator="orange")
+			return None
 	
 	def _create_labour_journal_entry(self):
 		"""Create Journal Entry for labour costs"""
@@ -395,15 +474,24 @@ class DailyProgressRecord(Document):
 			je.posting_date = self.date
 			je.company = company
 			je.user_remark = f"Labour costs for DPR {self.name}"
+			if hasattr(je, "project"):
+				je.project = self.project
+			if hasattr(je, "bill_no"):
+				je.bill_no = self.bill_no
+			if hasattr(je, "boq_item"):
+				je.boq_item = self.boq_item
 			
 			cost_center = frappe.db.get_value("Company", company, "cost_center")
+			employee_party = self.employees[0].employee if self.employees and getattr(self.employees[0], "employee", None) else None
 			
 			# Debit Salary Labour Account (Expense)
 			je.append("accounts", {
 				"account": debit_account,
 				"debit_in_account_currency": flt(self.labour_cost),
 				"project": self.project,
-				"cost_center": cost_center
+				"cost_center": cost_center,
+				"boq_item": self.boq_item,
+				"bill_no": self.bill_no
 			})
 			
 			# Credit Asset Labour Cost Account (Liability)
@@ -411,7 +499,11 @@ class DailyProgressRecord(Document):
 				"account": credit_account,
 				"credit_in_account_currency": flt(self.labour_cost),
 				"project": self.project,
-				"cost_center": cost_center
+				"cost_center": cost_center,
+				"boq_item": self.boq_item,
+				"bill_no": self.bill_no,
+				"party_type": "Employee" if employee_party else None,
+				"party": employee_party
 			})
 			
 			je.insert()
@@ -457,6 +549,12 @@ class DailyProgressRecord(Document):
 			je.posting_date = self.date
 			je.company = company
 			je.user_remark = f"Overhead costs for DPR {self.name}"
+			if hasattr(je, "project"):
+				je.project = self.project
+			if hasattr(je, "bill_no"):
+				je.bill_no = self.bill_no
+			if hasattr(je, "boq_item"):
+				je.boq_item = self.boq_item
 			
 			cost_center = frappe.db.get_value("Company", company, "cost_center")
 			
@@ -468,7 +566,9 @@ class DailyProgressRecord(Document):
 						"account": target_account,
 						"debit_in_account_currency": flt(row.amount),
 						"project": self.project,
-						"cost_center": cost_center
+						"cost_center": cost_center,
+						"boq_item": self.boq_item,
+						"bill_no": self.bill_no
 					})
 			
 			# Credit entry to payable account
@@ -476,7 +576,9 @@ class DailyProgressRecord(Document):
 				"account": payable_account,
 				"credit_in_account_currency": flt(self.overhead_cost),
 				"project": self.project,
-				"cost_center": cost_center
+				"cost_center": cost_center,
+				"boq_item": self.boq_item,
+				"bill_no": self.bill_no
 			})
 			
 			je.insert()
@@ -531,6 +633,12 @@ class DailyProgressRecord(Document):
 			je.posting_date = self.date
 			je.company = company
 			je.user_remark = f"Expense costs for DPR {self.name}"
+			if hasattr(je, "project"):
+				je.project = self.project
+			if hasattr(je, "bill_no"):
+				je.bill_no = self.bill_no
+			if hasattr(je, "boq_item"):
+				je.boq_item = self.boq_item
 			
 			cost_center = frappe.db.get_value("Company", company, "cost_center")
 			
@@ -553,7 +661,9 @@ class DailyProgressRecord(Document):
 							"account": expense_account,
 							"debit_in_account_currency": flt(row.amount),
 							"project": self.project,
-							"cost_center": cost_center
+							"cost_center": cost_center,
+							"boq_item": self.boq_item,
+							"bill_no": self.bill_no
 						})
 			
 			# Credit entry to payable account
@@ -561,7 +671,9 @@ class DailyProgressRecord(Document):
 				"account": payable_account,
 				"credit_in_account_currency": flt(self.expense_cost),
 				"project": self.project,
-				"cost_center": cost_center
+				"cost_center": cost_center,
+				"boq_item": self.boq_item,
+				"bill_no": self.bill_no
 			})
 			
 			je.insert()

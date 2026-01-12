@@ -342,6 +342,8 @@ def create_dpr_with_details(
 	project: str,
 	boq_item: str,
 	date: str,
+	bill_no: str = None,
+	warehouse: str = None,
 	employees: str = None,
 	assets: str = None,
 	materials: str = None,
@@ -387,6 +389,9 @@ def create_dpr_with_details(
 	dpr = frappe.new_doc("Daily Progress Record")
 	dpr.project = project
 	dpr.boq_item = boq_item
+	dpr.bill_no = bill_no or frappe.db.get_value("BOQ Item", boq_item, "parent_bill")
+	if warehouse:
+		dpr.warehouse = warehouse
 	dpr.date = date
 	dpr.labour_cost = labour_cost
 	dpr.material_cost = material_cost
@@ -418,7 +423,7 @@ def create_dpr_with_details(
 	for mat in materials_list:
 		dpr.append("materials", {
 			"item_code": mat.get("item_code"),
-			"warehouse": mat.get("warehouse"),
+			"warehouse": mat.get("warehouse") or warehouse,
 			"qty": flt(mat.get("qty", 0)),
 			"rate": flt(mat.get("rate", 0)),
 			"amount": flt(mat.get("amount", 0))
