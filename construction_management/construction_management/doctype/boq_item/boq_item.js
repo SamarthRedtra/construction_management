@@ -3,6 +3,35 @@
 
 frappe.ui.form.on("BOQ Item", {
 	refresh(frm) {
+		// Add "Recalculate Costs" button to refresh all cost calculations
+		if (!frm.is_new()) {
+			frm.add_custom_button(__("Recalculate Costs"), function() {
+				frappe.call({
+					method: "construction_management.construction_management.doctype.boq_item.boq_item.recalculate_costs",
+					args: {
+						boq_item_name: frm.doc.name
+					},
+					freeze: true,
+					freeze_message: __("Recalculating costs..."),
+					callback: function(r) {
+						if (r.message && r.message.success) {
+							frappe.show_alert({
+								message: __("Costs recalculated successfully"),
+								indicator: "green"
+							});
+							frm.reload_doc();
+						} else {
+							frappe.msgprint({
+								title: __("Error"),
+								message: r.message?.error || __("Failed to recalculate costs"),
+								indicator: "red"
+							});
+						}
+					}
+				});
+			}, __("Actions"));
+		}
+		
 		// Add "Update Estimated Cost" button for Project Managers
 		if (!frm.is_new() && frappe.user_roles.includes("Project Manager") || frappe.user_roles.includes("System Manager")) {
 			frm.add_custom_button(__("Update Estimated Cost"), function() {

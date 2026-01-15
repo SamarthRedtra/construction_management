@@ -673,22 +673,31 @@ def rebuild_orphan_si_ledgers(project: str = None, si: str = None):
 	- Skips if a ledger entry already exists for the SI/boq_item combo.
 	Recalculates progressive values per BOQ item after inserts.
 	"""
-	filters = {"docstatus": 1, "custom_is_proforma": 0}
+	filters = {"docstatus": 1}
+	if frappe.db.has_column("Sales Invoice", "custom_is_proforma"):
+		filters["custom_is_proforma"] = 0
+		
 	if project:
 		filters["project"] = project
 	if si:
 		filters["name"] = si
 	
+	fields = ["name", "posting_date", "project"]
+	if frappe.db.has_column("Sales Invoice", "custom_payment_certificate"):
+		fields.append("custom_payment_certificate")
+	if frappe.db.has_column("Sales Invoice", "custom_proforma_invoice"):
+		fields.append("custom_proforma_invoice")
+	
 	sis = frappe.get_all(
 		"Sales Invoice",
 		filters=filters,
-		fields=["name", "posting_date", "project", "custom_payment_certificate", "custom_proforma_invoice"]
+		fields=fields
 	)
 	
 	count_created = 0
 	for inv in sis:
 		# Skip if linked to PC/PI
-		if inv.custom_payment_certificate or inv.custom_proforma_invoice:
+		if inv.get("custom_payment_certificate") or inv.get("custom_proforma_invoice"):
 			continue
 		
 		si_doc = frappe.get_doc("Sales Invoice", inv.name)
@@ -999,15 +1008,24 @@ def _append_orphan_sales_invoices(boq_item, filtered_entries, boq_item_doc):
 	# Collect existing reference names to avoid duplicates
 	existing_refs = {e.reference_name for e in filtered_entries if e.reference_name}
 	
-	orphan_si = frappe.db.sql("""
+	conditions = ["sii.boq_item = %s", "si.docstatus = 1"]
+	
+	if frappe.db.has_column("Sales Invoice", "custom_is_proforma"):
+		conditions.append("si.custom_is_proforma = 0")
+	
+	if frappe.db.has_column("Sales Invoice", "custom_payment_certificate"):
+		conditions.append("IFNULL(si.custom_payment_certificate, '') = ''")
+		
+	if frappe.db.has_column("Sales Invoice", "custom_proforma_invoice"):
+		conditions.append("IFNULL(si.custom_proforma_invoice, '') = ''")
+		
+	where_clause = " AND ".join(conditions)
+	
+	orphan_si = frappe.db.sql(f"""
 		SELECT si.name, si.posting_date, sii.qty, sii.amount
 		FROM `tabSales Invoice` si
 		JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
-		WHERE sii.boq_item = %s
-		AND si.docstatus = 1
-		AND si.custom_is_proforma = 0
-		AND IFNULL(si.custom_payment_certificate, '') = ''
-		AND IFNULL(si.custom_proforma_invoice, '') = ''
+		WHERE {where_clause}
 	""", boq_item, as_dict=True)
 	
 	acc_qty = flt(filtered_entries[-1].accumulated_qty) if filtered_entries else 0

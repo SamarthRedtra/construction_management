@@ -162,13 +162,15 @@ class BOQItem(Document):
 			self.asset_cost = costs.get("asset_cost", 0)
 			self.subcontract_cost = costs.get("subcontract_cost", 0)
 			self.expense_cost = costs.get("expense_cost", 0)
+			self.overhead_cost = costs.get("overhead_cost", 0)
 			
 			self.cost_to_date = (
 				flt(self.labour_cost) +
 				flt(self.material_cost) +
 				flt(self.asset_cost) +
 				flt(self.subcontract_cost) +
-				flt(self.expense_cost)
+				flt(self.expense_cost) +
+				flt(self.overhead_cost)
 			)
 			self.margin = flt(self.to_date_amount) - flt(self.cost_to_date)
 			
@@ -227,7 +229,8 @@ class BOQItem(Document):
 				COALESCE(SUM(material_cost), 0) as material_cost,
 				COALESCE(SUM(asset_cost), 0) as asset_cost,
 				COALESCE(SUM(subcontract_cost), 0) as subcontract_cost,
-				COALESCE(SUM(expense_cost), 0) as expense_cost
+				COALESCE(SUM(expense_cost), 0) as expense_cost,
+				COALESCE(SUM(overhead_cost), 0) as overhead_cost
 			FROM `tabDaily Progress Record`
 			WHERE boq_item = %s AND docstatus = 1
 		""", self.name, as_dict=True)
@@ -277,7 +280,8 @@ class BOQItem(Document):
 			"material_cost": flt(dpr_costs.get("material_cost")),
 			"asset_cost": flt(dpr_costs.get("asset_cost")),
 			"subcontract_cost": dpr_subcontract_cost + flt(pi_costs.get("pi_subcontract")) + flt(je_se_costs.get("je_se_subcontract")),
-			"expense_cost": flt(dpr_costs.get("expense_cost")) + flt(pi_costs.get("pi_expense")) + flt(je_se_costs.get("je_se_expense"))
+			"expense_cost": flt(dpr_costs.get("expense_cost")),
+			"overhead_cost": flt(dpr_costs.get("overhead_cost"))
 		}
 	
 	def update_billing_status(self):
@@ -507,4 +511,65 @@ class BOQItem(Document):
 			"progress_percentage": round(progress_percentage, 2),
 			"is_overrun": is_overrun,
 			"has_estimates": total_estimated > 0
+		}
+
+
+@frappe.whitelist()
+def recalculate_costs(boq_item_name: str) -> dict:
+	"""
+	Recalculate all cost fields for a BOQ Item.
+	This refreshes labour_cost, material_cost, asset_cost, subcontract_cost, 
+	expense_cost, overhead_cost, and cost_to_date from operational sources.
+	
+	Args:
+		boq_item_name: Name of the BOQ Item to recalculate
+		
+	Returns:
+		dict with success status and updated cost values
+	"""
+	try:
+		boq_item = frappe.get_doc("BOQ Item", boq_item_name)
+		
+		# Recalculate all amounts (includes costs from DPR, PI, JE, SE)
+		boq_item.calculate_amounts()
+		
+		# Update billing status
+		boq_item.update_billing_status()
+		
+		# Save the updated values
+		boq_item.db_update()
+		
+		# Update parent bill totals if exists
+		if boq_item.parent_bill:
+			bill = frappe.get_doc("BOQ Bill", boq_item.parent_bill)
+			bill.calculate_totals()
+			bill.db_update()
+		
+		# Update Project BOQ totals if exists
+		if boq_item.project_boq:
+			project_boq = frappe.get_doc("Project BOQ", boq_item.project_boq)
+			project_boq.calculate_totals()
+			project_boq.db_update()
+		
+		frappe.db.commit()
+		
+		return {
+			"success": True,
+			"costs": {
+				"labour_cost": flt(boq_item.labour_cost),
+				"material_cost": flt(boq_item.material_cost),
+				"asset_cost": flt(boq_item.asset_cost),
+				"subcontract_cost": flt(boq_item.subcontract_cost),
+				"expense_cost": flt(boq_item.expense_cost),
+				"overhead_cost": flt(boq_item.overhead_cost),
+				"cost_to_date": flt(boq_item.cost_to_date),
+				"margin": flt(boq_item.margin)
+			}
+		}
+		
+	except Exception as e:
+		frappe.log_error(f"Error recalculating costs for {boq_item_name}: {str(e)}")
+		return {
+			"success": False,
+			"error": str(e)
 		}

@@ -117,8 +117,8 @@ function render_comprehensive_items_table(items, frm) {
 						<th colspan="2" class="col-group col-group-billing">Current Billing</th>
 						<th colspan="6" class="col-group col-group-revenue">Revenue</th>
 						<th colspan="6" class="col-group col-group-estimated">Estimated Cost</th>
-						<th colspan="6" class="col-group col-group-actual">Actual Cost</th>
-						<th colspan="4" class="col-group col-group-profit">Profitability</th>
+					<th colspan="7" class="col-group col-group-actual">Actual Cost</th>
+					<th colspan="4" class="col-group col-group-profit">Profitability</th>
 						<th colspan="3" class="col-group col-group-financial">Financial Summary</th>
 						<th rowspan="2" class="col-actions">Actions</th>
 					</tr>
@@ -148,13 +148,14 @@ function render_comprehensive_items_table(items, frm) {
 						<th class="col-num">S/C</th>
 						<th class="col-num">Other</th>
 						<th class="col-num">Total</th>
-						<!-- Actual Cost -->
-						<th class="col-num">Material</th>
-						<th class="col-num">Labour</th>
-						<th class="col-num">Asset</th>
-						<th class="col-num">S/C</th>
-						<th class="col-num">Other</th>
-						<th class="col-num">Total</th>
+					<!-- Actual Cost -->
+					<th class="col-num">Material</th>
+					<th class="col-num">Labour</th>
+					<th class="col-num">Asset</th>
+					<th class="col-num">S/C</th>
+					<th class="col-num">Other</th>
+					<th class="col-num">Expense</th>
+					<th class="col-num">Total</th>
 						<!-- Profitability -->
 						<th class="col-num">Actual GP</th>
 						<th class="col-num">Actual GP%</th>
@@ -285,13 +286,14 @@ function render_item_row(item, frm) {
 			<td class="col-num">${format_currency(estimated.other || 0)}</td>
 			<td class="col-num font-bold">${format_currency(estimated.total || 0)}</td>
 			
-			<!-- Actual Cost -->
-			<td class="col-num">${format_currency(actual.material || 0)}</td>
-			<td class="col-num">${format_currency(actual.labour || 0)}</td>
-			<td class="col-num">${format_currency(actual.asset || 0)}</td>
-			<td class="col-num">${format_currency(actual.subcontract || 0)}</td>
-			<td class="col-num">${format_currency(actual.other || 0)}</td>
-			<td class="col-num font-bold">${format_currency(actual.total || 0)}</td>
+		<!-- Actual Cost -->
+		<td class="col-num">${format_currency(actual.material || 0)}</td>
+		<td class="col-num">${format_currency(actual.labour || 0)}</td>
+		<td class="col-num">${format_currency(actual.asset || 0)}</td>
+		<td class="col-num">${format_currency(actual.subcontract || 0)}</td>
+		<td class="col-num">${format_currency(actual.other || 0)}</td>
+		<td class="col-num">${format_currency(actual.expense || 0)}</td>
+		<td class="col-num font-bold">${format_currency(actual.total || 0)}</td>
 			
 			<!-- Profitability -->
 			<td class="col-num ${profitability.gp >= 0 ? 'text-success' : 'text-danger'} font-bold">${format_currency(profitability.gp || 0)}</td>

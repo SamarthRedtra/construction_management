@@ -49,7 +49,12 @@ doctype_js = {
 	"Interim Payment Certificate": "public/js/ipc.js",
 	"Project": ["public/js/boq_management_table.js", "public/js/boq_fullscreen_manager.js", "public/js/sticky_columns_manager.js", "public/js/profit_loss_indicator.js", "public/js/bill_financial_summary_widget.js", "public/js/project.js"],
 	"Daily Progress Record": "public/js/daily_progress_record.js",
-	"Purchase Receipt": "public/js/purchase_receipt.js"
+	"Purchase Receipt": "public/js/purchase_receipt.js",
+	"Sales Invoice": ["public/js/accounting_dimension_filters.js", "public/js/sales_invoice.js"],
+	"Purchase Invoice": ["public/js/accounting_dimension_filters.js", "public/js/purchase_invoice.js"],
+	"Purchase Order": ["public/js/accounting_dimension_filters.js", "public/js/purchase_order.js"],
+	"Stock Entry": ["public/js/accounting_dimension_filters.js", "public/js/stock_entry.js"],
+	"Journal Entry": ["public/js/accounting_dimension_filters.js", "public/js/journal_entry.js"]
 }
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}

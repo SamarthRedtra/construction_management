@@ -53,13 +53,16 @@
         "section_cost",
         "cost_to_date",
         "margin",
+        "total_retention_amount",
+        "total_advance_deducted",
         "column_break_5",
         "labour_cost",
         "material_cost",
         "column_break_6",
         "asset_cost",
         "subcontract_cost",
-        "expense_cost"
+        "expense_cost",
+        "overhead_cost"
     ],
     "fields": [
         {
@@ -365,6 +368,18 @@
             "read_only": 1
         },
         {
+            "fieldname": "total_retention_amount",
+            "fieldtype": "Currency",
+            "label": "Total Retention Amount",
+            "read_only": 1
+        },
+        {
+            "fieldname": "total_advance_deducted",
+            "fieldtype": "Currency",
+            "label": "Total Advance Deducted",
+            "read_only": 1
+        },
+        {
             "fieldname": "column_break_5",
             "fieldtype": "Column Break"
         },
@@ -400,6 +415,12 @@
             "fieldname": "expense_cost",
             "fieldtype": "Currency",
             "label": "Other Expense",
+            "read_only": 1
+        },
+        {
+            "fieldname": "overhead_cost",
+            "fieldtype": "Currency",
+            "label": "Overhead Cost",
             "read_only": 1
         }
     ],

@@ -144,6 +144,7 @@ def create_boq_ledger_entry(invoice, item):
 def create_boq_reversal_entry(invoice, item):
 	"""
 	Undo Tax Invoice impact on the existing BOQ Progress Ledger row.
+	For orphan SIs (no PI/PC), delete the ledger entry entirely.
 	
 	Args:
 		invoice: Sales Invoice document
@@ -152,6 +153,9 @@ def create_boq_reversal_entry(invoice, item):
 	from construction_management.api.boq_ledger import recalculate_ledger_for_item
 	
 	boq_item = item.boq_item
+	
+	# Check if this is an orphan SI (created outside PI/PC flow)
+	is_orphan = not invoice.custom_payment_certificate and not invoice.get("custom_proforma_invoice")
 	
 	ledger_entry = None
 	if invoice.custom_payment_certificate:
@@ -185,19 +189,32 @@ def create_boq_reversal_entry(invoice, item):
 		)
 	
 	if ledger_entry:
-		frappe.db.set_value(
-			"BOQ Progress Ledger",
-			ledger_entry,
-			{
-				"tax_invoice": None,
-				"tax_invoice_amount": 0,
-				"remarks": f"Reversal of Invoice {invoice.name}",
-				"source": "Proforma" if invoice.get("custom_proforma_invoice") else "Adjustment"
-			},
-			update_modified=False
-		)
+		if is_orphan:
+			# Delete the ledger entry for orphan SI
+			# Set flag to allow deletion during Sales Invoice cancellation
+			frappe.flags.allow_boq_ledger_deletion = True
+			try:
+				frappe.delete_doc("BOQ Progress Ledger", ledger_entry, force=1, ignore_permissions=True)
+				frappe.logger().info(f"Deleted orphan SI ledger entry for BOQ Item {boq_item} from invoice {invoice.name}")
+			finally:
+				# Always clear the flag after deletion attempt
+				frappe.flags.allow_boq_ledger_deletion = False
+		else:
+			# Clear TI fields for linked SI (PI/PC flow)
+			frappe.db.set_value(
+				"BOQ Progress Ledger",
+				ledger_entry,
+				{
+					"tax_invoice": None,
+					"tax_invoice_amount": 0,
+					"remarks": f"Reversal of Invoice {invoice.name}",
+					"source": "Proforma" if invoice.get("custom_proforma_invoice") else "Adjustment"
+				},
+				update_modified=False
+			)
+			frappe.logger().info(f"Updated ledger row for BOQ Item {boq_item} after cancelling invoice {invoice.name}")
+		
 		recalculate_ledger_for_item(boq_item)
-		frappe.logger().info(f"Updated ledger row for BOQ Item {boq_item} after cancelling invoice {invoice.name}")
 
 
 def update_boq_item_after_invoice(boq_item_name):

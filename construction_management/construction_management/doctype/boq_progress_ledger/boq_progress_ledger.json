@@ -31,6 +31,8 @@
 		"section_current",
 		"qty",
 		"amount",
+		"retention_amount",
+		"advance_deduction",
 		"section_progressive",
 		"prev_qty",
 		"prev_amount",
@@ -216,6 +218,18 @@
 			"reqd": 1,
 			"read_only": 1,
 			"description": "Amount in this transaction (can be negative for reversals)"
+		},
+		{
+			"fieldname": "retention_amount",
+			"fieldtype": "Currency",
+			"label": "Retention Amount",
+			"read_only": 1
+		},
+		{
+			"fieldname": "advance_deduction",
+			"fieldtype": "Currency",
+			"label": "Advance Deduction",
+			"read_only": 1
 		},
 		{
 			"fieldname": "section_progressive",

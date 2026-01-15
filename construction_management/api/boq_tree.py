@@ -240,7 +240,7 @@ def get_boq_items(bill_name: str) -> list:
 			"estimated_gp", "estimated_gp_percent",
 			"cost_to_date", "margin",
 			"labour_cost", "material_cost", "subcontract_cost",
-			"asset_cost", "expense_cost"
+			"asset_cost", "expense_cost", "overhead_cost"
 		],
 		order_by="idx"
 	)
@@ -256,7 +256,8 @@ def get_boq_items(bill_name: str) -> list:
 			"labour": flt(item.get("labour_cost", 0)),
 			"subcontract": flt(item.get("subcontract_cost", 0)),
 			"asset": flt(item.get("asset_cost", 0)),
-			"other": flt(item.get("expense_cost", 0)),
+			"other": flt(item.get("overhead_cost", 0)),
+			"expense": flt(item.get("expense_cost", 0)),
 			"total": flt(item.get("cost_to_date", 0))
 		}
 		item["actual_costs"] = actual_costs
@@ -276,17 +277,13 @@ def get_boq_items(bill_name: str) -> list:
 		item["revenue"] = revenue_breakdown
 		
 		# Calculate profitability (GP and GP%)
-		# Revenue for GP calculation
-		# Per Requirement 6: Use BOQ Ledger Value (Total Sales Value)
-		# This includes Net Proformas + Invoices, as per the correct Ledger logic
-		revenue_for_gp = flt(item.get("to_date_amount", 0))
-		# If no cost yet, use collected Sales Invoice amount as GP basis (user request)
-		# Fallback to ledger to_date_amount if no SI value
+		# Use Tax Invoice revenue as the basis for actual GP calculation
 		tax_invoice_revenue = flt(revenue_breakdown.get("tax_invoice", 0))
-		if flt(actual_costs.get("total", 0)) <= 0 and tax_invoice_revenue > 0:
-			revenue_for_gp = tax_invoice_revenue
 		actual_cost = flt(actual_costs.get("total", 0))
 		
+		# Actual GP = Tax Invoice Revenue - Actual Cost
+		# If actual cost is 0, GP = Tax Invoice Revenue
+		revenue_for_gp = tax_invoice_revenue
 		gp = revenue_for_gp - actual_cost
 		gp_percent = (gp / revenue_for_gp * 100) if revenue_for_gp > 0 else 0
 		
@@ -599,7 +596,7 @@ def calculate_bill_totals(items: list) -> dict:
 		},
 		"actual_costs": {
 			"material": 0, "labour": 0, "subcontract": 0,
-			"asset": 0, "other": 0, "total": 0
+			"asset": 0, "other": 0, "expense": 0, "total": 0
 		},
 		"revenue": {
 			"proforma": 0, "pc": 0, "tax_invoice": 0,

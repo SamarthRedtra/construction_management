@@ -42,7 +42,14 @@ class BOQProgressLedger(Document):
 			)
 	
 	def on_trash(self):
-		"""Prevent deletion of ledger entries"""
+		"""
+		Prevent deletion of ledger entries except during Sales Invoice cancellation.
+		Allow deletion only when explicitly permitted via frappe.flags.
+		"""
+		# Allow deletion during Sales Invoice cancellation (orphan SI cleanup)
+		if frappe.flags.get("allow_boq_ledger_deletion"):
+			return
+		
 		frappe.throw(
 			_("BOQ Progress Ledger entries cannot be deleted. This is an append-only ledger."),
 			title=_("Ledger Immutable")
