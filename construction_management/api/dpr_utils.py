@@ -168,22 +168,23 @@ def get_asset_with_rate(asset: str, project: str, date: str = None) -> dict:
 	asset_doc = frappe.get_doc("Asset", asset)
 	
 	# Try to get rate from Project Asset Billing
-	rate = frappe.db.get_value(
+	rate = frappe.db.get_values(
 		"Project Asset Billing",
 		{
 			"project": project,
 			"asset": asset,
 			"effective_from": ["<=", date or today()]
 		},
-		"value_per_hour",
+		["value_per_hour", "value_per_day"],
 		order_by="effective_from desc"
 	)
-	
+	per_day_rate = rate[0][1] if rate and rate[0][1] else None
+	per_hour_rate = rate[0][0] if rate and rate[0][0] else None
 	return {
 		"name": asset_doc.name,
 		"asset_name": asset_doc.asset_name,
-		"rate_per_hour": flt(rate) if rate else 0,
-		"rate_per_day": flt(rate) * 8 if rate else 0  # For backward compatibility
+		"rate_per_hour": flt(per_hour_rate) if per_hour_rate else 0,
+		"rate_per_day": flt(per_day_rate) if per_day_rate else 0
 	}
 
 
@@ -268,19 +269,22 @@ def get_assets_with_rates(project: str, date: str = None) -> list:
 	
 	for asset in assets:
 		# Try to get rate from Project Asset Billing
-		rate = frappe.db.get_value(
+		rate = frappe.db.get_values(
 			"Project Asset Billing",
 			{
 				"project": project,
 				"asset": asset.name,
 				"effective_from": ["<=", date or today()]
 			},
-			"value_per_hour",
+			["value_per_hour", "value_per_day"],
 			order_by="effective_from desc"
 		)
-		asset["rate_per_hour"] = flt(rate) if rate else 0
-		asset["rate_per_day"] = flt(rate) * 8 if rate else 0  # For backward compatibility
-	
+		if rate:
+			asset["rate_per_hour"] = flt(rate[0][0]) if rate[0][0] else 0
+			asset["rate_per_day"] = flt(rate[0][1]) if rate[0][1] else 0
+		else:
+			asset["rate_per_hour"] = 0
+			asset["rate_per_day"] = 0
 	return assets
 
 
@@ -595,7 +599,7 @@ def get_warehouse_items_query(doctype, txt, searchfield, start, page_len, filter
 	return frappe.db.sql("""
 		SELECT 
 			b.item_code,
-			i.item_name,
+			CONCAT(i.item_name, ' | Stock: ', FORMAT(b.actual_qty, 2), ' | Value: ', FORMAT(b.valuation_rate, 2)) as item_name,
 			b.actual_qty,
 			b.valuation_rate
 		FROM `tabBin` b

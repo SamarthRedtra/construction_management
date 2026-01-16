@@ -3474,6 +3474,7 @@ function show_dpr_dialog(project, boq_items) {
 	const d = new frappe.ui.Dialog({
 		title: __('Quick Daily Progress Record'),
 		size: 'large',
+		minimizable: true,
 		fields: [
 			{
 				fieldtype: 'HTML',
@@ -3707,29 +3708,6 @@ function show_dpr_dialog(project, boq_items) {
 		}
 	});
 
-	// Add minimize toggle and persistent styles
-	(() => {
-		const style_id = 'cm-dpr-dialog-styles';
-		if (!document.getElementById(style_id)) {
-			const style = document.createElement('style');
-			style.id = style_id;
-			style.textContent = `
-				.cm-dpr-dialog.cm-minimized .modal-body,
-				.cm-dpr-dialog.cm-minimized .modal-footer { display: none !important; }
-				.cm-dpr-dialog .cm-minimize { margin-left: 12px; font-size: 12px; color: #6b7280; cursor: pointer; }
-				.cm-dpr-dialog .cm-minimize:hover { color: #111827; }
-			`;
-			document.head.appendChild(style);
-		}
-		d.$wrapper.addClass('cm-dpr-dialog');
-		const btn = $(`<span class="cm-minimize">${__('Minimize')}</span>`);
-		d.$wrapper.find('.modal-title').append(btn);
-		btn.on('click', () => {
-			d.$wrapper.toggleClass('cm-minimized');
-			btn.text(d.$wrapper.hasClass('cm-minimized') ? __('Restore') : __('Minimize'));
-		});
-	})();
-
 	// Cache helpers
 	const load_cache = () => {
 		try {
@@ -3835,19 +3813,44 @@ let dpr_selected_assets = [];
 let dpr_selected_materials = [];
 let dpr_selected_expenses = [];
 let dpr_selected_overheads = [];
+let dpr_project_context = null;
 
-// Override the show_dpr_dialog function with clean Frappe-native version
+// Override the show_dpr_dialog_enhanced function
 window.show_dpr_dialog_enhanced = function (project) {
-	// Reset selections
-	dpr_selected_employees = [];
-	dpr_selected_assets = [];
-	dpr_selected_materials = [];
-	dpr_selected_expenses = [];
-	dpr_selected_overheads = [];
+	// 1. Check if we can reuse existing dialog
+	if (window.cur_dpr_dialog && dpr_selected_employees && dpr_project_context === project) {
+		const d = window.cur_dpr_dialog;
+		d.show();
+		// Re-render lists to be safe (in case rendering was lost but data kept)
+		setTimeout(() => {
+			render_employees_list();
+			render_materials_list();
+			render_assets_list();
+			render_expenses_list();
+			render_overheads_list();
+		}, 100);
+		return;
+	}
+
+	// 2. If project changed or no dialog, reset and create new
+	if (dpr_project_context !== project) {
+		if (window.cur_dpr_dialog) {
+			try { window.cur_dpr_dialog.hide(); } catch (e) { } // Ensure old is closed
+			window.cur_dpr_dialog = null;
+		}
+
+		dpr_selected_employees = [];
+		dpr_selected_assets = [];
+		dpr_selected_materials = [];
+		dpr_selected_expenses = [];
+		dpr_selected_overheads = [];
+		dpr_project_context = project;
+	}
 
 	const d = new frappe.ui.Dialog({
 		title: __('Quick Daily Progress Record'),
 		size: 'extra-large',
+		minimizable: true,
 		fields: [
 			{
 				fieldtype: 'HTML',
@@ -3988,69 +3991,14 @@ window.show_dpr_dialog_enhanced = function (project) {
 		cleanup_modal_and_restore_dashboard();
 	};
 
-	// Add Minimize capability
-	d.is_minimized = false;
-	const $minimizeBtn = $(`
-		<button class="btn btn-default btn-xs" style="margin-right: 8px;">
-			<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<line x1="5" y1="12" x2="19" y2="12"></line>
-			</svg>
-		</button>
-	`).prependTo(d.$wrapper.find('.modal-header .modal-actions'));
-
-	d.toggle_minimize = function () {
-		d.is_minimized = !d.is_minimized;
-		const $wrapper = d.$wrapper;
-
-		if (d.is_minimized) {
-			// Save current state
-			d._original_styles = {
-				position: $wrapper.css('position'),
-				width: $wrapper.css('width'),
-				height: $wrapper.css('height'),
-				bottom: $wrapper.css('bottom'),
-				right: $wrapper.css('right'),
-				top: $wrapper.css('top'),
-				left: $wrapper.css('left'),
-				transform: $wrapper.css('transform')
-			};
-
-			// Apply minimized styles
-			$wrapper.addClass('dpr-minimized');
-			d.$body.hide();
-			d.$wrapper.find('.modal-header .btn-modal-close').hide();
-
-			// Change icon to maximize
-			$minimizeBtn.html(`
-				<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-				</svg>
-			`);
-		} else {
-			// Restore original state
-			$wrapper.removeClass('dpr-minimized');
-			d.$body.show();
-			d.$wrapper.find('.modal-header .btn-modal-close').show();
-
-			// Restore icon to minimize
-			$minimizeBtn.html(`
-				<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<line x1="5" y1="12" x2="19" y2="12"></line>
-				</svg>
-			`);
-		}
-	};
-
-	$minimizeBtn.on('click', (e) => {
-		e.stopPropagation();
-		d.toggle_minimize();
-	});
+	// Store instance globally
+	window.cur_dpr_dialog = d;
 
 	d.show();
 
 	// Add styles and render lists
 	setTimeout(() => {
-		$('<style>.dpr-item-card{display:flex;align-items:center;gap:12px;padding:10px 12px;background:white;border-radius:8px;margin-bottom:8px;border:1px solid #e2e8f0;transition:all 0.2s}.dpr-item-card:hover{border-color:#cbd5e1;box-shadow:0 2px 4px rgba(0,0,0,0.05)}.dpr-item-info{flex:1;min-width:0}.dpr-item-name{font-weight:500;color:#1f2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dpr-item-sub{font-size:12px;color:#6b7280;margin-top:2px}.dpr-item-input{width:70px;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;text-align:right;font-size:13px}.dpr-item-input:focus{outline:none;border-color:#5e64ff;box-shadow:0 0 0 2px rgba(94,100,255,0.1)}.dpr-item-amount{min-width:90px;text-align:right;font-weight:600;color:#059669;font-size:14px}.dpr-remove-btn{background:#fee2e2;color:#dc2626;border:none;width:28px;height:28px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s}.dpr-remove-btn:hover{background:#fecaca}.dpr-empty{text-align:center;padding:24px;color:#9ca3af;font-size:13px;background:#f9fafb;border-radius:8px;border:1px dashed #e2e8f0}.rate-source-tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:500;background:#e0f2fe;color:#0369a1;margin-left:4px;text-transform:uppercase}.modal-dialog.dpr-minimized{position:fixed !important;bottom:20px !important;right:20px !important;width:320px !important;margin:0 !important;height:auto !important;top:auto !important;left:auto !important;transform:none !important;z-index:1060 !important;border-radius:8px !important;box-shadow:0 4px 12px rgba(0,0,0,0.15) !important;overflow:hidden !important;border:1px solid #d1d5db !important;}.modal-dialog.dpr-minimized .modal-content{height:auto !important;max-height:none !important;}.modal-dialog.dpr-minimized .modal-header{padding:10px 15px !important;}</style>').appendTo(d.$wrapper);
+		$('<style>.dpr-item-card{display:flex;align-items:center;gap:12px;padding:10px 12px;background:white;border-radius:8px;margin-bottom:8px;border:1px solid #e2e8f0;transition:all 0.2s}.dpr-item-card:hover{border-color:#cbd5e1;box-shadow:0 2px 4px rgba(0,0,0,0.05)}.dpr-item-info{flex:1;min-width:0}.dpr-item-name{font-weight:500;color:#1f2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dpr-item-sub{font-size:12px;color:#6b7280;margin-top:2px}.dpr-item-input{width:70px;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;text-align:right;font-size:13px}.dpr-item-input:focus{outline:none;border-color:#5e64ff;box-shadow:0 0 0 2px rgba(94,100,255,0.1)}.dpr-item-amount{min-width:90px;text-align:right;font-weight:600;color:#059669;font-size:14px}.dpr-remove-btn{background:#fee2e2;color:#dc2626;border:none;width:28px;height:28px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s}.dpr-remove-btn:hover{background:#fecaca}.dpr-empty{text-align:center;padding:24px;color:#9ca3af;font-size:13px;background:#f9fafb;border-radius:8px;border:1px dashed #e2e8f0}.rate-source-tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:500;background:#e0f2fe;color:#0369a1;margin-left:4px;text-transform:uppercase}</style>').appendTo(d.$wrapper);
 		render_employees_list();
 		render_materials_list();
 		render_assets_list();
@@ -4062,7 +4010,7 @@ window.show_dpr_dialog_enhanced = function (project) {
 // Helper functions for DPR dialog
 
 function add_employee_to_list(d, employee, project) {
-	if (dpr_selected_employees.find(e => e.employee === employee)) {
+	if (employee && dpr_selected_employees.find(e => e.employee === employee)) {
 		frappe.show_alert({ message: __('Employee already added'), indicator: 'orange' });
 		d.set_value('employee', '');
 		return;
@@ -4397,6 +4345,12 @@ function create_dpr_from_dialog(d, project) {
 		callback: function (r) {
 			if (r.message) {
 				d.hide();
+				// Clear selections on success
+				dpr_selected_employees = [];
+				dpr_selected_materials = [];
+				dpr_selected_assets = [];
+				dpr_selected_expenses = [];
+				dpr_selected_overheads = [];
 				frappe.show_alert({ message: __('DPR {0} created successfully!', [r.message.name]), indicator: 'green' });
 				frappe.confirm(__('DPR created. Submit now to create Stock Entries for materials?'),
 					function () {

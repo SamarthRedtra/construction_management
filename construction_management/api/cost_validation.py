@@ -229,9 +229,27 @@ def validate_dpr_costs(boq_item_name, dpr_costs, dpr_name=None):
 	
 	# Check against limit
 	if new_total_cost > flt(boq_item.total_estimated_cost):
+		# Resolve currency
+		currency = None
+		project_company = None
+
+		# Older schemas may not have Project.currency; guard the lookup
+		if frappe.db.has_column("Project", "currency"):
+			currency = frappe.db.get_value("Project", boq_item.project, "currency")
+
+		# Company lookup is safe across versions
+		project_company = frappe.db.get_value("Project", boq_item.project, "company")
+
+		if not currency and project_company:
+			currency = frappe.get_cached_value('Company', project_company, 'default_currency')
+		
+		# Fallback
+		if not currency:
+			currency = frappe.get_system_settings('currency')
+
 		msg = _("Total cost ({0}) exceeds estimated cost ({1}) for BOQ Item {2}").format(
-			frappe.format(new_total_cost, currency=boq_item.currency),
-			frappe.format(boq_item.total_estimated_cost, currency=boq_item.currency),
+			frappe.format(new_total_cost, currency=currency),
+			frappe.format(boq_item.total_estimated_cost, currency=currency),
 			boq_item.name
 		)
 		warnings.append(msg)
