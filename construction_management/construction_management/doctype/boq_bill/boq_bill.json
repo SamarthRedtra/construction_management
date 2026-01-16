@@ -1,272 +1,274 @@
 {
-	"actions": [],
-	"allow_rename": 1,
-	"autoname": "naming_series:",
-	"creation": "2024-12-18 10:00:00",
-	"doctype": "DocType",
-	"engine": "InnoDB",
-	"field_order": [
-		"naming_series",
-		"project_boq",
-		"project",
-		"column_break_1",
-		"bill_no",
-		"sequence",
-		"section_details",
-		"description",
-		"section_totals",
-		"total_qty",
-		"total_amount",
-		"column_break_2",
-		"prev_amount",
-		"current_amount",
-		"to_date_amount",
-		"balance_amount",
-		"total_retention_amount",
-		"total_advance_deducted",
-		"section_estimated_costs",
-		"estimated_material_cost",
-		"estimated_labour_cost",
-		"estimated_subcontract_cost",
-		"column_break_estimated",
-		"estimated_asset_cost",
-		"estimated_other_cost",
-		"total_estimated_cost"
-	],
-	"fields": [
-		{
-			"fieldname": "naming_series",
-			"fieldtype": "Select",
-			"label": "Naming Series",
-			"options": "BILL-.YYYY.-",
-			"reqd": 1
-		},
-		{
-			"fieldname": "project_boq",
-			"fieldtype": "Link",
-			"in_list_view": 1,
-			"in_standard_filter": 1,
-			"label": "Project BOQ",
-			"options": "Project BOQ",
-			"reqd": 1
-		},
-		{
-			"fieldname": "project",
-			"fieldtype": "Link",
-			"label": "Project",
-			"options": "Project",
-			"fetch_from": "project_boq.project",
-			"read_only": 1
-		},
-		{
-			"fieldname": "column_break_1",
-			"fieldtype": "Column Break"
-		},
-		{
-			"fieldname": "bill_no",
-			"fieldtype": "Data",
-			"in_list_view": 1,
-			"label": "Bill Number",
-			"reqd": 1
-		},
-		{
-			"fieldname": "sequence",
-			"fieldtype": "Int",
-			"label": "Sequence",
-			"default": "0"
-		},
-		{
-			"fieldname": "section_details",
-			"fieldtype": "Section Break",
-			"label": "Details"
-		},
-		{
-			"fieldname": "description",
-			"fieldtype": "Small Text",
-			"label": "Description"
-		},
-		{
-			"fieldname": "section_totals",
-			"fieldtype": "Section Break",
-			"label": "Totals"
-		},
-		{
-			"fieldname": "total_qty",
-			"fieldtype": "Float",
-			"label": "Total Quantity",
-			"read_only": 1,
-			"precision": "3"
-		},
-		{
-			"fieldname": "total_amount",
-			"fieldtype": "Currency",
-			"in_list_view": 1,
-			"label": "Total Amount",
-			"read_only": 1
-		},
-		{
-			"fieldname": "column_break_2",
-			"fieldtype": "Column Break"
-		},
-		{
-			"fieldname": "prev_amount",
-			"fieldtype": "Currency",
-			"label": "Previous Amount",
-			"read_only": 1
-		},
-		{
-			"fieldname": "current_amount",
-			"fieldtype": "Currency",
-			"label": "Current Amount",
-			"read_only": 1
-		},
-		{
-			"fieldname": "to_date_amount",
-			"fieldtype": "Currency",
-			"label": "To-Date Amount",
-			"read_only": 1
-		},
-		{
-			"fieldname": "balance_amount",
-			"fieldtype": "Currency",
-			"label": "Balance Amount",
-			"read_only": 1
-		},
-		{
-			"fieldname": "total_retention_amount",
-			"fieldtype": "Currency",
-			"label": "Total Retention Amount",
-			"read_only": 1
-		},
-		{
-			"fieldname": "total_advance_deducted",
-			"fieldtype": "Currency",
-			"label": "Total Advance Deducted",
-			"read_only": 1
-		},
-		{
-			"collapsible": 1,
-			"fieldname": "section_estimated_costs",
-			"fieldtype": "Section Break",
-			"label": "Estimated Costs (Aggregated)"
-		},
-		{
-			"description": "Sum of estimated material costs from all BOQ Items",
-			"fieldname": "estimated_material_cost",
-			"fieldtype": "Currency",
-			"label": "Estimated Material Cost",
-			"read_only": 1
-		},
-		{
-			"description": "Sum of estimated labour costs from all BOQ Items",
-			"fieldname": "estimated_labour_cost",
-			"fieldtype": "Currency",
-			"label": "Estimated Labour Cost",
-			"read_only": 1
-		},
-		{
-			"description": "Sum of estimated subcontracting costs from all BOQ Items",
-			"fieldname": "estimated_subcontract_cost",
-			"fieldtype": "Currency",
-			"label": "Estimated Subcontracting Cost",
-			"read_only": 1
-		},
-		{
-			"fieldname": "column_break_estimated",
-			"fieldtype": "Column Break"
-		},
-		{
-			"description": "Sum of estimated asset costs from all BOQ Items",
-			"fieldname": "estimated_asset_cost",
-			"fieldtype": "Currency",
-			"label": "Estimated Asset Cost",
-			"read_only": 1
-		},
-		{
-			"description": "Sum of other estimated costs from all BOQ Items",
-			"fieldname": "estimated_other_cost",
-			"fieldtype": "Currency",
-			"label": "Estimated Other Costs",
-			"read_only": 1
-		},
-		{
-			"description": "Total estimated cost (sum of all components)",
-			"fieldname": "total_estimated_cost",
-			"fieldtype": "Currency",
-			"label": "Total Estimated Cost",
-			"read_only": 1
-		}
-	],
-	"index_web_pages_for_search": 1,
-	"links": [
-		{
-			"link_doctype": "BOQ Item",
-			"link_fieldname": "parent_bill"
-		}
-	],
-	"modified": "2024-12-18 10:00:00",
-	"modified_by": "Administrator",
-	"module": "Construction Management",
-	"name": "BOQ Bill",
-	"naming_rule": "By \"Naming Series\" field",
-	"owner": "Administrator",
-	"permissions": [
-		{
-			"create": 1,
-			"delete": 1,
-			"email": 1,
-			"export": 1,
-			"print": 1,
-			"read": 1,
-			"report": 1,
-			"role": "System Manager",
-			"share": 1,
-			"write": 1
-		},
-		{
-			"create": 1,
-			"delete": 1,
-			"email": 1,
-			"export": 1,
-			"print": 1,
-			"read": 1,
-			"report": 1,
-			"role": "Project Manager",
-			"share": 1,
-			"write": 1
-		},
-		{
-			"create": 1,
-			"email": 1,
-			"export": 1,
-			"print": 1,
-			"read": 1,
-			"report": 1,
-			"role": "Quantity Surveyor",
-			"share": 1,
-			"write": 1
-		},
-		{
-			"email": 1,
-			"export": 1,
-			"print": 1,
-			"read": 1,
-			"report": 1,
-			"role": "Construction Manager",
-			"share": 1
-		},
-		{
-			"email": 1,
-			"export": 1,
-			"print": 1,
-			"read": 1,
-			"report": 1,
-			"role": "Projects User",
-			"share": 1
-		}
-	],
-	"sort_field": "sequence",
-	"sort_order": "ASC",
-	"states": [],
-	"track_changes": 1
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2024-12-18 10:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "project_boq",
+  "project",
+  "column_break_1",
+  "bill_no",
+  "sequence",
+  "section_details",
+  "description",
+  "section_totals",
+  "total_qty",
+  "total_amount",
+  "column_break_2",
+  "prev_amount",
+  "current_amount",
+  "to_date_amount",
+  "balance_amount",
+  "total_retention_amount",
+  "total_advance_deducted",
+  "section_estimated_costs",
+  "estimated_material_cost",
+  "estimated_labour_cost",
+  "estimated_subcontract_cost",
+  "column_break_estimated",
+  "estimated_asset_cost",
+  "estimated_other_cost",
+  "total_estimated_cost"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "BILL-.YYYY.-",
+   "reqd": 1
+  },
+  {
+   "fieldname": "project_boq",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Project BOQ",
+   "options": "Project BOQ",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "project_boq.project",
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Project",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "bill_no",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Bill Number",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "sequence",
+   "fieldtype": "Int",
+   "label": "Sequence"
+  },
+  {
+   "fieldname": "section_details",
+   "fieldtype": "Section Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "section_totals",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "total_qty",
+   "fieldtype": "Float",
+   "label": "Total Quantity",
+   "precision": "3",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "prev_amount",
+   "fieldtype": "Currency",
+   "label": "Previous Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "current_amount",
+   "fieldtype": "Currency",
+   "label": "Current Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "to_date_amount",
+   "fieldtype": "Currency",
+   "label": "To-Date Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "balance_amount",
+   "fieldtype": "Currency",
+   "label": "Balance Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_retention_amount",
+   "fieldtype": "Currency",
+   "label": "Total Retention Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_advance_deducted",
+   "fieldtype": "Currency",
+   "label": "Total Advance Deducted",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_estimated_costs",
+   "fieldtype": "Section Break",
+   "label": "Estimated Costs (Aggregated)"
+  },
+  {
+   "description": "Sum of estimated material costs from all BOQ Items",
+   "fieldname": "estimated_material_cost",
+   "fieldtype": "Currency",
+   "label": "Estimated Material Cost",
+   "read_only": 1
+  },
+  {
+   "description": "Sum of estimated labour costs from all BOQ Items",
+   "fieldname": "estimated_labour_cost",
+   "fieldtype": "Currency",
+   "label": "Estimated Labour Cost",
+   "read_only": 1
+  },
+  {
+   "description": "Sum of estimated subcontracting costs from all BOQ Items",
+   "fieldname": "estimated_subcontract_cost",
+   "fieldtype": "Currency",
+   "label": "Estimated Subcontracting Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_estimated",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Sum of estimated asset costs from all BOQ Items",
+   "fieldname": "estimated_asset_cost",
+   "fieldtype": "Currency",
+   "label": "Estimated Asset Cost",
+   "read_only": 1
+  },
+  {
+   "description": "Sum of other estimated costs from all BOQ Items",
+   "fieldname": "estimated_other_cost",
+   "fieldtype": "Currency",
+   "label": "Estimated Other Costs",
+   "read_only": 1
+  },
+  {
+   "description": "Total estimated cost (sum of all components)",
+   "fieldname": "total_estimated_cost",
+   "fieldtype": "Currency",
+   "label": "Total Estimated Cost",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [
+  {
+   "link_doctype": "BOQ Item",
+   "link_fieldname": "parent_bill"
+  }
+ ],
+ "modified": "2026-01-16 17:53:31.745738",
+ "modified_by": "Administrator",
+ "module": "Construction Management",
+ "name": "BOQ Bill",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Quantity Surveyor",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Construction Manager",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Projects User",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "search_fields": "project,project_boq",
+ "sort_field": "sequence",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 1
 }
