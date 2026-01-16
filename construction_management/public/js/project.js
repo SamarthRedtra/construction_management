@@ -85,10 +85,10 @@ function show_site_stock_dialog(frm) {
 				<tr>
 					<td>${frappe.utils.escape_html(d.item_code || '')}</td>
 					<td>${frappe.utils.escape_html(d.item_name || '')}</td>
-					<td class="text-right">${frappe.format(d.actual_qty || 0, {fieldtype:'Float', precision:2})}</td>
-					<td class="text-right">${frappe.format(d.reserved_qty || 0, {fieldtype:'Float', precision:2})}</td>
-					<td class="text-right">${frappe.format(d.projected_qty || 0, {fieldtype:'Float', precision:2})}</td>
-					<td class="text-right">${frappe.format(d.valuation_rate || 0, {fieldtype:'Currency'})}</td>
+					<td class="text-right">${frappe.format(d.actual_qty || 0, { fieldtype: 'Float', precision: 2 })}</td>
+					<td class="text-right">${frappe.format(d.reserved_qty || 0, { fieldtype: 'Float', precision: 2 })}</td>
+					<td class="text-right">${frappe.format(d.projected_qty || 0, { fieldtype: 'Float', precision: 2 })}</td>
+					<td class="text-right">${frappe.format(d.valuation_rate || 0, { fieldtype: 'Currency' })}</td>
 					<td>${frappe.utils.escape_html(d.stock_uom || '')}</td>
 				</tr>
 			`).join('');
@@ -3987,11 +3987,70 @@ window.show_dpr_dialog_enhanced = function (project) {
 	d.onhide = function () {
 		cleanup_modal_and_restore_dashboard();
 	};
+
+	// Add Minimize capability
+	d.is_minimized = false;
+	const $minimizeBtn = $(`
+		<button class="btn btn-default btn-xs" style="margin-right: 8px;">
+			<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<line x1="5" y1="12" x2="19" y2="12"></line>
+			</svg>
+		</button>
+	`).prependTo(d.$wrapper.find('.modal-header .modal-actions'));
+
+	d.toggle_minimize = function () {
+		d.is_minimized = !d.is_minimized;
+		const $wrapper = d.$wrapper;
+
+		if (d.is_minimized) {
+			// Save current state
+			d._original_styles = {
+				position: $wrapper.css('position'),
+				width: $wrapper.css('width'),
+				height: $wrapper.css('height'),
+				bottom: $wrapper.css('bottom'),
+				right: $wrapper.css('right'),
+				top: $wrapper.css('top'),
+				left: $wrapper.css('left'),
+				transform: $wrapper.css('transform')
+			};
+
+			// Apply minimized styles
+			$wrapper.addClass('dpr-minimized');
+			d.$body.hide();
+			d.$wrapper.find('.modal-header .btn-modal-close').hide();
+
+			// Change icon to maximize
+			$minimizeBtn.html(`
+				<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+				</svg>
+			`);
+		} else {
+			// Restore original state
+			$wrapper.removeClass('dpr-minimized');
+			d.$body.show();
+			d.$wrapper.find('.modal-header .btn-modal-close').show();
+
+			// Restore icon to minimize
+			$minimizeBtn.html(`
+				<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<line x1="5" y1="12" x2="19" y2="12"></line>
+				</svg>
+			`);
+		}
+	};
+
+	$minimizeBtn.on('click', (e) => {
+		e.stopPropagation();
+		d.toggle_minimize();
+	});
+
 	d.show();
 
 	// Add styles and render lists
 	setTimeout(() => {
-		$('<style>.dpr-item-card{display:flex;align-items:center;gap:12px;padding:10px 12px;background:white;border-radius:8px;margin-bottom:8px;border:1px solid #e2e8f0;transition:all 0.2s}.dpr-item-card:hover{border-color:#cbd5e1;box-shadow:0 2px 4px rgba(0,0,0,0.05)}.dpr-item-info{flex:1;min-width:0}.dpr-item-name{font-weight:500;color:#1f2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dpr-item-sub{font-size:12px;color:#6b7280;margin-top:2px}.dpr-item-input{width:70px;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;text-align:right;font-size:13px}.dpr-item-input:focus{outline:none;border-color:#5e64ff;box-shadow:0 0 0 2px rgba(94,100,255,0.1)}.dpr-item-amount{min-width:90px;text-align:right;font-weight:600;color:#059669;font-size:14px}.dpr-remove-btn{background:#fee2e2;color:#dc2626;border:none;width:28px;height:28px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s}.dpr-remove-btn:hover{background:#fecaca}.dpr-empty{text-align:center;padding:24px;color:#9ca3af;font-size:13px;background:#f9fafb;border-radius:8px;border:1px dashed #e2e8f0}.rate-source-tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:500;background:#e0f2fe;color:#0369a1;margin-left:4px;text-transform:uppercase}</style>').appendTo(d.$wrapper);
+		$('<style>.dpr-item-card{display:flex;align-items:center;gap:12px;padding:10px 12px;background:white;border-radius:8px;margin-bottom:8px;border:1px solid #e2e8f0;transition:all 0.2s}.dpr-item-card:hover{border-color:#cbd5e1;box-shadow:0 2px 4px rgba(0,0,0,0.05)}.dpr-item-info{flex:1;min-width:0}.dpr-item-name{font-weight:500;color:#1f2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dpr-item-sub{font-size:12px;color:#6b7280;margin-top:2px}.dpr-item-input{width:70px;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;text-align:right;font-size:13px}.dpr-item-input:focus{outline:none;border-color:#5e64ff;box-shadow:0 0 0 2px rgba(94,100,255,0.1)}.dpr-item-amount{min-width:90px;text-align:right;font-weight:600;color:#059669;font-size:14px}.dpr-remove-btn{background:#fee2e2;color:#dc2626;border:none;width:28px;height:28px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s}.dpr-remove-btn:hover{background:#fecaca}.dpr-empty{text-align:center;padding:24px;color:#9ca3af;font-size:13px;background:#f9fafb;border-radius:8px;border:1px dashed #e2e8f0}.rate-source-tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:500;background:#e0f2fe;color:#0369a1;margin-left:4px;text-transform:uppercase}.modal-dialog.dpr-minimized{position:fixed !important;bottom:20px !important;right:20px !important;width:320px !important;margin:0 !important;height:auto !important;top:auto !important;left:auto !important;transform:none !important;z-index:1060 !important;border-radius:8px !important;box-shadow:0 4px 12px rgba(0,0,0,0.15) !important;overflow:hidden !important;border:1px solid #d1d5db !important;}.modal-dialog.dpr-minimized .modal-content{height:auto !important;max-height:none !important;}.modal-dialog.dpr-minimized .modal-header{padding:10px 15px !important;}</style>').appendTo(d.$wrapper);
 		render_employees_list();
 		render_materials_list();
 		render_assets_list();

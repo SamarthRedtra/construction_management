@@ -84,5 +84,14 @@ def get_asset_daily_rate(project: str, asset: str, date: str = None) -> float:
 	Returns:
 		Daily rate value (hourly × 8)
 	"""
-	hourly_rate = get_asset_hourly_rate(project, asset, date)
-	return flt(hourly_rate) * 8
+	return frappe.db.get_value(
+		"Project Asset Billing",
+		{
+			"project": project,
+			"asset": asset,
+			"(effective_from IS NULL OR effective_from <= %s)": date or today(),
+			"(effective_to IS NULL OR effective_to >= %s)": date or today(),
+		},
+		"value_per_day",
+		order_by="effective_from DESC",
+  	)

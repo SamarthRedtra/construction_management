@@ -189,9 +189,9 @@ scheduler_events = {
 # Overriding Methods
 # ------------------------------
 #
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "construction_management.event.get_events"
-# }
+override_whitelisted_methods = {
+	"frappe.desk.form.load.getdoctype": "construction_management.overrides.form_load.getdoctype",
+}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,

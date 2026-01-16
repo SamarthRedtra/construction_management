@@ -8,35 +8,58 @@ def execute():
 	Rename the existing Purchase Invoice Data field `bill_no` to `supplier_invoice_no`
 	and introduce a new `bill_no` Link field pointing to Project Bill.
 	"""
-	meta = frappe.get_meta("Purchase Invoice")
-	bill_df = meta.get_field("bill_no")
-	supplier_df = meta.get_field("supplier_invoice_no")
+	doctype = "Purchase Invoice"
+	meta = frappe.get_meta(doctype)
 
-	# Try to free up bill_no by renaming only if it still exists and supplier_invoice_no is absent
-	if bill_df and not supplier_df:
+	# 1) Rename DB column if needed (bill_no -> supplier_invoice_no)
+	if frappe.db.has_column(doctype, "bill_no") and not frappe.db.has_column(doctype, "supplier_invoice_no"):
 		try:
-			if frappe.db.has_column("Purchase Invoice", "bill_no") and not frappe.db.has_column("Purchase Invoice", "supplier_invoice_no"):
-				rename_field("Purchase Invoice", "bill_no", "supplier_invoice_no")
-				meta = frappe.get_meta("Purchase Invoice")  # refresh
-				bill_df = meta.get_field("bill_no")
+			frappe.db.sql(
+				"""ALTER TABLE `tabPurchase Invoice` CHANGE COLUMN `bill_no` `supplier_invoice_no` VARCHAR(140)"""
+			)
 		except Exception:
-			# If rename fails (e.g., already moved/removed), log and continue without breaking migration
-			frappe.log_error("Could not rename Purchase Invoice.bill_no to supplier_invoice_no", "CM Patch: rename_purchase_invoice_bill_no")
+			frappe.log_error("Could not rename column bill_no -> supplier_invoice_no on Purchase Invoice", "CM Patch")
 
-	# Ensure the new Bill No (Project Bill) link exists only if the name is free
-	custom_fields = {
-		"Purchase Invoice": [
-			{
-				"fieldname": "bill_no",
-				"label": "Bill No",
-				"fieldtype": "Link",
-				"options": "Project Bill",
-				"insert_after": "project"
-			}
-		]
-	}
+	# 2) Rename DocField to supplier_invoice_no if the standard bill_no docfield exists
+	if frappe.db.exists("DocField", {"parent": doctype, "fieldname": "bill_no"}):
+		frappe.db.sql(
+			"""UPDATE `tabDocField`
+			   SET fieldname='supplier_invoice_no', label='Supplier Invoice No'
+			   WHERE parent=%s AND fieldname='bill_no'""",
+			(doctype,),
+		)
 
-	if not frappe.get_meta("Purchase Invoice").get_field("bill_no"):
+	# 2b) Remove legacy custom fields that clash with the new naming
+	# - Any custom supplier_invoice_no field (we rely on core field)
+	# - Any custom bill_no that isn't the Project Bill link
+	for fname in ("supplier_invoice_no", "bill_no"):
+		cf = frappe.db.get_value(
+			"Custom Field",
+			{"dt": doctype, "fieldname": fname},
+			["name", "fieldtype", "options"],
+			as_dict=True,
+		)
+		if cf:
+			is_project_bill_link = cf.fieldtype == "Link" and cf.options == "BOQ Bill"
+			# Keep only the desired Project Bill link; remove everything else to avoid duplicate labels
+			if fname == "bill_no" and is_project_bill_link:
+				pass
+			else:
+				frappe.delete_doc("Custom Field", cf.name, force=1, ignore_permissions=True)
+
+	# 3) Create new Bill No link to Project Bill if the name is free
+	if not frappe.get_meta(doctype, cached=False).get_field("bill_no"):
+		custom_fields = {
+			doctype: [
+				{
+					"fieldname": "bill_no",
+					"label": "Bill No",
+					"fieldtype": "Link",
+					"options": "BOQ Bill",
+					"insert_after": "project",
+				}
+			]
+		}
 		create_custom_fields(custom_fields, update=True)
 
-	frappe.clear_cache(doctype="Purchase Invoice")
+	frappe.clear_cache(doctype=doctype)
