@@ -1,10 +1,10 @@
 /**
- * Purchase Order client script extensions for Construction Management
+ * Sales Order client script extensions for Construction Management
  * 
  * BOQ dimension fields (bill_no, boq_item) are on the child table (items).
  */
 
-frappe.ui.form.on('Purchase Order', {
+frappe.ui.form.on('Sales Order', {
 	onload: function (frm) {
 		// Setup cascading dimension filters for child table
 		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
@@ -21,3 +21,4 @@ frappe.ui.form.on('Purchase Order', {
 		}
 	}
 });
+

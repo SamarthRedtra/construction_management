@@ -8,6 +8,7 @@ frappe.ui.form.on('Journal Entry', {
 	onload: function (frm) {
 		// Setup cascading dimension filters for child table (accounts, not items)
 		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
+			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
 			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'accounts');
 		}
 	},
@@ -15,6 +16,7 @@ frappe.ui.form.on('Journal Entry', {
 	refresh: function (frm) {
 		// Re-setup on refresh to ensure filters are applied after form loads
 		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
+			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
 			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'accounts');
 		}
 	}

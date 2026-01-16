@@ -8,13 +8,16 @@ frappe.ui.form.on('Sales Invoice', {
 	onload: function (frm) {
 		// Setup cascading dimension filters for child table
 		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
+			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
 			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'items');
 		}
 	},
 
 	refresh: function (frm) {
 		// Re-setup on refresh to ensure filters are applied after form loads
+		console.log(typeof construction_management !== 'undefined' && construction_management.dimension_utils,"0")
 		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
+			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
 			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'items');
 		}
 	}

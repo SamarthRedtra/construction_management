@@ -26,7 +26,7 @@ app_license = "mit"
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/construction_management/css/construction_management.css"
-# app_include_js = "/assets/construction_management/js/construction_management.js"
+app_include_js = "/assets/construction_management/js/accounting_dimension_filters.js"
 
 # include js, css files in header of web template
 # web_include_css = "/assets/construction_management/css/construction_management.css"
@@ -53,6 +53,7 @@ doctype_js = {
 	"Sales Invoice": ["public/js/accounting_dimension_filters.js", "public/js/sales_invoice.js"],
 	"Purchase Invoice": ["public/js/accounting_dimension_filters.js", "public/js/purchase_invoice.js"],
 	"Purchase Order": ["public/js/accounting_dimension_filters.js", "public/js/purchase_order.js"],
+	"Sales Order": ["public/js/accounting_dimension_filters.js", "public/js/sales_order.js"],
 	"Stock Entry": ["public/js/accounting_dimension_filters.js", "public/js/stock_entry.js"],
 	"Journal Entry": ["public/js/accounting_dimension_filters.js", "public/js/journal_entry.js"]
 }

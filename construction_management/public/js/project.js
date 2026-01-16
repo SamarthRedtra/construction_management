@@ -1526,6 +1526,9 @@ function show_invoice_dialog(boq_item, data) {
 		d.$wrapper.find(`.tab-content[data-content="${tab}"]`).addClass('active');
 	});
 
+	// Set Project Site requirement based on BOQ Settings
+	set_project_site_requirement(d, project);
+
 	// Fix: Ensure proper cleanup when dialog is closed
 	d.onhide = function () {
 		cleanup_modal_and_restore_dashboard();
@@ -1856,6 +1859,9 @@ function show_item_advances_dialog(boq_item, advances) {
 			}
 		]
 	});
+
+	// Set Project Site requirement based on BOQ Settings
+	set_project_site_requirement(d, project);
 
 	d.onhide = function () {
 		cleanup_modal_and_restore_dashboard();
@@ -3531,15 +3537,17 @@ function show_dpr_dialog(project, boq_items) {
 				}
 			},
 			{
-				fieldname: 'warehouse',
-				label: __('Warehouse / Site'),
+				fieldname: 'project_sites',
+				label: __('Project Site'),
 				fieldtype: 'Link',
-				options: 'Warehouse',
-				reqd: !!cur_frm?.doc?.site_location,
-				default: cur_frm?.doc?.site_location || '',
+				options: 'Project Sites',
+				reqd: 0, // Will be set based on BOQ Settings
 				get_query: () => {
-					const site = cur_frm?.doc?.site_location;
-					return site ? { filters: { name: site } } : { filters: { project: project } };
+					return {
+						filters: {
+							project: project
+						}
+					};
 				}
 			},
 			{
@@ -3788,17 +3796,17 @@ window.show_dpr_dialog_enhanced = function (project) {
 				}
 			},
 			{
-				fieldname: 'warehouse',
-				label: __('Warehouse / Site'),
+				fieldname: 'project_sites',
+				label: __('Project Site'),
 				fieldtype: 'Link',
-				options: 'Warehouse',
-				reqd: !!cur_frm?.doc?.site_location,
-				default: cur_frm?.doc?.site_location || '',
+				options: 'Project Sites',
+				reqd: 0, // Will be set based on BOQ Settings
 				get_query: () => {
-					const selected = d.get_value('warehouse');
-					if (selected) return { filters: { name: selected } };
-					const site = cur_frm?.doc?.site_location;
-					return site ? { filters: { name: site } } : { filters: { project: project } };
+					return {
+						filters: {
+							project: project
+						}
+					};
 				}
 			},
 			// Labour Section
@@ -3817,8 +3825,7 @@ window.show_dpr_dialog_enhanced = function (project) {
 			{
 				fieldname: 'item_code', label: __('Add Item'), fieldtype: 'Link', options: 'Item',
 				get_query: () => {
-					const selected_wh = d.get_value('warehouse');
-					const site_warehouse = selected_wh || cur_frm?.doc?.site_location;
+					const site_warehouse = cur_frm?.doc?.site_location;
 					if (site_warehouse) {
 						return {
 							query: 'construction_management.api.dpr_utils.get_warehouse_items_query',
@@ -4186,6 +4193,25 @@ function update_dpr_totals(d) {
 	$('#dpr-grand-total').text(fmt(grandTotal));
 }
 
+function set_project_site_requirement(d, project) {
+	if (!d || !project || !d.get_field('project_sites')) {
+		return;
+	}
+
+	frappe.db.get_value('Project', project, 'company', (projectRes) => {
+		const company = projectRes && projectRes.company;
+		if (!company) {
+			return;
+		}
+
+		frappe.db.get_value('BOQ Settings', { company: company }, 'mandatory_site_location', (settingsRes) => {
+			const mandatory = !!(settingsRes && settingsRes.mandatory_site_location);
+			d.set_df_property('project_sites', 'reqd', mandatory);
+			d.refresh_field('project_sites');
+		});
+	});
+}
+
 function create_dpr_from_dialog(d, project) {
 	const values = d.get_values();
 	if (!values) return;
@@ -4208,7 +4234,8 @@ function create_dpr_from_dialog(d, project) {
 			project: project,
 			boq_item: values.boq_item,
 			bill_no: values.bill_no,
-			warehouse: values.warehouse,
+			warehouse: values.warehouse || cur_frm?.doc?.site_location,
+			project_sites: values.project_sites,
 			date: values.date,
 			employees: JSON.stringify(dpr_selected_employees),
 			assets: JSON.stringify(dpr_selected_assets),

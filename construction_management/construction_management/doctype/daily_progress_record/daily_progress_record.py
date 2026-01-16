@@ -302,6 +302,7 @@ class DailyProgressRecord(Document):
 		if not self.materials:
 			return
 		
+		has_item_project_sites = frappe.get_meta("Stock Entry Detail").has_field("project_sites")
 		stock_entry_names = []
 		
 		for row in self.materials:
@@ -318,19 +319,25 @@ class DailyProgressRecord(Document):
 				se.posting_date = self.date
 				se.project = self.project
 				se.company = self.get_company()
+				if se.meta.has_field("project_sites") and self.project_sites:
+					se.project_sites = self.project_sites
 				if hasattr(se, "boq_item"):
 					se.boq_item = self.boq_item
 				if hasattr(se, "bill_no"):
 					se.bill_no = self.bill_no
 				
-				se.append("items", {
+				item_row = {
 					"item_code": row.item_code,
 					"qty": row.qty,
 					"s_warehouse": row.warehouse,
 					"project": self.project,
 					"boq_item": self.boq_item,
 					"bill_no": self.bill_no
-				})
+				}
+				if has_item_project_sites and self.project_sites:
+					item_row["project_sites"] = self.project_sites
+				
+				se.append("items", item_row)
 				
 				se.insert()
 				se.submit()

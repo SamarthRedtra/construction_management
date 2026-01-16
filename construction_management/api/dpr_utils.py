@@ -344,6 +344,7 @@ def create_dpr_with_details(
 	date: str,
 	bill_no: str = None,
 	warehouse: str = None,
+	project_sites: str = None,
 	employees: str = None,
 	assets: str = None,
 	materials: str = None,
@@ -392,6 +393,8 @@ def create_dpr_with_details(
 	dpr.bill_no = bill_no or frappe.db.get_value("BOQ Item", boq_item, "parent_bill")
 	if warehouse:
 		dpr.warehouse = warehouse
+	if project_sites:
+		dpr.project_sites = project_sites
 	dpr.date = date
 	dpr.labour_cost = labour_cost
 	dpr.material_cost = material_cost
