@@ -311,7 +311,7 @@ def get_item_advance_amount(boq_item: str) -> float:
 	result = frappe.db.sql("""
 		SELECT COALESCE(SUM(advance_deduction), 0) as total
 		FROM `tabBOQ Progress Ledger`
-		WHERE boq_item = %s AND docstatus = 1
+		WHERE boq_item = %s 
 	""", boq_item)
 	return flt(result[0][0]) if result else 0
 
@@ -985,7 +985,7 @@ def get_item_retention_amount(boq_item: str) -> float:
 	total_retention = frappe.db.sql("""
 		SELECT COALESCE(SUM(retention_amount), 0)
 		FROM `tabBOQ Progress Ledger`
-		WHERE boq_item = %s AND docstatus = 1
+		WHERE boq_item = %s
 	""", boq_item)[0][0] or 0
 	return flt(total_retention)
 	
