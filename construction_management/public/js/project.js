@@ -3469,6 +3469,8 @@ function show_dpr_dialog(project, boq_items) {
 		label: `${item.bill_number} - ${item.description.substring(0, 50)}${item.description.length > 50 ? '...' : ''}`
 	}));
 
+	const cache_key = `cm_dpr_quick_cache_${project}`;
+
 	const d = new frappe.ui.Dialog({
 		title: __('Quick Daily Progress Record'),
 		size: 'large',
@@ -3705,11 +3707,79 @@ function show_dpr_dialog(project, boq_items) {
 		}
 	});
 
+	// Add minimize toggle and persistent styles
+	(() => {
+		const style_id = 'cm-dpr-dialog-styles';
+		if (!document.getElementById(style_id)) {
+			const style = document.createElement('style');
+			style.id = style_id;
+			style.textContent = `
+				.cm-dpr-dialog.cm-minimized .modal-body,
+				.cm-dpr-dialog.cm-minimized .modal-footer { display: none !important; }
+				.cm-dpr-dialog .cm-minimize { margin-left: 12px; font-size: 12px; color: #6b7280; cursor: pointer; }
+				.cm-dpr-dialog .cm-minimize:hover { color: #111827; }
+			`;
+			document.head.appendChild(style);
+		}
+		d.$wrapper.addClass('cm-dpr-dialog');
+		const btn = $(`<span class="cm-minimize">${__('Minimize')}</span>`);
+		d.$wrapper.find('.modal-title').append(btn);
+		btn.on('click', () => {
+			d.$wrapper.toggleClass('cm-minimized');
+			btn.text(d.$wrapper.hasClass('cm-minimized') ? __('Restore') : __('Minimize'));
+		});
+	})();
+
+	// Cache helpers
+	const load_cache = () => {
+		try {
+			const cached = JSON.parse(localStorage.getItem(cache_key) || '{}');
+			if (!Object.keys(cached).length) return;
+			if (cached.date) d.set_value('date', cached.date);
+			if (cached.bill_no) d.set_value('bill_no', cached.bill_no);
+			if (cached.boq_item) d.set_value('boq_item', cached.boq_item);
+			if (cached.project_sites) d.set_value('project_sites', cached.project_sites);
+			if (cached.remarks) d.set_value('remarks', cached.remarks);
+			$('#dpr-labour-cost').val(cached.labour_cost || 0);
+			$('#dpr-material-cost').val(cached.material_cost || 0);
+			$('#dpr-asset-cost').val(cached.asset_cost || 0);
+			$('#dpr-subcontract-cost').val(cached.subcontract_cost || 0);
+			$('#dpr-expense-cost').val(cached.expense_cost || 0);
+			$('#dpr-total-cost').text(format_currency(cached.total_cost || 0));
+		} catch (e) {
+			// ignore cache errors
+		}
+	};
+
+	const save_cache = () => {
+		try {
+			const values = d.get_values() || {};
+			const cached = {
+				date: values.date,
+				bill_no: values.bill_no,
+				boq_item: values.boq_item,
+				project_sites: values.project_sites,
+				remarks: values.remarks,
+				labour_cost: parseFloat($('#dpr-labour-cost').val()) || 0,
+				material_cost: parseFloat($('#dpr-material-cost').val()) || 0,
+				asset_cost: parseFloat($('#dpr-asset-cost').val()) || 0,
+				subcontract_cost: parseFloat($('#dpr-subcontract-cost').val()) || 0,
+				expense_cost: parseFloat($('#dpr-expense-cost').val()) || 0
+			};
+			cached.total_cost = cached.labour_cost + cached.material_cost + cached.asset_cost + cached.subcontract_cost + cached.expense_cost;
+			localStorage.setItem(cache_key, JSON.stringify(cached));
+		} catch (e) {
+			// ignore cache errors
+		}
+	};
+
 	// Fix: Ensure proper cleanup when dialog is closed
 	d.onhide = function () {
 		cleanup_modal_and_restore_dashboard();
+		save_cache();
 	};
 	d.show();
+	load_cache();
 
 	// Attach tab switching logic
 	setTimeout(() => {
@@ -3730,7 +3800,27 @@ function show_dpr_dialog(project, boq_items) {
 			const expense = parseFloat($('#dpr-expense-cost').val()) || 0;
 			const total = labour + material + asset + subcontract + expense;
 			$('#dpr-total-cost').text(format_currency(total));
+			save_cache();
 		});
+
+		// Trigger project site search on focus (no need to type space)
+		const site_ctrl = d.fields_dict.project_sites;
+		if (site_ctrl && site_ctrl.$input) {
+			const trigger_sites = () => {
+				const awesomplete = site_ctrl.$input.data('awesomplete');
+				if (awesomplete) {
+					awesomplete.minChars = 0;
+					awesomplete.evaluate();
+				} else {
+					site_ctrl.$input.trigger('input');
+				}
+			};
+			site_ctrl.$input.on('focus', trigger_sites);
+			setTimeout(trigger_sites, 150);
+		}
+
+		// Persist cache on field changes
+		d.$wrapper.on('change input', 'input, textarea, select', frappe.utils.debounce(save_cache, 300));
 	}, 100);
 }
 

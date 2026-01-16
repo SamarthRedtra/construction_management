@@ -20,6 +20,7 @@ function set_account_queries(frm) {
 	const account_fields = [
 		"retention_account",
 		"advance_account",
+		"default_warehouse",
 		"asset_labor_cost_account",
 		"asset_cost_account",
 		"expenses_account",
