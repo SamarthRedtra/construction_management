@@ -551,33 +551,39 @@ window.createPaymentCertificate = function () {
 		return;
 	}
 
-	frappe.prompt([
-		{
-			fieldname: 'sales_order', fieldtype: 'Link', label: 'Sales Order', options: 'Sales Order', reqd: 1,
-			get_query: function () {
-				return {
-					filters: {
-						project: cur_frm.doc.name,
-						docstatus: 1
+	frappe.call({
+		method: 'construction_management.construction_management.doctype.payment_certificate.payment_certificate.get_pending_sales_orders',
+		args: { project: cur_frm.doc.name },
+		callback: function (r) {
+			const pending_sos = r.message || [];
+			if (pending_sos.length === 0) {
+				frappe.show_alert({ message: __('No pending Sales Orders found for this project'), indicator: 'orange' });
+				return;
+			}
+
+			frappe.prompt([
+				{
+					fieldname: 'sales_order', fieldtype: 'Select', label: 'Sales Order',
+					options: pending_sos.map(so => ({ label: `${so.name} (${format_currency(so.amount)})`, value: so.name })),
+					reqd: 1
+				},
+				{ fieldname: 'posting_date', fieldtype: 'Date', label: 'Posting Date', default: frappe.datetime.get_today(), reqd: 1 }
+			], function (values) {
+				frappe.call({
+					method: 'construction_management.api.boq_invoice.create_payment_certificate_from_sales_order',
+					args: { sales_order: values.sales_order, posting_date: values.posting_date },
+					freeze: true,
+					freeze_message: __('Creating Payment Certificate...'),
+					callback: function (r) {
+						if (r.message) {
+							frappe.show_alert({ message: __('Payment Certificate {0} created', [r.message.name]), indicator: 'green' });
+							window.open(`/app/payment-certificate/${r.message.name}`, '_blank');
+						}
 					}
-				};
-			}
-		},
-		{ fieldname: 'posting_date', fieldtype: 'Date', label: 'Posting Date', default: frappe.datetime.get_today(), reqd: 1 }
-	], function (values) {
-		frappe.call({
-			method: 'construction_management.api.boq_invoice.create_payment_certificate_from_sales_order',
-			args: { sales_order: values.sales_order, posting_date: values.posting_date },
-			freeze: true,
-			freeze_message: __('Creating Payment Certificate...'),
-			callback: function (r) {
-				if (r.message) {
-					frappe.show_alert({ message: __('Payment Certificate {0} created', [r.message.name]), indicator: 'green' });
-					window.open(`/app/payment-certificate/${r.message.name}`, '_blank');
-				}
-			}
-		});
-	}, __('Create Payment Certificate'), __('Create'));
+				});
+			}, __('Create Payment Certificate'), __('Create'));
+		}
+	});
 };
 
 window.clearSelection = function () {

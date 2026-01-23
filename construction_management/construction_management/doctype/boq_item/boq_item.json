@@ -23,21 +23,21 @@
         "total_qty",
         "rate",
         "total_amount",
-        "section_unit_breakdown",
-        "item_breakdown",
-        "total_unit_rate",
         "section_estimated_costs",
+        "estimated_material_cost_per_unit",
+        "estimated_labour_cost_per_unit",
+        "estimated_subcontract_cost_per_unit",
+        "estimated_asset_cost_per_unit",
+        "estimated_other_cost_per_unit",
+        "column_break_estimated_1",
         "estimated_material_cost",
         "estimated_labour_cost",
         "estimated_subcontract_cost",
-        "column_break_estimated_1",
         "estimated_asset_cost",
         "estimated_other_cost",
         "total_estimated_cost",
         "estimated_gp",
         "estimated_gp_percent",
-        "section_materials",
-        "materials",
         "section_progressive",
         "prev_qty",
         "prev_amount",
@@ -62,7 +62,12 @@
         "asset_cost",
         "subcontract_cost",
         "expense_cost",
-        "overhead_cost"
+        "overhead_cost",
+        "section_unit_breakdown",
+        "item_breakdown",
+        "total_unit_rate",
+        "section_materials",
+        "materials"
     ],
     "fields": [
         {
@@ -186,26 +191,46 @@
         {
             "fieldname": "section_unit_breakdown",
             "fieldtype": "Section Break",
+            "hidden": 1,
             "label": "Unit Level Breakdown"
         },
         {
             "description": "Breakdown of costs per unit of item",
             "fieldname": "item_breakdown",
             "fieldtype": "Table",
+            "hidden": 1,
             "label": "Cost Breakdown",
             "options": "BOQ Item Breakdown"
         },
         {
             "fieldname": "total_unit_rate",
             "fieldtype": "Currency",
+            "hidden": 1,
             "label": "Total Rate per Unit",
             "read_only": 1
         },
         {
-            "collapsible": 1,
             "fieldname": "section_estimated_costs",
             "fieldtype": "Section Break",
             "label": "Estimated Costs"
+        },
+        {
+            "fieldname": "estimated_material_cost_per_unit",
+            "fieldtype": "Currency",
+            "label": "Estimated Material Cost per Unit",
+            "read_only": 1
+        },
+        {
+            "fieldname": "estimated_labour_cost_per_unit",
+            "fieldtype": "Currency",
+            "label": "Estimated Labour Cost per Unit",
+            "read_only": 1
+        },
+        {
+            "fieldname": "estimated_subcontract_cost_per_unit",
+            "fieldtype": "Currency",
+            "label": "Estimated Subcontract Cost per Unit",
+            "read_only": 1
         },
         {
             "description": "Estimated material cost for this BOQ item",
@@ -231,6 +256,18 @@
         {
             "fieldname": "column_break_estimated_1",
             "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "estimated_asset_cost_per_unit",
+            "fieldtype": "Currency",
+            "label": "Estimated Asset Cost per Unit",
+            "read_only": 1
+        },
+        {
+            "fieldname": "estimated_other_cost_per_unit",
+            "fieldtype": "Currency",
+            "label": "Estimated Other Cost per Unit",
+            "read_only": 1
         },
         {
             "description": "Estimated asset/equipment cost for this BOQ item",
@@ -271,12 +308,14 @@
             "collapsible": 1,
             "fieldname": "section_materials",
             "fieldtype": "Section Break",
+            "hidden": 1,
             "label": "Materials"
         },
         {
             "description": "Material items required for this BOQ item",
             "fieldname": "materials",
             "fieldtype": "Table",
+            "hidden": 1,
             "label": "Materials",
             "options": "BOQ Item Material"
         },

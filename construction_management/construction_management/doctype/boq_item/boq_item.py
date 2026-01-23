@@ -18,11 +18,44 @@ class BOQItem(Document):
 	def calculate_estimated_costs(self):
 		"""Calculate total estimated cost as sum of all cost components.
 		
-		Prioritizes Unit Level Breakdown if available.
+		Prioritizes itemized Unit Cost fields.
+		Otherwise checks Unit Level Breakdown table.
 		Otherwise checks Materials child table.
 		Otherwise respects manual entry.
 		"""
-		# Requirement 3: Unit Level Breakdown Calculation
+		# Priority 1: Itemized unit cost fields
+		has_unit_costs = any([
+			flt(getattr(self, 'estimated_material_cost_per_unit', 0)),
+			flt(getattr(self, 'estimated_labour_cost_per_unit', 0)),
+			flt(getattr(self, 'estimated_subcontract_cost_per_unit', 0)),
+			flt(getattr(self, 'estimated_asset_cost_per_unit', 0)),
+			flt(getattr(self, 'estimated_other_cost_per_unit', 0))
+		])
+
+		if has_unit_costs:
+			self.estimated_material_cost = flt(self.estimated_material_cost_per_unit) * flt(self.total_qty)
+			self.estimated_labour_cost = flt(self.estimated_labour_cost_per_unit) * flt(self.total_qty)
+			self.estimated_subcontract_cost = flt(self.estimated_subcontract_cost_per_unit) * flt(self.total_qty)
+			self.estimated_asset_cost = flt(self.estimated_asset_cost_per_unit) * flt(self.total_qty)
+			self.estimated_other_cost = flt(self.estimated_other_cost_per_unit) * flt(self.total_qty)
+			
+			self.total_estimated_cost = (
+				flt(self.estimated_material_cost) +
+				flt(self.estimated_labour_cost) +
+				flt(self.estimated_subcontract_cost) +
+				flt(self.estimated_asset_cost) +
+				flt(self.estimated_other_cost)
+			)
+			self.total_unit_rate = (
+				flt(self.estimated_material_cost_per_unit) +
+				flt(self.estimated_labour_cost_per_unit) +
+				flt(self.estimated_subcontract_cost_per_unit) +
+				flt(self.estimated_asset_cost_per_unit) +
+				flt(self.estimated_other_cost_per_unit)
+			)
+			return
+
+		# Priority 2: Unit Level Breakdown (Table)
 		if hasattr(self, 'item_breakdown') and self.item_breakdown:
 			costs = {
 				"Material": 0.0,
@@ -38,17 +71,13 @@ class BOQItem(Document):
 				row.amount = flt(row.qty_per_unit) * flt(row.rate)
 				unit_rate_total += row.amount
 				
-				# Aggregate into specific cost type totals (Unit Amount * Total Qty)
-				# Ensure case-insensitive matching or exact matching
 				ctype = row.cost_type
 				if ctype in costs:
 					costs[ctype] += (row.amount * flt(self.total_qty))
 			
-			# Set Totals
 			self.total_unit_rate = unit_rate_total
 			self.total_estimated_cost = unit_rate_total * flt(self.total_qty)
 			
-			# Update component fields
 			self.estimated_material_cost = costs["Material"]
 			self.estimated_labour_cost = costs["Labour"]
 			self.estimated_subcontract_cost = costs["Subcontract"]

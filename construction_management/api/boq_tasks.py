@@ -28,6 +28,11 @@ def create_boq_item_with_task(
 	estimated_asset_cost: float = 0,
 	estimated_other_cost: float = 0,
 	total_estimated_cost: float = 0,
+	estimated_material_cost_per_unit: float = 0,
+	estimated_labour_cost_per_unit: float = 0,
+	estimated_subcontract_cost_per_unit: float = 0,
+	estimated_asset_cost_per_unit: float = 0,
+	estimated_other_cost_per_unit: float = 0,
 	materials: str | list = None
 ) -> dict:
 	"""
@@ -71,6 +76,13 @@ def create_boq_item_with_task(
 	boq_item.unit = unit
 	boq_item.total_qty = flt(total_qty)
 	boq_item.rate = flt(rate)
+	
+	# Set unit costs
+	boq_item.estimated_material_cost_per_unit = flt(estimated_material_cost_per_unit)
+	boq_item.estimated_labour_cost_per_unit = flt(estimated_labour_cost_per_unit)
+	boq_item.estimated_subcontract_cost_per_unit = flt(estimated_subcontract_cost_per_unit)
+	boq_item.estimated_asset_cost_per_unit = flt(estimated_asset_cost_per_unit)
+	boq_item.estimated_other_cost_per_unit = flt(estimated_other_cost_per_unit)
 	
 	# Add materials if provided and field exists
 	if materials and hasattr(boq_item, 'materials'):

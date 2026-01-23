@@ -22,9 +22,11 @@ def on_submit(doc, method=None):
 
 
 def on_cancel(doc, method=None):
-	"""
-	When Sales Order is cancelled, reverse BOQ Progress Ledger entries.
-	"""
+	# When Sales Order is cancelled, reverse BOQ Progress Ledger entries.
+	# Skip reversal if this is an amendment (the new revision will update these entries)
+	if doc.flags.get("is_amending"):
+		return
+
 	# Check if linked to Payment Certificate
 	if frappe.db.exists("Payment Certificate", {"sales_order": doc.name, "docstatus": ["!=", 2]}):
 		frappe.throw(_("Cannot cancel Sales Order {0} as it is linked to a Payment Certificate").format(doc.name))
@@ -80,15 +82,31 @@ def create_ledger_entries(doc):
 				retention_share = total_retention * (flt(item.amount) / total_order_amount)
 
 			# Create or update ledger entry
-			ledger_entry = frappe.db.get_value(
-				"BOQ Progress Ledger",
-				{
-					"boq_item": item.boq_item,
-					"reference_doctype": "Sales Order",
-					"reference_name": doc.name
-				},
-				"name"
-			)
+			ledger_entry = None
+			
+			# Case 1: Amendment - Try to find entry from the original SO
+			if doc.amended_from:
+				ledger_entry = frappe.db.get_value(
+					"BOQ Progress Ledger",
+					{
+						"boq_item": item.boq_item,
+						"reference_doctype": "Sales Order",
+						"reference_name": doc.amended_from
+					},
+					"name"
+				)
+
+			# Case 2: Normal submit or missing entry
+			if not ledger_entry:
+				ledger_entry = frappe.db.get_value(
+					"BOQ Progress Ledger",
+					{
+						"boq_item": item.boq_item,
+						"reference_doctype": "Sales Order",
+						"reference_name": doc.name
+					},
+					"name"
+				)
 
 			update_data = {
 				"qty": flt(item.qty),

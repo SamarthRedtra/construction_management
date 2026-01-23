@@ -22,6 +22,7 @@ class PaymentCertificate(Document):
 		self.validate_purchase_receipt()
 		self.calculate_variance()
 		self.validate_duplicate()
+		self.validate_amounts()
 	
 	def calculate_totals(self):
 		"""Calculate totals from child table if items present"""
@@ -33,6 +34,11 @@ class PaymentCertificate(Document):
 		
 		for item in self.items:
 			item.amount = flt(item.qty) * flt(item.rate)
+			
+			# Ensure accepted_amount is initialized if zero and newly added
+			if not item.accepted_amount and flt(item.qty) > 0:
+				item.accepted_amount = item.amount
+				
 			item.variance = flt(item.amount) - flt(item.accepted_amount)
 			
 			total_proforma += flt(item.amount)
@@ -287,7 +293,7 @@ class PaymentCertificate(Document):
 					"item_code": frappe.db.get_value("BOQ Item", pc_item.boq_item, "item_code") or "Service",
 					"item_name": pc_item.description[:140],
 					"description": pc_item.description,
-					"qty": pc_item.qty,
+					"qty": flt(pc_item.accepted_amount) / flt(pc_item.rate) if flt(pc_item.rate) > 0 else 0,
 					"rate": pc_item.rate,
 					"income_account": income_account,
 					"project": self.project,
@@ -548,7 +554,7 @@ class PaymentCertificate(Document):
 
 @frappe.whitelist()
 def get_pending_sales_orders(project: str = None) -> list:
-	"""Get Sales Orders with BOQ items that don't have Payment Certificate."""
+	"""Get Sales Orders with BOQ items that are not fully certificated."""
 	filters = {"docstatus": 1}
 	if project:
 		filters["project"] = project
@@ -558,7 +564,7 @@ def get_pending_sales_orders(project: str = None) -> list:
 		filters=filters,
 		fields=[
 			"name", "project", "customer", "customer_name",
-			"base_grand_total as amount", "transaction_date as posting_date"
+			"base_grand_total", "transaction_date as posting_date"
 		],
 		order_by="transaction_date DESC"
 	)
@@ -569,8 +575,17 @@ def get_pending_sales_orders(project: str = None) -> list:
 		if not has_boq:
 			continue
 			
-		has_pc = frappe.db.exists("Payment Certificate", {"sales_order": so.name, "docstatus": ["!=", 2]})
-		if not has_pc:
+		# Calculate total accepted amount for this SO across all PCs
+		total_accepted = frappe.db.sql("""
+			SELECT SUM(accepted_amount)
+			FROM `tabPayment Certificate`
+			WHERE sales_order = %s AND docstatus != 2
+		""", so.name)[0][0] or 0
+		total_accepted = flt(total_accepted)
+		
+		# A Sales Order is pending if it has an uncertified balance
+		if flt(so.base_grand_total) > total_accepted:
+			so["amount"] = so.base_grand_total # Mapping for UI
 			pending.append(so)
 			
 	return pending
@@ -656,3 +671,17 @@ def get_payment_certificate_summary(project: str) -> dict:
 		"total_variance": flt(summary.total_variance),
 		"total_received": flt(summary.total_received)
 	}
+
+
+@frappe.whitelist()
+def get_pending_proformas(project: str = None, bill_no: str = None) -> list:
+	"""Wrapper for legacy path to get pending proformas"""
+	from construction_management.construction_management.doctype.proforma_invoice.proforma_invoice import get_pending_proformas as original_get
+	return original_get(project, bill_no)
+
+
+@frappe.whitelist()
+def create_payment_certificate_from_proforma(proforma_invoice: str, posting_date: str = None, accepted_amount: float = None) -> str:
+	"""Wrapper for legacy path to create Payment Certificate from Proforma"""
+	from construction_management.api.boq_invoice import create_payment_certificate
+	return create_payment_certificate(proforma_invoice, posting_date, accepted_amount)

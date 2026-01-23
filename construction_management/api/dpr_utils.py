@@ -618,3 +618,139 @@ def get_warehouse_items_query(doctype, txt, searchfield, start, page_len, filter
 		"start": start,
 		"page_len": page_len
 	})
+
+
+@frappe.whitelist()
+def bulk_create_dpr(project: str, date: str, rows: str, submit: int = 0) -> dict:
+	"""
+	Bulk create Daily Progress Records for multiple BOQ items.
+	
+	Args:
+		project: Project name
+		date: Common date for all DPRs
+		rows: JSON string of rows [{bill_no, boq_item, site, labour_cost, material_cost, asset_cost, subcontract_cost, expense_cost, remarks}]
+		submit: Whether to submit created DPRs
+		
+	Returns:
+		dict with summary of created records
+	"""
+	import json
+	
+	records_data = json.loads(rows) if isinstance(rows, str) else rows
+	created_names = []
+	errors = []
+	
+	for idx, row in enumerate(records_data):
+		try:
+			# Skip empty rows
+			total_cost = (
+				flt(row.get("labour_cost")) + 
+				flt(row.get("material_cost")) + 
+				flt(row.get("asset_cost")) + 
+				flt(row.get("subcontract_cost")) + 
+				flt(row.get("expense_cost"))
+			)
+			
+			if total_cost <= 0 and not row.get("remarks"):
+				continue
+				
+			if not row.get("boq_item"):
+				errors.append(_("Row {0}: BOQ Item is required").format(idx + 1))
+				continue
+
+			dpr = frappe.new_doc("Daily Progress Record")
+			dpr.project = project
+			dpr.date = date
+			dpr.boq_item = row.get("boq_item")
+			dpr.bill_no = row.get("bill_no") or frappe.db.get_value("BOQ Item", dpr.boq_item, "parent_bill")
+			dpr.project_sites = row.get("site")
+			
+			dpr.labour_cost = flt(row.get("labour_cost"))
+			dpr.material_cost = flt(row.get("material_cost"))
+			dpr.asset_cost = flt(row.get("asset_cost"))
+			dpr.subcontract_cost = flt(row.get("subcontract_cost"))
+			dpr.expense_cost = flt(row.get("expense_cost"))
+			dpr.remarks = row.get("remarks")
+			
+			dpr.insert()
+			
+			if submit:
+				dpr.submit()
+				
+			created_names.append(dpr.name)
+			
+		except Exception as e:
+			frappe.log_error(f"Bulk DPR Creation Error Row {idx+1}: {str(e)}")
+			errors.append(_("Row {0}: {1}").format(idx + 1, str(e)))
+			
+	return {
+		"created_count": len(created_names),
+		"created_names": created_names,
+		"errors": errors
+	}
+
+
+@frappe.whitelist()
+def create_bulk_dpr_enhanced(project: str, date: str, data: str, submit: int = 0) -> dict:
+	"""
+	Enhanced bulk create Daily Progress Records with full child table support.
+	
+	Args:
+		project: Project name
+		date: Common date
+		data: JSON array of DPR objects with children
+		submit: Whether to submit
+	"""
+	import json
+	
+	records_data = json.loads(data) if isinstance(data, str) else data
+	created_names = []
+	errors = []
+	
+	for idx, dpr_data in enumerate(records_data):
+		try:
+			if not dpr_data.get("boq_item"):
+				errors.append(_("Row {0}: BOQ Item is required").format(idx + 1))
+				continue
+				
+			dpr = frappe.new_doc("Daily Progress Record")
+			dpr.project = project
+			dpr.date = date
+			dpr.boq_item = dpr_data.get("boq_item")
+			dpr.bill_no = dpr_data.get("bill_no") or frappe.db.get_value("BOQ Item", dpr.boq_item, "parent_bill")
+			dpr.project_sites = dpr_data.get("project_sites")
+			dpr.remarks = dpr_data.get("remarks")
+			dpr.subcontract_cost = flt(dpr_data.get("subcontract_cost"))
+			
+			# Map children
+			for emp in dpr_data.get("employees", []):
+				dpr.append("employees", emp)
+				
+			for asset in dpr_data.get("assets", []):
+				dpr.append("assets", asset)
+				
+			for mat in dpr_data.get("materials", []):
+				dpr.append("materials", mat)
+				
+			for exp in dpr_data.get("expenses", []):
+				dpr.append("expenses", exp)
+				
+			for ovh in dpr_data.get("overheads", []):
+				dpr.append("overheads", ovh)
+				
+			dpr.insert()
+			
+			if submit:
+				dpr.submit()
+				
+			created_names.append(dpr.name)
+			
+		except Exception as e:
+			frappe.log_error(f"Enhanced Bulk DPR Error Row {idx+1}: {str(e)}")
+			errors.append(_("Row {0}: {1}").format(idx + 1, str(e)))
+			
+	return {
+		"created_count": len(created_names),
+		"created_names": created_names,
+		"errors": errors
+	}
