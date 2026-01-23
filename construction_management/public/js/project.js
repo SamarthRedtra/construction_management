@@ -196,34 +196,48 @@ function get_dashboard_styles() {
 
 // Helper function to cleanup modal and restore dashboard visibility
 function cleanup_modal_and_restore_dashboard() {
-	// Remove any lingering modal backdrops
-	$('.modal-backdrop').remove();
-	// Restore body scroll
-	$('body').removeClass('modal-open').css('overflow', '');
+	// Delay slightly to let the current modal hide and Frappe update state
+	setTimeout(() => {
+		// If there are still modals open, don't do full cleanup yet
+		if ($('.modal.show, .modal:visible').length > 0) {
+			return;
+		}
 
-	// Restore dashboard HTML and visibility
-	const wrapper = $('.frappe-control[data-fieldname="construction_dashboard"]');
-	const controlValue = wrapper.find('.control-value');
+		// Remove any lingering modal backdrops
+		$('.modal-backdrop').remove();
+		// Restore body scroll
+		$('body').removeClass('modal-open').css('overflow', '');
+		// Force unfreeze
+		frappe.dom.unfreeze && frappe.dom.unfreeze();
 
-	// Restore HTML if it's empty but we have a backup
-	if (window._dashboard_html_backup && (!controlValue.html() || controlValue.html().trim() === '')) {
-		controlValue.html(window._dashboard_html_backup);
-	}
+		// Restore dashboard HTML and visibility
+		const wrapper = $('.frappe-control[data-fieldname="construction_dashboard"]');
+		if (!wrapper.length) return;
 
-	// Ensure dashboard stays visible
-	wrapper.css({
-		'display': 'block',
-		'visibility': 'visible',
-		'opacity': '1'
-	});
-	controlValue.css({
-		'display': 'block',
-		'visibility': 'visible'
-	});
-	$('.boq-dashboard-modern').css({
-		'display': 'block',
-		'visibility': 'visible'
-	});
+		// Restore HTML if it's empty or looks incorrect, and we have a backup
+		const currentHtml = wrapper.html() || '';
+		const needsRestore = !currentHtml.includes('boq-dashboard-modern') && !currentHtml.includes('boq-empty-state');
+		const projectName = cur_frm ? cur_frm.doc.name : null;
+		const backup = projectName ? (window._dashboard_html_backup?.[projectName]) : null;
+
+		if (backup && (needsRestore || currentHtml.trim() === '')) {
+			wrapper.html(backup);
+		}
+
+		// Ensure dashboard stays visible
+		wrapper.css({
+			'display': 'block',
+			'visibility': 'visible',
+			'opacity': '1',
+			'height': 'auto',
+			'min-height': '200px'
+		});
+
+		$('.boq-dashboard-modern').css({
+			'display': 'block',
+			'visibility': 'visible'
+		});
+	}, 150);
 }
 
 // Lightweight backdrop cleanup used by dialogs
@@ -236,20 +250,30 @@ function cleanup_modal_backdrop() {
 // Helper function to ensure dashboard stays visible when modal opens
 function ensure_dashboard_visible() {
 	// Store the current dashboard HTML if not already stored
-	const wrapper = $('.frappe-control[data-fieldname="construction_dashboard"] .control-value');
-	if (wrapper.length && wrapper.html() && wrapper.html().trim()) {
-		if (!window._dashboard_html_backup) {
-			window._dashboard_html_backup = wrapper.html();
+	const wrapper = $('.frappe-control[data-fieldname="construction_dashboard"]');
+	if (wrapper.length) {
+		const currentHtml = wrapper.html() || '';
+		if (currentHtml.includes('boq-dashboard-modern') || currentHtml.includes('boq-empty-state')) {
+			const projectName = cur_frm ? cur_frm.doc.name : null;
+			if (projectName) {
+				if (!window._dashboard_html_backup) window._dashboard_html_backup = {};
+				window._dashboard_html_backup[projectName] = currentHtml;
+			}
 		}
 	}
 
 	setTimeout(() => {
 		const wrapper = $('.frappe-control[data-fieldname="construction_dashboard"]');
-		const controlValue = wrapper.find('.control-value');
+		if (!wrapper.length) return;
 
-		// Restore HTML if it's empty but we have a backup
-		if (window._dashboard_html_backup && (!controlValue.html() || controlValue.html().trim() === '')) {
-			controlValue.html(window._dashboard_html_backup);
+		// Restore HTML if it's empty or looks incorrect, and we have a backup
+		const currentHtml = wrapper.html() || '';
+		const needsRestore = !currentHtml.includes('boq-dashboard-modern') && !currentHtml.includes('boq-empty-state');
+		const projectName = cur_frm ? cur_frm.doc.name : null;
+		const backup = projectName ? (window._dashboard_html_backup?.[projectName]) : null;
+
+		if (backup && (needsRestore || currentHtml.trim() === '')) {
+			wrapper.html(backup);
 		}
 
 		// Force visibility
@@ -258,21 +282,17 @@ function ensure_dashboard_visible() {
 			'visibility': 'visible',
 			'opacity': '1',
 			'position': 'relative',
-			'z-index': '1'
+			'z-index': '1',
+			'height': 'auto'
 		});
-		controlValue.css({
-			'display': 'block',
-			'visibility': 'visible',
-			'height': 'auto',
-			'overflow': 'visible'
-		});
+
 		$('.boq-dashboard-modern').css({
 			'display': 'block',
 			'visibility': 'visible',
 			'position': 'relative',
 			'z-index': '1'
 		});
-	}, 50);
+	}, 100);
 }
 
 function render_empty_state(wrapper, frm) {
@@ -357,7 +377,8 @@ function render_modern_dashboard(wrapper, frm, data) {
 	setTimeout(() => {
 		const dashboardHtml = wrapper.html();
 		if (dashboardHtml && dashboardHtml.trim()) {
-			window._dashboard_html_backup = dashboardHtml;
+			if (!window._dashboard_html_backup) window._dashboard_html_backup = {};
+			window._dashboard_html_backup[frm.doc.name] = dashboardHtml;
 		}
 	}, 100);
 }
@@ -448,6 +469,12 @@ function render_action_bar(container, frm) {
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
 				Add DPR
 			</button>
+			${can_create_dpr ? `
+			<button class="btn-modern btn-warning-modern" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);" onclick="create_dpr_bulk('${frm.doc.name}')">
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg>
+				Bulk DPR
+			</button>
+			` : ''}
 			` : ''}
 			<button class="btn-modern btn-info-modern" onclick="view_all_dprs('${frm.doc.name}')">
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
@@ -811,13 +838,14 @@ window.add_bill_number = function (project) {
 		title: 'Add Bill Number',
 		fields: [
 			{ fieldname: 'bill_no', label: 'Bill Number', fieldtype: 'Data', reqd: 1, description: 'e.g., Bill No. 1 - Substructure Works' },
+			{ fieldname: 'label', label: 'Label', fieldtype: 'Data' },
 			{ fieldname: 'description', label: 'Description', fieldtype: 'Small Text' }
 		],
 		primary_action_label: 'Create',
 		primary_action(values) {
 			frappe.call({
 				method: 'construction_management.api.boq_tree.create_bill_number',
-				args: { project: project, bill_no: values.bill_no, description: values.description },
+				args: { project: project, bill_no: values.bill_no, label: values.label, description: values.description },
 				callback: function (r) {
 					if (r.message) { d.hide(); frappe.show_alert({ message: __('Bill Number created'), indicator: 'green' }); cur_frm.reload_doc(); }
 				}
@@ -837,6 +865,7 @@ window.add_boq_item = function (bill_name, project) {
 		fields: [
 			// Row 1: Item Code, Unit, Total Quantity
 			{ fieldname: 'item_code', label: 'Item Code', fieldtype: 'Data' },
+			{ fieldname: 'label', label: 'Label', fieldtype: 'Data' },
 			{ fieldtype: 'Column Break' },
 			{ fieldname: 'unit', label: 'Unit', fieldtype: 'Link', options: 'UOM', reqd: 1 },
 			{ fieldtype: 'Column Break' },
@@ -857,41 +886,42 @@ window.add_boq_item = function (bill_name, project) {
 			// Estimated Costs Section
 			{ fieldtype: 'Section Break', label: 'Estimated Costs', collapsible: 1 },
 			{
-				fieldname: 'cost_entry_mode', label: 'Cost Entry Mode', fieldtype: 'Select',
-				options: 'Total Cost Only\nBreakdown', default: 'Total Cost Only',
-				description: 'Choose how to enter estimated costs'
+				fieldname: 'estimated_material_cost_per_unit', label: 'Material Cost / Unit', fieldtype: 'Currency'
 			},
 			{
-				fieldname: 'total_estimated_cost', label: 'Total Estimated Cost', fieldtype: 'Currency',
-				depends_on: 'eval:doc.cost_entry_mode=="Total Cost Only"',
-				description: 'Enter total estimated cost'
-			},
-			{ fieldtype: 'Column Break' },
-			{
-				fieldname: 'estimated_material_cost', label: 'Material Cost', fieldtype: 'Currency',
-				depends_on: 'eval:doc.cost_entry_mode=="Breakdown"',
-				description: 'Auto-calculated from materials if added'
+				fieldname: 'estimated_labour_cost_per_unit', label: 'Labour Cost / Unit', fieldtype: 'Currency'
 			},
 			{
-				fieldname: 'estimated_labour_cost', label: 'Labour Cost', fieldtype: 'Currency',
-				depends_on: 'eval:doc.cost_entry_mode=="Breakdown"'
+				fieldname: 'estimated_subcontract_cost_per_unit', label: 'Subcontract Cost / Unit', fieldtype: 'Currency'
 			},
 			{ fieldtype: 'Column Break' },
 			{
-				fieldname: 'estimated_subcontract_cost', label: 'Subcontract Cost', fieldtype: 'Currency',
-				depends_on: 'eval:doc.cost_entry_mode=="Breakdown"'
+				fieldname: 'estimated_material_cost', label: 'Material Cost (Total)', fieldtype: 'Currency', read_only: 1
 			},
 			{
-				fieldname: 'estimated_asset_cost', label: 'Asset Cost', fieldtype: 'Currency',
-				depends_on: 'eval:doc.cost_entry_mode=="Breakdown"'
+				fieldname: 'estimated_labour_cost', label: 'Labour Cost (Total)', fieldtype: 'Currency', read_only: 1
 			},
 			{
-				fieldname: 'estimated_other_cost', label: 'Other Costs', fieldtype: 'Currency',
-				depends_on: 'eval:doc.cost_entry_mode=="Breakdown"'
+				fieldname: 'estimated_subcontract_cost', label: 'Subcontract Cost (Total)', fieldtype: 'Currency', read_only: 1
+			},
+			{ fieldtype: 'Section Break' },
+			{
+				fieldname: 'estimated_asset_cost_per_unit', label: 'Asset Cost / Unit', fieldtype: 'Currency'
 			},
 			{
-				fieldname: 'calculated_total_cost', label: 'Total (Calculated)', fieldtype: 'Currency',
-				depends_on: 'eval:doc.cost_entry_mode=="Breakdown"', read_only: 1
+				fieldname: 'estimated_other_cost_per_unit', label: 'Other Cost / Unit', fieldtype: 'Currency'
+			},
+			{ fieldtype: 'Column Break' },
+			{
+				fieldname: 'estimated_asset_cost', label: 'Asset Cost (Total)', fieldtype: 'Currency', read_only: 1
+			},
+			{
+				fieldname: 'estimated_other_cost', label: 'Other Cost (Total)', fieldtype: 'Currency', read_only: 1
+			},
+			{ fieldtype: 'Section Break' },
+			{
+				fieldname: 'total_estimated_cost', label: 'Grand Total Estimated Cost', fieldtype: 'Currency',
+				read_only: 1, description: 'Sum of all calculated totals'
 			},
 
 			// Task Options Section
@@ -907,25 +937,18 @@ window.add_boq_item = function (bill_name, project) {
 		],
 		primary_action_label: 'Create',
 		primary_action(values) {
-			// Calculate costs based on entry mode
-			let material_cost = 0, labour_cost = 0, subcontract_cost = 0, asset_cost = 0, other_cost = 0;
-
-			if (values.cost_entry_mode === 'Breakdown') {
-				material_cost = values.estimated_material_cost || 0;
-				labour_cost = values.estimated_labour_cost || 0;
-				subcontract_cost = values.estimated_subcontract_cost || 0;
-				asset_cost = values.estimated_asset_cost || 0;
-				other_cost = values.estimated_other_cost || 0;
-			} else {
-				// Total Cost Only mode - put all in other_cost for simplicity
-				other_cost = values.total_estimated_cost || 0;
-			}
+			let material_cost = values.estimated_material_cost || 0;
+			let labour_cost = values.estimated_labour_cost || 0;
+			let subcontract_cost = values.estimated_subcontract_cost || 0;
+			let asset_cost = values.estimated_asset_cost || 0;
+			let other_cost = values.estimated_other_cost || 0;
 
 			frappe.call({
 				method: 'construction_management.api.boq_tasks.create_boq_item_with_task',
 				args: {
 					parent_bill: bill_name,
 					item_code: values.item_code,
+					label: values.label,
 					description: values.description,
 					unit: values.unit,
 					total_qty: values.total_qty,
@@ -938,7 +961,12 @@ window.add_boq_item = function (bill_name, project) {
 					estimated_subcontract_cost: subcontract_cost,
 					estimated_asset_cost: asset_cost,
 					estimated_other_cost: other_cost,
-					total_estimated_cost: values.cost_entry_mode === 'Total Cost Only' ? (values.total_estimated_cost || 0) : 0,
+					total_estimated_cost: values.total_estimated_cost || 0,
+					estimated_material_cost_per_unit: values.estimated_material_cost_per_unit || 0,
+					estimated_labour_cost_per_unit: values.estimated_labour_cost_per_unit || 0,
+					estimated_subcontract_cost_per_unit: values.estimated_subcontract_cost_per_unit || 0,
+					estimated_asset_cost_per_unit: values.estimated_asset_cost_per_unit || 0,
+					estimated_other_cost_per_unit: values.estimated_other_cost_per_unit || 0,
 					materials: JSON.stringify(materialsData)
 				},
 				callback: function (r) {
@@ -1120,24 +1148,33 @@ window.add_boq_item = function (bill_name, project) {
 		d.set_value('total_amount', qty * rate);
 	});
 
-	// Auto-calculate total when breakdown costs change
-	const updateCalculatedTotal = function () {
-		if (d.get_value('cost_entry_mode') === 'Breakdown') {
-			const total = (d.get_value('estimated_material_cost') || 0) +
-				(d.get_value('estimated_labour_cost') || 0) +
-				(d.get_value('estimated_subcontract_cost') || 0) +
-				(d.get_value('estimated_asset_cost') || 0) +
-				(d.get_value('estimated_other_cost') || 0);
-			d.set_value('calculated_total_cost', total);
-		}
+	// Auto-calculate total estimated cost from itemized unit costs
+	const updateUnitBasedTotal = function () {
+		let qty = d.get_value('total_qty') || 0;
+
+		d.set_value('estimated_material_cost', (d.get_value('estimated_material_cost_per_unit') || 0) * qty);
+		d.set_value('estimated_labour_cost', (d.get_value('estimated_labour_cost_per_unit') || 0) * qty);
+		d.set_value('estimated_subcontract_cost', (d.get_value('estimated_subcontract_cost_per_unit') || 0) * qty);
+		d.set_value('estimated_asset_cost', (d.get_value('estimated_asset_cost_per_unit') || 0) * qty);
+		d.set_value('estimated_other_cost', (d.get_value('estimated_other_cost_per_unit') || 0) * qty);
+
+		let grandTotal = (d.get_value('estimated_material_cost') || 0) +
+			(d.get_value('estimated_labour_cost') || 0) +
+			(d.get_value('estimated_subcontract_cost') || 0) +
+			(d.get_value('estimated_asset_cost') || 0) +
+			(d.get_value('estimated_other_cost') || 0);
+
+		d.set_value('total_estimated_cost', grandTotal);
 	};
 
-	['estimated_material_cost', 'estimated_labour_cost', 'estimated_subcontract_cost',
-		'estimated_asset_cost', 'estimated_other_cost'].forEach(function (fieldname) {
+	['estimated_material_cost_per_unit', 'estimated_labour_cost_per_unit',
+		'estimated_subcontract_cost_per_unit', 'estimated_asset_cost_per_unit',
+		'estimated_other_cost_per_unit', 'total_qty'].forEach(function (fieldname) {
 			if (d.fields_dict[fieldname] && d.fields_dict[fieldname].$input) {
-				d.fields_dict[fieldname].$input.on('change', updateCalculatedTotal);
+				d.fields_dict[fieldname].$input.on('change', updateUnitBasedTotal);
 			}
 		});
+
 
 	d.show();
 
@@ -1298,7 +1335,7 @@ function show_invoice_dialog(boq_item, data) {
 			<td class="text-center">${idx + 1}</td>
 			<td>${pc.posting_date}</td>
 			<td><a href="/app/payment-certificate/${pc.name}" class="invoice-link">${pc.name}</a></td>
-			<td>${pc.proforma_invoice ? `<a href="/app/sales-invoice/${pc.proforma_invoice}">${pc.proforma_invoice}</a>` : '-'}</td>
+			<td>${pc.sales_order ? `<a href="/app/sales-order/${pc.sales_order}">${pc.sales_order}</a>` : '-'}</td>
 			<td class="text-right">${format_currency(pc.proforma_amount)}</td>
 			<td class="text-right col-accum font-bold">${format_currency(cumulativeProforma)}</td>
 			<td class="text-right font-bold">${format_currency(pc.accepted_amount)}</td>
@@ -1319,17 +1356,17 @@ function show_invoice_dialog(boq_item, data) {
 		<tr>
 			<td class="text-center">${idx + 1}</td>
 			<td>${p.posting_date}</td>
-			<td><a href="/app/sales-invoice/${p.name}" class="invoice-link">${p.name}</a></td>
-			<td class="text-right">${format_currency(p.grand_total)}</td>
+			<td><a href="/app/sales-order/${p.name}" class="invoice-link">${p.name}</a></td>
+			<td class="text-right">${format_currency(p.amount)}</td>
 			<td class="text-center ${ageClass}">${p.age_days} days</td>
 			<td>
-				<button class="btn btn-xs btn-primary" onclick="create_pc_from_history('${p.name}', ${p.grand_total}, '${boq_item}')">
+				<button class="btn btn-xs btn-primary" onclick="create_pc_from_history('${p.name}', ${p.amount}, '${boq_item}')">
 					Create PC
 				</button>
 			</td>
 		</tr>
 		`;
-	}).join('') : '<tr><td colspan="6" class="text-center text-muted">No pending proformas</td></tr>';
+	}).join('') : '<tr><td colspan="6" class="text-center text-muted">No pending orders</td></tr>';
 
 	// Aggressive cleanup of any stale backdrops before opening
 	cleanup_modal_backdrop();
@@ -1357,13 +1394,13 @@ function show_invoice_dialog(boq_item, data) {
 		
 		<!-- Payment Certificate Summary -->
 		<div class="pc-summary-section">
-			<h4 style="margin: 20px 0 10px; font-size: 14px; font-weight: 600;">📋 Payment Certificate Summary</h4>
+			<h4 style="margin: 20px 0 10px; font-size: 14px; font-weight: 600;">📋 Item Certification Summary</h4>
 			<div class="pc-summary-grid">
-				<div class="pc-stat proforma"><span class="pc-stat-label">Total Proforma</span><span class="pc-stat-value">${format_currency(pcSummary.total_proforma || 0)}</span></div>
-				<div class="pc-stat accepted"><span class="pc-stat-label">Total Accepted</span><span class="pc-stat-value">${format_currency(pcSummary.total_accepted || 0)}</span></div>
+				<div class="pc-stat proforma"><span class="pc-stat-label">Total Ordered</span><span class="pc-stat-value">${format_currency(pcSummary.total_proforma || 0)}</span></div>
+				<div class="pc-stat accepted"><span class="pc-stat-label">Total Certified</span><span class="pc-stat-value">${format_currency(pcSummary.total_accepted || 0)}</span></div>
 				<div class="pc-stat variance"><span class="pc-stat-label">Total Variance</span><span class="pc-stat-value">${format_currency(pcSummary.total_variance || 0)}</span></div>
 				<div class="pc-stat received"><span class="pc-stat-label">Total Received</span><span class="pc-stat-value">${format_currency(pcSummary.total_received || 0)}</span></div>
-				<div class="pc-stat pending-proforma"><span class="pc-stat-label">Pending Proformas</span><span class="pc-stat-value">${pcSummary.pending_proforma_count || 0} (${format_currency(pcSummary.pending_proforma_amount || 0)})</span></div>
+				<div class="pc-stat pending-proforma"><span class="pc-stat-label">Pending Orders</span><span class="pc-stat-value">${pcSummary.pending_proforma_count || 0} (${format_currency(pcSummary.pending_proforma_amount || 0)})</span></div>
 			</div>
 		</div>
 		
@@ -1372,7 +1409,7 @@ function show_invoice_dialog(boq_item, data) {
 			<div class="tab-buttons">
 				<button class="tab-btn active" data-tab="ledger">📊 Progress Ledger</button>
 				<button class="tab-btn" data-tab="certificates">📜 Payment Certificates (${paymentCertificates.length})</button>
-				<button class="tab-btn ${pendingProformas.length > 0 ? 'has-pending' : ''}" data-tab="proformas">⏳ Pending Proformas (${pendingProformas.length})</button>
+				<button class="tab-btn ${pendingProformas.length > 0 ? 'has-pending' : ''}" data-tab="proformas">⏳ Pending Orders (${pendingProformas.length})</button>
 			</div>
 			
 			<div class="tab-content active" data-content="ledger">
@@ -1412,8 +1449,8 @@ function show_invoice_dialog(boq_item, data) {
 								<th rowspan="2" class="text-center">#</th>
 								<th rowspan="2">Date</th>
 								<th rowspan="2">PC Number</th>
-								<th rowspan="2">Proforma Invoice</th>
-								<th colspan="2" class="text-center col-group-proforma">Proforma Amount</th>
+								<th rowspan="2">Sales Order</th>
+								<th colspan="2" class="text-center col-group-proforma">Ordered Amount</th>
 								<th colspan="2" class="text-center col-group-tax">Tax Invoice Amount</th>
 								<th rowspan="2" class="text-right">Variance</th>
 								<th rowspan="2">Tax Invoice</th>
@@ -1422,7 +1459,7 @@ function show_invoice_dialog(boq_item, data) {
 								<th rowspan="2" class="text-center">Actions</th>
 							</tr>
 							<tr>
-								<th class="text-right col-curr">Current</th>
+								<th class="text-right col-curr">Item Amt</th>
 								<th class="text-right col-accum">Cumulative</th>
 								<th class="text-right col-curr">Current</th>
 								<th class="text-right col-accum">Cumulative</th>
@@ -1440,7 +1477,7 @@ function show_invoice_dialog(boq_item, data) {
 							<tr>
 								<th class="text-center">#</th>
 								<th>Date</th>
-								<th>Proforma Invoice</th>
+								<th>Sales Order</th>
 								<th class="text-right">Amount</th>
 								<th class="text-center">Age</th>
 								<th>Action</th>
@@ -1541,15 +1578,15 @@ function show_invoice_dialog(boq_item, data) {
 }
 
 // Helper function to create payment certificate from invoice history dialog
-window.create_pc_from_history = function (proforma_invoice, proforma_amount, boq_item) {
+window.create_pc_from_history = function (sales_order, order_amount, boq_item) {
 	const d = new frappe.ui.Dialog({
 		title: __('Create Payment Certificate'),
 		fields: [
-			{ fieldname: 'proforma_invoice', label: 'Proforma Invoice', fieldtype: 'Link', options: 'Sales Invoice', read_only: 1, default: proforma_invoice },
-			{ fieldname: 'proforma_amount', label: 'Proforma Amount', fieldtype: 'Currency', read_only: 1, default: proforma_amount },
+			{ fieldname: 'sales_order', label: 'Sales Order', fieldtype: 'Link', options: 'Sales Order', read_only: 1, default: sales_order },
+			{ fieldname: 'order_amount', label: 'Order Amount', fieldtype: 'Currency', read_only: 1, default: order_amount },
 			{ fieldtype: 'Column Break' },
 			{
-				fieldname: 'accepted_amount', label: 'Accepted Amount', fieldtype: 'Currency', reqd: 1, default: proforma_amount,
+				fieldname: 'accepted_amount', label: 'Accepted Amount', fieldtype: 'Currency', reqd: 1, default: order_amount,
 				description: 'Amount approved by customer'
 			},
 			{ fieldtype: 'Section Break' },
@@ -1558,9 +1595,9 @@ window.create_pc_from_history = function (proforma_invoice, proforma_amount, boq
 		primary_action_label: __('Create'),
 		primary_action: function (values) {
 			frappe.call({
-				method: 'construction_management.construction_management.doctype.payment_certificate.payment_certificate.create_payment_certificate_from_proforma',
+				method: 'construction_management.construction_management.doctype.payment_certificate.payment_certificate.create_payment_certificate_from_sales_order',
 				args: {
-					proforma_invoice: proforma_invoice,
+					sales_order: sales_order,
 					accepted_amount: values.accepted_amount,
 					remarks: values.remarks
 				},
@@ -3447,6 +3484,14 @@ function get_modern_styles() {
 
 
 // Quick DPR Creation with Modern UI - Multi-select for Employees/Assets
+// Store selected items for DPR
+let dpr_selected_employees = [];
+let dpr_selected_assets = [];
+let dpr_selected_materials = [];
+let dpr_selected_expenses = [];
+let dpr_selected_overheads = [];
+let dpr_project_context = null;
+
 window.create_dpr_quick = function (project) {
 	// First fetch BOQ items for the project
 	frappe.call({
@@ -3462,361 +3507,9 @@ window.create_dpr_quick = function (project) {
 	});
 };
 
+
+
 function show_dpr_dialog(project, boq_items) {
-	// Build BOQ Item options
-	const boq_options = boq_items.map(item => ({
-		value: item.name,
-		label: `${item.bill_number} - ${item.description.substring(0, 50)}${item.description.length > 50 ? '...' : ''}`
-	}));
-
-	const cache_key = `cm_dpr_quick_cache_${project}`;
-
-	const d = new frappe.ui.Dialog({
-		title: __('Quick Daily Progress Record'),
-		size: 'large',
-		minimizable: true,
-		fields: [
-			{
-				fieldtype: 'HTML',
-				fieldname: 'dpr_header',
-				options: `
-					<div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
-						<h4 style="margin: 0; font-size: 16px;">📋 Record Daily Progress</h4>
-						<p style="margin: 8px 0 0 0; font-size: 13px; opacity: 0.9;">Enter costs for today's work. Select a BOQ Item and add costs below.</p>
-					</div>
-				`
-			},
-			{
-				fieldname: 'date',
-				label: __('Date'),
-				fieldtype: 'Date',
-				default: frappe.datetime.get_today(),
-				reqd: 1
-			},
-			{
-				fieldname: 'bill_no',
-				label: __('Bill No'),
-				fieldtype: 'Link',
-				options: 'BOQ Bill',
-				reqd: 1,
-				get_query: () => ({ filters: { project: project } }),
-				change: function () {
-					// When bill is chosen, adjust BOQ item query and set project if available
-					const bill = d.get_value('bill_no');
-					if (bill) {
-						d.set_query('boq_item', () => ({ filters: { parent_bill: bill } }));
-						// Auto-populate project from bill if not already
-						if (!project) {
-							frappe.db.get_value('BOQ Bill', bill, 'project', (r) => {
-								if (r && r.project) project = r.project;
-							});
-						}
-					}
-				}
-			},
-			{
-				fieldname: 'boq_item',
-				label: __('BOQ Item'),
-				fieldtype: 'Link',
-				options: 'BOQ Item',
-				reqd: 1,
-				get_query: function () {
-					const bill = d.get_value('bill_no');
-					if (bill) {
-						return { filters: { parent_bill: bill } };
-					}
-					return { filters: { project: project } };
-				},
-				change: function () {
-					// Auto set bill_no from BOQ item if missing
-					if (!d.get_value('bill_no')) {
-						const item = d.get_value('boq_item');
-						if (item) {
-							frappe.db.get_value('BOQ Item', item, 'parent_bill', (r) => {
-								if (r && r.parent_bill) d.set_value('bill_no', r.parent_bill);
-							});
-						}
-					}
-				}
-			},
-			{
-				fieldname: 'project_sites',
-				label: __('Project Site'),
-				fieldtype: 'Link',
-				options: 'Project Sites',
-				reqd: 0, // Will be set based on BOQ Settings
-				get_query: () => {
-					return {
-						filters: {
-							project: project
-						}
-					};
-				}
-			},
-			{
-				fieldtype: 'Section Break',
-				label: __('Cost Entry'),
-				fieldname: 'cost_section'
-			},
-			{
-				fieldtype: 'HTML',
-				fieldname: 'cost_tabs',
-				options: `
-					<div class="dpr-cost-tabs">
-						<button type="button" class="dpr-tab active" data-tab="labour">👷 Labour</button>
-						<button type="button" class="dpr-tab" data-tab="material">📦 Material</button>
-						<button type="button" class="dpr-tab" data-tab="asset">🚜 Asset</button>
-						<button type="button" class="dpr-tab" data-tab="subcontract">🏗️ Subcontract</button>
-						<button type="button" class="dpr-tab" data-tab="expense">💰 Expense</button>
-					</div>
-					<style>
-						.dpr-cost-tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
-						.dpr-tab { padding: 10px 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: white; cursor: pointer; font-size: 13px; transition: all 0.2s; }
-						.dpr-tab:hover { background: #f8fafc; }
-						.dpr-tab.active { background: linear-gradient(135deg, #5e64ff 0%, #7c3aed 100%); color: white; border-color: transparent; }
-						.dpr-cost-panel { display: none; padding: 16px; background: #f8fafc; border-radius: 8px; }
-						.dpr-cost-panel.active { display: block; }
-						.cost-input-row { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
-						.cost-input-row label { min-width: 100px; font-size: 13px; color: #4a5568; }
-						.cost-input-row input, .cost-input-row select { flex: 1; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
-						.cost-input-row input:focus, .cost-input-row select:focus { outline: none; border-color: #5e64ff; box-shadow: 0 0 0 3px rgba(94, 100, 255, 0.1); }
-						.total-display { background: white; padding: 12px 16px; border-radius: 8px; margin-top: 16px; display: flex; justify-content: space-between; align-items: center; }
-						.total-label { font-size: 14px; color: #6b7280; }
-						.total-value { font-size: 20px; font-weight: 700; color: #1f2937; }
-					</style>
-				`
-			},
-			{
-				fieldtype: 'HTML',
-				fieldname: 'cost_panels',
-				options: `
-					<div id="labour-panel" class="dpr-cost-panel active">
-						<div class="cost-input-row">
-							<label>Labour Cost</label>
-							<input type="number" id="dpr-labour-cost" placeholder="Enter amount" value="0" step="0.01">
-						</div>
-						<p style="font-size: 12px; color: #6b7280; margin: 0;">💡 For detailed employee-wise entry, use the full DPR form</p>
-					</div>
-					<div id="material-panel" class="dpr-cost-panel">
-						<div class="cost-input-row">
-							<label>Material Cost</label>
-							<input type="number" id="dpr-material-cost" placeholder="Enter amount" value="0" step="0.01">
-						</div>
-						<p style="font-size: 12px; color: #6b7280; margin: 0;">💡 For stock entry with items, use the full DPR form</p>
-					</div>
-					<div id="asset-panel" class="dpr-cost-panel">
-						<div class="cost-input-row">
-							<label>Asset Cost</label>
-							<input type="number" id="dpr-asset-cost" placeholder="Enter amount" value="0" step="0.01">
-						</div>
-						<p style="font-size: 12px; color: #6b7280; margin: 0;">💡 For asset-wise entry with rates, use the full DPR form</p>
-					</div>
-					<div id="subcontract-panel" class="dpr-cost-panel">
-						<div class="cost-input-row">
-							<label>Subcontract Cost</label>
-							<input type="number" id="dpr-subcontract-cost" placeholder="Enter amount" value="0" step="0.01">
-						</div>
-					</div>
-					<div id="expense-panel" class="dpr-cost-panel">
-						<div class="cost-input-row">
-							<label>Other Expense</label>
-							<input type="number" id="dpr-expense-cost" placeholder="Enter amount" value="0" step="0.01">
-						</div>
-						<p style="font-size: 12px; color: #6b7280; margin: 0;">💡 For expense-wise entry with accounts, use the full DPR form</p>
-					</div>
-					<div class="total-display">
-						<span class="total-label">Total Cost</span>
-						<span class="total-value" id="dpr-total-cost">0.00</span>
-					</div>
-				`
-			},
-			{
-				fieldtype: 'Section Break',
-				fieldname: 'remarks_section'
-			},
-			{
-				fieldname: 'remarks',
-				label: __('Remarks'),
-				fieldtype: 'Small Text'
-			}
-		],
-		primary_action_label: __('Create DPR'),
-		primary_action: function () {
-			const values = d.get_values();
-			if (!values) return;
-
-			const labour_cost = parseFloat($('#dpr-labour-cost').val()) || 0;
-			const material_cost = parseFloat($('#dpr-material-cost').val()) || 0;
-			const asset_cost = parseFloat($('#dpr-asset-cost').val()) || 0;
-			const subcontract_cost = parseFloat($('#dpr-subcontract-cost').val()) || 0;
-			const expense_cost = parseFloat($('#dpr-expense-cost').val()) || 0;
-			const total_cost = labour_cost + material_cost + asset_cost + subcontract_cost + expense_cost;
-
-			if (total_cost <= 0) {
-				frappe.show_alert({ message: __('Please enter at least one cost value'), indicator: 'orange' });
-				return;
-			}
-
-			frappe.call({
-				method: 'frappe.client.insert',
-				args: {
-					doc: {
-						doctype: 'Daily Progress Record',
-						project: project,
-						boq_item: values.boq_item,
-						date: values.date,
-						labour_cost: labour_cost,
-						material_cost: material_cost,
-						asset_cost: asset_cost,
-						subcontract_cost: subcontract_cost,
-						expense_cost: expense_cost,
-						remarks: values.remarks
-					}
-				},
-				callback: function (r) {
-					if (r.message) {
-						d.hide();
-						frappe.show_alert({ message: __('DPR {0} created', [r.message.name]), indicator: 'green' });
-
-						// Ask if user wants to submit
-						frappe.confirm(
-							__('DPR created successfully. Do you want to submit it now?'),
-							function () {
-								frappe.call({
-									method: 'frappe.client.submit',
-									args: { doc: r.message },
-									callback: function () {
-										frappe.show_alert({ message: __('DPR submitted'), indicator: 'green' });
-										cur_frm.reload_doc();
-									}
-								});
-							},
-							function () {
-								cur_frm.reload_doc();
-							}
-						);
-					}
-				}
-			});
-		},
-		secondary_action_label: __('Open Full Form'),
-		secondary_action: function () {
-			d.hide();
-			frappe.new_doc('Daily Progress Record', {
-				project: project
-			});
-		}
-	});
-
-	// Cache helpers
-	const load_cache = () => {
-		try {
-			const cached = JSON.parse(localStorage.getItem(cache_key) || '{}');
-			if (!Object.keys(cached).length) return;
-			if (cached.date) d.set_value('date', cached.date);
-			if (cached.bill_no) d.set_value('bill_no', cached.bill_no);
-			if (cached.boq_item) d.set_value('boq_item', cached.boq_item);
-			if (cached.project_sites) d.set_value('project_sites', cached.project_sites);
-			if (cached.remarks) d.set_value('remarks', cached.remarks);
-			$('#dpr-labour-cost').val(cached.labour_cost || 0);
-			$('#dpr-material-cost').val(cached.material_cost || 0);
-			$('#dpr-asset-cost').val(cached.asset_cost || 0);
-			$('#dpr-subcontract-cost').val(cached.subcontract_cost || 0);
-			$('#dpr-expense-cost').val(cached.expense_cost || 0);
-			$('#dpr-total-cost').text(format_currency(cached.total_cost || 0));
-		} catch (e) {
-			// ignore cache errors
-		}
-	};
-
-	const save_cache = () => {
-		try {
-			const values = d.get_values() || {};
-			const cached = {
-				date: values.date,
-				bill_no: values.bill_no,
-				boq_item: values.boq_item,
-				project_sites: values.project_sites,
-				remarks: values.remarks,
-				labour_cost: parseFloat($('#dpr-labour-cost').val()) || 0,
-				material_cost: parseFloat($('#dpr-material-cost').val()) || 0,
-				asset_cost: parseFloat($('#dpr-asset-cost').val()) || 0,
-				subcontract_cost: parseFloat($('#dpr-subcontract-cost').val()) || 0,
-				expense_cost: parseFloat($('#dpr-expense-cost').val()) || 0
-			};
-			cached.total_cost = cached.labour_cost + cached.material_cost + cached.asset_cost + cached.subcontract_cost + cached.expense_cost;
-			localStorage.setItem(cache_key, JSON.stringify(cached));
-		} catch (e) {
-			// ignore cache errors
-		}
-	};
-
-	// Fix: Ensure proper cleanup when dialog is closed
-	d.onhide = function () {
-		cleanup_modal_and_restore_dashboard();
-		save_cache();
-	};
-	d.show();
-	load_cache();
-
-	// Attach tab switching logic
-	setTimeout(() => {
-		d.$wrapper.find('.dpr-tab').on('click', function () {
-			const tab = $(this).data('tab');
-			d.$wrapper.find('.dpr-tab').removeClass('active');
-			$(this).addClass('active');
-			d.$wrapper.find('.dpr-cost-panel').removeClass('active');
-			d.$wrapper.find(`#${tab}-panel`).addClass('active');
-		});
-
-		// Attach cost calculation
-		d.$wrapper.find('input[type="number"]').on('input', function () {
-			const labour = parseFloat($('#dpr-labour-cost').val()) || 0;
-			const material = parseFloat($('#dpr-material-cost').val()) || 0;
-			const asset = parseFloat($('#dpr-asset-cost').val()) || 0;
-			const subcontract = parseFloat($('#dpr-subcontract-cost').val()) || 0;
-			const expense = parseFloat($('#dpr-expense-cost').val()) || 0;
-			const total = labour + material + asset + subcontract + expense;
-			$('#dpr-total-cost').text(format_currency(total));
-			save_cache();
-		});
-
-		// Trigger project site search on focus (no need to type space)
-		const site_ctrl = d.fields_dict.project_sites;
-		if (site_ctrl && site_ctrl.$input) {
-			const trigger_sites = () => {
-				const awesomplete = site_ctrl.$input.data('awesomplete');
-				if (awesomplete) {
-					awesomplete.minChars = 0;
-					awesomplete.evaluate();
-				} else {
-					site_ctrl.$input.trigger('input');
-				}
-			};
-			site_ctrl.$input.on('focus', trigger_sites);
-			setTimeout(trigger_sites, 150);
-		}
-
-		// Persist cache on field changes
-		d.$wrapper.on('change input', 'input, textarea, select', frappe.utils.debounce(save_cache, 300));
-	}, 100);
-}
-
-
-// ============================================
-// Clean DPR Dialog using Frappe Native Fields
-// ============================================
-
-// Store selected items for DPR
-let dpr_selected_employees = [];
-let dpr_selected_assets = [];
-let dpr_selected_materials = [];
-let dpr_selected_expenses = [];
-let dpr_selected_overheads = [];
-let dpr_project_context = null;
-
-// Override the show_dpr_dialog_enhanced function
-window.show_dpr_dialog_enhanced = function (project) {
 	// 1. Check if we can reuse existing dialog
 	if (window.cur_dpr_dialog && dpr_selected_employees && dpr_project_context === project) {
 		const d = window.cur_dpr_dialog;
@@ -4005,7 +3698,7 @@ window.show_dpr_dialog_enhanced = function (project) {
 		render_expenses_list();
 		render_overheads_list();
 	}, 100);
-};
+}
 
 // Helper functions for DPR dialog
 
@@ -4290,25 +3983,6 @@ function update_dpr_totals(d) {
 	$('#dpr-grand-total').text(fmt(grandTotal));
 }
 
-function set_project_site_requirement(d, project) {
-	if (!d || !project || !d.get_field('project_sites')) {
-		return;
-	}
-
-	frappe.db.get_value('Project', project, 'company', (projectRes) => {
-		const company = projectRes && projectRes.company;
-		if (!company) {
-			return;
-		}
-
-		frappe.db.get_value('BOQ Settings', { company: company }, 'mandatory_site_location', (settingsRes) => {
-			const mandatory = !!(settingsRes && settingsRes.mandatory_site_location);
-			d.set_df_property('project_sites', 'reqd', mandatory);
-			d.refresh_field('project_sites');
-		});
-	});
-}
-
 function create_dpr_from_dialog(d, project) {
 	const values = d.get_values();
 	if (!values) return;
@@ -4352,30 +4026,19 @@ function create_dpr_from_dialog(d, project) {
 				dpr_selected_expenses = [];
 				dpr_selected_overheads = [];
 				frappe.show_alert({ message: __('DPR {0} created successfully!', [r.message.name]), indicator: 'green' });
-				frappe.confirm(__('DPR created. Submit now to create Stock Entries for materials?'),
+				frappe.confirm(__('DPR created. Submit now to create Stock Entries?'),
 					function () {
-						// Fetch the full document first, then submit
 						frappe.call({
-							method: 'frappe.client.get',
+							method: 'frappe.client.submit',
 							args: {
-								doctype: 'Daily Progress Record',
-								name: r.message.name
-							},
-							callback: function (getRes) {
-								if (getRes.message) {
-									frappe.call({
-										method: 'frappe.client.submit',
-										args: { doc: getRes.message },
-										callback: function () {
-											frappe.show_alert({ message: __('DPR submitted. Stock entries created.'), indicator: 'green' });
-											cur_frm.reload_doc();
-										},
-										error: function (err) {
-											frappe.msgprint(__('Error submitting DPR: ') + (err.message || err));
-											cur_frm.reload_doc();
-										}
-									});
+								doc: {
+									doctype: 'Daily Progress Record',
+									name: r.message.name
 								}
+							},
+							callback: function () {
+								frappe.show_alert({ message: __('DPR submitted.'), indicator: 'green' });
+								cur_frm.reload_doc();
 							}
 						});
 					},
@@ -4386,10 +4049,688 @@ function create_dpr_from_dialog(d, project) {
 	});
 }
 
-// Override the original create_dpr_quick to use clean version
-window.create_dpr_quick = function (project) {
-	window.show_dpr_dialog_enhanced(project);
+
+// ============================================
+// Enhanced Bulk DPR Management
+// ============================================
+
+class BulkDPRManager {
+	constructor(project, dialog) {
+		this.project = project;
+		this.dialog = dialog;
+
+		// Global persistence: retain data across dialog closures
+		frappe.ui.bulk_dpr_storage = frappe.ui.bulk_dpr_storage || {};
+		if (!frappe.ui.bulk_dpr_storage[project]) {
+			frappe.ui.bulk_dpr_storage[project] = [];
+		}
+		this.items = frappe.ui.bulk_dpr_storage[project];
+
+		this.active_index = this.items.length > 0 ? 0 : -1;
+		this.setup_styles();
+	}
+
+	setup_styles() {
+		if ($('#dpr-bulk-styles').length) return;
+		$('<style id="dpr-bulk-styles"> \
+			.dpr-bulk-container { display: flex; height: 600px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background: #f8fafc; } \
+			.dpr-bulk-sidebar { width: 260px; border-right: 1px solid #e2e8f0; background: white; display: flex; flex-direction: column; } \
+			.dpr-bulk-sidebar-header { padding: 12px; border-bottom: 1px solid #e2e8f0; font-weight: 600; font-size: 13px; color: #475569; display: flex; justify-content: space-between; align-items: center; } \
+			.dpr-bulk-items-list { flex: 1; overflow-y: auto; padding: 8px; } \
+			.dpr-bulk-item-row { padding: 10px 12px; border-radius: 6px; cursor: pointer; margin-bottom: 4px; transition: all 0.2s; border: 1px solid transparent; } \
+			.dpr-bulk-item-row:hover { background: #f1f5f9; } \
+			.dpr-bulk-item-row.active { background: #eff6ff; border-color: #3b82f6; } \
+			.dpr-bulk-item-name { font-weight: 500; font-size: 13px; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } \
+			.dpr-bulk-item-meta { font-size: 11px; color: #64748b; margin-top: 2px; } \
+			.dpr-bulk-detail-pane { flex: 1; display: flex; flex-direction: column; background: #f8fafc; position: relative; } \
+			.dpr-bulk-detail-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #94a3b8; } \
+			.dpr-bulk-detail-content { flex: 1; overflow-y: auto; padding: 20px; display: none; } \
+			.dpr-bulk-detail-content.active { display: block; } \
+			.dpr-item-card { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: white; border-radius: 8px; margin-bottom: 8px; border: 1px solid #e2e8f0; transition: all 0.2s; } \
+			.dpr-item-card:hover { border-color: #cbd5e1; box-shadow: 0 2px 4px rgba(0,0,0,0.05); } \
+			.dpr-item-info { flex: 1; min-width: 0; } \
+			.dpr-item-name { font-weight: 500; color: #1f2937; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } \
+			.dpr-item-sub { font-size: 12px; color: #6b7280; margin-top: 2px; } \
+			.dpr-item-input { width: 70px; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; text-align: right; font-size: 13px; } \
+			.dpr-item-amount { min-width: 90px; text-align: right; font-weight: 600; color: #059669; font-size: 14px; } \
+			.dpr-remove-btn { background: #fee2e2; color: #dc2626; border: none; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; } \
+			.rate-source-tag { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 9px; font-weight: 500; background: #e0f2fe; color: #0369a1; margin-left: 4px; } \
+			.dpr-bulk-footer { padding: 16px; border-top: 1px solid #e2e8f0; background: white; display: flex; justify-content: space-between; align-items: center; } \
+			.dpr-bulk-grand-total { font-weight: 700; font-size: 18px; color: #059669; } \
+		</style>').appendTo('head');
+	}
+
+	add_item(boq_item, bill_no) {
+		if (this.items.find(i => i.boq_item === boq_item)) {
+			frappe.show_alert({ message: __('Item already added'), indicator: 'orange' });
+			return;
+		}
+		const new_item = {
+			boq_item: boq_item,
+			bill_no: bill_no,
+			data: {
+				employees: [],
+				assets: [],
+				materials: [],
+				expenses: [],
+				overheads: [],
+				subcontract_cost: 0,
+				remarks: '',
+				project_sites: '',
+				area_covered: 0,
+				consumed_qty: 0,
+				balance_qty: 0
+			}
+		};
+		this.items.push(new_item);
+		this.active_index = this.items.length - 1;
+		this.render();
+		this.update_dialog_fields();
+	}
+
+	remove_item(index) {
+		this.items.splice(index, 1);
+		if (this.active_index >= this.items.length) {
+			this.active_index = this.items.length - 1;
+		}
+		this.render();
+		this.update_dialog_fields();
+	}
+
+	switch_to(index) {
+		this.active_index = index;
+		this.render_sidebar();
+		this.render_item_lists();
+		this.update_dialog_fields();
+	}
+
+	render() {
+		this.render_sidebar();
+		this.render_detail_pane();
+		this.update_grand_total();
+	}
+
+	render_sidebar() {
+		const list = this.dialog.$wrapper.find('.dpr-bulk-items-list');
+		list.empty();
+		this.items.forEach((item, idx) => {
+			const active = idx === this.active_index ? 'active' : '';
+			const $row = $(`
+				<div class="dpr-bulk-item-row ${active}" data-idx="${idx}">
+					<div class="dpr-bulk-item-name">${item.boq_item}</div>
+					<div class="dpr-bulk-item-meta">${item.bill_no || ''}</div>
+				</div>
+			`);
+			$row.on('click', () => this.switch_to(idx));
+			list.append($row);
+		});
+	}
+
+	render_detail_pane() {
+		const pane = this.dialog.$wrapper.find('.dpr-bulk-detail-pane');
+		if (this.active_index === -1) {
+			pane.find('.dpr-bulk-detail-empty').show();
+			pane.find('.dpr-bulk-detail-content').hide();
+		} else {
+			pane.find('.dpr-bulk-detail-empty').hide();
+			pane.find('.dpr-bulk-detail-content').show().addClass('active');
+			this.render_item_lists();
+		}
+	}
+
+	update_dialog_fields() {
+		if (this.active_index === -1) return;
+		const item = this.items[this.active_index];
+		this.dialog.set_value('active_boq_item', item.boq_item);
+		this.dialog.set_value('active_bill_no', item.bill_no);
+		this.dialog.set_value('active_project_sites', item.data.project_sites);
+		this.dialog.set_value('active_subcontract_cost', item.data.subcontract_cost);
+		this.dialog.set_value('active_remarks', item.data.remarks);
+		this.dialog.set_value('active_area_covered', item.data.area_covered || 0);
+		this.dialog.set_value('active_consumed_qty', item.data.consumed_qty || 0);
+		this.dialog.set_value('active_balance_qty', item.data.balance_qty || 0);
+
+		// Fetch balance qty from BOQ Item
+		if (item.boq_item) {
+			frappe.db.get_value('BOQ Item', item.boq_item, 'total_qty', (r) => {
+				const total = r ? flt(r.total_qty) : 0;
+				item.data.balance_qty = total - flt(item.data.area_covered);
+				this.dialog.set_value('active_balance_qty', item.data.balance_qty);
+			});
+		}
+	}
+
+	render_item_lists() {
+		if (this.active_index === -1) return;
+		const data = this.items[this.active_index].data;
+		this.render_list('employees', data.employees);
+		this.render_list('materials', data.materials);
+		this.render_list('assets', data.assets);
+		this.render_list('expenses', data.expenses);
+		this.render_list('overheads', data.overheads);
+		this.update_item_totals();
+	}
+
+	render_list(type, items) {
+		const container = this.dialog.$wrapper.find(`#bulk-dpr-${type}-list`);
+		if (!container.length) return;
+		container.empty();
+		if (!items || items.length === 0) {
+			container.append('<div class="dpr-empty">No entries added.</div>');
+			return;
+		}
+
+		items.forEach((item, idx) => {
+			let html = '';
+			if (type === 'employees') {
+				const sourceTag = item.source ? `<span class="rate-source-tag">${item.source}</span>` : '';
+				html = `<div class="dpr-item-card">
+					<div class="dpr-item-info">
+						<div class="dpr-item-name">${item.employee_name}</div>
+						<div class="dpr-item-sub">${item.designation || ''} • ${format_currency(item.rate_per_day)}/day ${sourceTag}</div>
+					</div>
+					<div><input type="number" class="dpr-item-input bulk-emp-hours" value="${item.hours}" step="0.5" data-idx="${idx}"> hrs</div>
+					<div class="dpr-item-amount">${format_currency(item.amount)}</div>
+					<button type="button" class="dpr-remove-btn" data-type="employees" data-idx="${idx}">✕</button>
+				</div>`;
+			} else if (type === 'materials') {
+				const stockBadge = item.stock_balance != null
+					? `<span style="background:#dcfce7;color:#166534;padding:2px 6px;border-radius:4px;font-size:10px;margin-left:6px;">Stock: ${item.stock_balance}</span>`
+					: '';
+				html = `<div class="dpr-item-card">
+					<div class="dpr-item-info">
+						<div class="dpr-item-name">${item.item_name} ${stockBadge}</div>
+						<div class="dpr-item-sub">${item.item_code} • ${item.warehouse || 'No Warehouse'} • ${item.qty} ${item.uom}</div>
+					</div>
+					<div class="dpr-item-amount">${format_currency(item.amount)}</div>
+					<button type="button" class="dpr-remove-btn" data-type="materials" data-idx="${idx}">✕</button>
+				</div>`;
+			} else if (type === 'assets') {
+				html = `<div class="dpr-item-card">
+					<div class="dpr-item-info">
+						<div class="dpr-item-name">${item.asset_name}</div>
+						<div class="dpr-item-sub">${item.asset} • ${format_currency(item.rate_per_hour)}/hr</div>
+					</div>
+					<div><input type="number" class="dpr-item-input bulk-asset-hours" value="${item.hours}" step="0.5" data-idx="${idx}"> hrs</div>
+					<div class="dpr-item-amount">${format_currency(item.amount)}</div>
+					<button type="button" class="dpr-remove-btn" data-type="assets" data-idx="${idx}">✕</button>
+				</div>`;
+			} else {
+				html = `<div class="dpr-item-card">
+					<div class="dpr-item-info">
+						<div class="dpr-item-name">${item.expense_type || item.account_name}</div>
+						<div class="dpr-item-sub">${item.description || ''}</div>
+					</div>
+					<div class="dpr-item-amount">${format_currency(item.amount)}</div>
+					<button type="button" class="dpr-remove-btn" data-type="${type}" data-idx="${idx}">✕</button>
+				</div>`;
+			}
+			container.append(html);
+		});
+
+		// Attach events
+		container.find('.dpr-remove-btn').on('click', (e) => {
+			const btn = $(e.currentTarget);
+			this.remove_sub_item(btn.data('type'), btn.data('idx'));
+		});
+
+		container.find('.bulk-emp-hours').on('input', (e) => {
+			const idx = $(e.currentTarget).data('idx');
+			const hours = parseFloat($(e.currentTarget).val()) || 0;
+			const emp = this.items[this.active_index].data.employees[idx];
+			emp.hours = hours;
+			emp.amount = emp.rate_per_day * (hours / 8);
+			this.render_list('employees', this.items[this.active_index].data.employees);
+			this.update_item_totals();
+		});
+
+		container.find('.bulk-asset-hours').on('input', (e) => {
+			const idx = $(e.currentTarget).data('idx');
+			const hours = parseFloat($(e.currentTarget).val()) || 0;
+			const asset = this.items[this.active_index].data.assets[idx];
+			asset.hours = hours;
+			asset.amount = asset.rate_per_hour * hours;
+			this.render_list('assets', this.items[this.active_index].data.assets);
+			this.update_item_totals();
+		});
+	}
+
+	remove_sub_item(type, idx) {
+		this.items[this.active_index].data[type].splice(idx, 1);
+		this.render_list(type, this.items[this.active_index].data[type]);
+		this.update_item_totals();
+	}
+
+	update_item_totals() {
+		if (this.active_index === -1) return;
+		const data = this.items[this.active_index].data;
+		const labour = data.employees.reduce((s, e) => s + flt(e.amount), 0);
+		const material = data.materials.reduce((s, m) => s + flt(m.amount), 0);
+		const asset = data.assets.reduce((s, a) => s + flt(a.amount), 0);
+		const expenses = data.expenses.reduce((s, e) => s + flt(e.amount), 0);
+		const overheads = data.overheads.reduce((s, o) => s + flt(o.amount), 0);
+		const subcontract = flt(data.subcontract_cost);
+		const total = labour + material + asset + expenses + overheads + subcontract;
+
+		this.dialog.$wrapper.find('#bulk-item-labour-total').text(format_currency(labour));
+		this.dialog.$wrapper.find('#bulk-item-material-total').text(format_currency(material));
+		this.dialog.$wrapper.find('#bulk-item-total').text(format_currency(total));
+
+		// Update top summary
+		this.dialog.$wrapper.find('#summ-labour').text(format_currency(labour));
+		this.dialog.$wrapper.find('#summ-material').text(format_currency(material));
+		this.dialog.$wrapper.find('#summ-expense').text(format_currency(expenses));
+		this.dialog.$wrapper.find('#summ-total').text(format_currency(total));
+
+		this.update_grand_total();
+	}
+
+	update_grand_total() {
+		let grand = 0;
+		this.items.forEach(item => {
+			const d = item.data;
+			grand += d.employees.reduce((s, e) => s + flt(e.amount), 0);
+			grand += d.materials.reduce((s, m) => s + flt(m.amount), 0);
+			grand += d.assets.reduce((s, a) => s + flt(a.amount), 0);
+			grand += d.expenses.reduce((s, e) => s + flt(e.amount), 0);
+			grand += d.overheads.reduce((s, o) => s + flt(o.amount), 0);
+			grand += flt(d.subcontract_cost);
+		});
+		this.dialog.$wrapper.find('#bulk-grand-total').text(format_currency(grand));
+	}
+
+	update_active_item_data(field, value) {
+		if (this.active_index === -1) return;
+		this.items[this.active_index].data[field] = value;
+		this.update_item_totals();
+	}
+
+	add_employee(employee) {
+		if (!employee || this.active_index === -1) return;
+		const data = this.items[this.active_index].data;
+		if (data.employees.find(e => e.employee === employee)) {
+			frappe.show_alert({ message: __('Employee already added to this item'), indicator: 'orange' });
+			this.dialog.set_value('add_employee', '');
+			return;
+		}
+
+		frappe.call({
+			method: 'construction_management.api.dpr_utils.get_employee_with_rate',
+			args: { employee: employee },
+			callback: (r) => {
+				if (r.message) {
+					const emp = r.message;
+					const rate = emp.rate_per_day || 0;
+					const source = emp.source || 'unknown';
+
+					if (!rate || source === 'manual_required') {
+						frappe.prompt([{ fieldname: 'rate', label: __('Daily Rate'), fieldtype: 'Currency', reqd: 1 }], (values) => {
+							data.employees.push({
+								employee, employee_name: emp.employee_name, designation: emp.designation || '',
+								hours: 8, rate_per_day: values.rate, amount: values.rate, source: 'manual'
+							});
+							this.render_list('employees', data.employees);
+							this.update_item_totals();
+						}, __('Enter Rate for ' + emp.employee_name), __('Add'));
+					} else {
+						data.employees.push({
+							employee, employee_name: emp.employee_name, designation: emp.designation || '',
+							hours: 8, rate_per_day: rate, amount: rate, source: source
+						});
+						this.render_list('employees', data.employees);
+						this.update_item_totals();
+					}
+				}
+				this.dialog.set_value('add_employee', '');
+			}
+		});
+	}
+
+	add_asset(asset) {
+		if (!asset || this.active_index === -1) return;
+		const data = this.items[this.active_index].data;
+		if (data.assets.find(a => a.asset === asset)) {
+			frappe.show_alert({ message: __('Asset already added to this item'), indicator: 'orange' });
+			this.dialog.set_value('add_asset', '');
+			return;
+		}
+
+		frappe.call({
+			method: 'construction_management.api.dpr_utils.get_asset_with_rate',
+			args: { asset: asset, project: this.project, date: this.dialog.get_value('date') },
+			callback: (r) => {
+				if (r.message) {
+					const assetData = r.message;
+					const rate_per_hour = assetData.rate_per_hour || 0;
+					if (!rate_per_hour) {
+						frappe.show_alert({ message: __('No rate found for asset {0}', [assetData.asset_name]), indicator: 'red' });
+						this.dialog.set_value('add_asset', '');
+						return;
+					}
+					data.assets.push({
+						asset, asset_name: assetData.asset_name,
+						hours: 8, rate_per_hour, rate_per_day: rate_per_hour * 8, amount: rate_per_hour * 8
+					});
+					this.render_list('assets', data.assets);
+					this.update_item_totals();
+				}
+				this.dialog.set_value('add_asset', '');
+			}
+		});
+	}
+
+	add_material(item_code) {
+		if (!item_code || this.active_index === -1) return;
+		const data = this.items[this.active_index].data;
+		if (data.materials.find(m => m.item_code === item_code)) {
+			frappe.show_alert({ message: __('Item already added to this item'), indicator: 'orange' });
+			this.dialog.set_value('add_material', '');
+			return;
+		}
+
+		frappe.call({
+			method: 'construction_management.api.dpr_utils.get_item_details',
+			args: { item_code: item_code },
+			callback: (r) => {
+				if (r.message) {
+					const item = r.message;
+					const default_warehouse = cur_frm?.doc?.site_location;
+					frappe.prompt([
+						{ fieldname: 'qty', label: __('Quantity'), fieldtype: 'Float', reqd: 1, default: 1 },
+						{ fieldname: 'warehouse', label: __('Source Warehouse'), fieldtype: 'Link', options: 'Warehouse', reqd: 1, default: default_warehouse },
+						{ fieldname: 'rate', label: __('Rate'), fieldtype: 'Currency', default: item.rate || 0 }
+					], (values) => {
+						// Fetch stock balance for display
+						frappe.call({
+							method: 'construction_management.api.dpr_utils.get_bin_snapshot',
+							args: { warehouse: values.warehouse, item_code: item_code },
+							callback: (bin_r) => {
+								const stock_balance = bin_r.message?.actual_qty || 0;
+								data.materials.push({
+									item_code, item_name: item.item_name, warehouse: values.warehouse,
+									qty: values.qty, uom: item.stock_uom, rate: values.rate,
+									valuation_rate: item.valuation_rate, amount: flt(values.qty) * flt(values.rate),
+									rate_source: item.rate_source,
+									stock_balance: stock_balance
+								});
+								this.render_list('materials', data.materials);
+								this.update_item_totals();
+							}
+						});
+					}, __('Add Material: ' + item.item_name), __('Add'));
+				}
+				this.dialog.set_value('add_material', '');
+			}
+		});
+	}
+
+	submit_all(date) {
+		if (!this.items.length) {
+			frappe.show_alert({ message: __('Please add at least one BOQ item'), indicator: 'orange' });
+			return;
+		}
+
+		const data_to_send = this.items.map(i => ({
+			boq_item: i.boq_item,
+			bill_no: i.bill_no,
+			project_sites: i.data.project_sites,
+			remarks: i.data.remarks,
+			subcontract_cost: i.data.subcontract_cost,
+			area_covered: i.data.area_covered,
+			consumed_qty: i.data.consumed_qty,
+			balance_qty: i.data.balance_qty,
+			employees: i.data.employees,
+			materials: i.data.materials,
+			assets: i.data.assets,
+			expenses: i.data.expenses,
+			overheads: i.data.overheads
+		}));
+
+		frappe.call({
+			method: 'construction_management.api.dpr_utils.create_bulk_dpr_enhanced',
+			args: { project: this.project, date: date, data: JSON.stringify(data_to_send), submit: 1 },
+			freeze: true,
+			callback: (r) => {
+				if (r.message && r.message.created_count > 0) {
+					frappe.show_alert({ message: __('{0} DPRs created successfully', [r.message.created_count]), indicator: 'green' });
+					this.dialog.hide();
+					cur_frm.reload_doc();
+				}
+			}
+		});
+	}
+
+	add_expense(expense_type) {
+		if (!expense_type || this.active_index === -1) return;
+		frappe.prompt([
+			{ fieldname: 'description', label: __('Description'), fieldtype: 'Small Text' },
+			{ fieldname: 'amount', label: __('Amount'), fieldtype: 'Currency', reqd: 1 }
+		], (values) => {
+			this.items[this.active_index].data.expenses.push({
+				expense_type, description: values.description || '', amount: values.amount
+			});
+			this.render_list('expenses', this.items[this.active_index].data.expenses);
+			this.update_item_totals();
+		}, __('Add Expense: ' + expense_type), __('Add'));
+		this.dialog.set_value('add_expense', '');
+	}
+
+	add_overhead(account) {
+		if (!account || this.active_index === -1) return;
+		frappe.db.get_value('Account', account, 'account_name', (r) => {
+			const account_name = r ? r.account_name : account;
+			frappe.prompt([
+				{ fieldname: 'description', label: __('Description'), fieldtype: 'Small Text' },
+				{ fieldname: 'amount', label: __('Amount'), fieldtype: 'Currency', reqd: 1 }
+			], (values) => {
+				this.items[this.active_index].data.overheads.push({
+					account, account_name, description: values.description || '', amount: values.amount
+				});
+				this.render_list('overheads', this.items[this.active_index].data.overheads);
+				this.update_item_totals();
+			}, __('Add Overhead: ' + account_name), __('Add'));
+		});
+		this.dialog.set_value('add_overhead', '');
+	}
+}
+
+
+window.show_dpr_dialog_enhanced = function (project, is_bulk = false) {
+	ensure_dashboard_visible();
+	const d = new frappe.ui.Dialog({
+		title: is_bulk ? __('Bulk Daily Progress Record') : __('Quick Daily Progress Record'),
+		size: 'extra-large',
+		minimizable: true,
+		fields: [
+			{
+				fieldtype: 'HTML',
+				fieldname: 'bulk_layout',
+				options: `
+					<div class="dpr-bulk-container">
+						<div class="dpr-bulk-sidebar" ${!is_bulk ? 'style="display:none"' : ''}>
+							<div class="dpr-bulk-sidebar-header">
+								<span>BOQ ITEMS</span>
+							</div>
+							<div class="dpr-bulk-items-list"></div>
+						</div>
+						<div class="dpr-bulk-detail-pane">
+							<div class="dpr-bulk-detail-empty">
+								<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom:12px;opacity:0.5"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+								<p>Select a BOQ item to record progress</p>
+							</div>
+							<div class="dpr-bulk-detail-content">
+								<div id="dpr-item-header" style="margin-bottom: 20px;">
+									<h3 id="active-boq-item-name" style="margin:0;font-size:18px;color:#1e293b">Item Name</h3>
+									<p id="active-boq-item-meta" style="margin:4px 0 0 0;font-size:12px;color:#64748b">Bill No</p>
+									<div id="active-item-cost-summary" style="margin-top:10px; display:flex; gap:15px; font-size:12px; font-weight:600; color:#475569;">
+										<span>L: <span id="summ-labour">0.00</span></span>
+										<span>M: <span id="summ-material">0.00</span></span>
+										<span>E: <span id="summ-expense">0.00</span></span>
+										<span style="color:#059669">Total: <span id="summ-total">0.00</span></span>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				`
+			},
+			{ fieldtype: 'Section Break', label: __('Global Settings') },
+			{ fieldname: 'date', label: __('Date'), fieldtype: 'Date', default: frappe.datetime.get_today(), reqd: 1 },
+			{
+				fieldname: 'add_boq_item', label: __('Add BOQ Item'), fieldtype: 'Link', options: 'BOQ Item',
+				get_query: () => ({ filters: { project: project } }),
+				depends_on: `eval:${is_bulk ? 1 : 0}`,
+				change: function () {
+					const val = d.get_value('add_boq_item');
+					if (val) {
+						frappe.db.get_value('BOQ Item', val, 'parent_bill', (r) => {
+							d.manager.add_item(val, r ? r.parent_bill : '');
+							d.set_value('add_boq_item', '');
+						});
+					}
+				}
+			},
+			{ fieldtype: 'Section Break', label: __('Work Progress'), fieldname: 'work_progress_section' },
+			{
+				fieldname: 'active_area_covered', label: __('Area Covered'), fieldtype: 'Float',
+				change: function () {
+					d.manager.update_active_item_data('area_covered', d.get_value('active_area_covered'));
+					// Recalculate balance
+					const item = d.manager.items[d.manager.active_index];
+					if (item && item.boq_item) {
+						frappe.db.get_value('BOQ Item', item.boq_item, 'total_qty', (r) => {
+							const total = r ? flt(r.total_qty) : 0;
+							item.data.balance_qty = total - flt(d.get_value('active_area_covered'));
+							d.set_value('active_balance_qty', item.data.balance_qty);
+						});
+					}
+				}
+			},
+			{
+				fieldname: 'active_consumed_qty', label: __('Consumed Qty'), fieldtype: 'Float',
+				change: function () { d.manager.update_active_item_data('consumed_qty', d.get_value('active_consumed_qty')); }
+			},
+			{
+				fieldname: 'active_balance_qty', label: __('Balance Qty'), fieldtype: 'Float', read_only: 1
+			},
+			{ fieldtype: 'Column Break' },
+			{ fieldtype: 'Section Break', label: __('Item Details'), fieldname: 'item_details_section', collapsible: 0 },
+			{
+				fieldname: 'active_project_sites', label: __('Project Site'), fieldtype: 'Link', options: 'Project Sites',
+				get_query: () => ({ filters: { project: project } }),
+				change: function () { d.manager.update_active_item_data('project_sites', d.get_value('active_project_sites')); }
+			},
+			{ fieldtype: 'Section Break', label: __('👷 Labour') },
+			{
+				fieldname: 'add_employee', label: __('Add Employee'), fieldtype: 'Link', options: 'Employee',
+				get_query: () => ({ filters: { status: 'Active' } }),
+				change: function () { d.manager.add_employee(d.get_value('add_employee')); }
+			},
+			{ fieldtype: 'HTML', fieldname: 'employees_list', options: '<div id="bulk-dpr-employees-list"></div>' },
+			{ fieldtype: 'Section Break', label: __('📦 Material') },
+			{
+				fieldname: 'add_material', label: __('Add Item'), fieldtype: 'Link', options: 'Item',
+				get_query: () => {
+					// Filter by items available in project's site_location warehouse
+					return {
+						query: "construction_management.api.dpr_utils.get_warehouse_items_query",
+						filters: { project: project }
+					};
+				},
+				change: function () { d.manager.add_material(d.get_value('add_material')); }
+			},
+			{ fieldtype: 'HTML', fieldname: 'materials_list', options: '<div id="bulk-dpr-materials-list"></div>' },
+			{ fieldtype: 'Section Break', label: __('🚜 Asset'), hidden: 1 },
+			{
+				fieldname: 'add_asset', label: __('Add Asset'), fieldtype: 'Link', options: 'Asset', hidden: 1,
+				change: function () { d.manager.add_asset(d.get_value('add_asset')); }
+			},
+			{ fieldtype: 'HTML', fieldname: 'assets_list', options: '<div id="bulk-dpr-assets-list" style="display:none"></div>', hidden: 1 },
+			{ fieldtype: 'Section Break', label: __('💰 Other Costs') },
+			{
+				fieldname: 'add_expense', label: __('Add Expense'), fieldtype: 'Link', options: 'Expense Claim Type',
+				change: function () { d.manager.add_expense(d.get_value('add_expense')); }
+			},
+			{ fieldtype: 'HTML', fieldname: 'expenses_list', options: '<div id="bulk-dpr-expenses-list"></div>' },
+			{
+				fieldname: 'add_overhead', label: __('Add Overhead'), fieldtype: 'Link', options: 'Account', hidden: 1,
+				get_query: () => ({ filters: { account_type: ['in', ['Expense Account', 'Cost of Goods Sold']], is_group: 0 } }),
+				change: function () { d.manager.add_overhead(d.get_value('add_overhead')); }
+			},
+			{ fieldtype: 'HTML', fieldname: 'overheads_list', options: '<div id="bulk-dpr-overheads-list" style="display:none"></div>', hidden: 1 },
+			{
+				fieldname: 'active_subcontract_cost', label: __('Subcontract Cost'), fieldtype: 'Currency', default: 0, hidden: 1,
+				change: function () { d.manager.update_active_item_data('subcontract_cost', d.get_value('active_subcontract_cost')); }
+			},
+			{
+				fieldname: 'active_remarks', label: __('Remarks'), fieldtype: 'Small Text',
+				change: function () { d.manager.update_active_item_data('remarks', d.get_value('active_remarks')); }
+			},
+			{ fieldtype: 'Section Break' },
+			{
+				fieldtype: 'HTML',
+				fieldname: 'footer_display',
+				options: `
+					<div class="dpr-bulk-footer">
+						<div class="dpr-bulk-item-totals">
+							<span style="font-size: 11px; color: #64748b; text-transform: uppercase;">Subtotal: <span id="bulk-item-labour-total">0.00</span> (L) | <span id="bulk-item-material-total">0.00</span> (M)</span>
+							<div id="bulk-item-total" style="font-size: 18px; font-weight: 600; color: #334155; margin-top: 4px;">0.00</div>
+						</div>
+						<div class="dpr-bulk-grand-summary">
+							<span style="font-size: 11px; color: #059669; font-weight: 600; text-transform: uppercase; display: block;">Total Project Cost</span>
+							<span id="bulk-grand-total" class="dpr-bulk-grand-total">0.00</span>
+						</div>
+					</div>
+				`
+			}
+		],
+		primary_action_label: is_bulk ? __('Create All Records') : __('Create DPR'),
+		primary_action: function (values) {
+			d.manager.submit_all(values.date);
+		}
+	});
+
+	d.manager = new BulkDPRManager(project, d);
+
+	if (!is_bulk) {
+		frappe.call({
+			method: 'construction_management.api.dpr_utils.get_boq_items_for_project',
+			args: { project: project },
+			callback: function (r) {
+				if (r.message && r.message.length > 0) {
+					d.manager.add_item(r.message[0].name, r.message[0].bill_no);
+				}
+			}
+		});
+	}
+
+	d.onhide = function () { cleanup_modal_and_restore_dashboard(); };
+	d.show();
+
+	// Move sections into the detail pane for true layout
+	setTimeout(() => {
+		const $pane = d.$wrapper.find('.dpr-bulk-detail-content');
+		d.$wrapper.find('.section-break').each(function () {
+			const label = $(this).find('.section-head').text();
+			if (label.includes('Work Progress') || label.includes('\ud83d\udc77') || label.includes('\ud83d\udce6') || label.includes('\ud83d\ude9c') || label.includes('\ud83d\udcb0') || label.includes('Item Details')) {
+				$pane.append($(this));
+			}
+		});
+
+		// Ensure Work Progress is at the very top
+		const $workSection = d.$wrapper.find('[data-fieldname="work_progress_section"]').closest('.section-break');
+		if ($workSection.length) {
+			$pane.prepend($workSection);
+		}
+
+		$pane.append(d.$wrapper.find('[data-fieldname="footer_display"]'));
+	}, 200);
 };
+
+window.create_dpr_bulk = function (project) {
+	window.show_dpr_dialog_enhanced(project, true);
+};
+
 
 
 // ============================================

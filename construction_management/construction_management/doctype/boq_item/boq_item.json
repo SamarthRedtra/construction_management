@@ -1,506 +1,552 @@
 {
-    "actions": [],
-    "allow_rename": 1,
-    "autoname": "naming_series:",
-    "creation": "2024-12-18 10:00:00",
-    "doctype": "DocType",
-    "engine": "InnoDB",
-    "field_order": [
-        "naming_series",
-        "parent_bill",
-        "project_boq",
-        "project",
-        "column_break_1",
-        "item_code",
-        "billing_status",
-        "section_links",
-        "linked_item",
-        "linked_task",
-        "section_description",
-        "description",
-        "section_quantity",
-        "unit",
-        "total_qty",
-        "rate",
-        "total_amount",
-        "section_unit_breakdown",
-        "item_breakdown",
-        "total_unit_rate",
-        "section_estimated_costs",
-        "estimated_material_cost",
-        "estimated_labour_cost",
-        "estimated_subcontract_cost",
-        "column_break_estimated_1",
-        "estimated_asset_cost",
-        "estimated_other_cost",
-        "total_estimated_cost",
-        "estimated_gp",
-        "estimated_gp_percent",
-        "section_materials",
-        "materials",
-        "section_progressive",
-        "prev_qty",
-        "prev_amount",
-        "column_break_2",
-        "current_qty",
-        "current_amount",
-        "column_break_3",
-        "to_date_qty",
-        "to_date_amount",
-        "column_break_4",
-        "balance_qty",
-        "balance_amount",
-        "section_cost",
-        "cost_to_date",
-        "margin",
-        "total_retention_amount",
-        "total_advance_deducted",
-        "column_break_5",
-        "labour_cost",
-        "material_cost",
-        "column_break_6",
-        "asset_cost",
-        "subcontract_cost",
-        "expense_cost",
-        "overhead_cost"
-    ],
-    "fields": [
-        {
-            "fieldname": "naming_series",
-            "fieldtype": "Select",
-            "label": "Naming Series",
-            "options": "BOQI-.YYYY.-",
-            "reqd": 1
-        },
-        {
-            "fieldname": "parent_bill",
-            "fieldtype": "Link",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Bill Number",
-            "options": "BOQ Bill",
-            "reqd": 1
-        },
-        {
-            "fetch_from": "parent_bill.project_boq",
-            "fieldname": "project_boq",
-            "fieldtype": "Link",
-            "label": "Project BOQ",
-            "options": "Project BOQ",
-            "read_only": 1
-        },
-        {
-            "fetch_from": "parent_bill.project",
-            "fieldname": "project",
-            "fieldtype": "Link",
-            "label": "Project",
-            "options": "Project",
-            "read_only": 1
-        },
-        {
-            "fieldname": "column_break_1",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "item_code",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "label": "Item Code"
-        },
-        {
-            "default": "Not Billed",
-            "fieldname": "billing_status",
-            "fieldtype": "Select",
-            "in_standard_filter": 1,
-            "label": "Billing Status",
-            "options": "Not Billed\nPartially Billed\nFully Billed",
-            "read_only": 1
-        },
-        {
-            "collapsible": 1,
-            "fieldname": "section_links",
-            "fieldtype": "Section Break",
-            "label": "Linked Records"
-        },
-        {
-            "description": "ERPNext Item created from this BOQ Item (auto-created on save)",
-            "fieldname": "linked_item",
-            "fieldtype": "Link",
-            "label": "Linked Item",
-            "options": "Item"
-        },
-        {
-            "description": "Task associated with this BOQ Item",
-            "fieldname": "linked_task",
-            "fieldtype": "Link",
-            "label": "Linked Task",
-            "options": "Task"
-        },
-        {
-            "fieldname": "section_description",
-            "fieldtype": "Section Break",
-            "label": "Description"
-        },
-        {
-            "fieldname": "description",
-            "fieldtype": "Text",
-            "in_list_view": 1,
-            "label": "Description",
-            "reqd": 1
-        },
-        {
-            "fieldname": "section_quantity",
-            "fieldtype": "Section Break",
-            "label": "Quantity & Rate"
-        },
-        {
-            "fieldname": "unit",
-            "fieldtype": "Link",
-            "in_list_view": 1,
-            "label": "Unit",
-            "options": "UOM",
-            "reqd": 1
-        },
-        {
-            "fieldname": "total_qty",
-            "fieldtype": "Float",
-            "in_list_view": 1,
-            "label": "Total Quantity",
-            "precision": "3",
-            "reqd": 1
-        },
-        {
-            "fieldname": "rate",
-            "fieldtype": "Currency",
-            "in_list_view": 1,
-            "label": "Rate",
-            "reqd": 1
-        },
-        {
-            "fieldname": "total_amount",
-            "fieldtype": "Currency",
-            "in_list_view": 1,
-            "label": "Total Amount",
-            "read_only": 1
-        },
-        {
-            "fieldname": "section_unit_breakdown",
-            "fieldtype": "Section Break",
-            "label": "Unit Level Breakdown"
-        },
-        {
-            "description": "Breakdown of costs per unit of item",
-            "fieldname": "item_breakdown",
-            "fieldtype": "Table",
-            "label": "Cost Breakdown",
-            "options": "BOQ Item Breakdown"
-        },
-        {
-            "fieldname": "total_unit_rate",
-            "fieldtype": "Currency",
-            "label": "Total Rate per Unit",
-            "read_only": 1
-        },
-        {
-            "collapsible": 1,
-            "fieldname": "section_estimated_costs",
-            "fieldtype": "Section Break",
-            "label": "Estimated Costs"
-        },
-        {
-            "description": "Estimated material cost for this BOQ item",
-            "fieldname": "estimated_material_cost",
-            "fieldtype": "Currency",
-            "label": "Estimated Material Cost",
-            "read_only": 1
-        },
-        {
-            "description": "Estimated labour cost for this BOQ item",
-            "fieldname": "estimated_labour_cost",
-            "fieldtype": "Currency",
-            "label": "Estimated Labour Cost",
-            "read_only": 1
-        },
-        {
-            "description": "Estimated subcontracting cost for this BOQ item",
-            "fieldname": "estimated_subcontract_cost",
-            "fieldtype": "Currency",
-            "label": "Estimated Subcontracting Cost",
-            "read_only": 1
-        },
-        {
-            "fieldname": "column_break_estimated_1",
-            "fieldtype": "Column Break"
-        },
-        {
-            "description": "Estimated asset/equipment cost for this BOQ item",
-            "fieldname": "estimated_asset_cost",
-            "fieldtype": "Currency",
-            "label": "Estimated Asset Cost",
-            "read_only": 1
-        },
-        {
-            "description": "Other estimated costs for this BOQ item",
-            "fieldname": "estimated_other_cost",
-            "fieldtype": "Currency",
-            "label": "Estimated Other Costs",
-            "read_only": 1
-        },
-        {
-            "description": "Sum of all estimated cost components (auto-calculated)",
-            "fieldname": "total_estimated_cost",
-            "fieldtype": "Currency",
-            "label": "Total Estimated Cost",
-            "read_only": 1
-        },
-        {
-            "description": "Estimated Gross Profit (Total Amount - Total Estimated Cost)",
-            "fieldname": "estimated_gp",
-            "fieldtype": "Currency",
-            "label": "Estimated GP",
-            "read_only": 1
-        },
-        {
-            "description": "Estimated Gross Profit Percentage",
-            "fieldname": "estimated_gp_percent",
-            "fieldtype": "Percent",
-            "label": "Estimated GP %",
-            "read_only": 1
-        },
-        {
-            "collapsible": 1,
-            "fieldname": "section_materials",
-            "fieldtype": "Section Break",
-            "label": "Materials"
-        },
-        {
-            "description": "Material items required for this BOQ item",
-            "fieldname": "materials",
-            "fieldtype": "Table",
-            "label": "Materials",
-            "options": "BOQ Item Material"
-        },
-        {
-            "fieldname": "section_progressive",
-            "fieldtype": "Section Break",
-            "label": "Progressive Billing"
-        },
-        {
-            "fieldname": "prev_qty",
-            "fieldtype": "Float",
-            "label": "Previous Qty",
-            "precision": "3",
-            "read_only": 1
-        },
-        {
-            "fieldname": "prev_amount",
-            "fieldtype": "Currency",
-            "label": "Previous Amount",
-            "read_only": 1
-        },
-        {
-            "fieldname": "column_break_2",
-            "fieldtype": "Column Break"
-        },
-        {
-            "description": "Quantity to bill in current period",
-            "fieldname": "current_qty",
-            "fieldtype": "Float",
-            "label": "Current Qty",
-            "precision": "3"
-        },
-        {
-            "fieldname": "current_amount",
-            "fieldtype": "Currency",
-            "label": "Current Amount",
-            "read_only": 1
-        },
-        {
-            "fieldname": "column_break_3",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "to_date_qty",
-            "fieldtype": "Float",
-            "label": "To-Date Qty",
-            "precision": "3",
-            "read_only": 1
-        },
-        {
-            "fieldname": "to_date_amount",
-            "fieldtype": "Currency",
-            "label": "To-Date Amount",
-            "read_only": 1
-        },
-        {
-            "fieldname": "column_break_4",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "balance_qty",
-            "fieldtype": "Float",
-            "label": "Balance Qty",
-            "precision": "3",
-            "read_only": 1
-        },
-        {
-            "fieldname": "balance_amount",
-            "fieldtype": "Currency",
-            "label": "Balance Amount",
-            "read_only": 1
-        },
-        {
-            "collapsible": 1,
-            "fieldname": "section_cost",
-            "fieldtype": "Section Break",
-            "label": "Cost Tracking"
-        },
-        {
-            "fieldname": "cost_to_date",
-            "fieldtype": "Currency",
-            "label": "Cost To-Date",
-            "read_only": 1
-        },
-        {
-            "fieldname": "margin",
-            "fieldtype": "Currency",
-            "label": "Margin",
-            "read_only": 1
-        },
-        {
-            "fieldname": "total_retention_amount",
-            "fieldtype": "Currency",
-            "label": "Total Retention Amount",
-            "read_only": 1
-        },
-        {
-            "fieldname": "total_advance_deducted",
-            "fieldtype": "Currency",
-            "label": "Total Advance Deducted",
-            "read_only": 1
-        },
-        {
-            "fieldname": "column_break_5",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "labour_cost",
-            "fieldtype": "Currency",
-            "label": "Labour Cost",
-            "read_only": 1
-        },
-        {
-            "fieldname": "material_cost",
-            "fieldtype": "Currency",
-            "label": "Material Cost",
-            "read_only": 1
-        },
-        {
-            "fieldname": "column_break_6",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "asset_cost",
-            "fieldtype": "Currency",
-            "label": "Asset Cost",
-            "read_only": 1
-        },
-        {
-            "fieldname": "subcontract_cost",
-            "fieldtype": "Currency",
-            "label": "Subcontract Cost",
-            "read_only": 1
-        },
-        {
-            "fieldname": "expense_cost",
-            "fieldtype": "Currency",
-            "label": "Other Expense",
-            "read_only": 1
-        },
-        {
-            "fieldname": "overhead_cost",
-            "fieldtype": "Currency",
-            "label": "Overhead Cost",
-            "read_only": 1
-        }
-    ],
-    "index_web_pages_for_search": 1,
-    "links": [
-        {
-            "link_doctype": "BOQ Progress Ledger",
-            "link_fieldname": "boq_item"
-        },
-        {
-            "link_doctype": "Daily Progress Record",
-            "link_fieldname": "boq_item"
-        }
-    ],
-    "modified": "2025-12-22 01:13:31.883039",
-    "modified_by": "Administrator",
-    "module": "Construction Management",
-    "name": "BOQ Item",
-    "naming_rule": "By \"Naming Series\" field",
-    "owner": "Administrator",
-    "permissions": [
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "System Manager",
-            "share": 1,
-            "write": 1
-        },
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Project Manager",
-            "share": 1,
-            "write": 1
-        },
-        {
-            "create": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Quantity Surveyor",
-            "share": 1,
-            "write": 1
-        },
-        {
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Construction Manager",
-            "share": 1
-        },
-        {
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Projects User",
-            "share": 1
-        }
-    ],
-    "row_format": "Dynamic",
-    "search_fields": "project,parent_bill",
-    "sort_field": "modified",
-    "sort_order": "DESC",
-    "states": [],
-    "title_field": "item_code",
-    "track_changes": 1
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2024-12-18 10:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "label",
+  "parent_bill",
+  "project_boq",
+  "project",
+  "column_break_1",
+  "item_code",
+  "billing_status",
+  "section_links",
+  "linked_item",
+  "linked_task",
+  "section_description",
+  "description",
+  "section_quantity",
+  "unit",
+  "total_qty",
+  "rate",
+  "total_amount",
+  "section_estimated_costs",
+  "estimated_material_cost_per_unit",
+  "estimated_labour_cost_per_unit",
+  "estimated_subcontract_cost_per_unit",
+  "estimated_asset_cost_per_unit",
+  "estimated_other_cost_per_unit",
+  "column_break_estimated_1",
+  "estimated_material_cost",
+  "estimated_labour_cost",
+  "estimated_subcontract_cost",
+  "estimated_asset_cost",
+  "estimated_other_cost",
+  "total_estimated_cost",
+  "estimated_gp",
+  "estimated_gp_percent",
+  "section_progressive",
+  "prev_qty",
+  "prev_amount",
+  "column_break_2",
+  "current_qty",
+  "current_amount",
+  "column_break_3",
+  "to_date_qty",
+  "to_date_amount",
+  "column_break_4",
+  "balance_qty",
+  "balance_amount",
+  "section_cost",
+  "cost_to_date",
+  "margin",
+  "total_retention_amount",
+  "total_advance_deducted",
+  "column_break_5",
+  "labour_cost",
+  "material_cost",
+  "column_break_6",
+  "asset_cost",
+  "subcontract_cost",
+  "expense_cost",
+  "overhead_cost",
+  "section_unit_breakdown",
+  "item_breakdown",
+  "total_unit_rate",
+  "section_materials",
+  "materials"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "BOQI-.YYYY.-",
+   "reqd": 1
+  },
+  {
+   "fieldname": "parent_bill",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Bill Number",
+   "options": "BOQ Bill",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "parent_bill.project_boq",
+   "fieldname": "project_boq",
+   "fieldtype": "Link",
+   "label": "Project BOQ",
+   "options": "Project BOQ",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "parent_bill.project",
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Project",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Item Code"
+  },
+  {
+   "fieldname": "label",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Label"
+  },
+  {
+   "default": "Not Billed",
+   "fieldname": "billing_status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Billing Status",
+   "options": "Not Billed\nPartially Billed\nFully Billed",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_links",
+   "fieldtype": "Section Break",
+   "label": "Linked Records"
+  },
+  {
+   "description": "ERPNext Item created from this BOQ Item (auto-created on save)",
+   "fieldname": "linked_item",
+   "fieldtype": "Link",
+   "label": "Linked Item",
+   "options": "Item"
+  },
+  {
+   "description": "Task associated with this BOQ Item",
+   "fieldname": "linked_task",
+   "fieldtype": "Link",
+   "label": "Linked Task",
+   "options": "Task"
+  },
+  {
+   "fieldname": "section_description",
+   "fieldtype": "Section Break",
+   "label": "Description"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "in_list_view": 1,
+   "label": "Description",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_quantity",
+   "fieldtype": "Section Break",
+   "label": "Quantity & Rate"
+  },
+  {
+   "fieldname": "unit",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Unit",
+   "options": "UOM",
+   "reqd": 1
+  },
+  {
+   "fieldname": "total_qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Total Quantity",
+   "precision": "3",
+   "reqd": 1
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Rate",
+   "reqd": 1
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_unit_breakdown",
+   "fieldtype": "Section Break",
+   "hidden": 1,
+   "label": "Unit Level Breakdown"
+  },
+  {
+   "description": "Breakdown of costs per unit of item",
+   "fieldname": "item_breakdown",
+   "fieldtype": "Table",
+   "hidden": 1,
+   "label": "Cost Breakdown",
+   "options": "BOQ Item Breakdown"
+  },
+  {
+   "fieldname": "total_unit_rate",
+   "fieldtype": "Currency",
+   "hidden": 1,
+   "label": "Total Rate per Unit",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_estimated_costs",
+   "fieldtype": "Section Break",
+   "label": "Estimated Costs"
+  },
+  {
+   "fieldname": "estimated_material_cost_per_unit",
+   "fieldtype": "Currency",
+   "label": "Estimated Material Cost per Unit",
+   "read_only": 1
+  },
+  {
+   "fieldname": "estimated_labour_cost_per_unit",
+   "fieldtype": "Currency",
+   "label": "Estimated Labour Cost per Unit",
+   "read_only": 1
+  },
+  {
+   "fieldname": "estimated_subcontract_cost_per_unit",
+   "fieldtype": "Currency",
+   "label": "Estimated Subcontract Cost per Unit",
+   "read_only": 1
+  },
+  {
+   "description": "Estimated material cost for this BOQ item",
+   "fieldname": "estimated_material_cost",
+   "fieldtype": "Currency",
+   "label": "Estimated Material Cost",
+   "read_only": 1
+  },
+  {
+   "description": "Estimated labour cost for this BOQ item",
+   "fieldname": "estimated_labour_cost",
+   "fieldtype": "Currency",
+   "label": "Estimated Labour Cost",
+   "read_only": 1
+  },
+  {
+   "description": "Estimated subcontracting cost for this BOQ item",
+   "fieldname": "estimated_subcontract_cost",
+   "fieldtype": "Currency",
+   "label": "Estimated Subcontracting Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_estimated_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "estimated_asset_cost_per_unit",
+   "fieldtype": "Currency",
+   "label": "Estimated Asset Cost per Unit",
+   "read_only": 1
+  },
+  {
+   "fieldname": "estimated_other_cost_per_unit",
+   "fieldtype": "Currency",
+   "label": "Estimated Other Cost per Unit",
+   "read_only": 1
+  },
+  {
+   "description": "Estimated asset/equipment cost for this BOQ item",
+   "fieldname": "estimated_asset_cost",
+   "fieldtype": "Currency",
+   "label": "Estimated Asset Cost",
+   "read_only": 1
+  },
+  {
+   "description": "Other estimated costs for this BOQ item",
+   "fieldname": "estimated_other_cost",
+   "fieldtype": "Currency",
+   "label": "Estimated Other Costs",
+   "read_only": 1
+  },
+  {
+   "description": "Sum of all estimated cost components (auto-calculated)",
+   "fieldname": "total_estimated_cost",
+   "fieldtype": "Currency",
+   "label": "Total Estimated Cost",
+   "read_only": 1
+  },
+  {
+   "description": "Estimated Gross Profit (Total Amount - Total Estimated Cost)",
+   "fieldname": "estimated_gp",
+   "fieldtype": "Currency",
+   "label": "Estimated GP",
+   "read_only": 1
+  },
+  {
+   "description": "Estimated Gross Profit Percentage",
+   "fieldname": "estimated_gp_percent",
+   "fieldtype": "Percent",
+   "label": "Estimated GP %",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_materials",
+   "fieldtype": "Section Break",
+   "hidden": 1,
+   "label": "Materials"
+  },
+  {
+   "description": "Material items required for this BOQ item",
+   "fieldname": "materials",
+   "fieldtype": "Table",
+   "hidden": 1,
+   "label": "Materials",
+   "options": "BOQ Item Material"
+  },
+  {
+   "fieldname": "section_progressive",
+   "fieldtype": "Section Break",
+   "label": "Progressive Billing"
+  },
+  {
+   "fieldname": "prev_qty",
+   "fieldtype": "Float",
+   "label": "Previous Qty",
+   "precision": "3",
+   "read_only": 1
+  },
+  {
+   "fieldname": "prev_amount",
+   "fieldtype": "Currency",
+   "label": "Previous Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Quantity to bill in current period",
+   "fieldname": "current_qty",
+   "fieldtype": "Float",
+   "label": "Current Qty",
+   "precision": "3"
+  },
+  {
+   "fieldname": "current_amount",
+   "fieldtype": "Currency",
+   "label": "Current Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "to_date_qty",
+   "fieldtype": "Float",
+   "label": "To-Date Qty",
+   "precision": "3",
+   "read_only": 1
+  },
+  {
+   "fieldname": "to_date_amount",
+   "fieldtype": "Currency",
+   "label": "To-Date Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "balance_qty",
+   "fieldtype": "Float",
+   "label": "Balance Qty",
+   "precision": "3",
+   "read_only": 1
+  },
+  {
+   "fieldname": "balance_amount",
+   "fieldtype": "Currency",
+   "label": "Balance Amount",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_cost",
+   "fieldtype": "Section Break",
+   "label": "Cost Tracking"
+  },
+  {
+   "fieldname": "cost_to_date",
+   "fieldtype": "Currency",
+   "label": "Cost To-Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "margin",
+   "fieldtype": "Currency",
+   "label": "Margin",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_retention_amount",
+   "fieldtype": "Currency",
+   "label": "Total Retention Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_advance_deducted",
+   "fieldtype": "Currency",
+   "label": "Total Advance Deducted",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "labour_cost",
+   "fieldtype": "Currency",
+   "label": "Labour Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "material_cost",
+   "fieldtype": "Currency",
+   "label": "Material Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_6",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "asset_cost",
+   "fieldtype": "Currency",
+   "label": "Asset Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "subcontract_cost",
+   "fieldtype": "Currency",
+   "label": "Subcontract Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "expense_cost",
+   "fieldtype": "Currency",
+   "label": "Other Expense",
+   "read_only": 1
+  },
+  {
+   "fieldname": "overhead_cost",
+   "fieldtype": "Currency",
+   "label": "Overhead Cost",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [
+  {
+   "link_doctype": "BOQ Progress Ledger",
+   "link_fieldname": "boq_item"
+  },
+  {
+   "link_doctype": "Daily Progress Record",
+   "link_fieldname": "boq_item"
+  }
+ ],
+ "modified": "2026-01-24 00:18:38.279675",
+ "modified_by": "Administrator",
+ "module": "Construction Management",
+ "name": "BOQ Item",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Quantity Surveyor",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Construction Manager",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Projects User",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "search_fields": "project,parent_bill",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "label",
+ "track_changes": 1
 }

@@ -25,7 +25,7 @@ def get_previous_qty(boq_item: str) -> float:
 		SELECT COALESCE(SUM(qty), 0) as total
 		FROM `tabBOQ Progress Ledger`
 		WHERE boq_item = %s
-		AND source IN ('Invoice', 'Proforma', 'Proforma Reversal', 'Adjustment', 'Reversal')
+		AND source IN ('Invoice', 'Proforma', 'Proforma Reversal', 'Order', 'Order Reversal', 'Adjustment', 'Reversal')
 		AND posting_date <= CURDATE()
 	""", boq_item)
 	
@@ -48,7 +48,7 @@ def get_previous_amount(boq_item: str) -> float:
 		SELECT COALESCE(SUM(amount), 0) as total
 		FROM `tabBOQ Progress Ledger`
 		WHERE boq_item = %s
-		AND source IN ('Invoice', 'Proforma', 'Proforma Reversal', 'Adjustment', 'Reversal')
+		AND source IN ('Invoice', 'Proforma', 'Proforma Reversal', 'Order', 'Order Reversal', 'Adjustment', 'Reversal')
 		AND posting_date <= CURDATE()
 	""", boq_item)
 	
@@ -255,11 +255,11 @@ def validate_ledger_entry_fields(
 	if not posting_date:
 		errors.append("Posting Date is required")
 	
-	valid_sources = ["Invoice", "Proforma", "Proforma Reversal", "Adjustment", "Reversal"]
+	valid_sources = ["Invoice", "Proforma", "Proforma Reversal", "Order", "Order Reversal", "Adjustment", "Reversal"]
 	if not source:
 		errors.append("Source is required")
 	elif source not in valid_sources:
-		errors.append(f"Source must be one of: {', '.join(valid_sources)}")
+		errors.append(f"DEBUG_LEDGER_ERROR: Source '{source}' is not valid. It must be one of: {', '.join(valid_sources)}")
 	
 	if qty is None:
 		errors.append("Qty is required")

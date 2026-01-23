@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, today, getdate
 from construction_management.api.boq_ledger import create_ledger_entry, recalculate_ledger_for_item
+from construction_management.construction_management.doctype.payment_certificate.payment_certificate import create_payment_certificate_from_sales_order
 
 
 def has_invoice_permission() -> bool:
@@ -22,39 +23,40 @@ def has_invoice_permission() -> bool:
 @frappe.whitelist()
 def get_pending_proformas_for_item(boq_item: str) -> list:
 	"""
-	Get pending proforma invoices for a specific BOQ item.
-	Returns proformas that are submitted but don't have a Payment Certificate yet.
-	
-	Args:
-		boq_item: BOQ Item name
-		
-	Returns:
-		List of proforma invoices with their details
+	Get pending Sales Orders for a specific BOQ item.
+	Returns Sales Orders that are submitted but don't have a Payment Certificate yet.
 	"""
-	# Query Proforma Invoice doctype for items linked to this BOQ item
-	proformas = frappe.db.sql("""
-		SELECT DISTINCT
-			pi.name,
-			pi.posting_date,
-			pi.amount,
-			pi.net_amount,
-			pi.customer,
-			pi.project,
-			pi.status
-		FROM `tabProforma Invoice` pi
-		INNER JOIN `tabProforma Invoice Item` pii ON pii.parent = pi.name
-		WHERE pii.boq_item = %(boq_item)s
-		AND pi.docstatus = 1
-		AND pi.status IN ('Submitted', 'Partially Certified')
+	orders = frappe.db.sql("""
+		SELECT 
+			so.name,
+			so.transaction_date as posting_date,
+			soi.base_amount as amount,
+			so.customer,
+			so.project,
+			so.status
+		FROM `tabSales Order` so
+		INNER JOIN `tabSales Order Item` soi ON soi.parent = so.name
+		WHERE soi.boq_item = %(boq_item)s
+		AND so.docstatus = 1
 		AND NOT EXISTS (
-			SELECT 1 FROM `tabPayment Certificate` pc
-			WHERE pc.proforma_invoice = pi.name 
-			AND pc.docstatus != 2
+			SELECT 1 FROM `tabPayment Certificate Item` pci
+			WHERE pci.parentfield = 'items'
+			AND pci.boq_item = soi.boq_item
+			AND EXISTS (
+				SELECT 1 FROM `tabPayment Certificate` pc
+				WHERE pc.name = pci.parent
+				AND pc.sales_order = so.name
+				AND pc.docstatus != 2
+			)
 		)
-		ORDER BY pi.posting_date DESC
+		ORDER BY so.transaction_date DESC
 	""", {"boq_item": boq_item}, as_dict=True)
 	
-	return proformas
+	for so in orders:
+		so["age_days"] = (getdate(today()) - getdate(so.posting_date)).days if so.posting_date else 0
+		so["grand_total"] = so.amount # UI compatibility
+		
+	return orders
 
 
 def has_boq_write_permission() -> bool:
@@ -233,6 +235,7 @@ def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float
 		
 		# Commit the transaction
 		frappe.db.commit()
+		# Also set flag to prevent any later rollback
 		frappe.flags.commit = True
 		
 		frappe.logger().info(
@@ -779,21 +782,13 @@ def get_bills_with_billable_items(project: str) -> list:
 @frappe.whitelist()
 def get_boq_invoice_history(boq_item: str, grouped_view: int = 0) -> dict:
 	"""
-	Get invoice history for a BOQ Item (Child Payment Plan) with progressive billing details.
-	Includes proforma invoices, payment certificates, and tax invoices tracking.
-	
-	Args:
-		boq_item: BOQ Item name
-		grouped_view: Whether to return grouped transaction view (1) or raw ledger view (0)
-		
-	Returns:
-		dict with invoice summary, ledger entries, payment certificates with prev/curr/accumulated values
-		If grouped_view=1, also includes grouped_transactions and grouping_summary
+	Get invoice history for a BOQ Item with progressive billing details.
+	Includes Sales Orders, Payment Certificates, and Tax Invoices tracking.
 	"""
 	# Get BOQ Item details
 	boq_item_doc = frappe.get_doc("BOQ Item", boq_item)
 	
-	# Get all ledger entries for this BOQ Item (ordered by posting_date ASC for progressive tracking)
+	# Get all ledger entries for this BOQ Item
 	ledger_entries = frappe.db.sql("""
 		SELECT 
 			pl.name,
@@ -802,8 +797,6 @@ def get_boq_invoice_history(boq_item: str, grouped_view: int = 0) -> dict:
 			pl.source,
 			pl.reference_doctype,
 			pl.reference_name,
-			pl.proforma_invoice,
-			pl.proforma_amount,
 			pl.payment_certificate,
 			pl.certified_amount,
 			pl.tax_invoice,
@@ -830,31 +823,18 @@ def get_boq_invoice_history(boq_item: str, grouped_view: int = 0) -> dict:
 		ORDER BY pl.posting_date ASC, pl.creation ASC
 	""", boq_item, as_dict=True)
 	
-	# Add payment certificate info and format data
 	filtered_entries = []
 	acc_qty = 0
 	acc_amount = 0
 	for entry in ledger_entries:
-		# Skip cancelled invoices explicitly
 		if entry.reference_doctype == "Sales Invoice" and entry.invoice_docstatus == 2:
 			continue
-		
-		# Check for payment entries linked to this invoice
-		if entry.reference_doctype == "Sales Invoice" and entry.reference_name:
-			payment_entry = frappe.db.get_value(
-				"Payment Entry Reference",
-				{"reference_name": entry.reference_name, "reference_doctype": "Sales Invoice"},
-				"parent"
-			)
-			entry["pay_cert"] = payment_entry if payment_entry else None
-		else:
-			entry["pay_cert"] = None
 		
 		# Add unit and rate from BOQ Item
 		entry["unit"] = boq_item_doc.unit
 		entry["rate"] = boq_item_doc.rate
 		
-		# Recompute progressive accumulated values excluding cancelled invoices
+		# Recompute progressive accumulated values
 		acc_qty += flt(entry.current_qty)
 		acc_amount += flt(entry.current_amount)
 		entry["accumulated_qty"] = acc_qty
@@ -862,90 +842,63 @@ def get_boq_invoice_history(boq_item: str, grouped_view: int = 0) -> dict:
 		
 		filtered_entries.append(entry)
 	
-	# Append Sales Invoices without PI/PC ledger rows for visibility
-	_append_orphan_sales_invoices(boq_item, filtered_entries, boq_item_doc)
-	
-	# Get all invoices for summary calculation
-	invoices = frappe.db.sql("""
+	# Get Sales Orders (at item level for this BOQ Item)
+	sales_orders = frappe.db.sql("""
 		SELECT 
-			si.name,
-			si.status,
-			si.custom_is_proforma as is_proforma,
-			sii.amount
-		FROM `tabSales Invoice` si
-		JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
-		WHERE sii.boq_item = %s
-		AND si.docstatus = 1
+			so.name,
+			so.transaction_date as posting_date,
+			soi.base_amount as amount,
+			so.status,
+			soi.qty,
+			soi.base_amount as item_amount
+		FROM `tabSales Order` so
+		JOIN `tabSales Order Item` soi ON soi.parent = so.name
+		WHERE soi.boq_item = %s
+		AND so.docstatus = 1
+		ORDER BY so.transaction_date DESC
 	""", boq_item, as_dict=True)
 	
-	# Calculate summary
-	total_invoiced = sum(flt(inv.amount) for inv in invoices)
-	total_collected = sum(flt(inv.amount) for inv in invoices if inv.status == "Paid")
-	
-	# Get BOQ Item totals for balance calculation
-	total_qty = flt(boq_item_doc.total_qty)
-	total_amount = flt(boq_item_doc.total_qty) * flt(boq_item_doc.rate)
-	
-	# Get latest accumulated values
-	latest_accumulated_qty = flt(filtered_entries[-1].accumulated_qty) if filtered_entries else 0
-	latest_accumulated_amount = flt(filtered_entries[-1].accumulated_amount) if filtered_entries else 0
-	
-	# Get payment certificates for this BOQ Item with variance calculation
+	# Get Payment Certificates (at item level for this BOQ Item)
 	payment_certificates = frappe.db.sql("""
 		SELECT 
 			pc.name,
 			pc.posting_date,
-			pc.proforma_invoice,
-			pc.proforma_amount,
-			pc.accepted_amount,
-			(pc.proforma_amount - pc.accepted_amount) as variance,
-			CASE 
-				WHEN pc.proforma_amount > 0 THEN 
-					ROUND(((pc.proforma_amount - pc.accepted_amount) / pc.proforma_amount * 100), 2)
-				ELSE 0 
-			END as variance_percent,
-			pc.tax_invoice,
+			pci.accepted_amount,
+			pci.amount as proforma_amount,
+			pci.variance,
 			pc.status,
-			pc.payment_received,
-			pc.invoice_status
+			pc.sales_order,
+			pc.tax_invoice
 		FROM `tabPayment Certificate` pc
-		WHERE pc.boq_item = %s
+		JOIN `tabPayment Certificate Item` pci ON pci.parent = pc.name
+		WHERE pci.boq_item = %s
 		AND pc.docstatus != 2
 		ORDER BY pc.posting_date DESC
 	""", boq_item, as_dict=True)
 	
-	# Get pending proformas (proforma invoices without payment certificate)
-	pending_proformas = frappe.db.sql("""
-		SELECT 
-			si.name,
-			si.posting_date,
-			si.grand_total,
-			si.customer,
-			DATEDIFF(CURDATE(), si.posting_date) as age_days
-		FROM `tabSales Invoice` si
-		JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
-		WHERE sii.boq_item = %s
-		AND si.docstatus = 0
-		AND si.custom_is_proforma = 1
-		AND NOT EXISTS (
-			SELECT 1 FROM `tabPayment Certificate` pc 
-			WHERE pc.proforma_invoice = si.name 
-			AND pc.docstatus != 2
-		)
-		ORDER BY si.posting_date DESC
-	""", boq_item, as_dict=True)
+	# Pending Sales Orders
+	pending_orders = []
+	for so in sales_orders:
+		if not any(pc.sales_order == so.name for pc in payment_certificates):
+			# Calculate age in days
+			so["age_days"] = (getdate(today()) - getdate(so.posting_date)).days
+			pending_orders.append(so)
 	
-	# Calculate payment certificate summary
+	# Calculate summary
+	latest_accumulated_qty = acc_qty
+	latest_accumulated_amount = acc_amount
+	total_qty = flt(boq_item_doc.total_qty)
+	total_amount = total_qty * flt(boq_item_doc.rate)
+	
 	pc_summary = {
-		"total_proforma": sum(flt(pc.proforma_amount) for pc in payment_certificates),
+		"total_proforma": sum(flt(so.amount) for so in sales_orders),
 		"total_accepted": sum(flt(pc.accepted_amount) for pc in payment_certificates),
 		"total_variance": sum(flt(pc.variance) for pc in payment_certificates),
-		"total_received": sum(flt(pc.payment_received) for pc in payment_certificates),
-		"pending_proforma_count": len(pending_proformas),
-		"pending_proforma_amount": sum(flt(p.grand_total) for p in pending_proformas)
+		"total_received": sum(flt(frappe.db.get_value("Payment Certificate", pc.name, "payment_received")) for pc in payment_certificates),
+		"pending_proforma_count": len(pending_orders),
+		"pending_proforma_amount": sum(flt(so.amount) for so in pending_orders)
 	}
 	
-	# Prepare base response
 	response = {
 		"boq_item": {
 			"name": boq_item_doc.name,
@@ -956,10 +909,6 @@ def get_boq_invoice_history(boq_item: str, grouped_view: int = 0) -> dict:
 			"total_amount": total_amount
 		},
 		"summary": {
-			"invoice_count": len(invoices),
-			"total_invoiced": total_invoiced,
-			"total_collected": total_collected,
-			"pending": total_invoiced - total_collected,
 			"accumulated_qty": latest_accumulated_qty,
 			"accumulated_amount": latest_accumulated_amount,
 			"balance_qty": total_qty - latest_accumulated_qty,
@@ -967,9 +916,28 @@ def get_boq_invoice_history(boq_item: str, grouped_view: int = 0) -> dict:
 		},
 		"ledger_entries": filtered_entries,
 		"payment_certificates": payment_certificates,
-		"pending_proformas": pending_proformas,
-		"pc_summary": pc_summary
+		"pending_proformas": pending_orders, # frontend compat
+		"pc_summary": pc_summary,
+		"view_mode": "grouped" if grouped_view else "raw"
 	}
+	
+	if grouped_view:
+		from construction_management.api.transaction_grouping import (
+			group_transactions_by_billing_cycle, 
+			get_grouped_transaction_summary
+		)
+		try:
+			grouped_transactions = group_transactions_by_billing_cycle(filtered_entries, payment_certificates)
+			grouping_summary = get_grouped_transaction_summary(grouped_transactions)
+			response.update({
+				"grouped_transactions": grouped_transactions,
+				"grouping_summary": grouping_summary
+			})
+		except Exception as e:
+			frappe.log_error(f"Grouping failed: {str(e)}")
+			response["view_mode"] = "raw"
+			
+	return response
 	
 	# Add grouped transaction view if requested
 	if grouped_view:
@@ -1255,6 +1223,113 @@ def get_or_create_retention_release_item():
 	
 	return item_code
 
+
+
+@frappe.whitelist()
+def create_sales_order_from_selected_items(
+	project: str,
+	items: str | list,
+	posting_date: str = None,
+	remarks: str = None,
+	auto_submit: int = 1
+) -> dict:
+	"""
+	Create Sales Order from selected BOQ Items.
+	
+	Args:
+		project: Project name
+		items: List of dicts with boq_item and qty
+		posting_date: Optional posting date
+		remarks: Optional remarks
+		auto_submit: Whether to auto-submit the order (1=yes, 0=no)
+		
+	Returns:
+		dict with status, data or error_message
+	"""
+	import json
+	
+	try:
+		if isinstance(items, str):
+			items = json.loads(items)
+		
+		if not items:
+			return {"status": "error", "error_message": _("No items provided")}
+		
+		auto_submit = int(auto_submit)
+		
+		# Get project details
+		project_doc = frappe.get_doc("Project", project)
+		customer = project_doc.customer
+		
+		if not customer:
+			return {"status": "error", "error_message": _("Project must have a customer")}
+		
+		order = frappe.new_doc("Sales Order")
+		order.project = project
+		order.customer = customer
+		order.transaction_date = posting_date or today()
+		order.delivery_date = posting_date or today()
+		order.remarks = remarks
+		
+		bills_included = set()
+		
+		for item_data in items:
+			boq_item_name = item_data.get("boq_item")
+			qty = flt(item_data.get("qty", 0))
+			
+			if qty <= 0:
+				continue
+			
+			# Get BOQ Item details
+			boq_item = frappe.get_doc("BOQ Item", boq_item_name)
+			
+			# Ensure linked_item exists
+			if not boq_item.linked_item:
+				boq_item.create_linked_item()
+				boq_item.reload()
+			
+			# Add item to order
+			order.append("items", {
+				"item_code": boq_item.linked_item or boq_item.item_code,
+				"description": boq_item.description,
+				"qty": qty,
+				"rate": boq_item.rate,
+				"uom": boq_item.unit,
+				"project": project,
+				"boq_item": boq_item_name,
+				"bill_no": boq_item.parent_bill
+			})
+			
+			bill_no = frappe.db.get_value("BOQ Bill", boq_item.parent_bill, "bill_no")
+			bills_included.add(bill_no or boq_item.parent_bill)
+		
+		if not order.items:
+			return {"status": "error", "error_message": _("No valid items to order")}
+		
+		# Insert the order
+		order.insert()
+		
+		# Auto-submit if requested
+		if auto_submit:
+			order.submit()
+		
+		frappe.db.commit()
+		frappe.flags.commit = True
+		
+		return {
+			"status": "success",
+			"name": order.name,
+			"project": order.project,
+			"item_count": len(order.items),
+			"bills_included": list(bills_included),
+			"amount": order.base_grand_total,
+			"docstatus": order.docstatus
+		}
+		
+	except Exception as e:
+		frappe.db.rollback()
+		frappe.log_error(f"Error creating sales order: {str(e)}", "Sales Order API Error")
+		return {"status": "error", "error_message": str(e)}
 
 
 @frappe.whitelist()
@@ -2358,16 +2433,15 @@ def create_pc_from_purchase_receipt(
 @frappe.whitelist()
 def create_payment_certificate(proforma_invoice: str, posting_date: str = None, accepted_amount: float = None) -> str:
 	"""
-	Create Payment Certificate from a Proforma Invoice.
-	
-	Args:
-		proforma_invoice: Proforma Invoice name
-		posting_date: Optional posting date
-		accepted_amount: Optional accepted amount (defaults to proforma net_amount)
-		
-	Returns:
-		Payment Certificate name
+	Create Payment Certificate from Proforma or Sales Order.
 	"""
+	# Check if it's a Sales Order
+	if frappe.db.exists("Sales Order", proforma_invoice):
+		from construction_management.construction_management.doctype.payment_certificate.payment_certificate import create_payment_certificate_from_sales_order
+		result = create_payment_certificate_from_sales_order(proforma_invoice, accepted_amount)
+		return result.get("name")
+		
+	# Legacy Proforma Invoice Support
 	proforma = frappe.get_doc("Proforma Invoice", proforma_invoice)
 	
 	if proforma.docstatus != 1:
@@ -2386,22 +2460,12 @@ def create_payment_certificate(proforma_invoice: str, posting_date: str = None, 
 			_("Payment Certificate {0} already exists for this Proforma Invoice").format(existing)
 		)
 	
-	# Get proforma amount (use net_amount after retention if available)
 	proforma_amount = flt(proforma.net_amount) or flt(proforma.amount)
 	
-	# Auto-populate accepted_amount if not provided
 	if accepted_amount is None:
 		accepted_amount = proforma_amount
 	else:
 		accepted_amount = flt(accepted_amount)
-	
-	# Validate accepted_amount
-	if accepted_amount > proforma_amount:
-		frappe.throw(
-			_("Accepted amount ({0}) cannot exceed proforma amount ({1})").format(
-				accepted_amount, proforma_amount
-			)
-		)
 	
 	pc = frappe.new_doc("Payment Certificate")
 	pc.type = "Sales"
@@ -2412,24 +2476,19 @@ def create_payment_certificate(proforma_invoice: str, posting_date: str = None, 
 	pc.accepted_amount = accepted_amount
 	pc.posting_date = getdate(posting_date) if posting_date else today()
 	
-	# Auto-fetch bill_no and boq_item from proforma items
 	if proforma.items:
 		for item in proforma.items:
-			if hasattr(item, "bill_no") and item.bill_no and not pc.bill_no:
-				pc.bill_no = item.bill_no
-			if hasattr(item, "boq_item") and item.boq_item and not pc.boq_item:
-				pc.boq_item = item.boq_item
+			pc.append("items", {
+				"boq_item": item.boq_item,
+				"description": item.description,
+				"unit": item.unit,
+				"qty": item.qty,
+				"rate": item.rate,
+				"amount": item.amount,
+				"accepted_amount": (flt(item.amount) / proforma_amount) * accepted_amount if proforma_amount > 0 else 0
+			})
 	
 	pc.insert()
-	
-	# Commit the transaction
-	frappe.db.commit()
-	frappe.flags.commit = True
-	
-	frappe.logger().info(
-		f"Created Payment Certificate {pc.name} from Proforma Invoice {proforma_invoice}"
-	)
-	
 	return pc.name
 
 

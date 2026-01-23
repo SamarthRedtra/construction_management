@@ -114,7 +114,7 @@
 			"fieldtype": "Select",
 			"in_standard_filter": 1,
 			"label": "Source",
-			"options": "Invoice\nProforma\nProforma Reversal\nAdjustment\nReversal",
+			"options": "Invoice\nProforma\nProforma Reversal\nOrder\nOrder Reversal\nAdjustment\nReversal",
 			"reqd": 1,
 			"read_only": 1
 		},

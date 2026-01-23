@@ -709,7 +709,7 @@ def update_boq_item_current(boq_item: str, current_qty: float) -> dict:
 
 
 @frappe.whitelist()
-def create_bill_number(project: str, bill_no: str, description: str = None) -> dict:
+def create_bill_number(project: str, bill_no: str, description: str = None, label: str = None) -> dict:
 	"""
 	Create a new Bill Number for a project.
 	
@@ -717,6 +717,7 @@ def create_bill_number(project: str, bill_no: str, description: str = None) -> d
 		project: Project name
 		bill_no: Bill number identifier
 		description: Optional description
+		label: Optional label
 		
 	Returns:
 		dict with created bill details
@@ -746,6 +747,7 @@ def create_bill_number(project: str, bill_no: str, description: str = None) -> d
 	bill.bill_no = bill_no
 	bill.sequence = max_seq
 	bill.description = description
+	bill.label = label
 	bill.insert()
 	
 	return {

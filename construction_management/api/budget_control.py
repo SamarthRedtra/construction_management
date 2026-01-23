@@ -68,7 +68,7 @@ def _validate_project_level(dpr, mode, threshold, cost_impact):
 	potential_total = current_project_cost + cost_impact
 	
 	project = frappe.get_doc("Project", dpr.project)
-	project_budget = flt(project.estimated_cost)
+	project_budget = flt(getattr(project, "estimated_cost", 0) or getattr(project, "estimated_costing", 0) or 0)
 	
 	if project_budget <= 0:
 		return

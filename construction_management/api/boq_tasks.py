@@ -19,6 +19,7 @@ def create_boq_item_with_task(
 	total_qty: float,
 	rate: float,
 	item_code: str = None,
+	label: str = None,
 	is_task: int = 0,
 	start_date: str = None,
 	end_date: str = None,
@@ -28,6 +29,11 @@ def create_boq_item_with_task(
 	estimated_asset_cost: float = 0,
 	estimated_other_cost: float = 0,
 	total_estimated_cost: float = 0,
+	estimated_material_cost_per_unit: float = 0,
+	estimated_labour_cost_per_unit: float = 0,
+	estimated_subcontract_cost_per_unit: float = 0,
+	estimated_asset_cost_per_unit: float = 0,
+	estimated_other_cost_per_unit: float = 0,
 	materials: str | list = None
 ) -> dict:
 	"""
@@ -40,6 +46,7 @@ def create_boq_item_with_task(
 		total_qty: Total quantity
 		rate: Rate per unit
 		item_code: Optional item code
+		label: Optional label
 		is_task: Whether to create a linked task (1 or 0)
 		start_date: Optional task start date
 		end_date: Optional task end date
@@ -67,10 +74,18 @@ def create_boq_item_with_task(
 	boq_item = frappe.new_doc("BOQ Item")
 	boq_item.parent_bill = parent_bill
 	boq_item.item_code = item_code
+	boq_item.label = label
 	boq_item.description = description
 	boq_item.unit = unit
 	boq_item.total_qty = flt(total_qty)
 	boq_item.rate = flt(rate)
+	
+	# Set unit costs
+	boq_item.estimated_material_cost_per_unit = flt(estimated_material_cost_per_unit)
+	boq_item.estimated_labour_cost_per_unit = flt(estimated_labour_cost_per_unit)
+	boq_item.estimated_subcontract_cost_per_unit = flt(estimated_subcontract_cost_per_unit)
+	boq_item.estimated_asset_cost_per_unit = flt(estimated_asset_cost_per_unit)
+	boq_item.estimated_other_cost_per_unit = flt(estimated_other_cost_per_unit)
 	
 	# Add materials if provided and field exists
 	if materials and hasattr(boq_item, 'materials'):

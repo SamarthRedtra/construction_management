@@ -448,15 +448,17 @@ def get_pending_proformas(project: str = None, bill_no: str = None) -> list:
 		filters=filters,
 		fields=[
 			"name", "project", "customer",
-			"posting_date", "amount", "net_amount", "description",
-			"DATEDIFF(CURDATE(), posting_date) as age_days"
+			"posting_date", "amount", "net_amount", "description"
 		],
 		order_by="posting_date desc"
 	)
 	
-	# Add item count
+	from frappe.utils import date_diff, today
+	
+	# Add item count and age
 	for p in proformas:
 		p["item_count"] = frappe.db.count("Proforma Invoice Item", {"parent": p.name})
+		p["age_days"] = date_diff(today(), p.posting_date)
 	
 	return proformas
 

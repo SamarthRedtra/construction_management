@@ -56,6 +56,11 @@ def update_estimated_costs(boq_item: str, new_values: Any, old_values: Any) -> d
 	# Track changes for audit
 	changes = []
 	cost_fields = [
+		"estimated_material_cost_per_unit",
+		"estimated_labour_cost_per_unit",
+		"estimated_subcontract_cost_per_unit",
+		"estimated_asset_cost_per_unit",
+		"estimated_other_cost_per_unit",
 		"estimated_material_cost",
 		"estimated_labour_cost",
 		"estimated_subcontract_cost",

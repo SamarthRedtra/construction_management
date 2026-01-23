@@ -1,0 +1,118 @@
+{
+    "actions": [],
+    "creation": "2024-01-23 16:45:00.000000",
+    "doctype": "DocType",
+    "editable_grid": 1,
+    "engine": "InnoDB",
+    "field_order": [
+        "boq_item",
+        "bill_no",
+        "description",
+        "column_break_1",
+        "unit",
+        "qty",
+        "rate",
+        "amount",
+        "section_accepted",
+        "accepted_amount",
+        "variance",
+        "sales_order_item"
+    ],
+    "fields": [
+        {
+            "fieldname": "boq_item",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "BOQ Item",
+            "options": "BOQ Item",
+            "reqd": 1
+        },
+        {
+            "fetch_from": "boq_item.parent_bill",
+            "fieldname": "bill_no",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "Bill No",
+            "options": "BOQ Bill",
+            "read_only": 1
+        },
+        {
+            "fetch_from": "boq_item.description",
+            "fieldname": "description",
+            "fieldtype": "Small Text",
+            "label": "Description",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_1",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fetch_from": "boq_item.unit",
+            "fieldname": "unit",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Unit",
+            "read_only": 1
+        },
+        {
+            "fieldname": "qty",
+            "fieldtype": "Float",
+            "in_list_view": 1,
+            "label": "Qty",
+            "description": "Quantity from Sales Order Item"
+        },
+        {
+            "fieldname": "rate",
+            "fieldtype": "Currency",
+            "in_list_view": 1,
+            "label": "Rate",
+            "description": "Rate from Sales Order Item"
+        },
+        {
+            "fieldname": "amount",
+            "fieldtype": "Currency",
+            "in_list_view": 1,
+            "label": "Amount",
+            "read_only": 1
+        },
+        {
+            "fieldname": "section_accepted",
+            "fieldtype": "Section Break",
+            "label": "Accepted"
+        },
+        {
+            "fieldname": "accepted_amount",
+            "fieldtype": "Currency",
+            "in_list_view": 1,
+            "label": "Accepted Amount"
+        },
+        {
+            "fieldname": "variance",
+            "fieldtype": "Currency",
+            "in_list_view": 1,
+            "label": "Variance",
+            "read_only": 1
+        },
+        {
+            "fieldname": "sales_order_item",
+            "fieldtype": "Data",
+            "label": "Sales Order Item",
+            "read_only": 1,
+            "hidden": 1
+        }
+    ],
+    "index_web_pages_for_search": 1,
+    "istable": 1,
+    "links": [],
+    "modified": "2024-01-23 16:45:00.000000",
+    "modified_by": "Administrator",
+    "module": "Construction Management",
+    "name": "Payment Certificate Item",
+    "owner": "Administrator",
+    "permissions": [],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "states": [],
+    "track_changes": 1
+}

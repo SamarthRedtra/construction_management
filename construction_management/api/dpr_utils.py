@@ -359,21 +359,6 @@ def create_dpr_with_details(
 ) -> dict:
 	"""
 	Create a DPR with employee, asset, material, expense, and overhead details.
-	
-	Args:
-		project: Project name
-		boq_item: BOQ Item name
-		date: DPR date
-		employees: JSON string of employee list [{employee, hours, rate_per_day, amount}]
-		assets: JSON string of asset list [{asset, hours, rate_per_day, amount}]
-		materials: JSON string of material list [{item_code, warehouse, qty, rate, amount}]
-		expenses: JSON string of expense list [{expense_type, description, amount}]
-		overheads: JSON string of overhead list [{account, description, amount}]
-		subcontract_cost: Subcontract cost
-		remarks: Optional remarks
-		
-	Returns:
-		dict with created DPR details
 	"""
 	import json
 	
@@ -383,12 +368,57 @@ def create_dpr_with_details(
 	expenses_list = json.loads(expenses) if expenses else []
 	overheads_list = json.loads(overheads) if overheads else []
 	
+	return _create_dpr_internal(
+		project=project,
+		date=date,
+		boq_item=boq_item,
+		bill_no=bill_no,
+		project_sites=project_sites,
+		warehouse=warehouse,
+		remarks=remarks,
+		subcontract_cost=subcontract_cost,
+		employees=employees_list,
+		assets=assets_list,
+		materials=materials_list,
+		expenses=expenses_list,
+		overheads=overheads_list
+	)
+
+
+def _create_dpr_internal(
+	project: str,
+	date: str,
+	boq_item: str,
+	bill_no: str = None,
+	project_sites: str = None,
+	warehouse: str = None,
+	remarks: str = None,
+	subcontract_cost: float = 0,
+	employees: list = None,
+	assets: list = None,
+	materials: list = None,
+	expenses: list = None,
+	overheads: list = None,
+	area_covered: float = 0,
+	consumed_qty: float = 0,
+	balance_qty: float = 0,
+	submit: int = 0
+) -> dict:
+	"""
+	Internal helper to create a single DPR document passed pre-parsed lists.
+	"""
+	employees = employees or []
+	assets = assets or []
+	materials = materials or []
+	expenses = expenses or []
+	overheads = overheads or []
+	
 	# Calculate totals
-	labour_cost = sum(flt(e.get("amount", 0)) for e in employees_list)
-	asset_cost = sum(flt(a.get("amount", 0)) for a in assets_list)
-	material_cost = sum(flt(m.get("amount", 0)) for m in materials_list)
-	expense_cost = sum(flt(x.get("amount", 0)) for x in expenses_list)
-	overhead_cost = sum(flt(o.get("amount", 0)) for o in overheads_list)
+	labour_cost = sum(flt(e.get("amount", 0)) for e in employees)
+	asset_cost = sum(flt(a.get("amount", 0)) for a in assets)
+	material_cost = sum(flt(m.get("amount", 0)) for m in materials)
+	expense_cost = sum(flt(x.get("amount", 0)) for x in expenses)
+	overhead_cost = sum(flt(o.get("amount", 0)) for o in overheads)
 	
 	# Create DPR
 	dpr = frappe.new_doc("Daily Progress Record")
@@ -399,6 +429,7 @@ def create_dpr_with_details(
 		dpr.warehouse = warehouse
 	if project_sites:
 		dpr.project_sites = project_sites
+	
 	dpr.date = date
 	dpr.labour_cost = labour_cost
 	dpr.material_cost = material_cost
@@ -408,8 +439,13 @@ def create_dpr_with_details(
 	dpr.overhead_cost = overhead_cost
 	dpr.remarks = remarks
 	
+	# Additional fields for enhanced tracking
+	if area_covered: dpr.area_covered = flt(area_covered)
+	if consumed_qty: dpr.consumed_qty = flt(consumed_qty)
+	if balance_qty: dpr.balance_qty = flt(balance_qty)
+	
 	# Add employees
-	for emp in employees_list:
+	for emp in employees:
 		dpr.append("employees", {
 			"employee": emp.get("employee"),
 			"hours": flt(emp.get("hours", 8)),
@@ -418,16 +454,17 @@ def create_dpr_with_details(
 		})
 	
 	# Add assets
-	for asset in assets_list:
+	for asset in assets:
 		dpr.append("assets", {
 			"asset": asset.get("asset"),
 			"hours": flt(asset.get("hours", 8)),
 			"rate_per_day": flt(asset.get("rate_per_day", 0)),
+			"rate_per_hour": flt(asset.get("rate_per_hour", 0)),
 			"amount": flt(asset.get("amount", 0))
 		})
 	
 	# Add materials
-	for mat in materials_list:
+	for mat in materials:
 		dpr.append("materials", {
 			"item_code": mat.get("item_code"),
 			"warehouse": mat.get("warehouse") or warehouse,
@@ -437,7 +474,7 @@ def create_dpr_with_details(
 		})
 	
 	# Add expenses
-	for exp in expenses_list:
+	for exp in expenses:
 		dpr.append("expenses", {
 			"expense_type": exp.get("expense_type"),
 			"description": exp.get("description", ""),
@@ -445,7 +482,7 @@ def create_dpr_with_details(
 		})
 	
 	# Add overheads
-	for ovh in overheads_list:
+	for ovh in overheads:
 		dpr.append("overheads", {
 			"account": ovh.get("account"),
 			"description": ovh.get("description", ""),
@@ -454,6 +491,9 @@ def create_dpr_with_details(
 	
 	dpr.insert()
 	
+	if submit:
+		dpr.submit()
+	
 	return {
 		"name": dpr.name,
 		"total_cost": dpr.total_cost
@@ -461,110 +501,55 @@ def create_dpr_with_details(
 
 
 @frappe.whitelist()
-def get_project_warehouses(project: str) -> list:
+def create_bulk_dpr_enhanced(project: str, date: str, data: str, submit: int = 0) -> dict:
 	"""
-	Get warehouses linked to a specific project.
-	
-	Args:
-		project: Project name
-		
-	Returns:
-		List of warehouses with custom_project = project
+	Enhanced bulk create Daily Progress Records with full child table support.
+	Uses the standard creation logic iteratively.
 	"""
-	warehouses = frappe.get_all(
-		"Warehouse",
-		filters={"custom_project": project},
-		fields=["name", "warehouse_name", "is_group", "parent_warehouse"]
-	)
-	return warehouses
-
-
-@frappe.whitelist()
-def get_warehouse_items_with_stock(warehouse: str, project: str = None) -> list:
-	"""
-	Get items with available stock in a warehouse.
+	import json
 	
-	Property 10: Only items with actual_qty > 0 in the project's site_location 
-	warehouse SHALL be available for selection.
+	records_data = json.loads(data) if isinstance(data, str) else data
+	created_names = []
+	errors = []
 	
-	Args:
-		warehouse: Warehouse name (optional if project provided)
-		project: Project name (to get site_location warehouse)
-		
-	Returns:
-		List of items with actual_qty > 0
-	"""
-	# If project provided, get site_location warehouse
-	if project and not warehouse:
-		warehouse = frappe.db.get_value("Project", project, "site_location")
-	
-	if not warehouse:
-		return []
-	
-	items = frappe.db.sql("""
-		SELECT 
-			b.item_code,
-			i.item_name,
-			i.stock_uom,
-			b.actual_qty,
-			b.valuation_rate
-		FROM `tabBin` b
-		JOIN `tabItem` i ON i.name = b.item_code
-		WHERE b.warehouse = %s
-		AND b.actual_qty > 0
-		ORDER BY i.item_name
-	""", warehouse, as_dict=True)
-	
-	return items
-
-
-@frappe.whitelist()
-def validate_material_stock(warehouse: str, item_code: str, qty: float, project: str = None) -> dict:
-	"""
-	Validate if sufficient stock is available for a material.
-	
-	Property 11: The requested quantity SHALL NOT exceed the available stock 
-	in the site_location warehouse.
-	
-	Args:
-		warehouse: Warehouse name (optional if project provided)
-		item_code: Item code
-		qty: Requested quantity
-		project: Project name (to get site_location warehouse)
-		
-	Returns:
-		dict with is_valid, available_qty, message
-	"""
-	qty = flt(qty)
-	
-	# If project provided, get site_location warehouse
-	if project and not warehouse:
-		warehouse = frappe.db.get_value("Project", project, "site_location")
-	
-	if not warehouse:
-		return {
-			"is_valid": False,
-			"available_qty": 0,
-			"requested_qty": qty,
-			"message": _("No warehouse specified")
-		}
-	
-	available_qty = frappe.db.get_value(
-		"Bin",
-		{"warehouse": warehouse, "item_code": item_code},
-		"actual_qty"
-	) or 0
-	
-	is_valid = flt(available_qty) >= qty
-	
+	for idx, dpr_data in enumerate(records_data):
+		try:
+			if not dpr_data.get("boq_item"):
+				errors.append(_("Row {0}: BOQ Item is required").format(idx + 1))
+				continue
+			
+			# Call the shared internal function
+			result = _create_dpr_internal(
+				project=project,
+				date=date,
+				boq_item=dpr_data.get("boq_item"),
+				bill_no=dpr_data.get("bill_no"),
+				project_sites=dpr_data.get("project_sites"),
+				remarks=dpr_data.get("remarks"),
+				subcontract_cost=flt(dpr_data.get("subcontract_cost")),
+				area_covered=flt(dpr_data.get("area_covered")),
+				consumed_qty=flt(dpr_data.get("consumed_qty")),
+				balance_qty=flt(dpr_data.get("balance_qty")),
+				employees=dpr_data.get("employees", []),
+				assets=dpr_data.get("assets", []),
+				materials=dpr_data.get("materials", []),
+				expenses=dpr_data.get("expenses", []),
+				overheads=dpr_data.get("overheads", []),
+				submit=submit
+			)
+			
+			created_names.append(result["name"])
+			
+		except Exception as e:
+			frappe.log_error(f"Enhanced Bulk DPR Error Row {idx+1}: {str(e)}")
+			errors.append(_("Row {0}: {1}").format(idx + 1, str(e)))
+			
 	return {
-		"is_valid": is_valid,
-		"available_qty": flt(available_qty),
-		"requested_qty": qty,
-		"message": "" if is_valid else _("Insufficient stock. Available: {0}, Requested: {1}").format(
-			flt(available_qty), qty
-		)
+		"created_count": len(created_names),
+		"created_names": created_names,
+		"errors": errors
 	}
+
 
 
 @frappe.whitelist()
@@ -618,3 +603,34 @@ def get_warehouse_items_query(doctype, txt, searchfield, start, page_len, filter
 		"start": start,
 		"page_len": page_len
 	})
+
+
+@frappe.whitelist()
+def validate_material_stock(warehouse: str, item_code: str, qty: float) -> dict:
+	"""
+	Whitelisted API for real-time stock validation.
+	Used by the frontend to show warnings during DPR entry.
+	
+	Returns:
+		dict: { "is_valid": bool, "message": str }
+	"""
+	if not warehouse or not item_code:
+		return {"is_valid": True}
+	
+	actual_qty = frappe.db.get_value(
+		"Bin",
+		{"warehouse": warehouse, "item_code": item_code},
+		"actual_qty"
+	) or 0
+	
+	requested_qty = flt(qty)
+	
+	if flt(actual_qty) < requested_qty:
+		return {
+			"is_valid": False,
+			"message": _("Insufficient stock for {0} in {1}. Available: {2}, Requested: {3}").format(
+				item_code, warehouse, flt(actual_qty), requested_qty
+			)
+		}
+	
+	return {"is_valid": True}
