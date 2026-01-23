@@ -4,7 +4,8 @@ app_publisher = "Construction Management"
 app_description = "Construction management platform with BOQ, Bids, MAR, NCR, IR, Tasks, DPR, IPC"
 app_email = "admin@example.com"
 app_license = "mit"
-
+# App configuration
+# Reload triggered by Antigravity at 2026-01-24 02:27
 # Apps
 # ------------------
 

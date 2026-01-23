@@ -19,6 +19,7 @@ def create_boq_item_with_task(
 	total_qty: float,
 	rate: float,
 	item_code: str = None,
+	label: str = None,
 	is_task: int = 0,
 	start_date: str = None,
 	end_date: str = None,
@@ -45,6 +46,7 @@ def create_boq_item_with_task(
 		total_qty: Total quantity
 		rate: Rate per unit
 		item_code: Optional item code
+		label: Optional label
 		is_task: Whether to create a linked task (1 or 0)
 		start_date: Optional task start date
 		end_date: Optional task end date
@@ -72,6 +74,7 @@ def create_boq_item_with_task(
 	boq_item = frappe.new_doc("BOQ Item")
 	boq_item.parent_bill = parent_bill
 	boq_item.item_code = item_code
+	boq_item.label = label
 	boq_item.description = description
 	boq_item.unit = unit
 	boq_item.total_qty = flt(total_qty)

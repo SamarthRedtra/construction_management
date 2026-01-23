@@ -10,6 +10,7 @@
   "project_boq",
   "project",
   "column_break_1",
+  "label",
   "bill_no",
   "sequence",
   "section_details",
@@ -40,6 +41,12 @@
    "label": "Naming Series",
    "options": "BILL-.YYYY.-",
    "reqd": 1
+  },
+  {
+   "fieldname": "label",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Label"
   },
   {
    "fieldname": "project_boq",
@@ -204,7 +211,7 @@
    "link_fieldname": "parent_bill"
   }
  ],
- "modified": "2026-01-16 17:53:31.745738",
+ "modified": "2026-01-24 00:17:13.798935",
  "modified_by": "Administrator",
  "module": "Construction Management",
  "name": "BOQ Bill",
@@ -266,9 +273,10 @@
   }
  ],
  "row_format": "Dynamic",
- "search_fields": "project,project_boq",
+ "search_fields": "project,project_boq,label",
  "sort_field": "sequence",
  "sort_order": "ASC",
  "states": [],
+ "title_field": "label",
  "track_changes": 1
 }

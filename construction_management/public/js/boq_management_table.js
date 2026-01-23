@@ -810,7 +810,7 @@ function renderRawTransactionsSection(ledgerEntries, paymentCertificates, pendin
 		${pendingProformas.length > 0 ? `
 		<div class="transaction-section">
 			<div class="transaction-section-title">
-				Pending Proformas
+				Pending Orders
 				<span class="entry-count-badge">${pendingProformas.length}</span>
 			</div>
 			${renderPendingProformasTable(pendingProformas)}
@@ -1208,10 +1208,10 @@ function renderPaymentCertificatesTable(certificates) {
  */
 function renderPendingProformasTable(proformas) {
 	let html = `
-		<table class="pending-proformas-table">
+		<table class="pending-orders-table">
 			<thead>
 				<tr>
-					<th>Proforma No</th>
+					<th>Order No</th>
 					<th>Date</th>
 					<th class="text-right">Amount</th>
 					<th>Customer</th>
@@ -1227,7 +1227,7 @@ function renderPendingProformasTable(proformas) {
 
 		html += `
 			<tr class="proforma-row">
-				<td class="doc-name"><a href="/app/sales-invoice/${pi.name}" target="_blank">${pi.name}</a></td>
+				<td class="doc-name"><a href="/app/sales-order/${pi.name}" target="_blank">${pi.name}</a></td>
 				<td>${pi.posting_date || '-'}</td>
 				<td class="text-right">${format_currency(pi.grand_total || 0)}</td>
 				<td>${pi.customer || '-'}</td>
@@ -1425,7 +1425,7 @@ function getTransactionHistoryStyles() {
 		
 		.ledger-entries-table,
 		.payment-certificates-table,
-		.pending-proformas-table {
+		.pending-orders-table {
 			width: 100%;
 			border-collapse: collapse;
 			background: white;
