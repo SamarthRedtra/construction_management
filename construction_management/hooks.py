@@ -162,6 +162,12 @@ doc_events = {
 	"Daily Progress Record": {
 		"validate": "construction_management.construction_management.doctype.boq_settings.boq_settings.validate_warehouse_for_dpr"
 	},
+	"Sales Order": {
+		"validate": "construction_management.overrides.sales_order.validate",
+		"on_submit": "construction_management.overrides.sales_order.on_submit",
+		"on_cancel": "construction_management.overrides.sales_order.on_cancel",
+		"on_update_after_submit": "construction_management.overrides.sales_order.on_update_after_submit"
+	},
 	"GL Entry": {
 		"on_update": "construction_management.api.gl_hook.update_cost_from_gl"
 	}

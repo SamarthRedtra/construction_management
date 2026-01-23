@@ -15,12 +15,50 @@ from frappe.utils import flt, getdate, today
 
 class PaymentCertificate(Document):
 	def validate(self):
+		self.calculate_totals()
+		self.calculate_retention()
 		self.validate_type_based_fields()
-		self.validate_amounts()
-		self.validate_proforma_invoice()
+		self.validate_sales_order()
 		self.validate_purchase_receipt()
 		self.calculate_variance()
 		self.validate_duplicate()
+	
+	def calculate_totals(self):
+		"""Calculate totals from child table if items present"""
+		if not self.get("items"):
+			return
+			
+		total_proforma = 0
+		total_accepted = 0
+		
+		for item in self.items:
+			item.amount = flt(item.qty) * flt(item.rate)
+			item.variance = flt(item.amount) - flt(item.accepted_amount)
+			
+			total_proforma += flt(item.amount)
+			total_accepted += flt(item.accepted_amount)
+			
+		self.proforma_amount = total_proforma
+		self.accepted_amount = total_accepted
+
+	def calculate_retention(self):
+		"""Calculate retention amount from BOQ Settings if not manually set"""
+		if self.type != "Sales" or not self.project:
+			return
+			
+		company = frappe.db.get_value("Project", self.project, "company")
+		if not company:
+			return
+			
+		# Fetch retention % from BOQ Settings if not already set
+		if not self.retention_percentage:
+			ret_percentage = frappe.db.get_value("BOQ Settings", company, "default_retention_percentage")
+			if ret_percentage:
+				self.retention_percentage = flt(ret_percentage)
+		
+		# Calculate amount
+		if self.retention_percentage:
+			self.retention_amount = flt(self.accepted_amount) * (flt(self.retention_percentage) / 100.0)
 	
 	def validate_type_based_fields(self):
 		"""
@@ -46,40 +84,41 @@ class PaymentCertificate(Document):
 		if flt(self.accepted_amount) <= 0:
 			frappe.throw(_("Accepted Amount must be greater than zero"))
 	
-	def validate_proforma_invoice(self):
-		"""Validate proforma invoice exists and is submitted (Sales type only)"""
-		if self.type != "Sales" or not self.proforma_invoice:
+	def validate_sales_order(self):
+		"""Validate Sales Order exists and is submitted (Sales type only)"""
+		if self.type != "Sales" or not self.sales_order:
 			return
 			
-		proforma = frappe.db.get_value(
-			"Proforma Invoice", 
-			self.proforma_invoice, 
-			["docstatus", "amount", "net_amount", "customer", "project"],
+		so = frappe.db.get_value(
+			"Sales Order", 
+			self.sales_order, 
+			["docstatus", "base_grand_total", "customer", "project"],
 			as_dict=True
 		)
 		
-		if not proforma:
-			frappe.throw(_("Proforma Invoice {0} not found").format(self.proforma_invoice))
+		if not so:
+			frappe.throw(_("Sales Order {0} not found").format(self.sales_order))
 		
-		# Proforma should be submitted (docstatus = 1)
-		if proforma.docstatus != 1:
-			frappe.throw(_("Proforma Invoice must be submitted"))
+		# SO should be submitted (docstatus = 1)
+		if so.docstatus != 1:
+			frappe.throw(_("Sales Order must be submitted"))
 		
-		# Set proforma amount from invoice if not set (use net_amount after retention)
-		if not self.proforma_amount:
-			self.proforma_amount = flt(proforma.net_amount) or flt(proforma.amount)
+		# Set proforma amount from SO if not set (use total amount)
+		# Only fallback if items table is empty
+		if not self.get("items") and not self.proforma_amount:
+			self.proforma_amount = flt(so.base_grand_total)
 		
 		# Auto-populate accepted_amount if not set
 		if not self.accepted_amount:
 			self.accepted_amount = flt(self.proforma_amount)
 		
-		# Auto-populate customer from proforma if not set
-		if not self.customer and proforma.customer:
-			self.customer = proforma.customer
+		# Auto-populate customer from SO if not set
+		if not self.customer and so.customer:
+			self.customer = so.customer
 		
-		# Auto-populate project from proforma if not set
-		if not self.project and proforma.project:
-			self.project = proforma.project
+		# Auto-populate project from SO if not set
+		if not self.project and so.project:
+			self.project = so.project
 	
 	def validate_purchase_receipt(self):
 		"""Validate purchase receipt exists (Purchase type only)"""
@@ -115,6 +154,9 @@ class PaymentCertificate(Document):
 		For Purchase: PR Amount - Accepted Amount
 		(Property 13: Variance Calculation)
 		"""
+		if self.get("items"):
+			self.calculate_totals()
+			
 		original_amount = flt(self.proforma_amount) if self.type == "Sales" else flt(self.pr_amount)
 		self.variance = original_amount - flt(self.accepted_amount)
 		
@@ -125,19 +167,19 @@ class PaymentCertificate(Document):
 	
 	def validate_duplicate(self):
 		"""Prevent creating multiple Payment Certificates for same proforma/PR"""
-		if self.type == "Sales" and self.proforma_invoice:
+		if self.type == "Sales" and self.sales_order:
 			existing = frappe.db.exists(
 				"Payment Certificate",
 				{
-					"proforma_invoice": self.proforma_invoice,
+					"sales_order": self.sales_order,
 					"docstatus": ["!=", 2],
 					"name": ["!=", self.name]
 				}
 			)
 			if existing:
 				frappe.throw(
-					_("Payment Certificate {0} already exists for Proforma Invoice {1}").format(
-						existing, self.proforma_invoice
+					_("Payment Certificate {0} already exists for Sales Order {1}").format(
+						existing, self.sales_order
 					)
 				)
 		
@@ -163,18 +205,14 @@ class PaymentCertificate(Document):
 		For Sales type:
 		1. Create Tax Invoice with accepted amount
 		2. Update BOQ Progress Ledger
-		3. Cancel/close proforma invoice
-		
-		For Purchase type:
-		1. Create Purchase Invoice with accepted amount
-		2. Update BOQ Progress Ledger
+		3. Close Sales Order with comment
 		"""
 		self.status = "Submitted"
 		
 		if self.type == "Sales":
 			self.create_tax_invoice()
 			self.update_boq_progress_ledger()
-			self.close_proforma_invoice()
+			self.close_sales_order()
 		else:  # Purchase
 			self.create_purchase_invoice()
 			self.update_boq_progress_ledger()
@@ -188,7 +226,7 @@ class PaymentCertificate(Document):
 		if self.type == "Sales" and self.tax_invoice:
 			tax_inv = frappe.get_doc("Sales Invoice", self.tax_invoice)
 			if tax_inv.docstatus == 1:
-				# Allow cancel even if linked; assume payments are handled by standard cancel rules
+				# Allow cancel even if linked
 				tax_inv.cancel()
 				frappe.msgprint(_("Tax Invoice {0} cancelled").format(self.tax_invoice))
 		
@@ -207,9 +245,7 @@ class PaymentCertificate(Document):
 	def create_tax_invoice(self):
 		"""
 		Create final Tax Invoice with accepted amount.
-		If there's variance (PI > PC), add a discount line item.
-		(Property 10: Tax Invoice Generation)
-		Requirements: 3.2
+		Supports multiple items and maps Sales Order references per item.
 		"""
 		if not self.customer:
 			self.customer = frappe.db.get_value("Project", self.project, "customer")
@@ -222,8 +258,10 @@ class PaymentCertificate(Document):
 		if not company:
 			company = frappe.defaults.get_user_default("Company")
 		
-		# Get default income account
+		# Get default income account and retention account
+		settings = frappe.get_doc("BOQ Settings", company)
 		income_account = frappe.db.get_value("Company", company, "default_income_account")
+		retention_account = settings.retention_account
 		
 		# Create invoice
 		invoice = frappe.new_doc("Sales Invoice")
@@ -233,46 +271,60 @@ class PaymentCertificate(Document):
 		invoice.posting_date = self.posting_date or today()
 		invoice.due_date = self.posting_date or today()
 		invoice.custom_payment_certificate = self.name
-		invoice.custom_proforma_invoice = self.proforma_invoice
+		invoice.custom_sales_order = self.sales_order
 		invoice.custom_is_proforma = 0  # This is a final tax invoice
 		
-		# Add bill_no and boq_item as dimensions if fields exist
-		if hasattr(invoice, "custom_bill_number"):
-			invoice.custom_bill_number = self.bill_no
+		# Set retention fields on invoice
+		if hasattr(invoice, "custom_retention_amount"):
+			invoice.custom_retention_amount = flt(self.retention_amount)
+			invoice.custom_retention_percentage = flt(self.retention_percentage)
+			invoice.custom_retention_account = retention_account
 		
-		# Get item description
-		item_desc = "Progress Billing"
-		if self.boq_item:
-			item_desc = frappe.db.get_value("BOQ Item", self.boq_item, "description") or item_desc
-		elif self.bill_no:
-			item_desc = frappe.db.get_value("BOQ Bill", self.bill_no, "description") or f"Bill: {self.bill_no}"
-		
-		# Add main item with PROFORMA amount (original billed amount)
-		# This ensures BOQ balance is calculated correctly
-		invoice.append("items", {
-			"item_name": item_desc[:140],
-			"description": item_desc,
-			"qty": 1,
-			"rate": flt(self.proforma_amount),  # Use proforma amount, not accepted
-			"income_account": income_account,
-			"project": self.project,
-			"boq_item": self.boq_item,
-			"bill_no": self.bill_no
-		})
-		
-		# If there's variance (loss), add a discount line
-		# Variance = PI - PC, positive means customer paid less
-		if flt(self.variance) > 0:
-			# Add discount line to reduce invoice to accepted amount
+		# Add items from PC items table
+		if self.get("items"):
+			for pc_item in self.items:
+				invoice.append("items", {
+					"item_code": frappe.db.get_value("BOQ Item", pc_item.boq_item, "item_code") or "Service",
+					"item_name": pc_item.description[:140],
+					"description": pc_item.description,
+					"qty": pc_item.qty,
+					"rate": pc_item.rate,
+					"income_account": income_account,
+					"project": self.project,
+					"boq_item": pc_item.boq_item,
+					"bill_no": pc_item.bill_no,
+					"sales_order": self.sales_order,
+					"so_detail": pc_item.sales_order_item
+				})
+		else:
+			# Fallback for old single-item PCs
+			item_desc = "Progress Billing"
+			if self.boq_item:
+				item_desc = frappe.db.get_value("BOQ Item", self.boq_item, "description") or item_desc
+			elif self.bill_no:
+				item_desc = frappe.db.get_value("BOQ Bill", self.bill_no, "description") or f"Bill: {self.bill_no}"
+				
 			invoice.append("items", {
-				"item_name": "Variance Discount",
-				"description": f"Variance adjustment (PI: {self.proforma_amount}, PC: {self.accepted_amount})",
+				"item_name": item_desc[:140],
+				"description": item_desc,
 				"qty": 1,
-				"rate": -flt(self.variance),  # Negative to reduce total
+				"rate": flt(self.proforma_amount),
 				"income_account": income_account,
 				"project": self.project,
 				"boq_item": self.boq_item,
-				"bill_no": self.bill_no
+				"bill_no": self.bill_no,
+				"sales_order": self.sales_order
+			})
+		
+		# Add global variance discount line if total variance exists
+		if flt(self.variance) > 0:
+			invoice.append("items", {
+				"item_name": "Variance Discount",
+				"description": f"Variance adjustment (PC: {self.name})",
+				"qty": 1,
+				"rate": -flt(self.variance),
+				"income_account": income_account,
+				"project": self.project
 			})
 		
 		invoice.flags.ignore_permissions = True
@@ -294,8 +346,6 @@ class PaymentCertificate(Document):
 	def create_purchase_invoice(self):
 		"""
 		Create Purchase Invoice with accepted amount for Purchase type PC.
-		Property 6: Purchase Payment Certificate Submission
-		Requirements: 6.3, 7.4
 		"""
 		if not self.supplier:
 			frappe.throw(_("Supplier is required to create Purchase Invoice"))
@@ -317,11 +367,9 @@ class PaymentCertificate(Document):
 		pi.due_date = self.posting_date or today()
 		pi.bill_no = self.name  # Reference to Payment Certificate
 		
-		# Link to Purchase Receipt if available
 		if self.purchase_receipt:
 			pi.purchase_receipt = self.purchase_receipt
 		
-		# Link to Purchase Order if available
 		if self.purchase_order:
 			pi.purchase_order = self.purchase_order
 		
@@ -342,11 +390,11 @@ class PaymentCertificate(Document):
 			"project": self.project
 		})
 		
-		# If there's variance (PR > PC), add a discount line
+		# Add variance discount if applicable
 		if flt(self.variance) > 0:
 			pi.append("items", {
 				"item_name": "Variance Discount",
-				"description": f"Variance adjustment (PR: {self.pr_amount}, PC: {self.accepted_amount})",
+				"description": f"Variance adjustment (PC: {self.name})",
 				"qty": 1,
 				"rate": -flt(self.variance),
 				"expense_account": expense_account,
@@ -371,137 +419,29 @@ class PaymentCertificate(Document):
 	def update_boq_progress_ledger(self):
 		"""
 		Update BOQ Progress Ledger with accepted amount.
-		(Property 11: Ledger Update with Accepted Amount)
 		"""
-		if not self.boq_item:
-			return
-		
-		# Check if BOQ Progress Ledger exists
-		if not frappe.db.exists("DocType", "BOQ Progress Ledger"):
-			return
-		
 		from construction_management.api.boq_ledger import create_ledger_entry, recalculate_ledger_for_item
 		
-		try:
-			# Prefer updating the original Proforma ledger row to keep a single chain (PI -> PC -> TI)
-			ledger_entry = None
-			
-			if self.proforma_invoice:
-				ledger_entry = frappe.db.get_value(
-					"BOQ Progress Ledger",
-					{
-						"boq_item": self.boq_item,
-						"proforma_invoice": self.proforma_invoice
-					},
-					"name"
-				)
-				
-				if not ledger_entry:
-					ledger_entry = frappe.db.get_value(
-						"BOQ Progress Ledger",
-						{
-							"boq_item": self.boq_item,
-							"reference_doctype": "Proforma Invoice",
-							"reference_name": self.proforma_invoice
-						},
-						"name"
-					)
-			
-			if ledger_entry:
-				frappe.db.set_value(
-					"BOQ Progress Ledger",
-					ledger_entry,
-					{
-						"payment_certificate": self.name,
-						"certified_amount": flt(self.accepted_amount),
-						"tax_invoice": self.tax_invoice,
-						"tax_invoice_amount": flt(self.tax_invoice_amount) if self.tax_invoice else 0,
-						"proforma_invoice": self.proforma_invoice,
-						"proforma_amount": flt(self.proforma_amount) or flt(self.accepted_amount),
-						"posting_date": self.posting_date
-					},
-					update_modified=False
-				)
-			else:
-				# Safety net: rebuild the missing ledger row from the Proforma context
-				qty = 0
-				amount = flt(self.proforma_amount) or flt(self.accepted_amount)
-				
-				if self.proforma_invoice:
-					proforma_item = frappe.db.get_value(
-						"Proforma Invoice Item",
-						{
-							"parent": self.proforma_invoice,
-							"boq_item": self.boq_item
-						},
-						["qty", "amount"],
-						as_dict=True
-					)
-					if proforma_item:
-						qty = flt(proforma_item.qty)
-						amount = flt(proforma_item.amount)
-				
-				create_ledger_entry(
-					boq_item=self.boq_item,
-					qty=qty,
-					amount=amount,
-					source="Proforma",
-					reference_doctype="Proforma Invoice" if self.proforma_invoice else None,
-					reference_name=self.proforma_invoice,
-					posting_date=self.posting_date,
-					remarks=f"Auto-created from Payment Certificate {self.name}",
-					proforma_invoice=self.proforma_invoice,
-					proforma_amount=amount,
-					payment_certificate=self.name,
-					certified_amount=flt(self.accepted_amount),
-					tax_invoice=self.tax_invoice,
-					tax_invoice_amount=flt(self.tax_invoice_amount) if self.tax_invoice else 0
-				)
-			
-			# Refresh progressive values so the chain stays balanced
-			recalculate_ledger_for_item(self.boq_item)
-		except Exception as e:
-			frappe.log_error(f"Error creating BOQ Progress Ledger: {str(e)}")
+		# If it's a multi-item PC, we update ledger per item
+		if self.get("items"):
+			for pc_item in self.items:
+				self._update_ledger_for_item(pc_item.boq_item, pc_item.qty, pc_item.amount, pc_item.accepted_amount)
+		elif self.boq_item:
+			self._update_ledger_for_item(self.boq_item, 0, self.proforma_amount, self.accepted_amount)
 
-	def revert_boq_progress_ledger(self):
-		"""
-		Undo Payment Certificate impact on BOQ Progress Ledger (single-row lifecycle).
-		"""
-		if not self.boq_item:
-			return
-		if not frappe.db.exists("DocType", "BOQ Progress Ledger"):
-			return
+	def _update_ledger_for_item(self, boq_item, qty, amount, accepted_val):
+		"""Update ledger entry for a specific BOQ item"""
+		from construction_management.api.boq_ledger import create_ledger_entry, recalculate_ledger_for_item
 		
-		from construction_management.api.boq_ledger import recalculate_ledger_for_item
-		
-		# Prefer targeting by proforma -> PC linkage, then fallback to PC or TI
+		# Try to find ledger entry from Sales Order
 		ledger_entry = None
-		if self.proforma_invoice:
+		if self.sales_order:
 			ledger_entry = frappe.db.get_value(
 				"BOQ Progress Ledger",
 				{
-					"boq_item": self.boq_item,
-					"proforma_invoice": self.proforma_invoice
-				},
-				"name"
-			)
-		
-		if not ledger_entry:
-			ledger_entry = frappe.db.get_value(
-				"BOQ Progress Ledger",
-				{
-					"boq_item": self.boq_item,
-					"payment_certificate": self.name
-				},
-				"name"
-			)
-		
-		if not ledger_entry and self.tax_invoice:
-			ledger_entry = frappe.db.get_value(
-				"BOQ Progress Ledger",
-				{
-					"boq_item": self.boq_item,
-					"tax_invoice": self.tax_invoice
+					"boq_item": boq_item,
+					"reference_doctype": "Sales Order",
+					"reference_name": self.sales_order
 				},
 				"name"
 			)
@@ -511,39 +451,78 @@ class PaymentCertificate(Document):
 				"BOQ Progress Ledger",
 				ledger_entry,
 				{
-					"payment_certificate": None,
-					"certified_amount": 0,
-					"tax_invoice": None,
-					"tax_invoice_amount": 0,
-					"remarks": f"Payment Certificate {self.name} cancelled",
-					"source": "Proforma" if self.proforma_invoice else "Adjustment"
+					"payment_certificate": self.name,
+					"certified_amount": flt(accepted_val),
+					"tax_invoice": self.tax_invoice,
+					"tax_invoice_amount": flt(self.tax_invoice_amount) if self.tax_invoice else 0,
+					"posting_date": self.posting_date
 				},
 				update_modified=False
 			)
-			recalculate_ledger_for_item(self.boq_item)
+		else:
+			# Create new entry if missing
+			create_ledger_entry(
+				boq_item=boq_item,
+				qty=qty,
+				amount=amount,
+				source="Order",
+				reference_doctype="Sales Order" if self.sales_order else None,
+				reference_name=self.sales_order,
+				posting_date=self.posting_date,
+				remarks=f"Auto-created from Payment Certificate {self.name}",
+				proforma_amount=amount,
+				payment_certificate=self.name,
+				certified_amount=flt(accepted_val),
+				tax_invoice=self.tax_invoice,
+				tax_invoice_amount=flt(self.tax_invoice_amount) if self.tax_invoice else 0
+			)
+		
+		recalculate_ledger_for_item(boq_item)
+
+	def revert_boq_progress_ledger(self):
+		"""Undo Payment Certificate impact on BOQ Progress Ledger"""
+		from construction_management.api.boq_ledger import recalculate_ledger_for_item
+		
+		items_to_recalc = []
+		if self.get("items"):
+			items_to_recalc = [i.boq_item for i in self.items]
+		elif self.boq_item:
+			items_to_recalc = [self.boq_item]
+			
+		for boq_item in items_to_recalc:
+			ledger_entries = frappe.get_all("BOQ Progress Ledger", {
+				"boq_item": boq_item,
+				"payment_certificate": self.name
+			})
+			
+			for entry in ledger_entries:
+				frappe.db.set_value(
+					"BOQ Progress Ledger",
+					entry.name,
+					{
+						"payment_certificate": None,
+						"certified_amount": 0,
+						"tax_invoice": None,
+						"tax_invoice_amount": 0,
+						"remarks": f"Payment Certificate {self.name} cancelled",
+						"source": "Order" if self.sales_order else "Adjustment"
+					},
+					update_modified=False
+				)
+			
+			recalculate_ledger_for_item(boq_item)
 	
-	def close_proforma_invoice(self):
-		"""Mark proforma invoice as converted to tax invoice"""
-		if self.proforma_invoice:
+	def close_sales_order(self):
+		"""Mark Sales Order with progress details"""
+		if self.sales_order:
 			try:
-				# Update the Proforma Invoice status and link to PC and Tax Invoice
-				proforma = frappe.get_doc("Proforma Invoice", self.proforma_invoice)
-				
-				# Update proforma with links
-				proforma.db_set({
-					"payment_certificate": self.name,
-					"tax_invoice": self.tax_invoice,
-					"converted_date": today(),
-					"status": "Converted"
-				})
-				
-				# Add comment for audit trail
-				proforma.add_comment(
+				so = frappe.get_doc("Sales Order", self.sales_order)
+				so.add_comment(
 					"Comment",
-					text=f"Converted to Tax Invoice {self.tax_invoice} via Payment Certificate {self.name}"
+					text=f"Progress certified via Payment Certificate {self.name}. Tax Invoice: {self.tax_invoice}"
 				)
 			except Exception as e:
-				frappe.log_error(f"Error closing proforma invoice: {str(e)}")
+				frappe.log_error(f"Error updating sales order: {str(e)}")
 	
 	def update_payment_status(self):
 		"""Update payment status from tax invoice"""
@@ -568,182 +547,80 @@ class PaymentCertificate(Document):
 # ============================================
 
 @frappe.whitelist()
-def get_pending_proformas(project: str = None) -> list:
-	"""
-	Get proforma invoices without Payment Certificate.
-	(Property 12: Pending Proforma Tracking)
-	
-	Args:
-		project: Optional project filter
-		
-	Returns:
-		List of pending proforma invoices
-	"""
-	filters = ["si.docstatus = 0", "si.custom_is_proforma = 1"]
-	params = []
-	
-	# Exclude those already linked to Payment Certificate
-	filters.append("""
-		NOT EXISTS (
-			SELECT 1 FROM `tabPayment Certificate` pc 
-			WHERE pc.proforma_invoice = si.name 
-			AND pc.docstatus != 2
-		)
-	""")
-	
+def get_pending_sales_orders(project: str = None) -> list:
+	"""Get Sales Orders with BOQ items that don't have Payment Certificate."""
+	filters = {"docstatus": 1}
 	if project:
-		filters.append("si.project = %s")
-		params.append(project)
+		filters["project"] = project
 	
-	proformas = frappe.db.sql("""
-		SELECT 
-			si.name,
-			si.project,
-			si.customer,
-			si.customer_name,
-			si.grand_total,
-			si.posting_date,
-			si.creation,
-			DATEDIFF(CURDATE(), si.posting_date) as age_days
-		FROM `tabSales Invoice` si
-		WHERE {filters}
-		ORDER BY si.posting_date DESC
-	""".format(filters=" AND ".join(filters)), tuple(params), as_dict=True)
+	sos = frappe.get_all(
+		"Sales Order",
+		filters=filters,
+		fields=[
+			"name", "project", "customer", "customer_name",
+			"base_grand_total as amount", "transaction_date as posting_date"
+		],
+		order_by="transaction_date DESC"
+	)
 	
-	return proformas
+	pending = []
+	for so in sos:
+		has_boq = frappe.db.exists("Sales Order Item", {"parent": so.name, "boq_item": ["!=", ""]})
+		if not has_boq:
+			continue
+			
+		has_pc = frappe.db.exists("Payment Certificate", {"sales_order": so.name, "docstatus": ["!=", 2]})
+		if not has_pc:
+			pending.append(so)
+			
+	return pending
 
 
 @frappe.whitelist()
-def create_proforma_invoice(
-	project: str,
-	customer: str,
-	amount: float,
-	bill_no: str = None,
-	boq_item: str = None,
-	description: str = None
-) -> dict:
-	"""
-	Create a proforma (draft) invoice.
-	(Task 9.6: Proforma invoice generation)
+def create_payment_certificate_from_sales_order(sales_order: str, accepted_amount: float = None, remarks: str = None) -> dict:
+	"""Create Payment Certificate from a Sales Order with multiple items."""
+	so = frappe.get_doc("Sales Order", sales_order)
 	
-	Args:
-		project: Project name
-		customer: Customer name
-		amount: Invoice amount
-		bill_no: Optional Bill No
-		boq_item: Optional BOQ Item
-		description: Optional description
-		
-	Returns:
-		dict with created invoice info
-	"""
-	# Get company from project
-	company = frappe.db.get_value("Project", project, "company")
-	if not company:
-		company = frappe.defaults.get_user_default("Company")
+	if so.docstatus != 1:
+		frappe.throw(_("Sales Order must be submitted"))
 	
-	# Get default income account
-	income_account = frappe.db.get_value("Company", company, "default_income_account")
-	
-	# Build description
-	if not description:
-		description = "Proforma Invoice"
-		if boq_item:
-			description = frappe.db.get_value("BOQ Item", boq_item, "description") or description
-		elif bill_no:
-			description = frappe.db.get_value("BOQ Bill", bill_no, "description") or f"Bill: {bill_no}"
-	
-	# Create draft invoice
-	invoice = frappe.new_doc("Sales Invoice")
-	invoice.customer = customer
-	invoice.company = company
-	invoice.project = project
-	invoice.posting_date = today()
-	invoice.due_date = today()
-	invoice.custom_is_proforma = 1  # Mark as proforma
-	
-	# Add dimensions if available
-	if hasattr(invoice, "custom_bill_number") and bill_no:
-		invoice.custom_bill_number = bill_no
-	
-	# Add item with accounting dimensions (project, bill_no, boq_item)
-	invoice.append("items", {
-		"item_name": description[:140],
-		"description": description,
-		"qty": 1,
-		"rate": flt(amount),
-		"income_account": income_account,
-		"project": project,  # Set project on item level for accounting dimension
-		"boq_item": boq_item,  # Set boq_item on item level for accounting dimension
-		"bill_no": bill_no  # Set bill_no on item level for accounting dimension
-	})
-	
-	invoice.flags.ignore_permissions = True
-	invoice.insert()  # Keep in draft
-	
-	return {
-		"name": invoice.name,
-		"grand_total": invoice.grand_total,
-		"status": "Draft",
-		"is_proforma": True
-	}
-
-
-@frappe.whitelist()
-def create_payment_certificate_from_proforma(proforma_invoice: str, accepted_amount: float = None, remarks: str = None) -> dict:
-	"""
-	Create Payment Certificate from a proforma invoice.
-	
-	Args:
-		proforma_invoice: Proforma invoice name
-		accepted_amount: Accepted amount (auto-populated from proforma if not provided)
-		remarks: Optional remarks
-		
-	Returns:
-		dict with created Payment Certificate info
-	"""
-	proforma = frappe.get_doc("Proforma Invoice", proforma_invoice)
-	
-	if proforma.docstatus != 1:
-		frappe.throw(_("Proforma Invoice must be submitted"))
-	
-	# Check if PC already exists for this proforma
+	# Check if PC already exists for this SO
 	existing_pc = frappe.db.exists("Payment Certificate", {
-		"proforma_invoice": proforma_invoice,
+		"sales_order": sales_order,
 		"docstatus": ["!=", 2]
 	})
 	if existing_pc:
-		frappe.throw(_("Payment Certificate {0} already exists for this Proforma Invoice").format(existing_pc))
-	
-	# Auto-populate accepted_amount from proforma if not provided
-	proforma_amount = flt(proforma.net_amount) or flt(proforma.amount)
-	if accepted_amount is None:
-		accepted_amount = proforma_amount
-	
-	# Validate accepted_amount doesn't exceed proforma amount
-	if flt(accepted_amount) > proforma_amount:
-		frappe.throw(
-			_("Accepted amount ({0}) cannot exceed proforma amount ({1})").format(
-				accepted_amount, proforma_amount
-			)
-		)
+		frappe.throw(_("Payment Certificate {0} already exists for this Sales Order").format(existing_pc))
 	
 	pc = frappe.new_doc("Payment Certificate")
 	pc.type = "Sales"
-	pc.project = proforma.project
-	pc.customer = proforma.customer
-	pc.proforma_invoice = proforma_invoice
-	pc.proforma_amount = proforma_amount
-	pc.accepted_amount = flt(accepted_amount)
+	pc.project = so.project
+	pc.customer = so.customer
+	pc.sales_order = sales_order
 	pc.remarks = remarks
 	
-	# Auto-fetch bill_no and boq_item from proforma invoice items
-	if proforma.items:
-		for item in proforma.items:
-			if hasattr(item, "bill_no") and item.bill_no and not pc.bill_no:
-				pc.bill_no = item.bill_no
-			if hasattr(item, "boq_item") and item.boq_item and not pc.boq_item:
-				pc.boq_item = item.boq_item
+	# Populate items from Sales Order
+	if so.items:
+		for item in so.items:
+			pc.append("items", {
+				"boq_item": item.get("boq_item"),
+				"bill_no": item.get("bill_no"),
+				"description": item.description,
+				"unit": item.uom,
+				"qty": item.qty,
+				"rate": item.rate,
+				"amount": item.amount,
+				"accepted_amount": item.amount, # Default to full amount
+				"sales_order_item": item.name
+			})
+	
+	# Trigger totals calculation
+	pc.calculate_totals()
+	pc.calculate_retention()
+	
+	# Override if specific amount provided
+	if accepted_amount is not None:
+		pc.accepted_amount = flt(accepted_amount)
 	
 	pc.insert()
 	
@@ -752,29 +629,16 @@ def create_payment_certificate_from_proforma(proforma_invoice: str, accepted_amo
 		"project": pc.project,
 		"proforma_amount": pc.proforma_amount,
 		"accepted_amount": pc.accepted_amount,
-		"variance": pc.variance,
-		"bill_no": pc.bill_no,
-		"boq_item": pc.boq_item
+		"variance": pc.variance
 	}
 
 
 @frappe.whitelist()
 def get_payment_certificate_summary(project: str) -> dict:
-	"""
-	Get payment certificate summary for a project.
-	
-	Args:
-		project: Project name
-		
-	Returns:
-		dict with summary statistics
-	"""
+	"""Get project-level Payment Certificate summary."""
 	summary = frappe.db.sql("""
 		SELECT 
 			COUNT(*) as total_count,
-			SUM(CASE WHEN status = 'Draft' THEN 1 ELSE 0 END) as draft_count,
-			SUM(CASE WHEN status = 'Submitted' THEN 1 ELSE 0 END) as submitted_count,
-			SUM(CASE WHEN status = 'Invoiced' THEN 1 ELSE 0 END) as invoiced_count,
 			SUM(CASE WHEN status = 'Paid' THEN 1 ELSE 0 END) as paid_count,
 			COALESCE(SUM(proforma_amount), 0) as total_proforma,
 			COALESCE(SUM(accepted_amount), 0) as total_accepted,
@@ -787,13 +651,8 @@ def get_payment_certificate_summary(project: str) -> dict:
 	return {
 		"project": project,
 		"total_count": summary.total_count or 0,
-		"draft_count": summary.draft_count or 0,
-		"submitted_count": summary.submitted_count or 0,
-		"invoiced_count": summary.invoiced_count or 0,
-		"paid_count": summary.paid_count or 0,
 		"total_proforma": flt(summary.total_proforma),
 		"total_accepted": flt(summary.total_accepted),
 		"total_variance": flt(summary.total_variance),
 		"total_received": flt(summary.total_received)
 	}
-

@@ -210,10 +210,10 @@ function render_item_row(item, frm) {
 	let rowStatusTooltip = '';
 
 	if (hasProforma && !hasPC && !isFullyBilled) {
-		// PI exists, PC pending
+		// SO exists, PC pending
 		rowStatusClass = 'row-status-pc-pending';
 		rowStatusIcon = '⏳';
-		rowStatusTooltip = 'Proforma created - Payment Certificate pending';
+		rowStatusTooltip = 'Sales Order created - Payment Certificate pending';
 	} else if (hasProforma && hasPC && !hasTaxInvoice && !isFullyBilled) {
 		// PC exists, Tax Invoice pending
 		rowStatusClass = 'row-status-invoice-pending';
@@ -462,12 +462,12 @@ function updateSelectionToolbar(container) {
 						<span class="selection-count">${selectedCount} item(s) selected</span>
 					</div>
 					<div class="toolbar-actions">
-						<button class="btn-toolbar btn-primary-toolbar" onclick="generateBulkProforma()">
+						<button class="btn-toolbar btn-primary-toolbar" onclick="generateBulkSalesOrder()">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
 								<polyline points="14 2 14 8 20 8"></polyline>
 							</svg>
-							Generate Proforma
+							Generate Sales Order
 						</button>
 						<button class="btn-toolbar btn-secondary-toolbar" onclick="createPaymentCertificate()">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -496,7 +496,7 @@ function updateSelectionToolbar(container) {
 	}
 }
 
-window.generateBulkProforma = function () {
+window.generateBulkSalesOrder = function () {
 	const selectedItems = $('.item-checkbox:checked');
 	if (selectedItems.length === 0) {
 		frappe.show_alert({ message: __('Please select items first'), indicator: 'orange' });
@@ -521,30 +521,24 @@ window.generateBulkProforma = function () {
 
 	const project = cur_frm.doc.name;
 	frappe.call({
-		method: 'construction_management.construction_management.doctype.proforma_invoice.proforma_invoice.create_proforma_from_selected_items',
-		args: { project: project, items: JSON.stringify(items), apply_retention: 1, auto_submit: 1 },
+		method: 'construction_management.api.boq_invoice.create_sales_order_from_selected_items',
+		args: { project: project, items: JSON.stringify(items), auto_submit: 1 },
 		freeze: true,
-		freeze_message: __('Creating and Submitting Proforma Invoice...'),
+		freeze_message: __('Creating and Submitting Sales Order...'),
 		callback: function (r) {
-			if (r.message) {
-				if (r.message.status === 'success' && r.message.name) {
-					const statusMsg = r.message.doc_status === 'Submitted'
-						? __('Proforma Invoice {0} created and submitted', [r.message.name])
-						: __('Proforma Invoice {0} created', [r.message.name]);
-					frappe.show_alert({ message: statusMsg, indicator: 'green' });
-					// Clear selection and refresh the table
-					clearSelection();
-					if (cur_frm) {
-						cur_frm.reload_doc();
-					}
-					window.open(`/app/proforma-invoice/${r.message.name}`, '_blank');
-				} else if (r.message.status === 'error') {
-					frappe.show_alert({ message: r.message.error_message || __('Failed to create proforma invoice'), indicator: 'red' });
-				} else if (r.message.name) {
-					// Backward compatibility
-					frappe.show_alert({ message: __('Proforma Invoice {0} created', [r.message.name]), indicator: 'green' });
-					window.open(`/app/proforma-invoice/${r.message.name}`, '_blank');
+			if (r.message && r.message.status === 'success') {
+				const statusMsg = r.message.docstatus === 1
+					? __('Sales Order {0} created and submitted', [r.message.name])
+					: __('Sales Order {0} created', [r.message.name]);
+				frappe.show_alert({ message: statusMsg, indicator: 'green' });
+				// Clear selection and refresh the table
+				clearSelection();
+				if (cur_frm) {
+					cur_frm.reload_doc();
 				}
+				window.open(`/app/sales-order/${r.message.name}`, '_blank');
+			} else if (r.message && r.message.status === 'error') {
+				frappe.show_alert({ message: r.message.error_message || __('Failed to create sales order'), indicator: 'red' });
 			}
 		}
 	});
@@ -559,13 +553,12 @@ window.createPaymentCertificate = function () {
 
 	frappe.prompt([
 		{
-			fieldname: 'proforma_invoice', fieldtype: 'Link', label: 'Proforma Invoice', options: 'Proforma Invoice', reqd: 1,
+			fieldname: 'sales_order', fieldtype: 'Link', label: 'Sales Order', options: 'Sales Order', reqd: 1,
 			get_query: function () {
 				return {
 					filters: {
 						project: cur_frm.doc.name,
-						docstatus: 1,
-						status: ['in', ['Submitted', 'Partially Certified']]
+						docstatus: 1
 					}
 				};
 			}
@@ -573,14 +566,14 @@ window.createPaymentCertificate = function () {
 		{ fieldname: 'posting_date', fieldtype: 'Date', label: 'Posting Date', default: frappe.datetime.get_today(), reqd: 1 }
 	], function (values) {
 		frappe.call({
-			method: 'construction_management.api.boq_invoice.create_payment_certificate',
-			args: { proforma_invoice: values.proforma_invoice, posting_date: values.posting_date },
+			method: 'construction_management.api.boq_invoice.create_payment_certificate_from_sales_order',
+			args: { sales_order: values.sales_order, posting_date: values.posting_date },
 			freeze: true,
 			freeze_message: __('Creating Payment Certificate...'),
 			callback: function (r) {
 				if (r.message) {
-					frappe.show_alert({ message: __('Payment Certificate {0} created', [r.message]), indicator: 'green' });
-					window.open(`/app/payment-certificate/${r.message}`, '_blank');
+					frappe.show_alert({ message: __('Payment Certificate {0} created', [r.message.name]), indicator: 'green' });
+					window.open(`/app/payment-certificate/${r.message.name}`, '_blank');
 				}
 			}
 		});
@@ -829,7 +822,7 @@ function renderGroupedTransactionsTable(groupedTransactions) {
 			<thead>
 				<tr>
 					<th>Billing Cycle</th>
-					<th>Proforma Invoice</th>
+					<th>Order</th>
 					<th>Payment Certificate</th>
 					<th>Tax Invoice</th>
 					<th class="text-right">Prev Qty</th>
@@ -1069,7 +1062,7 @@ function getDocumentIcon(docType) {
 
 function getDocumentTypeLabel(docType) {
 	const labels = {
-		'proforma_invoice': 'Proforma Invoice',
+		'sales_order': 'Sales Order',
 		'payment_certificate': 'Payment Certificate',
 		'tax_invoice': 'Tax Invoice'
 	};
@@ -1116,12 +1109,13 @@ function renderLedgerEntriesTable(entries) {
 			docTypeLabel = 'Tax Invoice';
 			docRouteType = 'Sales Invoice';
 		} else if (entry.reference_doctype === 'Sales Invoice') {
-			docTypeLabel = entry.is_proforma ? 'Proforma Invoice' : 'Sales Invoice';
+			const isOrder = entry.source === 'Order';
+			docTypeLabel = isOrder ? 'Sales Order' : (entry.reference_doctype || 'Invoice');
 		}
 
 		const displayStatus = hasTaxInvoice
 			? 'Tax Invoiced'
-			: (entry.reference_doctype === 'Proforma Invoice' ? 'Proforma' : (entry.invoice_status || 'Draft'));
+			: (entry.reference_doctype === 'Sales Order' ? 'Order' : (entry.invoice_status || 'Draft'));
 
 		const docTypeClass = getDocTypeClass(docTypeLabel);
 		const statusClass = getStatusClass(displayStatus);
@@ -1163,7 +1157,7 @@ function renderPaymentCertificatesTable(certificates) {
 				<tr>
 					<th>PC No</th>
 					<th>Date</th>
-					<th>Proforma Invoice</th>
+					<th>Order</th>
 					<th class="text-right">PI Amount</th>
 					<th class="text-right">Accepted Amount</th>
 					<th class="text-right">Variance</th>
@@ -1256,7 +1250,7 @@ function getDocTypeClass(doctype) {
 	const classMap = {
 		'Sales Invoice': 'doc-type-invoice',
 		'Tax Invoice': 'doc-type-invoice',
-		'Proforma Invoice': 'doc-type-proforma',
+		'Sales Order': 'doc-type-proforma',
 		'Payment Certificate': 'doc-type-pc'
 	};
 	return classMap[doctype] || 'doc-type-default';
@@ -1973,7 +1967,7 @@ function getProformaStatus(transactions) {
 	let pcDocstatus = null;
 
 	for (const txn of transactions) {
-		if (txn.doctype === 'Proforma Invoice' || txn.doctype === 'Sales Invoice') {
+		if (txn.doctype === 'Sales Order' || txn.doctype === 'Sales Invoice') {
 			if (txn.is_proforma || txn.custom_is_proforma) {
 				hasProforma = true;
 			}
@@ -2790,11 +2784,11 @@ function render_transaction_history_row(transactions, parentRow) {
 }
 
 function get_short_doctype(doctype) {
-	return { 'Proforma Invoice': 'PI', 'Payment Certificate': 'PC', 'Sales Invoice': 'Tax Inv' }[doctype] || doctype;
+	return { 'Sales Order': 'Order', 'Payment Certificate': 'PC', 'Sales Invoice': 'Tax Inv' }[doctype] || doctype;
 }
 
 function get_transaction_type_class(doctype) {
-	return { 'Proforma Invoice': 'type-pi', 'Payment Certificate': 'type-pc', 'Sales Invoice': 'type-tax' }[doctype] || '';
+	return { 'Sales Order': 'type-pi', 'Payment Certificate': 'type-pc', 'Sales Invoice': 'type-tax' }[doctype] || '';
 }
 
 function get_status_class(status) {
@@ -3282,7 +3276,7 @@ function showPCCreationDialog(proforma) {
 			fieldname: 'proforma_info',
 			fieldtype: 'HTML',
 			options: `<div style="padding: 10px; background: #f5f5f5; border-radius: 4px; margin-bottom: 15px;">
-				<strong>Proforma Invoice:</strong> ${proforma.name}<br>
+				<strong>Sales Order:</strong> ${proforma.name}<br>
 				<strong>Amount:</strong> ${format_currency(proforma.amount || proforma.net_amount)}<br>
 				<strong>Date:</strong> ${frappe.datetime.str_to_user(proforma.posting_date)}
 			</div>`
@@ -3359,7 +3353,7 @@ function showProformaSelectionForPC(proformas, boqItemName) {
 	html += '</tbody></table>';
 
 	const dialog = new frappe.ui.Dialog({
-		title: __('Select Proforma Invoice'),
+		title: __('Select Sales Order'),
 		fields: [
 			{
 				fieldname: 'info',
@@ -3511,7 +3505,7 @@ window.showAdjustments = function (cycleId) {
 function get_transaction_type_class(doctype) {
 	const classMap = {
 		'Sales Invoice': 'txn-type-invoice',
-		'Proforma Invoice': 'txn-type-proforma',
+		'Sales Order': 'txn-type-proforma',
 		'Payment Certificate': 'txn-type-pc'
 	};
 	return classMap[doctype] || 'txn-type-default';
@@ -3536,7 +3530,7 @@ function get_status_class(status) {
 function get_short_doctype(doctype) {
 	const shortNames = {
 		'Sales Invoice': 'SI',
-		'Proforma Invoice': 'PI',
+		'Sales Order': 'Order',
 		'Payment Certificate': 'PC'
 	};
 	return shortNames[doctype] || doctype;

@@ -28,6 +28,10 @@ def on_submit(doc, method):
 			create_boq_ledger_entry(doc, item)
 			update_boq_item_after_invoice(item.boq_item)
 	
+	# Create retention entry if applicable
+	if doc.get("custom_retention_amount") and flt(doc.custom_retention_amount) > 0:
+		create_retention_entry(doc)
+	
 	# Update project completion percentage
 	if doc.project:
 		from construction_management.api.project_completion import update_project_completion
@@ -44,6 +48,10 @@ def on_cancel(doc, method):
 			create_boq_reversal_entry(doc, item)
 			update_boq_item_after_invoice(item.boq_item)
 	
+	# Cancel retention entry if applicable
+	if doc.get("custom_retention_amount"):
+		cancel_retention_entry(doc)
+	
 	# Update project completion percentage
 	if doc.project:
 		from construction_management.api.project_completion import update_project_completion
@@ -51,6 +59,60 @@ def on_cancel(doc, method):
 			update_project_completion(doc.project)
 		except Exception as e:
 			frappe.log_error(f"Error updating project completion: {str(e)}")
+
+
+def create_retention_entry(invoice):
+	"""Create Journal Entry for retention amount: Debit Retention, Credit Customer"""
+	retention_account = invoice.get("custom_retention_account")
+	if not retention_account:
+		# Fallback to BOQ Settings
+		retention_account = frappe.db.get_value("BOQ Settings", invoice.company, "retention_account")
+		
+	if not retention_account:
+		frappe.msgprint(_("Retention Account not found in BOQ Settings for company {0}. Skipping Journal Entry.").format(invoice.company))
+		return
+
+	# Debit: Retention Account, Credit: Customer
+	jv = frappe.new_doc("Journal Entry")
+	jv.posting_date = invoice.posting_date
+	jv.company = invoice.company
+	jv.user_remark = f"Retention for Sales Invoice {invoice.name}"
+	
+	jv.append("accounts", {
+		"account": retention_account,
+		"debit_in_account_currency": flt(invoice.custom_retention_amount),
+		"project": invoice.project
+	})
+	
+	jv.append("accounts", {
+		"account": invoice.debit_to, # Customer account
+		"credit_in_account_currency": flt(invoice.custom_retention_amount),
+		"party_type": "Customer",
+		"party": invoice.customer,
+		"project": invoice.project,
+		"reference_type": "Sales Invoice",
+		"reference_name": invoice.name
+	})
+	
+	jv.flags.ignore_permissions = True
+	jv.insert()
+	jv.submit()
+	frappe.msgprint(_("Retention Journal Entry {0} created").format(jv.name))
+
+def cancel_retention_entry(invoice):
+	"""Cancel linked retention Journal Entry"""
+	jv_names = frappe.db.get_all("Journal Entry Account", filters={
+		"reference_type": "Sales Invoice",
+		"reference_name": invoice.name,
+		"party": invoice.customer,
+		"credit_in_account_currency": [">", 0],
+		"docstatus": 1
+	}, pluck="parent")
+	
+	for jv_name in jv_names:
+		jv = frappe.get_doc("Journal Entry", jv_name)
+		jv.cancel()
+		frappe.msgprint(_("Retention Journal Entry {0} cancelled").format(jv_name))
 
 
 def create_boq_ledger_entry(invoice, item):
@@ -81,6 +143,14 @@ def create_boq_ledger_entry(invoice, item):
 			"proforma_invoice": invoice.custom_proforma_invoice,
 			"boq_item": boq_item,
 		}, "name")
+
+	# Case 3: Invoice linked directly to Sales Order (Direct Conversion)
+	if not ledger_entry and item.get("sales_order"):
+		ledger_entry = frappe.db.get_value("BOQ Progress Ledger", {
+			"boq_item": boq_item,
+			"reference_doctype": "Sales Order",
+			"reference_name": item.sales_order
+		}, "name")
 		
 	if ledger_entry:
 		# Update existing entry with Tax Invoice details
@@ -103,8 +173,8 @@ def create_boq_ledger_entry(invoice, item):
 	# Assuming standard flow PI -> PC -> TI.
 	
 	# If no existing entry found:
-	# - If this invoice belongs to a PI/PC chain but ledger row is missing, do not create a duplicate; log instead.
-	if invoice.custom_payment_certificate or invoice.get("custom_proforma_invoice"):
+	# - If this invoice belongs to a PI/PC/SO chain but ledger row is missing, do not create a duplicate; log instead.
+	if invoice.custom_payment_certificate or invoice.get("custom_proforma_invoice") or any(it.get("sales_order") for it in invoice.items):
 		frappe.logger().warning(
 			f"Missing ledger row for BOQ Item {boq_item} on invoice {invoice.name}; skipping creation to avoid duplication."
 		)
@@ -178,6 +248,17 @@ def create_boq_reversal_entry(invoice, item):
 			"name"
 		)
 	
+	if not ledger_entry and item.get("sales_order"):
+		ledger_entry = frappe.db.get_value(
+			"BOQ Progress Ledger",
+			{
+				"boq_item": boq_item,
+				"reference_doctype": "Sales Order",
+				"reference_name": item.sales_order
+			},
+			"name"
+		)
+	
 	if not ledger_entry:
 		ledger_entry = frappe.db.get_value(
 			"BOQ Progress Ledger",
@@ -208,7 +289,7 @@ def create_boq_reversal_entry(invoice, item):
 					"tax_invoice": None,
 					"tax_invoice_amount": 0,
 					"remarks": f"Reversal of Invoice {invoice.name}",
-					"source": "Proforma" if invoice.get("custom_proforma_invoice") else "Adjustment"
+					"source": "Order" if item.get("sales_order") else ("Proforma" if invoice.get("custom_proforma_invoice") else "Adjustment")
 				},
 				update_modified=False
 			)
