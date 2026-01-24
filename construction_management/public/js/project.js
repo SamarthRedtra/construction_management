@@ -494,10 +494,20 @@ function render_action_bar(container, frm) {
 				Record Advance
 			</button>
 			` : ''}
-			<button class="btn-modern btn-outline" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none;" onclick="view_payment_certificates('${frm.doc.name}')">
+			<button class="btn-modern btn-outline" onclick="view_payment_certificates('${frm.doc.name}')">
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
 				Payment Certificates
 			</button>
+			<button class="btn-modern btn-outline" onclick="frappe.set_route('List', 'Project Sites', {project: '${frm.doc.name}'})">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+				Sites
+			</button>
+			${can_modify_boq ? `
+			<button class="btn-modern btn-outline" style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); color: white; border: none;" onclick="show_bulk_site_create_dialog('${frm.doc.name}')">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"></path></svg>
+				Bulk Sites
+			</button>
+			` : ''}
 		</div>
 		<div class="action-bar-right">
 			<button class="btn-modern btn-outline" onclick="print_invoice_till_date('${frm.doc.name}')">
@@ -6362,4 +6372,64 @@ window.refreshFullScreenBOQ = function (project) {
 			}
 		});
 	}
+};
+
+window.show_bulk_site_create_dialog = function (project) {
+	const d = new frappe.ui.Dialog({
+		title: __('Bulk Create Project Sites'),
+		fields: [
+			{
+				fieldname: 'site_names',
+				fieldtype: 'Small Text',
+				label: __('Site Names (one per line)'),
+				reqd: 1,
+				description: __('Enter each site name on a new line')
+			}
+		],
+		primary_action_label: __('Create Sites'),
+		primary_action: function (values) {
+			frappe.call({
+				method: 'construction_management.construction_management.doctype.project_sites.project_sites.create_bulk_sites',
+				args: {
+					project: project,
+					site_names: values.site_names
+				},
+				freeze: true,
+				freeze_message: __('Creating sites...'),
+				callback: function (r) {
+					if (r.message) {
+						const result = r.message;
+						let message = __('Created {0} out of {1} sites', [result.success, result.total]);
+
+						if (result.errors.length > 0) {
+							message += '<br><br><strong>' + __('Errors:') + '</strong><ul>';
+							result.errors.forEach(function (error) {
+								message += `<li>${error.site_name}: ${error.error}</li>`;
+							});
+							message += '</ul>';
+						}
+
+						frappe.msgprint({
+							title: __('Bulk Creation Complete'),
+							message: message,
+							indicator: result.errors.length > 0 ? 'orange' : 'green'
+						});
+
+						d.hide();
+						// Refresh dashboard if active
+						if (cur_frm && cur_frm.doc.name === project) {
+							cur_frm.reload_doc();
+						}
+					}
+				}
+			});
+		}
+	});
+
+	d.onhide = function () {
+		cleanup_modal_and_restore_dashboard();
+	};
+
+	d.show();
+	ensure_dashboard_visible();
 };

@@ -1,340 +1,336 @@
 {
-	"actions": [],
-	"allow_rename": 0,
-	"autoname": "naming_series:",
-	"creation": "2024-12-18 10:00:00",
-	"doctype": "DocType",
-	"engine": "InnoDB",
-	"field_order": [
-		"naming_series",
-		"project",
-		"project_boq",
-		"column_break_1",
-		"bill_no",
-		"boq_item",
-		"section_transaction",
-		"posting_date",
-		"source",
-		"entry_type",
-		"column_break_2",
-		"reference_doctype",
-		"reference_name",
-		"section_invoices",
-		"proforma_invoice",
-		"proforma_amount",
-		"column_break_inv",
-		"payment_certificate",
-		"certified_amount",
-		"column_break_inv2",
-		"tax_invoice",
-		"tax_invoice_amount",
-		"section_current",
-		"qty",
-		"amount",
-		"retention_amount",
-		"advance_deduction",
-		"section_progressive",
-		"prev_qty",
-		"prev_amount",
-		"column_break_3",
-		"current_qty",
-		"current_amount",
-		"column_break_4",
-		"accumulated_qty",
-		"accumulated_amount",
-		"section_remarks",
-		"remarks"
-	],
-	"fields": [
-		{
-			"fieldname": "naming_series",
-			"fieldtype": "Select",
-			"label": "Naming Series",
-			"options": "BOQL-.YYYY.-",
-			"reqd": 1,
-			"hidden": 1
-		},
-		{
-			"fieldname": "project",
-			"fieldtype": "Link",
-			"in_list_view": 1,
-			"in_standard_filter": 1,
-			"label": "Project",
-			"options": "Project",
-			"reqd": 1,
-			"read_only": 1
-		},
-		{
-			"fieldname": "project_boq",
-			"fieldtype": "Link",
-			"label": "Project BOQ",
-			"options": "Project BOQ",
-			"reqd": 1,
-			"read_only": 1
-		},
-		{
-			"fieldname": "column_break_1",
-			"fieldtype": "Column Break"
-		},
-		{
-			"fieldname": "bill_no",
-			"fieldtype": "Link",
-			"in_list_view": 1,
-			"in_standard_filter": 1,
-			"label": "Bill Number",
-			"options": "BOQ Bill",
-			"reqd": 1,
-			"read_only": 1
-		},
-		{
-			"fieldname": "boq_item",
-			"fieldtype": "Link",
-			"in_list_view": 1,
-			"in_standard_filter": 1,
-			"label": "BOQ Item",
-			"options": "BOQ Item",
-			"reqd": 1,
-			"read_only": 1
-		},
-		{
-			"fieldname": "section_transaction",
-			"fieldtype": "Section Break",
-			"label": "Transaction Details"
-		},
-		{
-			"fieldname": "posting_date",
-			"fieldtype": "Date",
-			"in_list_view": 1,
-			"label": "Posting Date",
-			"reqd": 1,
-			"read_only": 1
-		},
-		{
-			"fieldname": "source",
-			"fieldtype": "Select",
-			"in_standard_filter": 1,
-			"label": "Source",
-			"options": "Invoice\nProforma\nProforma Reversal\nOrder\nOrder Reversal\nAdjustment\nReversal",
-			"reqd": 1,
-			"read_only": 1
-		},
-		{
-			"fieldname": "entry_type",
-			"fieldtype": "Data",
-			"label": "Entry Type",
-			"read_only": 1,
-			"description": "Type of ledger entry"
-		},
-		{
-			"fieldname": "column_break_2",
-			"fieldtype": "Column Break"
-		},
-		{
-			"fieldname": "reference_doctype",
-			"fieldtype": "Link",
-			"label": "Reference DocType",
-			"options": "DocType",
-			"read_only": 1
-		},
-		{
-			"fieldname": "reference_name",
-			"fieldtype": "Dynamic Link",
-			"label": "Reference Name",
-			"options": "reference_doctype",
-			"read_only": 1
-		},
-		{
-			"fieldname": "section_invoices",
-			"fieldtype": "Section Break",
-			"label": "Invoice Details"
-		},
-		{
-			"fieldname": "proforma_invoice",
-			"fieldtype": "Link",
-			"label": "Proforma Invoice",
-			"options": "Proforma Invoice",
-			"read_only": 1
-		},
-		{
-			"fieldname": "proforma_amount",
-			"fieldtype": "Currency",
-			"label": "Proforma Amount",
-			"read_only": 1
-		},
-		{
-			"fieldname": "column_break_inv",
-			"fieldtype": "Column Break"
-		},
-		{
-			"fieldname": "payment_certificate",
-			"fieldtype": "Link",
-			"label": "Payment Certificate",
-			"options": "Payment Certificate",
-			"read_only": 1
-		},
-		{
-			"fieldname": "certified_amount",
-			"fieldtype": "Currency",
-			"label": "Certified Amount",
-			"read_only": 1
-		},
-		{
-			"fieldname": "column_break_inv2",
-			"fieldtype": "Column Break"
-		},
-		{
-			"fieldname": "tax_invoice",
-			"fieldtype": "Link",
-			"label": "Tax Invoice",
-			"options": "Sales Invoice",
-			"read_only": 1
-		},
-		{
-			"fieldname": "tax_invoice_amount",
-			"fieldtype": "Currency",
-			"label": "Tax Invoice Amount",
-			"read_only": 1
-		},
-		{
-			"fieldname": "section_current",
-			"fieldtype": "Section Break",
-			"label": "Current Transaction"
-		},
-		{
-			"fieldname": "qty",
-			"fieldtype": "Float",
-			"in_list_view": 1,
-			"label": "Transaction Qty",
-			"precision": "3",
-			"reqd": 1,
-			"read_only": 1,
-			"description": "Quantity in this transaction (can be negative for reversals)"
-		},
-		{
-			"fieldname": "amount",
-			"fieldtype": "Currency",
-			"in_list_view": 1,
-			"label": "Transaction Amount",
-			"reqd": 1,
-			"read_only": 1,
-			"description": "Amount in this transaction (can be negative for reversals)"
-		},
-		{
-			"fieldname": "retention_amount",
-			"fieldtype": "Currency",
-			"label": "Retention Amount",
-			"read_only": 1
-		},
-		{
-			"fieldname": "advance_deduction",
-			"fieldtype": "Currency",
-			"label": "Advance Deduction",
-			"read_only": 1
-		},
-		{
-			"fieldname": "section_progressive",
-			"fieldtype": "Section Break",
-			"label": "Progressive Tracking (Prev / Current / Accumulated)"
-		},
-		{
-			"fieldname": "prev_qty",
-			"fieldtype": "Float",
-			"label": "Previous Qty",
-			"precision": "3",
-			"read_only": 1,
-			"description": "Total qty billed before this transaction"
-		},
-		{
-			"fieldname": "prev_amount",
-			"fieldtype": "Currency",
-			"label": "Previous Amount",
-			"read_only": 1,
-			"description": "Total amount billed before this transaction"
-		},
-		{
-			"fieldname": "column_break_3",
-			"fieldtype": "Column Break"
-		},
-		{
-			"fieldname": "current_qty",
-			"fieldtype": "Float",
-			"label": "Current Qty",
-			"precision": "3",
-			"read_only": 1,
-			"description": "Qty billed in this transaction"
-		},
-		{
-			"fieldname": "current_amount",
-			"fieldtype": "Currency",
-			"label": "Current Amount",
-			"read_only": 1,
-			"description": "Amount billed in this transaction"
-		},
-		{
-			"fieldname": "column_break_4",
-			"fieldtype": "Column Break"
-		},
-		{
-			"fieldname": "accumulated_qty",
-			"fieldtype": "Float",
-			"label": "Accumulated Qty",
-			"precision": "3",
-			"read_only": 1,
-			"description": "Total qty billed to date (prev + current)"
-		},
-		{
-			"fieldname": "accumulated_amount",
-			"fieldtype": "Currency",
-			"label": "Accumulated Amount",
-			"read_only": 1,
-			"description": "Total amount billed to date (prev + current)"
-		},
-		{
-			"fieldname": "section_remarks",
-			"fieldtype": "Section Break",
-			"label": "Remarks",
-			"collapsible": 1
-		},
-		{
-			"fieldname": "remarks",
-			"fieldtype": "Small Text",
-			"label": "Remarks",
-			"read_only": 1
-		}
-	],
-	"hide_toolbar": 1,
-	"in_create": 1,
-	"index_web_pages_for_search": 0,
-	"is_submittable": 0,
-	"links": [],
-	"modified": "2024-12-20 10:00:00",
-	"modified_by": "Administrator",
-	"module": "Construction Management",
-	"name": "BOQ Progress Ledger",
-	"naming_rule": "By \"Naming Series\" field",
-	"owner": "Administrator",
-	"permissions": [
-		{
-			"email": 1,
-			"export": 1,
-			"print": 1,
-			"read": 1,
-			"report": 1,
-			"role": "System Manager",
-			"share": 1
-		},
-		{
-			"email": 1,
-			"export": 1,
-			"print": 1,
-			"read": 1,
-			"report": 1,
-			"role": "Quantity Surveyor",
-			"share": 1
-		}
-	],
-	"sort_field": "posting_date",
-	"sort_order": "DESC",
-	"states": [],
-	"track_changes": 0
+ "actions": [],
+ "autoname": "naming_series:",
+ "creation": "2024-12-18 10:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "project",
+  "project_boq",
+  "column_break_1",
+  "bill_no",
+  "boq_item",
+  "section_transaction",
+  "posting_date",
+  "source",
+  "entry_type",
+  "column_break_2",
+  "reference_doctype",
+  "reference_name",
+  "section_invoices",
+  "proforma_invoice",
+  "proforma_amount",
+  "column_break_inv",
+  "payment_certificate",
+  "certified_amount",
+  "column_break_inv2",
+  "tax_invoice",
+  "tax_invoice_amount",
+  "section_current",
+  "qty",
+  "amount",
+  "retention_amount",
+  "advance_deduction",
+  "section_progressive",
+  "prev_qty",
+  "prev_amount",
+  "column_break_3",
+  "current_qty",
+  "current_amount",
+  "column_break_4",
+  "accumulated_qty",
+  "accumulated_amount",
+  "section_remarks",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "BOQL-.YYYY.-",
+   "reqd": 1
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Project",
+   "options": "Project",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "project_boq",
+   "fieldtype": "Link",
+   "label": "Project BOQ",
+   "options": "Project BOQ",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "bill_no",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Bill Number",
+   "options": "BOQ Bill",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "boq_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "BOQ Item",
+   "options": "BOQ Item",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_transaction",
+   "fieldtype": "Section Break",
+   "label": "Transaction Details"
+  },
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Posting Date",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Source",
+   "options": "Invoice\nProforma\nProforma Reversal\nOrder\nOrder Reversal\nAdjustment\nReversal",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "description": "Type of ledger entry",
+   "fieldname": "entry_type",
+   "fieldtype": "Data",
+   "label": "Entry Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Reference DocType",
+   "options": "DocType",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Reference Name",
+   "options": "reference_doctype",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_invoices",
+   "fieldtype": "Section Break",
+   "label": "Invoice Details"
+  },
+  {
+   "fieldname": "proforma_invoice",
+   "fieldtype": "Link",
+   "label": "Proforma Invoice",
+   "options": "Proforma Invoice",
+   "read_only": 1
+  },
+  {
+   "fieldname": "proforma_amount",
+   "fieldtype": "Currency",
+   "label": "Proforma Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_inv",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "payment_certificate",
+   "fieldtype": "Link",
+   "label": "Payment Certificate",
+   "options": "Payment Certificate",
+   "read_only": 1
+  },
+  {
+   "fieldname": "certified_amount",
+   "fieldtype": "Currency",
+   "label": "Certified Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_inv2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "tax_invoice",
+   "fieldtype": "Link",
+   "label": "Tax Invoice",
+   "options": "Sales Invoice",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tax_invoice_amount",
+   "fieldtype": "Currency",
+   "label": "Tax Invoice Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_current",
+   "fieldtype": "Section Break",
+   "label": "Current Transaction"
+  },
+  {
+   "description": "Quantity in this transaction (can be negative for reversals)",
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Transaction Qty",
+   "precision": "3",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "description": "Amount in this transaction (can be negative for reversals)",
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Transaction Amount",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "retention_amount",
+   "fieldtype": "Currency",
+   "label": "Retention Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "advance_deduction",
+   "fieldtype": "Currency",
+   "label": "Advance Deduction",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_progressive",
+   "fieldtype": "Section Break",
+   "label": "Progressive Tracking (Prev / Current / Accumulated)"
+  },
+  {
+   "description": "Total qty billed before this transaction",
+   "fieldname": "prev_qty",
+   "fieldtype": "Float",
+   "label": "Previous Qty",
+   "precision": "3",
+   "read_only": 1
+  },
+  {
+   "description": "Total amount billed before this transaction",
+   "fieldname": "prev_amount",
+   "fieldtype": "Currency",
+   "label": "Previous Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Qty billed in this transaction",
+   "fieldname": "current_qty",
+   "fieldtype": "Float",
+   "label": "Current Qty",
+   "precision": "3",
+   "read_only": 1
+  },
+  {
+   "description": "Amount billed in this transaction",
+   "fieldname": "current_amount",
+   "fieldtype": "Currency",
+   "label": "Current Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Total qty billed to date (prev + current)",
+   "fieldname": "accumulated_qty",
+   "fieldtype": "Float",
+   "label": "Accumulated Qty",
+   "precision": "3",
+   "read_only": 1
+  },
+  {
+   "description": "Total amount billed to date (prev + current)",
+   "fieldname": "accumulated_amount",
+   "fieldtype": "Currency",
+   "label": "Accumulated Amount",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_remarks",
+   "fieldtype": "Section Break",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks",
+   "read_only": 1
+  }
+ ],
+ "hide_toolbar": 1,
+ "in_create": 1,
+ "links": [],
+ "modified": "2026-01-24 13:31:49.891802",
+ "modified_by": "Administrator",
+ "module": "Construction Management",
+ "name": "BOQ Progress Ledger",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Quantity Surveyor",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "posting_date",
+ "sort_order": "DESC",
+ "states": []
 }
