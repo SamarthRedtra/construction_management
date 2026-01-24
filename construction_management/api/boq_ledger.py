@@ -255,8 +255,12 @@ def validate_ledger_entry_fields(
 	if not posting_date:
 		errors.append("Posting Date is required")
 	
-	# Updated to include Order and Order Reversal
-	valid_sources = ["Order", "Order Reversal", "Invoice", "Proforma", "Proforma Reversal", "Adjustment", "Reversal"]
+	# Get valid sources from DocType options for flexibility
+	try:
+		valid_sources = frappe.get_meta("BOQ Progress Ledger").get_field("source").options.split("\n")
+	except:
+		valid_sources = ["Order", "Order Reversal", "Invoice", "Proforma", "Proforma Reversal", "Adjustment", "Reversal"]
+		
 	if not source:
 		errors.append("Source is required")
 	elif source not in valid_sources:
