@@ -289,22 +289,33 @@ def get_assets_with_rates(project: str, date: str = None) -> list:
 
 
 @frappe.whitelist()
-def get_project_dprs(project: str) -> list:
+def get_project_dprs(project: str = None, from_date: str = None, to_date: str = None) -> list:
 	"""
-	Get all Daily Progress Records for a project with summary info.
+	Get Daily Progress Records with optional project and date range filtering.
 	Includes quantity totals for DPR summary display.
-	(Task 3.3: Display Quantities in DPR Totals)
-	
-	Args:
-		project: Project name
-		
-	Returns:
-		List of DPRs with details including quantities
 	"""
-	dprs = frappe.db.sql("""
+	conditions = []
+	values = {}
+	
+	if project:
+		conditions.append("dpr.project = %(project)s")
+		values["project"] = project
+		
+	if from_date:
+		conditions.append("dpr.date >= %(from_date)s")
+		values["from_date"] = from_date
+		
+	if to_date:
+		conditions.append("dpr.date <= %(to_date)s")
+		values["to_date"] = to_date
+		
+	where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
+	
+	dprs = frappe.db.sql(f"""
 		SELECT 
 			dpr.name,
 			dpr.date,
+			dpr.project,
 			dpr.boq_item,
 			bi.description as boq_item_description,
 			bb.bill_no,
@@ -325,11 +336,10 @@ def get_project_dprs(project: str) -> list:
 		FROM `tabDaily Progress Record` dpr
 		LEFT JOIN `tabBOQ Item` bi ON bi.name = dpr.boq_item
 		LEFT JOIN `tabBOQ Bill` bb ON bb.name = bi.parent_bill
-		WHERE dpr.project = %s
+		{where_clause}
 		ORDER BY dpr.date DESC, dpr.creation DESC
-	""", project, as_dict=True)
+	""", values, as_dict=True)
 	
-	# Add status label
 	for dpr in dprs:
 		if dpr.docstatus == 0:
 			dpr['status'] = 'Draft'
