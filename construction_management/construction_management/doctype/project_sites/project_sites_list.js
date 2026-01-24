@@ -19,7 +19,14 @@ function show_bulk_create_dialog(listview) {
                 label: __('Project'),
                 options: 'Project',
                 reqd: 1,
-                default: listview.filter_area.get_filter_value('project')
+                default: (function () {
+                    if (listview.filter_area) {
+                        const filters = listview.filter_area.get_filters();
+                        const f = filters.find(f => f[1] === 'project');
+                        return f ? f[3] : "";
+                    }
+                    return "";
+                })()
             },
             {
                 fieldtype: 'Column Break'
