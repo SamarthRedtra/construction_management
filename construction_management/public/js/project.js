@@ -2604,17 +2604,71 @@ window.export_boq_excel = function (project) {
 };
 
 window.view_all_dprs = function (project) {
-	frappe.call({
-		method: 'construction_management.api.dpr_utils.get_project_dprs',
-		args: { project: project },
-		callback: function (r) {
-			if (r.message) {
-				show_dprs_dialog(project, r.message);
-			} else {
-				frappe.msgprint(__('No Daily Progress Records found for this project.'));
-			}
-		}
+	const d = new frappe.ui.Dialog({
+		title: __('Daily Progress Records Viewer'),
+		size: 'extra-large',
+		fields: [
+			{
+				label: __('Project'),
+				fieldname: 'project_filter',
+				fieldtype: 'Link',
+				options: 'Project',
+				default: project,
+				columns: 3,
+				onchange: () => refresh()
+			},
+			{
+				label: __('From Date'),
+				fieldname: 'from_date',
+				fieldtype: 'Date',
+				columns: 3,
+				onchange: () => refresh()
+			},
+			{
+				label: __('To Date'),
+				fieldname: 'to_date',
+				fieldtype: 'Date',
+				columns: 3,
+				onchange: () => refresh()
+			},
+			{
+				label: __('Search'),
+				fieldname: 'search',
+				fieldtype: 'Data',
+				columns: 3,
+				onchange: () => refresh()
+			},
+			{ fieldtype: 'Section Break' },
+			{ fieldtype: 'HTML', fieldname: 'dprs_html' }
+		]
 	});
+
+	const refresh = () => {
+		const pf = d.get_value('project_filter');
+		const fd = d.get_value('from_date');
+		const td = d.get_value('to_date');
+		const s = d.get_value('search');
+
+		frappe.call({
+			method: 'construction_management.api.dpr_utils.get_project_dprs',
+			args: { project: pf, from_date: fd, to_date: td },
+			callback: function (r) {
+				let dprs = r.message || [];
+				if (s) {
+					const search_str = s.toLowerCase();
+					dprs = dprs.filter(d =>
+						(d.name && d.name.toLowerCase().includes(search_str)) ||
+						(d.boq_item_description && d.boq_item_description.toLowerCase().includes(search_str)) ||
+						(d.bill_no && d.bill_no.toLowerCase().includes(search_str))
+					);
+				}
+				render_dprs_view(d, pf, dprs);
+			}
+		});
+	};
+
+	d.show();
+	refresh();
 };
 
 // ============================================
@@ -2784,11 +2838,10 @@ function render_gantt_chart(tasks) {
 	});
 }
 
-function show_dprs_dialog(project, dprs) {
-	// Calculate totals including quantities (Task 3.3: Display Quantities in DPR Totals)
+function render_dprs_view(d, project, dprs) {
+	// Calculate totals including quantities
 	const totals = {
 		labour: 0, material: 0, asset: 0, subcontract: 0, expense: 0, overhead: 0, total: 0,
-		// Quantity totals
 		labour_hours: 0, material_qty: 0, asset_hours: 0, subcontract_qty: 0, expense_count: 0
 	};
 	dprs.forEach(dpr => {
@@ -2800,7 +2853,6 @@ function show_dprs_dialog(project, dprs) {
 			totals.expense += flt(dpr.expense_cost);
 			totals.overhead += flt(dpr.overhead_cost);
 			totals.total += flt(dpr.total_cost);
-			// Quantity totals
 			totals.labour_hours += flt(dpr.total_labour_hours);
 			totals.material_qty += flt(dpr.total_material_qty);
 			totals.asset_hours += flt(dpr.total_asset_hours);
@@ -2809,13 +2861,11 @@ function show_dprs_dialog(project, dprs) {
 		}
 	});
 
-	// Format quantity with unit display
 	const formatQtyAmt = (qty, unit, amt) => {
 		const qtyStr = qty > 0 ? `<span class="qty-display">${flt(qty, 2)} ${unit}</span> | ` : '';
 		return `${qtyStr}${format_currency(amt)}`;
 	};
 
-	// Build table rows
 	let tableRows = dprs.length > 0 ? dprs.map((dpr, idx) => {
 		const statusClass = dpr.status === 'Submitted' ? 'status-success' :
 			(dpr.status === 'Draft' ? 'status-warning' : 'status-default');
@@ -2839,13 +2889,7 @@ function show_dprs_dialog(project, dprs) {
 			<td><span class="status-pill ${statusClass}">${dpr.status}</span></td>
 		</tr>
 		`;
-	}).join('') : '<tr><td colspan="13" class="text-center text-muted">No DPR entries found</td></tr>';
-
-	const d = new frappe.ui.Dialog({
-		title: __('Daily Progress Records - {0}', [project]),
-		size: 'extra-large',
-		fields: [{ fieldtype: 'HTML', fieldname: 'dprs_html' }]
-	});
+	}).join('') : `<tr><td colspan="13" class="text-center text-muted">${__('No Daily Progress Records found')}</td></tr>`;
 
 	d.fields_dict.dprs_html.$wrapper.html(`
 		<style>
@@ -2897,7 +2941,7 @@ function show_dprs_dialog(project, dprs) {
 			.dprs-summary-grid .summary-label { display: block; font-size: 10px; color: #6b7280; text-transform: uppercase; margin-bottom: 4px; }
 			.dprs-summary-grid .summary-card.total .summary-label { color: rgba(255,255,255,0.8); }
 			.dprs-summary-grid .summary-value { display: block; font-size: 14px; font-weight: 600; }
-			.dprs-table-wrapper { overflow-x: auto; max-height: 400px; overflow-y: auto; }
+			.dprs-table-wrapper { overflow-x: auto; max-height: 600px; overflow-y: auto; }
 			.dprs-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 			.dprs-table th, .dprs-table td { padding: 8px 6px; border-bottom: 1px solid #e9ecef; white-space: nowrap; }
 			.dprs-table th { background: #f8f9fa; font-weight: 500; font-size: 10px; text-transform: uppercase; position: sticky; top: 0; z-index: 1; }
