@@ -255,11 +255,12 @@ def validate_ledger_entry_fields(
 	if not posting_date:
 		errors.append("Posting Date is required")
 	
-	valid_sources = ["Invoice", "Proforma", "Proforma Reversal", "Order", "Order Reversal", "Adjustment", "Reversal"]
+	# Updated to include Order and Order Reversal
+	valid_sources = ["Order", "Order Reversal", "Invoice", "Proforma", "Proforma Reversal", "Adjustment", "Reversal"]
 	if not source:
 		errors.append("Source is required")
 	elif source not in valid_sources:
-		errors.append(f"DEBUG_LEDGER_ERROR: Source '{source}' is not valid. It must be one of: {', '.join(valid_sources)}")
+		errors.append(f"Source cannot be '{source}'. It should be one of {', '.join(valid_sources)}")
 	
 	if qty is None:
 		errors.append("Qty is required")
