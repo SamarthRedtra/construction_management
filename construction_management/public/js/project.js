@@ -2609,33 +2609,24 @@ window.view_all_dprs = function (project) {
 		size: 'extra-large',
 		fields: [
 			{
-				label: __('Project'),
-				fieldname: 'project_filter',
-				fieldtype: 'Link',
-				options: 'Project',
-				default: project,
-				columns: 3,
-				onchange: () => refresh()
-			},
-			{
 				label: __('From Date'),
 				fieldname: 'from_date',
 				fieldtype: 'Date',
-				columns: 3,
 				onchange: () => refresh()
 			},
+			{ fieldtype: 'Column Break' },
 			{
 				label: __('To Date'),
 				fieldname: 'to_date',
 				fieldtype: 'Date',
-				columns: 3,
 				onchange: () => refresh()
 			},
+			{ fieldtype: 'Column Break' },
 			{
 				label: __('Search'),
 				fieldname: 'search',
 				fieldtype: 'Data',
-				columns: 3,
+				placeholder: __('Search DPR, BOQ or Bill...'),
 				onchange: () => refresh()
 			},
 			{ fieldtype: 'Section Break' },
@@ -2644,14 +2635,13 @@ window.view_all_dprs = function (project) {
 	});
 
 	const refresh = () => {
-		const pf = d.get_value('project_filter');
 		const fd = d.get_value('from_date');
 		const td = d.get_value('to_date');
 		const s = d.get_value('search');
 
 		frappe.call({
 			method: 'construction_management.api.dpr_utils.get_project_dprs',
-			args: { project: pf, from_date: fd, to_date: td },
+			args: { project: project, from_date: fd, to_date: td },
 			callback: function (r) {
 				let dprs = r.message || [];
 				if (s) {
@@ -2662,7 +2652,7 @@ window.view_all_dprs = function (project) {
 						(d.bill_no && d.bill_no.toLowerCase().includes(search_str))
 					);
 				}
-				render_dprs_view(d, pf, dprs);
+				render_dprs_view(d, project, dprs);
 			}
 		});
 	};
