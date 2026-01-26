@@ -283,6 +283,7 @@ def create_ledger_entry(
 	qty: float,
 	amount: float,
 	source: str,
+	percentage: float = 0,
 	reference_doctype: str = None,
 	reference_name: str = None,
 	posting_date: str = None,
@@ -374,6 +375,7 @@ def create_ledger_entry(
 		ledger.posting_date = posting_date or today()
 		ledger.qty = current_qty
 		ledger.amount = current_amount
+		ledger.percentage = flt(percentage)
 		ledger.source = source
 		ledger.reference_doctype = reference_doctype
 		ledger.reference_name = reference_name

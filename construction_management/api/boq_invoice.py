@@ -1288,6 +1288,9 @@ def create_sales_order_from_selected_items(
 				boq_item.create_linked_item()
 				boq_item.reload()
 			
+			# Get percentage if provided
+			percentage = flt(item_data.get("percentage", 0))
+
 			# Add item to order
 			order.append("items", {
 				"item_code": boq_item.linked_item or boq_item.item_code,
@@ -1297,7 +1300,8 @@ def create_sales_order_from_selected_items(
 				"uom": boq_item.unit,
 				"project": project,
 				"boq_item": boq_item_name,
-				"bill_no": boq_item.parent_bill
+				"bill_no": boq_item.parent_bill,
+				"custom_billing_percentage": percentage
 			})
 			
 			bill_no = frappe.db.get_value("BOQ Bill", boq_item.parent_bill, "bill_no")
