@@ -10,6 +10,7 @@ from construction_management.api.budget_control import validate_dpr_budget
 
 class DailyProgressRecord(Document):
 	def validate(self):
+		self.validate_site_location()
 		self.validate_boq_item()
 		self.fetch_bill_no()
 		self.validate_material_stock()
@@ -41,6 +42,21 @@ class DailyProgressRecord(Document):
 					_("BOQ Item {0} does not belong to Project {1}").format(
 						self.boq_item, self.project
 					)
+				)
+	
+	def validate_site_location(self):
+		"""
+		Validate site location/warehouse based on BOQ Settings
+		"""
+		if not self.company:
+			return
+			
+		settings = frappe.get_doc("BOQ Settings", self.company)
+		if settings.mandatory_site_location:
+			if not self.project_sites and not self.warehouse:
+				frappe.throw(
+					_("Site Location or Project Site is mandatory for Company {0} as per BOQ Settings").format(self.company),
+					title=_("Mandatory Site Location")
 				)
 	
 	def validate_material_stock(self):
@@ -346,7 +362,7 @@ class DailyProgressRecord(Document):
 				
 			except Exception as e:
 				frappe.log_error(f"Error creating Stock Entry for DPR {self.name}, Item {row.item_code}: {str(e)}")
-				frappe.msgprint(_("Could not create Stock Entry for {0}: {1}").format(row.item_code, str(e)), indicator="orange")
+				frappe.throw(_("Could not create Stock Entry for {0}: {1}").format(row.item_code, str(e)))
 		
 		if stock_entry_names:
 			self.db_set("stock_entries", ", ".join(stock_entry_names))
@@ -409,9 +425,10 @@ class DailyProgressRecord(Document):
 		debit_account = settings.get("asset_cost_account")
 		credit_account = settings.get("asset_cost_credit")
 		
-		if not debit_account or not credit_account:
-			frappe.msgprint(_("Cannot create Asset JE - Asset Cost Account or Asset Cost Credit not configured in BOQ Settings"), indicator="orange")
-			return None
+		if not debit_account:
+			frappe.throw(_("Asset Cost Account (Debit) not configured in BOQ Settings for company {0}").format(company), title=_("Missing BOQ Setting"))
+		if not credit_account:
+			frappe.throw(_("Asset Cost Credit Account not configured in BOQ Settings for company {0}").format(company), title=_("Missing BOQ Setting"))
 		
 		try:
 			je = frappe.new_doc("Journal Entry")
@@ -471,9 +488,10 @@ class DailyProgressRecord(Document):
 		debit_account = settings.get("asset_labor_cost_account") #expense
 		credit_account = settings.get("salary_labor_account") #liability
 		
-		if not debit_account or not credit_account:
-			frappe.msgprint(_("Cannot create Labour JE - Salary Labour Account or Asset Labour Cost Account not configured in BOQ Settings"), indicator="orange")
-			return None
+		if not debit_account:
+			frappe.throw(_("Asset Labour Cost Account (Debit) not configured in BOQ Settings for company {0}").format(company), title=_("Missing BOQ Setting"))
+		if not credit_account:
+			frappe.throw(_("Salary Labour Account (Credit) not configured in BOQ Settings for company {0}").format(company), title=_("Missing BOQ Setting"))
 			
 		try:
 			je = frappe.new_doc("Journal Entry")
@@ -519,7 +537,7 @@ class DailyProgressRecord(Document):
 			
 		except Exception as e:
 			frappe.log_error(f"Error creating Labour JE for DPR {self.name}: {str(e)}")
-			frappe.msgprint(_("Could not create Journal Entry for labour: {0}").format(str(e)), indicator="orange")
+			frappe.throw(_("Could not create Journal Entry for labour: {0}").format(str(e)))
 			return None
 	
 	def _create_overhead_journal_entry(self):
@@ -594,7 +612,7 @@ class DailyProgressRecord(Document):
 			
 		except Exception as e:
 			frappe.log_error(f"Error creating Overhead JE for DPR {self.name}: {str(e)}")
-			frappe.msgprint(_("Could not create Journal Entry for overheads: {0}").format(str(e)), indicator="orange")
+			frappe.throw(_("Could not create Journal Entry for overheads: {0}").format(str(e)))
 			return None
 	
 	def _create_expense_journal_entry(self):
@@ -689,7 +707,7 @@ class DailyProgressRecord(Document):
 			
 		except Exception as e:
 			frappe.log_error(f"Error creating Expense JE for DPR {self.name}: {str(e)}")
-			frappe.msgprint(_("Could not create Journal Entry for expenses: {0}").format(str(e)), indicator="orange")
+			frappe.throw(_("Could not create Journal Entry for expenses: {0}").format(str(e)))
 			return None
 	
 	def cancel_stock_entries(self):

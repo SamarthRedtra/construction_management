@@ -59,6 +59,9 @@ frappe.ui.form.on('Daily Progress Record', {
 				}
 			};
 		});
+		// Render Connections Dashboard and Accounting Links
+		render_connections(frm);
+		render_accounting_links(frm);
 
 	},
 
@@ -580,4 +583,92 @@ function fetch_all_rates(frm) {
 
 	frm.refresh_fields();
 	frappe.show_alert({ message: __('Rates fetched'), indicator: 'green' });
+}
+
+function render_connections(frm) {
+	if (!frm.fields_dict.connections) return;
+
+	let stock_entries = (frm.doc.stock_entries || "").split(",").filter(v => v.trim());
+	let journal_entries = (frm.doc.journal_entries || "").split(",").filter(v => v.trim());
+
+	let html = `
+		<div class="dpr-connections-dashboard" style="display: flex; gap: 15px; padding: 10px 0;">
+			<div class="connection-card" data-doctype="Stock Entry" data-filters='${JSON.stringify({ "name": ["in", stock_entries] })}'>
+				<div class="card-label">${__('Stock Entries')}</div>
+				<div class="card-value">${stock_entries.length}</div>
+			</div>
+			<div class="connection-card" data-doctype="Journal Entry" data-filters='${JSON.stringify({ "name": ["in", journal_entries] })}'>
+				<div class="card-label">${__('Journal Entries')}</div>
+				<div class="card-value">${journal_entries.length}</div>
+			</div>
+		</div>
+		<style>
+			.dpr-connections-dashboard .connection-card {
+				background: #f8fafc;
+				border: 1px solid #e2e8f0;
+				border-radius: 8px;
+				padding: 12px 20px;
+				min-width: 140px;
+				cursor: pointer;
+				transition: all 0.2s;
+				box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+			}
+			.dpr-connections-dashboard .connection-card:hover {
+				background: #f1f5f9;
+				border-color: #cbd5e1;
+				transform: translateY(-1px);
+				box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+			}
+			.dpr-connections-dashboard .card-label {
+				font-size: 11px;
+				text-transform: uppercase;
+				letter-spacing: 0.5px;
+				color: #64748b;
+				font-weight: 600;
+				margin-bottom: 4px;
+			}
+			.dpr-connections-dashboard .card-value {
+				font-size: 20px;
+				font-weight: 700;
+				color: #1e293b;
+			}
+		</style>
+	`;
+	frm.fields_dict.connections.$wrapper.html(html);
+
+	// Bind click events
+	frm.fields_dict.connections.$wrapper.on('click', '.connection-card', function () {
+		const doctype = $(this).data('doctype');
+		const filters = $(this).data('filters');
+		frappe.set_route('List', doctype, filters);
+	});
+}
+
+function render_accounting_links(frm) {
+	const fields = ['stock_entries', 'journal_entries'];
+	const doctypes = {
+		'stock_entries': 'Stock Entry',
+		'journal_entries': 'Journal Entry'
+	};
+
+	fields.forEach(field => {
+		let value = frm.doc[field];
+		if (value && typeof value === 'string') {
+			let names = value.split(',').map(v => v.trim()).filter(v => v);
+			let links_html = names.map(name => {
+				return `<a class="badge badge-info dpr-ref-link" data-doctype="${doctypes[field]}" data-name="${name}" style="margin-right: 5px; cursor: pointer; font-size: 12px; padding: 4px 8px;">
+					${name}
+				</a>`;
+			}).join(' ');
+
+			frm.get_field(field).$wrapper.find('.control-value').html(links_html);
+
+			frm.get_field(field).$wrapper.on('click', '.dpr-ref-link', function (e) {
+				e.preventDefault();
+				let doctype = $(this).attr('data-doctype');
+				let name = $(this).attr('data-name');
+				frappe.set_route('Form', doctype, name);
+			});
+		}
+	});
 }

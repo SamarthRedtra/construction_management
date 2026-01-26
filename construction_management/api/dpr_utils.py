@@ -435,8 +435,9 @@ def _create_dpr_internal(
 	dpr.project = project
 	dpr.boq_item = boq_item
 	dpr.bill_no = bill_no or frappe.db.get_value("BOQ Item", boq_item, "parent_bill")
-	if warehouse:
-		dpr.warehouse = warehouse
+	final_warehouse = warehouse 
+	if final_warehouse:
+		dpr.warehouse = final_warehouse
 	if project_sites:
 		dpr.project_sites = project_sites
 	
@@ -477,7 +478,8 @@ def _create_dpr_internal(
 	for mat in materials:
 		dpr.append("materials", {
 			"item_code": mat.get("item_code"),
-			"warehouse": mat.get("warehouse") or warehouse,
+			"warehouse": mat.get("warehouse") or final_warehouse,
+			"project_sites":project_sites,
 			"qty": flt(mat.get("qty", 0)),
 			"rate": flt(mat.get("rate", 0)),
 			"amount": flt(mat.get("amount", 0))
@@ -501,12 +503,22 @@ def _create_dpr_internal(
 	
 	dpr.insert()
 	
+	error = None
 	if submit:
-		dpr.submit()
+		save_point = f"before_submit_{dpr.name.replace('-', '_')}"
+		try:
+			frappe.db.savepoint(save_point)
+			dpr.submit()
+		except Exception as e:
+			frappe.db.rollback(save_point=save_point)
+			error = str(e)
+			# Explicitly reset docstatus to 0 in case the object state was modified
+			dpr.docstatus = 0 
 	
 	return {
 		"name": dpr.name,
-		"total_cost": dpr.total_cost
+		"total_cost": dpr.total_cost,
+		"error": error
 	}
 
 
@@ -549,6 +561,10 @@ def create_bulk_dpr_enhanced(project: str, date: str, data: str, submit: int = 0
 			)
 			
 			created_names.append(result["name"])
+			if result.get("error"):
+				errors.append(_("Row {0} ({1}): Saved as Draft but failed to submit: {2}").format(
+					idx + 1, result["name"], result["error"]
+				))
 			
 		except Exception as e:
 			frappe.log_error(f"Enhanced Bulk DPR Error Row {idx+1}: {str(e)}")
@@ -644,3 +660,11 @@ def validate_material_stock(warehouse: str, item_code: str, qty: float) -> dict:
 		}
 	
 	return {"is_valid": True}
+@frappe.whitelist()
+def get_project_sites_list(project: str) -> list:
+	"""Get all sites for a project"""
+	return frappe.get_all(
+		"Project Sites",
+		filters={"project": project},
+		fields=["name"]
+	)

@@ -114,7 +114,7 @@ function render_comprehensive_items_table(items, frm) {
 						<th rowspan="2" class="col-amount sticky-col sticky-col-last">Amount</th>
 						<th colspan="3" class="col-group col-group-qty">Qty Breakdown</th>
 						<th colspan="3" class="col-group col-group-value">Value Breakdown</th>
-						<th colspan="2" class="col-group col-group-billing">Current Billing</th>
+						<th colspan="3" class="col-group col-group-billing">Current Billing</th>
 						<th colspan="6" class="col-group col-group-revenue">Revenue</th>
 						<th colspan="6" class="col-group col-group-estimated">Estimated Cost</th>
 					<th colspan="7" class="col-group col-group-actual">Actual Cost</th>
@@ -131,7 +131,7 @@ function render_comprehensive_items_table(items, frm) {
 						<th class="col-num">Previous</th>
 						<th class="col-num">Current</th>
 						<th class="col-num">Accumulated</th>
-						<!-- Current Billing -->
+						<th class="col-num">%</th>
 						<th class="col-num">Qty</th>
 						<th class="col-num">Value</th>
 						<!-- Revenue -->
@@ -258,15 +258,23 @@ function render_item_row(item, frm) {
 			
 			<!-- Current Billing Inputs -->
 			<td class="col-num">
+				<input type="number" class="current-percentage-input" value="0"
+					data-item="${item.name}" data-max="100"
+					data-total-qty="${totalQty}" data-total-amount="${ledgerAmount.total || 0}"
+					step="0.01" min="0" max="100" ${isFullyBilled ? 'disabled' : ''} aria-label="Current billing percentage" tabindex="0">
+			</td>
+			<td class="col-num">
 				<input type="number" class="current-qty-input" value="0"
 					data-item="${item.name}" data-max="${ledgerQty.balance || 0}" data-rate="${ledgerAmount.rate || 0}"
-					data-prev-amount="${ledgerAmount.prev || 0}" data-total-amount="${ledgerAmount.total || 0}"
+					data-total-qty="${totalQty}" data-total-amount="${ledgerAmount.total || 0}"
+					data-prev-amount="${ledgerAmount.prev || 0}" data-prev-qty="${ledgerQty.prev || 0}"
 					step="0.001" min="0" ${isFullyBilled ? 'disabled' : ''} aria-label="Current billing quantity" tabindex="0">
 			</td>
 			<td class="col-num">
 				<input type="number" class="current-value-input" value="0"
 					data-item="${item.name}" data-max="${ledgerAmount.balance || 0}" data-rate="${ledgerAmount.rate || 0}"
-					data-prev-amount="${ledgerAmount.prev || 0}" data-total-amount="${ledgerAmount.total || 0}"
+					data-total-qty="${totalQty}" data-total-amount="${ledgerAmount.total || 0}"
+					data-prev-amount="${ledgerAmount.prev || 0}" data-prev-qty="${ledgerQty.prev || 0}"
 					step="0.01" min="0" ${isFullyBilled ? 'disabled' : ''} aria-label="Current billing value" tabindex="0">
 			</td>
 			
@@ -366,14 +374,48 @@ function render_item_row(item, frm) {
  * Attach event handlers for the table
  */
 function attach_table_events(container, frm) {
+	// Handle Percentage input change
+	container.find('.current-percentage-input').on('change input', function () {
+		const input = $(this);
+		let percentage = parseFloat(input.val()) || 0;
+		if (percentage < 0) { percentage = 0; input.val(0); }
+		if (percentage > 100) { percentage = 100; input.val(100); }
+
+		const totalQty = parseFloat(input.data('total-qty')) || 0;
+		const totalAmount = parseFloat(input.data('total-amount')) || 0;
+		const itemName = input.data('item');
+
+		const newQty = totalQty * (percentage / 100);
+		const newValue = totalAmount * (percentage / 100);
+
+		const row = input.closest('tr');
+		const qtyInput = row.find('.current-qty-input');
+		const valueInput = row.find('.current-value-input');
+
+		qtyInput.val(newQty.toFixed(3));
+		valueInput.val(newValue.toFixed(2));
+
+		// Update display cells
+		const prevAmount = parseFloat(qtyInput.data('prev-amount')) || 0;
+		const accumValue = prevAmount + newValue;
+		row.find('.curr-qty-cell').text(format_number(newQty));
+		row.find('.curr-value-cell').text(format_currency(newValue));
+		row.find('.accum-value-cell').text(format_currency(accumValue));
+
+		clearTimeout(input.data('timeout'));
+		input.data('timeout', setTimeout(() => {
+			update_boq_item_current(itemName, newQty, frm);
+		}, 500));
+	});
+
 	// Handle Qty input change
 	container.find('.current-qty-input').on('change input', function () {
 		const input = $(this);
 		const itemName = input.data('item');
 		const maxQty = parseFloat(input.data('max')) || 0;
 		const rate = parseFloat(input.data('rate')) || 0;
+		const totalQty = parseFloat(input.data('total-qty')) || 0;
 		const prevAmount = parseFloat(input.data('prev-amount')) || 0;
-		const totalAmount = parseFloat(input.data('total-amount')) || 0;
 		let newQty = parseFloat(input.val()) || 0;
 
 		if (newQty < 0) { newQty = 0; input.val(0); }
@@ -385,8 +427,13 @@ function attach_table_events(container, frm) {
 
 		const row = input.closest('tr');
 		const valueInput = row.find('.current-value-input');
+		const percentageInput = row.find('.current-percentage-input');
+
 		const newValue = newQty * rate;
+		const newPercentage = totalQty > 0 ? (newQty / totalQty) * 100 : 0;
+
 		valueInput.val(newValue.toFixed(2));
+		percentageInput.val(newPercentage.toFixed(2));
 
 		// Update display cells
 		const accumValue = prevAmount + newValue;
@@ -406,6 +453,7 @@ function attach_table_events(container, frm) {
 		const itemName = input.data('item');
 		const maxValue = parseFloat(input.data('max')) || 0;
 		const rate = parseFloat(input.data('rate')) || 0;
+		const totalAmount = parseFloat(input.data('total-amount')) || 0;
 		const prevAmount = parseFloat(input.data('prev-amount')) || 0;
 		let newValue = parseFloat(input.val()) || 0;
 
@@ -418,8 +466,13 @@ function attach_table_events(container, frm) {
 
 		const row = input.closest('tr');
 		const qtyInput = row.find('.current-qty-input');
+		const percentageInput = row.find('.current-percentage-input');
+
 		const newQty = rate > 0 ? newValue / rate : 0;
+		const newPercentage = totalAmount > 0 ? (newValue / totalAmount) * 100 : 0;
+
 		qtyInput.val(newQty.toFixed(3));
+		percentageInput.val(newPercentage.toFixed(2));
 
 		const accumValue = prevAmount + newValue;
 		row.find('.curr-qty-cell').text(format_number(newQty));
@@ -508,9 +561,11 @@ window.generateBulkSalesOrder = function () {
 		const itemName = $(this).data('item');
 		const row = $(this).closest('tr');
 		const qtyInput = row.find('.current-qty-input');
+		const percentageInput = row.find('.current-percentage-input');
 		const qty = parseFloat(qtyInput.val()) || 0;
+		const percentage = parseFloat(percentageInput.val()) || 0;
 		if (qty > 0) {
-			items.push({ boq_item: itemName, qty: qty });
+			items.push({ boq_item: itemName, qty: qty, percentage: percentage });
 		}
 	});
 

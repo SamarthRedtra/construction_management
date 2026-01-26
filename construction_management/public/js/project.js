@@ -69,7 +69,7 @@ function show_site_stock_dialog(frm) {
 		callback: function (r) {
 			const data = r.message || [];
 			const dialog = new frappe.ui.Dialog({
-				title: __('Site Stock - {0}', [frm.doc.site_location || 'Warehouse']),
+				title: __('Site Stock-{0}', [frm.doc.site_location || 'Warehouse']),
 				size: 'large',
 				primary_action_label: __('Close'),
 				primary_action: () => dialog.hide()
@@ -138,7 +138,7 @@ function render_construction_dashboard(frm) {
 		args: { project: frm.doc.name },
 		callback: function (r) {
 			if (r.message && r.message.has_boq) {
-				// BOQ exists - show dashboard even if no bills yet
+				// BOQ exists-show dashboard even if no bills yet
 				render_modern_dashboard(wrapper, frm, r.message);
 			} else {
 				render_empty_state(wrapper, frm);
@@ -681,7 +681,7 @@ function render_items_table(items, frm) {
 }
 
 function attach_item_events(container, frm) {
-	// Handle Qty input change - auto-calculate Value
+	// Handle Qty input change-auto-calculate Value
 	container.find('.current-qty-input').on('change input', function () {
 		const input = $(this);
 		const itemName = input.data('item');
@@ -719,7 +719,7 @@ function attach_item_events(container, frm) {
 		}, 500));
 	});
 
-	// Handle Value input change - auto-calculate Qty
+	// Handle Value input change-auto-calculate Qty
 	container.find('.current-value-input').on('change input', function () {
 		const input = $(this);
 		const itemName = input.data('item');
@@ -828,7 +828,7 @@ function format_number(value) {
 window.create_project_boq = function (project) {
 	const d = new frappe.ui.Dialog({
 		title: 'Create Project BOQ',
-		fields: [{ fieldname: 'boq_name', label: 'BOQ Name', fieldtype: 'Data', reqd: 1, default: `BOQ - ${project}` }],
+		fields: [{ fieldname: 'boq_name', label: 'BOQ Name', fieldtype: 'Data', reqd: 1, default: `BOQ-${project}` }],
 		primary_action_label: 'Create',
 		primary_action(values) {
 			frappe.call({
@@ -847,7 +847,7 @@ window.add_bill_number = function (project) {
 	const d = new frappe.ui.Dialog({
 		title: 'Add Bill Number',
 		fields: [
-			{ fieldname: 'bill_no', label: 'Bill Number', fieldtype: 'Data', reqd: 1, description: 'e.g., Bill No. 1 - Substructure Works' },
+			{ fieldname: 'bill_no', label: 'Bill Number', fieldtype: 'Data', reqd: 1, description: 'e.g., Bill No. 1-Substructure Works' },
 			{ fieldname: 'label', label: 'Label', fieldtype: 'Data' },
 			{ fieldname: 'description', label: 'Description', fieldtype: 'Small Text' }
 		],
@@ -1191,7 +1191,7 @@ window.add_boq_item = function (bill_name, project) {
 	// Render materials section after dialog is shown
 	renderMaterialsSection();
 
-	// Fix date picker z-index issue - ensure datepicker appears above modal
+	// Fix date picker z-index issue-ensure datepicker appears above modal
 	setTimeout(function () {
 		d.$wrapper.find('.datepicker').css('z-index', '2000');
 		// Also fix the flatpickr calendar if used
@@ -1381,7 +1381,7 @@ function show_invoice_dialog(boq_item, data) {
 	// Aggressive cleanup of any stale backdrops before opening
 	cleanup_modal_backdrop();
 
-	const d = new frappe.ui.Dialog({ title: __('Invoice History - Progressive Billing'), size: 'extra-large', fields: [{ fieldtype: 'HTML', fieldname: 'invoice_html' }] });
+	const d = new frappe.ui.Dialog({ title: __('Invoice History-Progressive Billing'), size: 'extra-large', fields: [{ fieldtype: 'HTML', fieldname: 'invoice_html' }] });
 	d.fields_dict.invoice_html.$wrapper.html(`
 		<div class="boq-item-header">
 			<div class="boq-item-desc">${boqItem.description || 'BOQ Item'}</div>
@@ -1749,7 +1749,7 @@ function show_cost_dialog(boq_item, data, progressData) {
 		`;
 	}
 
-	const d = new frappe.ui.Dialog({ title: __('Cost Details - Expenses Breakdown'), size: 'large', fields: [{ fieldtype: 'HTML', fieldname: 'cost_html' }] });
+	const d = new frappe.ui.Dialog({ title: __('Cost Details-Expenses Breakdown'), size: 'large', fields: [{ fieldtype: 'HTML', fieldname: 'cost_html' }] });
 	d.fields_dict.cost_html.$wrapper.html(`
 		${costProgressHtml}
 		<div class="cost-summary-section">
@@ -1896,7 +1896,7 @@ function show_item_advances_dialog(boq_item, advances) {
 	`;
 
 	const d = new frappe.ui.Dialog({
-		title: __('Advance Payments - {0}', [boq_item]),
+		title: __('Advance Payments-{0}', [boq_item]),
 		size: 'large',
 		fields: [
 			{
@@ -1977,7 +1977,7 @@ function show_bill_advances_dialog(bill_no, data) {
 	}
 
 	const d = new frappe.ui.Dialog({
-		title: __('Advances - {0}', [bill_no]),
+		title: __('Advances-{0}', [bill_no]),
 		size: 'large',
 		fields: [
 			{
@@ -2042,7 +2042,7 @@ function get_advance_status_color(status) {
 }
 
 window.generate_invoice_for_all = function (project) {
-	// Get ALL bills and items (not just those with current_qty > 0)
+	// Get ALL bills and items (not just those with current_qty>0)
 	frappe.call({
 		method: 'construction_management.api.boq_invoice.get_all_bills_with_items',
 		args: { project: project },
@@ -2057,7 +2057,7 @@ window.generate_invoice_for_all = function (project) {
 };
 
 function show_invoice_selection_dialog(project, billsWithItems) {
-	// Build bill and items HTML - items are NOT selected by default
+	// Build bill and items HTML-items are NOT selected by default
 	let billsHtml = billsWithItems.map(bill => `
 		<div class="bill-section collapsed" data-bill="${bill.bill_name}">
 			<div class="bill-header-row" onclick="toggleBillItems(this)">
@@ -2115,7 +2115,7 @@ function show_invoice_selection_dialog(project, billsWithItems) {
 	`).join('');
 
 	const d = new frappe.ui.Dialog({
-		title: __('Generate Invoice - Select Items'),
+		title: __('Generate Invoice-Select Items'),
 		size: 'extra-large',
 		fields: [
 			{
@@ -2193,7 +2193,7 @@ function show_invoice_selection_dialog(project, billsWithItems) {
 		],
 		primary_action_label: __('Generate Proforma Invoice'),
 		primary_action: function (values) {
-			// Build items array from selected items with qty > 0
+			// Build items array from selected items with qty>0
 			const itemsToInvoice = [];
 			d.$wrapper.find('.item-checkbox:checked').each(function () {
 				const itemName = $(this).data('item');
@@ -2370,7 +2370,7 @@ function show_invoice_selection_dialog(project, billsWithItems) {
 		const amount = qty * rate;
 		d.$wrapper.find(`.item-amount[data-item="${itemName}"]`).text(format_currency(amount));
 
-		// Auto-check the item if qty > 0
+		// Auto-check the item if qty>0
 		const checkbox = d.$wrapper.find(`.item-checkbox[data-item="${itemName}"]`);
 		if (qty > 0 && !checkbox.is(':checked')) {
 			checkbox.prop('checked', true);
@@ -2695,7 +2695,7 @@ window.view_gantt_chart = function (project) {
 
 function show_gantt_chart_dialog(project, tasks) {
 	const d = new frappe.ui.Dialog({
-		title: __('Gantt Chart - {0}', [project]),
+		title: __('Gantt Chart-{0}', [project]),
 		size: 'extra-large',
 		fields: [
 			{
@@ -3220,7 +3220,7 @@ function show_payment_certificates_dialog(project, pendingProformas, paymentCert
 	}
 
 	const d = new frappe.ui.Dialog({
-		title: __('Payment Certificates - {0}', [project]),
+		title: __('Payment Certificates-{0}', [project]),
 		size: 'extra-large',
 		fields: [
 			{
@@ -3306,7 +3306,7 @@ window.create_payment_certificate_from_dialog = function (proforma_invoice, prof
 			{ fieldtype: 'Section Break', label: 'Variance Calculation' },
 			{
 				fieldname: 'variance', label: 'Variance', fieldtype: 'Currency', read_only: 1, default: 0,
-				description: 'Proforma Amount - Accepted Amount (positive = loss)'
+				description: 'Proforma Amount-Accepted Amount (positive = loss)'
 			},
 			{ fieldtype: 'Column Break' },
 			{ fieldname: 'variance_percent', label: 'Variance %', fieldtype: 'Percent', read_only: 1, default: 0 },
@@ -3527,7 +3527,7 @@ function get_modern_styles() {
 }
 
 
-// Quick DPR Creation with Modern UI - Multi-select for Employees/Assets
+// Quick DPR Creation with Modern UI-Multi-select for Employees/Assets
 // Store selected items for DPR
 let dpr_selected_employees = [];
 let dpr_selected_assets = [];
@@ -4110,473 +4110,381 @@ class BulkDPRManager {
 		}
 		this.items = frappe.ui.bulk_dpr_storage[project];
 
-		this.active_index = this.items.length > 0 ? 0 : -1;
 		this.setup_styles();
 	}
 
 	setup_styles() {
 		if ($('#dpr-bulk-styles').length) return;
 		$('<style id="dpr-bulk-styles"> \
-			.dpr-bulk-container { display: flex; height: 600px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background: #f8fafc; } \
-			.dpr-bulk-sidebar { width: 260px; border-right: 1px solid #e2e8f0; background: white; display: flex; flex-direction: column; } \
-			.dpr-bulk-sidebar-header { padding: 12px; border-bottom: 1px solid #e2e8f0; font-weight: 600; font-size: 13px; color: #475569; display: flex; justify-content: space-between; align-items: center; } \
-			.dpr-bulk-items-list { flex: 1; overflow-y: auto; padding: 8px; } \
-			.dpr-bulk-item-row { padding: 10px 12px; border-radius: 6px; cursor: pointer; margin-bottom: 4px; transition: all 0.2s; border: 1px solid transparent; } \
-			.dpr-bulk-item-row:hover { background: #f1f5f9; } \
-			.dpr-bulk-item-row.active { background: #eff6ff; border-color: #3b82f6; } \
-			.dpr-bulk-item-name { font-weight: 500; font-size: 13px; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } \
-			.dpr-bulk-item-meta { font-size: 11px; color: #64748b; margin-top: 2px; } \
-			.dpr-bulk-detail-pane { flex: 1; display: flex; flex-direction: column; background: #f8fafc; position: relative; } \
-			.dpr-bulk-detail-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #94a3b8; } \
-			.dpr-bulk-detail-content { flex: 1; overflow-y: auto; padding: 20px; display: none; } \
-			.dpr-bulk-detail-content.active { display: block; } \
-			.dpr-item-card { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: white; border-radius: 8px; margin-bottom: 8px; border: 1px solid #e2e8f0; transition: all 0.2s; } \
-			.dpr-item-card:hover { border-color: #cbd5e1; box-shadow: 0 2px 4px rgba(0,0,0,0.05); } \
-			.dpr-item-info { flex: 1; min-width: 0; } \
-			.dpr-item-name { font-weight: 500; color: #1f2937; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } \
-			.dpr-item-sub { font-size: 12px; color: #6b7280; margin-top: 2px; } \
-			.dpr-item-input { width: 70px; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; text-align: right; font-size: 13px; } \
-			.dpr-item-amount { min-width: 90px; text-align: right; font-weight: 600; color: #059669; font-size: 14px; } \
-			.dpr-remove-btn { background: #fee2e2; color: #dc2626; border: none; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; } \
-			.rate-source-tag { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 9px; font-weight: 500; background: #e0f2fe; color: #0369a1; margin-left: 4px; } \
-			.dpr-bulk-footer { padding: 16px; border-top: 1px solid #e2e8f0; background: white; display: flex; justify-content: space-between; align-items: center; } \
-			.dpr-bulk-grand-total { font-weight: 700; font-size: 18px; color: #059669; } \
+			.dpr-bulk-container { display: flex; flex-direction: column; height: 650px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background: white; } \
+			.dpr-grid-table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; } \
+			.dpr-grid-table th { padding: 12px 8px; font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #f1f5f9; text-align: left; background: #f8fafc; position: sticky; top: 0; z-index: 10; } \
+			.dpr-grid-table td { padding: 8px; border-bottom: 1px solid #f1f5f9; border-right: 1px solid #f1f5f9; vertical-align: middle; } \
+			.dpr-grid-table tr:hover { background-color: #f8fafc; } \
+			.dpr-grid-input { width: 100%; border: 1px solid #e2e8f0; background: white; padding: 6px; font-size: 13px; text-align: right; transition: all 0.2s; border-radius: 4px; } \
+			.dpr-grid-input:focus { border-color: #3b82f6; outline: none; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1); } \
+			.dpr-grid-text { font-size: 12px; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } \
+			.dpr-grid-subtext { font-size: 10px; color: #64748b; margin-top: 2px; } \
+			.dpr-grid-btn { padding: 4px 8px; border-radius: 4px; border: 1px solid #e2e8f0; background: white; color: #475569; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 4px; } \
+			.dpr-grid-btn:hover { background: #f1f5f9; border-color: #cbd5e1; } \
+			.dpr-grid-total { font-weight: 700; color: #059669; text-align: right; font-size: 13px; } \
+			.dpr-remove-row { color: #f87171; cursor: pointer; padding: 4px; border-radius: 4px; transition: background 0.2s; } \
+			.dpr-remove-row:hover { background: #fee2e2; } \
+			.dpr-bulk-footer { padding: 20px; border-top: 2px solid #e2e8f0; background: #f8fafc; display: flex; justify-content: flex-end; align-items: center; } \
+			.dpr-grand-total-label { font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: 600; margin-right: 15px; } \
+			.dpr-grand-total-value { font-size: 24px; font-weight: 800; color: #059669; } \
+			.resource-badge { background: #3b82f6; color: white; padding: 1px 5px; border-radius: 10px; font-size: 9px; margin-left: 2px; } \
+			.dpr-add-btn { background: #3b82f6; color: white; border: none; padding: 4px 10px; border-radius: 4px; font-size: 14px; cursor: pointer; transition: all 0.2s; font-weight: 700; height: 24px; line-height: 1; } \
+			.dpr-add-btn:hover { background: #2563eb; transform: scale(1.05); } \
+			.dpr-grid-header-cell { display: flex; align-items: center; justify-content: space-between; } \
+			.dpr-grid-input-readonly { background: #f1f5f9 !important; cursor: not-allowed; } \
 		</style>').appendTo('head');
 	}
 
 	add_item(boq_item, bill_no) {
-		if (this.items.find(i => i.boq_item === boq_item)) {
-			frappe.show_alert({ message: __('Item already added'), indicator: 'orange' });
-			return;
-		}
-		const new_item = {
-			boq_item: boq_item,
-			bill_no: bill_no,
-			data: {
-				employees: [],
-				assets: [],
-				materials: [],
-				expenses: [],
-				overheads: [],
-				subcontract_cost: 0,
-				remarks: '',
-				project_sites: '',
-				area_covered: 0,
-				consumed_qty: 0,
-				balance_qty: 0
-			}
-		};
-		this.items.push(new_item);
-		this.active_index = this.items.length - 1;
+		if (this.items.find(i => i.boq_item === boq_item)) return;
+		this.items.push({
+			boq_item, bill_no,
+			data: { employees: [], materials: [], expenses: [], assets: [], overheads: [], subcontract_cost: 0, project_sites: '', area_covered: 0, consumed_qty: 0, balance_qty: 0 }
+		});
 		this.render();
-		this.update_dialog_fields();
 	}
 
-	remove_item(index) {
-		this.items.splice(index, 1);
-		if (this.active_index >= this.items.length) {
-			this.active_index = this.items.length - 1;
-		}
+	remove_item(idx) {
+		this.items.splice(idx, 1);
 		this.render();
-		this.update_dialog_fields();
-	}
-
-	switch_to(index) {
-		this.active_index = index;
-		this.render_sidebar();
-		this.render_item_lists();
-		this.update_dialog_fields();
 	}
 
 	render() {
-		this.render_sidebar();
-		this.render_detail_pane();
-		this.update_grand_total();
-	}
-
-	render_sidebar() {
-		const list = this.dialog.$wrapper.find('.dpr-bulk-items-list');
-		list.empty();
-		this.items.forEach((item, idx) => {
-			const active = idx === this.active_index ? 'active' : '';
-			const $row = $(`
-				<div class="dpr-bulk-item-row ${active}" data-idx="${idx}">
-					<div class="dpr-bulk-item-name">${item.boq_item}</div>
-					<div class="dpr-bulk-item-meta">${item.bill_no || ''}</div>
+		const container = this.dialog.$wrapper.find('.dpr-bulk-container');
+		if (!container.length) return;
+		container.empty();
+		if (this.items.length === 0) {
+			container.append(`
+				<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:#94a3b8;">
+					<p>${__('No BOQ items added yet.')}</p>
+					<button class="dpr-add-btn" style="padding: 10px 20px; font-size: 16px; margin-top: 10px;">
+						<i class="fa fa-plus"></i> ${__('Add First Item')}
+					</button>
 				</div>
 			`);
-			$row.on('click', () => this.switch_to(idx));
-			list.append($row);
-		});
-	}
 
-	render_detail_pane() {
-		const pane = this.dialog.$wrapper.find('.dpr-bulk-detail-pane');
-		if (this.active_index === -1) {
-			pane.find('.dpr-bulk-detail-empty').show();
-			pane.find('.dpr-bulk-detail-content').hide();
-		} else {
-			pane.find('.dpr-bulk-detail-empty').hide();
-			pane.find('.dpr-bulk-detail-content').show().addClass('active');
-			this.render_item_lists();
+			// Attach click event for the empty state button
+			container.find('.dpr-add-btn').on('click', () => this.show_add_item_dialog());
+			return;
 		}
-	}
 
-	update_dialog_fields() {
-		if (this.active_index === -1) return;
-		const item = this.items[this.active_index];
-		this.dialog.set_value('active_boq_item', item.boq_item);
-		this.dialog.set_value('active_bill_no', item.bill_no);
-		this.dialog.set_value('active_project_sites', item.data.project_sites);
-		this.dialog.set_value('active_subcontract_cost', item.data.subcontract_cost);
-		this.dialog.set_value('active_remarks', item.data.remarks);
-		this.dialog.set_value('active_area_covered', item.data.area_covered || 0);
-		this.dialog.set_value('active_consumed_qty', item.data.consumed_qty || 0);
-		this.dialog.set_value('active_balance_qty', item.data.balance_qty || 0);
+		container.append(`
+			<div style="flex:1; overflow:auto;">
+				<table class="dpr-grid-table">
+					<thead>
+						<tr>
+							<th style="width: 150px;">
+								<div class="dpr-grid-header-cell">
+									<span>${__('Item / Bill')}</span>
+									<button class="dpr-add-btn" title="${__('Add BOQ Item')}">+</button>
+								</div>
+							</th>
+							<th style="width: 120px;">
+								${__('Site Location')}
+								<span class="dpr-site-required" style="color:red; display:none">*</span>
+							</th>
+							<th style="width: 100px;">${__('BOQ Progress')}</th>
+							<th style="width: 180px;">${__('Balance Qty')}</th>
+							<th style="width: 260px;">${__('Resources')}</th>
+							<th style="width: 100px; text-align:right;">${__('Total Cost')}</th>
+							<th style="width: 40px;"></th>
+						</tr>
+					</thead>
+					<tbody id="dpr-grid-body"></tbody>
+				</table>
+			</div>
+		`);
 
-		// Fetch balance qty from BOQ Item
-		if (item.boq_item) {
-			frappe.db.get_value('BOQ Item', item.boq_item, 'total_qty', (r) => {
-				const total = r ? flt(r.total_qty) : 0;
-				item.data.balance_qty = total - flt(item.data.area_covered);
-				this.dialog.set_value('active_balance_qty', item.data.balance_qty);
+		const body = container.find('#dpr-grid-body');
+		this.items.forEach((item, idx) => {
+			const $row = this.get_row_html(item, idx);
+			body.append($row);
+		});
+
+		// Add Event Listener for the + button in table header
+		container.find('.dpr-add-btn').on('click', () => this.show_add_item_dialog());
+
+		this.update_grand_total();
+
+		// Check if site is mandatory
+		if (cur_frm.doc.company) {
+			frappe.db.get_value('BOQ Settings', cur_frm.doc.company, 'mandatory_site_location', (r) => {
+				if (r && r.mandatory_site_location) {
+					container.find('.dpr-site-required').show();
+				}
 			});
 		}
 	}
 
-	render_item_lists() {
-		if (this.active_index === -1) return;
-		const data = this.items[this.active_index].data;
-		this.render_list('employees', data.employees);
-		this.render_list('materials', data.materials);
-		this.render_list('assets', data.assets);
-		this.render_list('expenses', data.expenses);
-		this.render_list('overheads', data.overheads);
-		this.update_item_totals();
-	}
-
-	render_list(type, items) {
-		const container = this.dialog.$wrapper.find(`#bulk-dpr-${type}-list`);
-		if (!container.length) return;
-		container.empty();
-		if (!items || items.length === 0) {
-			container.append('<div class="dpr-empty">No entries added.</div>');
-			return;
-		}
-
-		items.forEach((item, idx) => {
-			let html = '';
-			if (type === 'employees') {
-				const sourceTag = item.source ? `<span class="rate-source-tag">${item.source}</span>` : '';
-				html = `<div class="dpr-item-card">
-					<div class="dpr-item-info">
-						<div class="dpr-item-name">${item.employee_name}</div>
-						<div class="dpr-item-sub">${item.designation || ''} • ${format_currency(item.rate_per_day)}/day ${sourceTag}</div>
-					</div>
-					<div><input type="number" class="dpr-item-input bulk-emp-hours" value="${item.hours}" step="0.5" data-idx="${idx}"> hrs</div>
-					<div class="dpr-item-amount">${format_currency(item.amount)}</div>
-					<button type="button" class="dpr-remove-btn" data-type="employees" data-idx="${idx}">✕</button>
-				</div>`;
-			} else if (type === 'materials') {
-				const stockBadge = item.stock_balance != null
-					? `<span style="background:#dcfce7;color:#166534;padding:2px 6px;border-radius:4px;font-size:10px;margin-left:6px;">Stock: ${item.stock_balance}</span>`
-					: '';
-				html = `<div class="dpr-item-card">
-					<div class="dpr-item-info">
-						<div class="dpr-item-name">${item.item_name} ${stockBadge}</div>
-						<div class="dpr-item-sub">${item.item_code} • ${item.warehouse || 'No Warehouse'} • ${item.qty} ${item.uom}</div>
-					</div>
-					<div class="dpr-item-amount">${format_currency(item.amount)}</div>
-					<button type="button" class="dpr-remove-btn" data-type="materials" data-idx="${idx}">✕</button>
-				</div>`;
-			} else if (type === 'assets') {
-				html = `<div class="dpr-item-card">
-					<div class="dpr-item-info">
-						<div class="dpr-item-name">${item.asset_name}</div>
-						<div class="dpr-item-sub">${item.asset} • ${format_currency(item.rate_per_hour)}/hr</div>
-					</div>
-					<div><input type="number" class="dpr-item-input bulk-asset-hours" value="${item.hours}" step="0.5" data-idx="${idx}"> hrs</div>
-					<div class="dpr-item-amount">${format_currency(item.amount)}</div>
-					<button type="button" class="dpr-remove-btn" data-type="assets" data-idx="${idx}">✕</button>
-				</div>`;
-			} else {
-				html = `<div class="dpr-item-card">
-					<div class="dpr-item-info">
-						<div class="dpr-item-name">${item.expense_type || item.account_name}</div>
-						<div class="dpr-item-sub">${item.description || ''}</div>
-					</div>
-					<div class="dpr-item-amount">${format_currency(item.amount)}</div>
-					<button type="button" class="dpr-remove-btn" data-type="${type}" data-idx="${idx}">✕</button>
-				</div>`;
+	show_add_item_dialog() {
+		const link_dialog = new frappe.ui.Dialog({
+			title: __('Select BOQ Item'),
+			fields: [
+				{
+					fieldname: 'boq_item', label: __('BOQ Item'), fieldtype: 'Link', options: 'BOQ Item',
+					get_query: () => ({ filters: { project: this.project } }),
+					reqd: 1
+				}
+			],
+			primary_action_label: __('Add'),
+			primary_action: (values) => {
+				frappe.db.get_value('BOQ Item', values.boq_item, 'parent_bill', (r) => {
+					this.add_item(values.boq_item, r ? r.parent_bill : '');
+					link_dialog.hide();
+				});
 			}
-			container.append(html);
 		});
-
-		// Attach events
-		container.find('.dpr-remove-btn').on('click', (e) => {
-			const btn = $(e.currentTarget);
-			this.remove_sub_item(btn.data('type'), btn.data('idx'));
-		});
-
-		container.find('.bulk-emp-hours').on('input', (e) => {
-			const idx = $(e.currentTarget).data('idx');
-			const hours = parseFloat($(e.currentTarget).val()) || 0;
-			const emp = this.items[this.active_index].data.employees[idx];
-			emp.hours = hours;
-			emp.amount = emp.rate_per_day * (hours / 8);
-			this.render_list('employees', this.items[this.active_index].data.employees);
-			this.update_item_totals();
-		});
-
-		container.find('.bulk-asset-hours').on('input', (e) => {
-			const idx = $(e.currentTarget).data('idx');
-			const hours = parseFloat($(e.currentTarget).val()) || 0;
-			const asset = this.items[this.active_index].data.assets[idx];
-			asset.hours = hours;
-			asset.amount = asset.rate_per_hour * hours;
-			this.render_list('assets', this.items[this.active_index].data.assets);
-			this.update_item_totals();
-		});
+		link_dialog.show();
 	}
 
-	remove_sub_item(type, idx) {
-		this.items[this.active_index].data[type].splice(idx, 1);
-		this.render_list(type, this.items[this.active_index].data[type]);
-		this.update_item_totals();
+	get_row_html(item, idx) {
+		const data = item.data;
+		const $row = $(`
+			<tr data-idx="${idx}">
+				<td>
+					<div class="dpr-grid-text" title="${item.boq_item}">${item.boq_item}</div>
+					<div class="dpr-grid-subtext">${item.bill_no || '-'}</div>
+				</td>
+				<td><select class="dpr-grid-input dpr-site-select" style="text-align: left;"></select></td>
+				<td>
+					<div style="display:flex; flex-direction:column; gap:2px;">
+						<div style="display:flex; align-items:center; gap:2px;">
+							<input type="number" class="dpr-grid-input dpr-area-covered" value="${data.area_covered}" style="width:55px" title="${__('Today\'s Execution')}">
+							<span class="dpr-grid-subtext"> / <span class="dpr-total-qty">-</span></span>
+						</div>
+					</div>
+				</td>
+				<td><input type="number" class="dpr-grid-input dpr-grid-input-readonly dpr-balance-qty" value="${data.balance_qty}" style="width:100%" readonly></td>
+				<td>
+					<div style="display:flex; gap:4px; flex-wrap:wrap;">
+						<button class="dpr-grid-btn dpr-res-btn" data-type="employees" title="${__('Labour')}">👷 ${__('L')} ${data.employees.length ? `<span class="resource-badge">${data.employees.length}</span>` : ''}</button>
+						<button class="dpr-grid-btn dpr-res-btn" data-type="materials" title="${__('Materials')}">📦 ${__('M')} ${data.materials.length ? `<span class="resource-badge">${data.materials.length}</span>` : ''}</button>
+						<button class="dpr-grid-btn dpr-res-btn" data-type="expenses" title="${__('Costs')}">💰 ${__('C')} ${data.expenses.length ? `<span class="resource-badge">${data.expenses.length}</span>` : ''}</button>
+						<button class="dpr-grid-btn dpr-subcon-btn" title="${__('Subcontract')}">🏗️ ${__('S')} ${flt(data.subcontract_cost) > 0 ? `<span class="resource-badge">✓</span>` : ''}</button>
+						<button class="dpr-grid-btn dpr-remarks-btn" title="${__('Remarks')}">📝 ${data.remarks ? `<span class="resource-badge">✓</span>` : ''}</button>
+					</div>
+				</td>
+				<td class="dpr-grid-total dpr-row-total">${format_currency(this.calculate_row_total(idx))}</td>
+				<td style="text-align:center;"><i class="fa fa-times dpr-remove-row"></i></td>
+			</tr>
+		`);
+
+		// Setup Site Select
+		const $select = $row.find('.dpr-site-select');
+		frappe.call({
+			method: 'construction_management.api.dpr_utils.get_project_sites_list',
+			args: { project: this.project },
+			callback: (r) => {
+				const sites = r.message || [];
+				$select.append(`<option value="">${__('Select Site')}</option>`);
+				sites.forEach(s => $select.append(`<option value="${s.name}" ${s.name === data.project_sites ? 'selected' : ''}>${s.name}</option>`));
+			}
+		});
+
+		// Fetch Balance
+		frappe.db.get_value('BOQ Item', item.boq_item, 'total_qty', (r) => {
+			const total = r ? flt(r.total_qty) : 0;
+			$row.find('.dpr-total-qty').text(total.toFixed(2));
+			this.update_row_balance($row, idx, total);
+		});
+
+		// Events
+		$select.on('change', (e) => this.update_item_field(idx, 'project_sites', $(e.target).val()));
+		$row.find('.dpr-area-covered').on('input', (e) => {
+			const val = flt($(e.target).val());
+			this.update_item_field(idx, 'area_covered', val);
+			this.update_row_balance($row, idx, flt($row.find('.dpr-total-qty').text()));
+		});
+		$row.find('.dpr-remove-row').on('click', () => this.remove_item(idx));
+		$row.find('.dpr-res-btn').on('click', (e) => this.open_resource_manager($(e.currentTarget).data('type'), idx));
+		$row.find('.dpr-subcon-btn').on('click', () => {
+			frappe.prompt([{ fieldname: 'cost', label: 'Subcontract Cost', fieldtype: 'Currency', default: data.subcontract_cost }], (v) => {
+				this.update_item_field(idx, 'subcontract_cost', flt(v.cost));
+				this.render();
+			});
+		});
+		$row.find('.dpr-remarks-btn').on('click', () => {
+			frappe.prompt([{ fieldname: 'remarks', label: 'Remarks', fieldtype: 'Small Text', default: data.remarks }], (v) => {
+				this.update_item_field(idx, 'remarks', v.remarks);
+				this.render();
+			});
+		});
+
+		return $row;
 	}
 
-	update_item_totals() {
-		if (this.active_index === -1) return;
-		const data = this.items[this.active_index].data;
-		const labour = data.employees.reduce((s, e) => s + flt(e.amount), 0);
-		const material = data.materials.reduce((s, m) => s + flt(m.amount), 0);
-		const asset = data.assets.reduce((s, a) => s + flt(a.amount), 0);
-		const expenses = data.expenses.reduce((s, e) => s + flt(e.amount), 0);
-		const overheads = data.overheads.reduce((s, o) => s + flt(o.amount), 0);
-		const subcontract = flt(data.subcontract_cost);
-		const total = labour + material + asset + expenses + overheads + subcontract;
+	update_item_field(idx, field, val) {
+		const item_data = this.items[idx].data;
+		item_data[field] = val;
 
-		this.dialog.$wrapper.find('#bulk-item-labour-total').text(format_currency(labour));
-		this.dialog.$wrapper.find('#bulk-item-material-total').text(format_currency(material));
-		this.dialog.$wrapper.find('#bulk-item-total').text(format_currency(total));
+		if (field === "project_sites") {
+			item_data.project_sites = val;
+			// Set warehouse from project level site_location or fallback to selected project site
+			item_data.warehouse = (typeof cur_frm !== 'undefined' && cur_frm.doc.site_location) ? cur_frm.doc.site_location : val;
 
-		// Update top summary
-		this.dialog.$wrapper.find('#summ-labour').text(format_currency(labour));
-		this.dialog.$wrapper.find('#summ-material').text(format_currency(material));
-		this.dialog.$wrapper.find('#summ-expense').text(format_currency(expenses));
-		this.dialog.$wrapper.find('#summ-total').text(format_currency(total));
-
+			// Propagate to existing materials if any
+			if (item_data.materials && item_data.materials.length > 0) {
+				item_data.materials.forEach(m => {
+					m.warehouse = item_data.warehouse;
+					m.project_sites = val;
+				});
+			}
+		}
 		this.update_grand_total();
+	}
+
+	update_row_balance($row, idx, total) {
+		const bal = total - flt(this.items[idx].data.area_covered);
+		this.items[idx].data.balance_qty = bal;
+		$row.find('.dpr-balance-qty').val(bal.toFixed(2));
+	}
+
+	calculate_row_total(idx) {
+		const d = this.items[idx].data;
+		return [d.employees, d.materials, d.expenses, d.assets, d.overheads].reduce((sum, list) => sum + list.reduce((s, i) => s + flt(i.amount), 0), 0) + flt(d.subcontract_cost);
 	}
 
 	update_grand_total() {
 		let grand = 0;
-		this.items.forEach(item => {
-			const d = item.data;
-			grand += d.employees.reduce((s, e) => s + flt(e.amount), 0);
-			grand += d.materials.reduce((s, m) => s + flt(m.amount), 0);
-			grand += d.assets.reduce((s, a) => s + flt(a.amount), 0);
-			grand += d.expenses.reduce((s, e) => s + flt(e.amount), 0);
-			grand += d.overheads.reduce((s, o) => s + flt(o.amount), 0);
-			grand += flt(d.subcontract_cost);
+		this.items.forEach((item, idx) => {
+			const total = this.calculate_row_total(idx);
+			grand += total;
+			if (this.dialog.$wrapper.find(`tr[data-idx="${idx}"] .dpr-row-total`).length) {
+				this.dialog.$wrapper.find(`tr[data-idx="${idx}"] .dpr-row-total`).text(format_currency(total));
+			}
 		});
-		this.dialog.$wrapper.find('#bulk-grand-total').text(format_currency(grand));
-	}
-
-	update_active_item_data(field, value) {
-		if (this.active_index === -1) return;
-		this.items[this.active_index].data[field] = value;
-		this.update_item_totals();
-	}
-
-	add_employee(employee) {
-		if (!employee || this.active_index === -1) return;
-		const data = this.items[this.active_index].data;
-		if (data.employees.find(e => e.employee === employee)) {
-			frappe.show_alert({ message: __('Employee already added to this item'), indicator: 'orange' });
-			this.dialog.set_value('add_employee', '');
-			return;
+		if (this.dialog.$wrapper.find('#bulk-grand-total').length) {
+			this.dialog.$wrapper.find('#bulk-grand-total').text(format_currency(grand));
 		}
+	}
 
-		frappe.call({
-			method: 'construction_management.api.dpr_utils.get_employee_with_rate',
-			args: { employee: employee },
-			callback: (r) => {
-				if (r.message) {
-					const emp = r.message;
-					const rate = emp.rate_per_day || 0;
-					const source = emp.source || 'unknown';
+	open_resource_manager(type, idx) {
+		const item = this.items[idx];
+		const rd = new frappe.ui.Dialog({
+			title: __('Manage {0}-{1}', [type, item.boq_item]),
+			size: 'large',
+			fields: [
+				{
+					fieldname: 'add_link', fieldtype: 'Link', label: __('Add'),
+					options: type === 'employees' ? 'Employee' : (type === 'materials' ? 'Item' : 'Expense Claim Type'),
+					get_query: () => type === 'materials' ? { query: 'construction_management.api.dpr_utils.get_warehouse_items_query', filters: { project: this.project } } : {},
+					change: () => {
+						const val = rd.get_value('add_link');
+						if (val) this.add_resource(type, idx, val, rd);
+					}
+				},
+				{ fieldtype: 'HTML', fieldname: 'list_html' }
+			]
+		});
+		rd.show();
+		this.render_resource_list(rd, type, idx);
+		rd.onhide = () => this.render();
+	}
 
-					if (!rate || source === 'manual_required') {
-						frappe.prompt([{ fieldname: 'rate', label: __('Daily Rate'), fieldtype: 'Currency', reqd: 1 }], (values) => {
-							data.employees.push({
-								employee, employee_name: emp.employee_name, designation: emp.designation || '',
-								hours: 8, rate_per_day: values.rate, amount: values.rate, source: 'manual'
+	add_resource(type, idx, val, rd) {
+		const data = this.items[idx].data[type];
+		if (type === 'employees') {
+			frappe.call({
+				method: 'construction_management.api.dpr_utils.get_employee_with_rate', args: { employee: val },
+				callback: (r) => {
+					if (r.message) {
+						data.push({ employee: val, employee_name: r.message.employee_name, hours: 8, rate_per_day: r.message.rate_per_day || 0, amount: r.message.rate_per_day || 0 });
+						this.render_resource_list(rd, type, idx);
+					}
+				}
+			});
+		} else if (type === 'materials') {
+			frappe.call({
+				method: 'construction_management.api.dpr_utils.get_item_details', args: { item_code: val },
+				callback: (r) => {
+					if (r.message) {
+						frappe.prompt([{ fieldname: 'qty', label: 'Qty', fieldtype: 'Float', default: 1 }], (v) => {
+							const item_data = this.items[idx].data;
+							data.push({
+								item_code: val,
+								item_name: r.message.item_name,
+								qty: v.qty,
+								rate: r.message.rate || 0,
+								amount: flt(v.qty) * flt(r.message.rate || 0),
+								uom: r.message.stock_uom,
+								warehouse: item_data.warehouse,
+								project_sites: item_data.project_sites
 							});
-							this.render_list('employees', data.employees);
-							this.update_item_totals();
-						}, __('Enter Rate for ' + emp.employee_name), __('Add'));
-					} else {
-						data.employees.push({
-							employee, employee_name: emp.employee_name, designation: emp.designation || '',
-							hours: 8, rate_per_day: rate, amount: rate, source: source
+							this.render_resource_list(rd, type, idx);
 						});
-						this.render_list('employees', data.employees);
-						this.update_item_totals();
 					}
 				}
-				this.dialog.set_value('add_employee', '');
-			}
+			});
+		} else {
+			frappe.prompt([{ fieldname: 'amount', label: 'Amount', fieldtype: 'Currency', reqd: 1 }], (v) => {
+				data.push({ expense_type: val, amount: v.amount });
+				this.render_resource_list(rd, type, idx);
+			});
+		}
+		rd.set_value('add_link', '');
+	}
+
+	render_resource_list(rd, type, idx) {
+		const items = this.items[idx].data[type];
+		const $wrapper = rd.fields_dict.list_html.$wrapper.empty().css('padding', '15px 0');
+		items.forEach((item, i) => {
+			const $card = $(`<div class="dpr-item-card" style="display:flex; justify-content:space-between; align-items:center; padding:10px; border-bottom:1px solid #eee">
+				<div><b>${item.employee_name || item.item_name || item.expense_type}</b></div>
+				<div style="display:flex; align-items:center; gap:10px">
+					${type === 'employees' ? `<input type="number" class="res-input" value="${item.hours}" style="width:50px"> hrs` : ''}
+					<span>${format_currency(item.amount)}</span>
+					<button class="btn btn-xs btn-danger res-remove">✕</button>
+				</div>
+			</div>`);
+			$card.find('.res-input').on('input', (e) => {
+				item.hours = flt($(e.target).val());
+				item.amount = item.rate_per_day * (item.hours / 8);
+				$card.find('span').text(format_currency(item.amount));
+			});
+			$card.find('.res-remove').on('click', () => { items.splice(i, 1); this.render_resource_list(rd, type, idx); });
+			$wrapper.append($card);
 		});
 	}
 
-	add_asset(asset) {
-		if (!asset || this.active_index === -1) return;
-		const data = this.items[this.active_index].data;
-		if (data.assets.find(a => a.asset === asset)) {
-			frappe.show_alert({ message: __('Asset already added to this item'), indicator: 'orange' });
-			this.dialog.set_value('add_asset', '');
-			return;
-		}
-
-		frappe.call({
-			method: 'construction_management.api.dpr_utils.get_asset_with_rate',
-			args: { asset: asset, project: this.project, date: this.dialog.get_value('date') },
-			callback: (r) => {
-				if (r.message) {
-					const assetData = r.message;
-					const rate_per_hour = assetData.rate_per_hour || 0;
-					if (!rate_per_hour) {
-						frappe.show_alert({ message: __('No rate found for asset {0}', [assetData.asset_name]), indicator: 'red' });
-						this.dialog.set_value('add_asset', '');
-						return;
-					}
-					data.assets.push({
-						asset, asset_name: assetData.asset_name,
-						hours: 8, rate_per_hour, rate_per_day: rate_per_hour * 8, amount: rate_per_hour * 8
-					});
-					this.render_list('assets', data.assets);
-					this.update_item_totals();
-				}
-				this.dialog.set_value('add_asset', '');
-			}
-		});
-	}
-
-	add_material(item_code) {
-		if (!item_code || this.active_index === -1) return;
-		const data = this.items[this.active_index].data;
-		if (data.materials.find(m => m.item_code === item_code)) {
-			frappe.show_alert({ message: __('Item already added to this item'), indicator: 'orange' });
-			this.dialog.set_value('add_material', '');
-			return;
-		}
-
-		frappe.call({
-			method: 'construction_management.api.dpr_utils.get_item_details',
-			args: { item_code: item_code },
-			callback: (r) => {
-				if (r.message) {
-					const item = r.message;
-					const default_warehouse = cur_frm?.doc?.site_location;
-					frappe.prompt([
-						{ fieldname: 'qty', label: __('Quantity'), fieldtype: 'Float', reqd: 1, default: 1 },
-						{ fieldname: 'warehouse', label: __('Source Warehouse'), fieldtype: 'Link', options: 'Warehouse', reqd: 1, default: default_warehouse },
-						{ fieldname: 'rate', label: __('Rate'), fieldtype: 'Currency', default: item.rate || 0 }
-					], (values) => {
-						// Fetch stock balance for display
-						frappe.call({
-							method: 'construction_management.api.dpr_utils.get_bin_snapshot',
-							args: { warehouse: values.warehouse, item_code: item_code },
-							callback: (bin_r) => {
-								const stock_balance = bin_r.message?.actual_qty || 0;
-								data.materials.push({
-									item_code, item_name: item.item_name, warehouse: values.warehouse,
-									qty: values.qty, uom: item.stock_uom, rate: values.rate,
-									valuation_rate: item.valuation_rate, amount: flt(values.qty) * flt(values.rate),
-									rate_source: item.rate_source,
-									stock_balance: stock_balance
-								});
-								this.render_list('materials', data.materials);
-								this.update_item_totals();
-							}
-						});
-					}, __('Add Material: ' + item.item_name), __('Add'));
-				}
-				this.dialog.set_value('add_material', '');
-			}
-		});
-	}
-
-	submit_all(date) {
-		if (!this.items.length) {
-			frappe.show_alert({ message: __('Please add at least one BOQ item'), indicator: 'orange' });
-			return;
-		}
-
-		const data_to_send = this.items.map(i => ({
-			boq_item: i.boq_item,
-			bill_no: i.bill_no,
-			project_sites: i.data.project_sites,
-			remarks: i.data.remarks,
-			subcontract_cost: i.data.subcontract_cost,
-			area_covered: i.data.area_covered,
-			consumed_qty: i.data.consumed_qty,
-			balance_qty: i.data.balance_qty,
-			employees: i.data.employees,
-			materials: i.data.materials,
-			assets: i.data.assets,
-			expenses: i.data.expenses,
-			overheads: i.data.overheads
-		}));
-
+	submit_all(date, submit = 1) {
+		if (!this.items.length) return frappe.msgprint('Add items first');
 		frappe.call({
 			method: 'construction_management.api.dpr_utils.create_bulk_dpr_enhanced',
-			args: { project: this.project, date: date, data: JSON.stringify(data_to_send), submit: 1 },
+			args: {
+				project: this.project, date, data: JSON.stringify(this.items.map(i => ({
+					...i.data,
+					consumed_qty: i.data.area_covered,
+					boq_item: i.boq_item,
+					bill_no: i.bill_no,
+					warehouse: i.data.warehouse || (typeof cur_frm !== 'undefined' ? cur_frm.doc.site_location : null)
+				}))), submit: submit
+			},
 			freeze: true,
 			callback: (r) => {
-				if (r.message && r.message.created_count > 0) {
-					frappe.show_alert({ message: __('{0} DPRs created successfully', [r.message.created_count]), indicator: 'green' });
+				if (r.message) {
+					if (r.message.errors && r.message.errors.length > 0) {
+						frappe.msgprint({
+							title: __('Bulk Entry Warnings'),
+							message: r.message.errors.join('<br>'),
+							indicator: 'orange'
+						});
+					}
+					frappe.show_alert(__('Created {0} records').format(r.message.created_count), 'green');
 					this.dialog.hide();
 					cur_frm.reload_doc();
+					delete frappe.ui.bulk_dpr_storage[this.project];
 				}
 			}
 		});
 	}
-
-	add_expense(expense_type) {
-		if (!expense_type || this.active_index === -1) return;
-		frappe.prompt([
-			{ fieldname: 'description', label: __('Description'), fieldtype: 'Small Text' },
-			{ fieldname: 'amount', label: __('Amount'), fieldtype: 'Currency', reqd: 1 }
-		], (values) => {
-			this.items[this.active_index].data.expenses.push({
-				expense_type, description: values.description || '', amount: values.amount
-			});
-			this.render_list('expenses', this.items[this.active_index].data.expenses);
-			this.update_item_totals();
-		}, __('Add Expense: ' + expense_type), __('Add'));
-		this.dialog.set_value('add_expense', '');
-	}
-
-	add_overhead(account) {
-		if (!account || this.active_index === -1) return;
-		frappe.db.get_value('Account', account, 'account_name', (r) => {
-			const account_name = r ? r.account_name : account;
-			frappe.prompt([
-				{ fieldname: 'description', label: __('Description'), fieldtype: 'Small Text' },
-				{ fieldname: 'amount', label: __('Amount'), fieldtype: 'Currency', reqd: 1 }
-			], (values) => {
-				this.items[this.active_index].data.overheads.push({
-					account, account_name, description: values.description || '', amount: values.amount
-				});
-				this.render_list('overheads', this.items[this.active_index].data.overheads);
-				this.update_item_totals();
-			}, __('Add Overhead: ' + account_name), __('Add'));
-		});
-		this.dialog.set_value('add_overhead', '');
-	}
 }
+
 
 
 window.show_dpr_dialog_enhanced = function (project, is_bulk = false) {
@@ -4586,129 +4494,15 @@ window.show_dpr_dialog_enhanced = function (project, is_bulk = false) {
 		size: 'extra-large',
 		minimizable: true,
 		fields: [
+			{ fieldname: 'global_settings_section', fieldtype: 'Section Break', label: __('Global Settings') },
+			{ fieldname: 'date', label: __('Date'), fieldtype: 'Date', default: frappe.datetime.get_today(), reqd: 1 },
+			{ fieldtype: 'Column Break' },
+			{ fieldname: 'submit_automatically', label: __('Submit Records Automatically'), fieldtype: 'Check', default: 1 },
+			{ fieldtype: 'Section Break' },
 			{
 				fieldtype: 'HTML',
 				fieldname: 'bulk_layout',
-				options: `
-					<div class="dpr-bulk-container">
-						<div class="dpr-bulk-sidebar" ${!is_bulk ? 'style="display:none"' : ''}>
-							<div class="dpr-bulk-sidebar-header">
-								<span>BOQ ITEMS</span>
-							</div>
-							<div class="dpr-bulk-items-list"></div>
-						</div>
-						<div class="dpr-bulk-detail-pane">
-							<div class="dpr-bulk-detail-empty">
-								<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom:12px;opacity:0.5"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-								<p>Select a BOQ item to record progress</p>
-							</div>
-							<div class="dpr-bulk-detail-content">
-								<div id="dpr-item-header" style="margin-bottom: 20px;">
-									<h3 id="active-boq-item-name" style="margin:0;font-size:18px;color:#1e293b">Item Name</h3>
-									<p id="active-boq-item-meta" style="margin:4px 0 0 0;font-size:12px;color:#64748b">Bill No</p>
-									<div id="active-item-cost-summary" style="margin-top:10px; display:flex; gap:15px; font-size:12px; font-weight:600; color:#475569;">
-										<span>L: <span id="summ-labour">0.00</span></span>
-										<span>M: <span id="summ-material">0.00</span></span>
-										<span>E: <span id="summ-expense">0.00</span></span>
-										<span style="color:#059669">Total: <span id="summ-total">0.00</span></span>
-									</div>
-								</div>
-							</div>
-						</div>
-					</div>
-				`
-			},
-			{ fieldtype: 'Section Break', label: __('Global Settings') },
-			{ fieldname: 'date', label: __('Date'), fieldtype: 'Date', default: frappe.datetime.get_today(), reqd: 1 },
-			{
-				fieldname: 'add_boq_item', label: __('Add BOQ Item'), fieldtype: 'Link', options: 'BOQ Item',
-				get_query: () => ({ filters: { project: project } }),
-				depends_on: `eval:${is_bulk ? 1 : 0}`,
-				change: function () {
-					const val = d.get_value('add_boq_item');
-					if (val) {
-						frappe.db.get_value('BOQ Item', val, 'parent_bill', (r) => {
-							d.manager.add_item(val, r ? r.parent_bill : '');
-							d.set_value('add_boq_item', '');
-						});
-					}
-				}
-			},
-			{ fieldtype: 'Section Break', label: __('Work Progress'), fieldname: 'work_progress_section' },
-			{
-				fieldname: 'active_area_covered', label: __('Area Covered'), fieldtype: 'Float',
-				change: function () {
-					d.manager.update_active_item_data('area_covered', d.get_value('active_area_covered'));
-					// Recalculate balance
-					const item = d.manager.items[d.manager.active_index];
-					if (item && item.boq_item) {
-						frappe.db.get_value('BOQ Item', item.boq_item, 'total_qty', (r) => {
-							const total = r ? flt(r.total_qty) : 0;
-							item.data.balance_qty = total - flt(d.get_value('active_area_covered'));
-							d.set_value('active_balance_qty', item.data.balance_qty);
-						});
-					}
-				}
-			},
-			{
-				fieldname: 'active_consumed_qty', label: __('Consumed Qty'), fieldtype: 'Float',
-				change: function () { d.manager.update_active_item_data('consumed_qty', d.get_value('active_consumed_qty')); }
-			},
-			{
-				fieldname: 'active_balance_qty', label: __('Balance Qty'), fieldtype: 'Float', read_only: 1
-			},
-			{ fieldtype: 'Column Break' },
-			{ fieldtype: 'Section Break', label: __('Item Details'), fieldname: 'item_details_section', collapsible: 0 },
-			{
-				fieldname: 'active_project_sites', label: __('Project Site'), fieldtype: 'Link', options: 'Project Sites',
-				get_query: () => ({ filters: { project: project } }),
-				change: function () { d.manager.update_active_item_data('project_sites', d.get_value('active_project_sites')); }
-			},
-			{ fieldtype: 'Section Break', label: __('👷 Labour') },
-			{
-				fieldname: 'add_employee', label: __('Add Employee'), fieldtype: 'Link', options: 'Employee',
-				get_query: () => ({ filters: { status: 'Active' } }),
-				change: function () { d.manager.add_employee(d.get_value('add_employee')); }
-			},
-			{ fieldtype: 'HTML', fieldname: 'employees_list', options: '<div id="bulk-dpr-employees-list"></div>' },
-			{ fieldtype: 'Section Break', label: __('📦 Material') },
-			{
-				fieldname: 'add_material', label: __('Add Item'), fieldtype: 'Link', options: 'Item',
-				get_query: () => {
-					// Filter by items available in project's site_location warehouse
-					return {
-						query: "construction_management.api.dpr_utils.get_warehouse_items_query",
-						filters: { project: project }
-					};
-				},
-				change: function () { d.manager.add_material(d.get_value('add_material')); }
-			},
-			{ fieldtype: 'HTML', fieldname: 'materials_list', options: '<div id="bulk-dpr-materials-list"></div>' },
-			{ fieldtype: 'Section Break', label: __('🚜 Asset'), hidden: 1 },
-			{
-				fieldname: 'add_asset', label: __('Add Asset'), fieldtype: 'Link', options: 'Asset', hidden: 1,
-				change: function () { d.manager.add_asset(d.get_value('add_asset')); }
-			},
-			{ fieldtype: 'HTML', fieldname: 'assets_list', options: '<div id="bulk-dpr-assets-list" style="display:none"></div>', hidden: 1 },
-			{ fieldtype: 'Section Break', label: __('💰 Other Costs') },
-			{
-				fieldname: 'add_expense', label: __('Add Expense'), fieldtype: 'Link', options: 'Expense Claim Type',
-				change: function () { d.manager.add_expense(d.get_value('add_expense')); }
-			},
-			{ fieldtype: 'HTML', fieldname: 'expenses_list', options: '<div id="bulk-dpr-expenses-list"></div>' },
-			{
-				fieldname: 'add_overhead', label: __('Add Overhead'), fieldtype: 'Link', options: 'Account', hidden: 1,
-				get_query: () => ({ filters: { account_type: ['in', ['Expense Account', 'Cost of Goods Sold']], is_group: 0 } }),
-				change: function () { d.manager.add_overhead(d.get_value('add_overhead')); }
-			},
-			{ fieldtype: 'HTML', fieldname: 'overheads_list', options: '<div id="bulk-dpr-overheads-list" style="display:none"></div>', hidden: 1 },
-			{
-				fieldname: 'active_subcontract_cost', label: __('Subcontract Cost'), fieldtype: 'Currency', default: 0, hidden: 1,
-				change: function () { d.manager.update_active_item_data('subcontract_cost', d.get_value('active_subcontract_cost')); }
-			},
-			{
-				fieldname: 'active_remarks', label: __('Remarks'), fieldtype: 'Small Text',
-				change: function () { d.manager.update_active_item_data('remarks', d.get_value('active_remarks')); }
+				options: '<div class="dpr-bulk-container"></div>'
 			},
 			{ fieldtype: 'Section Break' },
 			{
@@ -4716,22 +4510,14 @@ window.show_dpr_dialog_enhanced = function (project, is_bulk = false) {
 				fieldname: 'footer_display',
 				options: `
 					<div class="dpr-bulk-footer">
-						<div class="dpr-bulk-item-totals">
-							<span style="font-size: 11px; color: #64748b; text-transform: uppercase;">Subtotal: <span id="bulk-item-labour-total">0.00</span> (L) | <span id="bulk-item-material-total">0.00</span> (M)</span>
-							<div id="bulk-item-total" style="font-size: 18px; font-weight: 600; color: #334155; margin-top: 4px;">0.00</div>
-						</div>
-						<div class="dpr-bulk-grand-summary">
-							<span style="font-size: 11px; color: #059669; font-weight: 600; text-transform: uppercase; display: block;">Total Project Cost</span>
-							<span id="bulk-grand-total" class="dpr-bulk-grand-total">0.00</span>
-						</div>
+						<div class="dpr-grand-total-label">Grand Total Cost</div>
+						<div id="bulk-grand-total" class="dpr-grand-total-value">0.00</div>
 					</div>
 				`
 			}
 		],
-		primary_action_label: is_bulk ? __('Create All Records') : __('Create DPR'),
-		primary_action: function (values) {
-			d.manager.submit_all(values.date);
-		}
+		primary_action_label: __('Submit / Save Records'),
+		primary_action: (values) => d.manager.submit_all(values.date, values.submit_automatically)
 	});
 
 	d.manager = new BulkDPRManager(project, d);
@@ -4748,27 +4534,9 @@ window.show_dpr_dialog_enhanced = function (project, is_bulk = false) {
 		});
 	}
 
-	d.onhide = function () { cleanup_modal_and_restore_dashboard(); };
+	d.onhide = () => cleanup_modal_and_restore_dashboard();
 	d.show();
-
-	// Move sections into the detail pane for true layout
-	setTimeout(() => {
-		const $pane = d.$wrapper.find('.dpr-bulk-detail-content');
-		d.$wrapper.find('.section-break').each(function () {
-			const label = $(this).find('.section-head').text();
-			if (label.includes('Work Progress') || label.includes('\ud83d\udc77') || label.includes('\ud83d\udce6') || label.includes('\ud83d\ude9c') || label.includes('\ud83d\udcb0') || label.includes('Item Details')) {
-				$pane.append($(this));
-			}
-		});
-
-		// Ensure Work Progress is at the very top
-		const $workSection = d.$wrapper.find('[data-fieldname="work_progress_section"]').closest('.section-break');
-		if ($workSection.length) {
-			$pane.prepend($workSection);
-		}
-
-		$pane.append(d.$wrapper.find('[data-fieldname="footer_display"]'));
-	}, 200);
+	setTimeout(() => d.manager.render(), 100);
 };
 
 window.create_dpr_bulk = function (project) {
@@ -4799,24 +4567,24 @@ function show_task_tree_dialog(boq_item, data) {
 	const tasks = data.tasks || [];
 
 	const d = new frappe.ui.Dialog({
-		title: __('Tasks - {0}', [boqItemData.description?.substring(0, 50) || boq_item]),
+		title: __('Tasks-{0}', [boqItemData.description?.substring(0, 50) || boq_item]),
 		size: 'large',
 		fields: [{ fieldtype: 'HTML', fieldname: 'task_html' }]
 	});
 
 	function renderTaskTree() {
 		let content = `
-			<div class="task-tree-container">
-				<div class="task-header">
-					<div class="task-header-info">
-						<h4>${boqItemData.description || 'BOQ Item'}</h4>
-						<div class="task-meta">
-							<span><strong>Qty:</strong> ${format_number(boqItemData.total_qty)} ${boqItemData.unit || ''}</span>
-							<span><strong>Amount:</strong> ${format_currency(boqItemData.total_amount)}</span>
-						</div>
+		<div class="task-tree-container">
+			<div class="task-header">
+				<div class="task-header-info">
+					<h4>${boqItemData.description || 'BOQ Item'}</h4>
+					<div class="task-meta">
+						<span><strong>Qty:</strong> ${format_number(boqItemData.total_qty)} ${boqItemData.unit || ''}</span>
+						<span><strong>Amount:</strong> ${format_currency(boqItemData.total_amount)}</span>
 					</div>
-					<div class="task-header-actions">
-						${!hasTasks ? `
+				</div>
+				<div class="task-header-actions">
+					${!hasTasks ? `
 							<button class="btn btn-primary btn-sm" onclick="create_task_for_boq('${boq_item}', this)">
 								<i class="fa fa-plus"></i> Create Task
 							</button>
@@ -4825,23 +4593,23 @@ function show_task_tree_dialog(boq_item, data) {
 								<i class="fa fa-plus"></i> Add Sub-Task
 							</button>
 						`}
-					</div>
 				</div>
-		`;
+			</div>
+	`;
 
 		if (hasTasks && tasks.length > 0) {
-			content += `<div class="task-tree">${renderTaskNodes(tasks)}</div>`;
+			content += `<div class="task-tree"> ${renderTaskNodes(tasks)}</div> `;
 		} else {
 			content += `
-				<div class="no-tasks-message">
+		<div class="no-tasks-message">
 					<i class="fa fa-tasks" style="font-size: 48px; color: #ccc; margin-bottom: 15px;"></i>
 					<p>No tasks linked to this BOQ Item yet.</p>
 					<p class="text-muted">Click "Create Task" to create a group task for this BOQ Item.</p>
 				</div>
-			`;
+		`;
 		}
 
-		content += `</div>${getTaskTreeStyles()}`;
+		content += `</div> ${getTaskTreeStyles()} `;
 		d.fields_dict.task_html.$wrapper.html(content);
 	}
 
@@ -4853,60 +4621,60 @@ function show_task_tree_dialog(boq_item, data) {
 			const hasChildren = task.children && task.children.length > 0;
 
 			html += `
-				<div class="task-node" data-task="${task.name}" data-level="${level}">
-					<div class="task-node-content" style="padding-left: ${level * 24 + 12}px;">
-						${hasChildren ? `
+		<div class="task-node" data-task="${task.name}" data-level="${level}">
+			<div class="task-node-content" style="padding-left: ${level * 24 + 12}px;">
+				${hasChildren ? `
 							<span class="task-toggle" onclick="toggleTaskChildren(this)">
 								<i class="fa fa-chevron-down"></i>
 							</span>
 						` : `<span class="task-toggle-placeholder"></span>`}
-						<div class="task-info">
-							<div class="task-subject">
-								<a href="/app/task/${task.name}" target="_blank">${task.subject}</a>
-								${task.is_group ? '<span class="badge badge-info">Group</span>' : ''}
-							</div>
-							<div class="task-details">
-								${task.exp_start_date ? `<span><i class="fa fa-calendar"></i> ${task.exp_start_date}</span>` : ''}
-								${task.exp_end_date ? `<span>→ ${task.exp_end_date}</span>` : ''}
-							</div>
-						</div>
-						<div class="task-progress-container">
-							<div class="progress-bar-wrapper">
-								<div class="progress-bar-mini">
-									<div class="progress-fill" data-task="${task.name}" style="width: ${progressWidth}%"></div>
-								</div>
-								<input type="range" class="progress-slider" data-task="${task.name}" 
-									min="0" max="100" value="${progressWidth}" 
-									onchange="updateTaskProgress('${task.name}', this.value, this)"
-									oninput="previewTaskProgress('${task.name}', this.value, this)">
-							</div>
-							<input type="number" class="progress-input" data-task="${task.name}" 
-								min="0" max="100" value="${progressWidth}" 
-								onchange="updateTaskProgress('${task.name}', this.value, this)">
-							<span class="progress-percent">%</span>
-						</div>
-						<div class="task-status">
-							<select class="status-select ${statusClass}" onchange="updateTaskStatusWithProgress('${task.name}', this.value, this)">
-								<option value="Open" ${task.status === 'Open' ? 'selected' : ''}>Open</option>
-								<option value="Working" ${task.status === 'Working' ? 'selected' : ''}>Working</option>
-								<option value="Pending Review" ${task.status === 'Pending Review' ? 'selected' : ''}>Pending Review</option>
-								<option value="Overdue" ${task.status === 'Overdue' ? 'selected' : ''}>Overdue</option>
-								<option value="Completed" ${task.status === 'Completed' ? 'selected' : ''}>Completed</option>
-								<option value="Cancelled" ${task.status === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
-							</select>
-						</div>
-						<div class="task-actions">
-							<button class="btn btn-xs btn-default" onclick="add_child_task('${task.name}', '${boqItemData.project}', this)" title="Add Sub-Task">
-								<i class="fa fa-plus"></i>
-							</button>
-							<button class="btn btn-xs btn-default" onclick="window.open('/app/task/${task.name}', '_blank')" title="Open Task">
-								<i class="fa fa-external-link"></i>
-							</button>
-						</div>
+				<div class="task-info">
+					<div class="task-subject">
+						<a href="/app/task/${task.name}" target="_blank">${task.subject}</a>
+						${task.is_group ? '<span class="badge badge-info">Group</span>' : ''}
 					</div>
+					<div class="task-details">
+						${task.exp_start_date ? `<span><i class="fa fa-calendar"></i> ${task.exp_start_date}</span>` : ''}
+						${task.exp_end_date ? `<span>→ ${task.exp_end_date}</span>` : ''}
+					</div>
+				</div>
+				<div class="task-progress-container">
+					<div class="progress-bar-wrapper">
+						<div class="progress-bar-mini">
+							<div class="progress-fill" data-task="${task.name}" style="width: ${progressWidth}%"></div>
+						</div>
+						<input type="range" class="progress-slider" data-task="${task.name}"
+							min="0" max="100" value="${progressWidth}"
+							onchange="updateTaskProgress('${task.name}', this.value, this)"
+							oninput="previewTaskProgress('${task.name}', this.value, this)">
+					</div>
+					<input type="number" class="progress-input" data-task="${task.name}"
+						min="0" max="100" value="${progressWidth}"
+						onchange="updateTaskProgress('${task.name}', this.value, this)">
+						<span class="progress-percent">%</span>
+				</div>
+				<div class="task-status">
+					<select class="status-select ${statusClass}" onchange="updateTaskStatusWithProgress('${task.name}', this.value, this)">
+						<option value="Open" ${task.status === 'Open' ? 'selected' : ''}>Open</option>
+						<option value="Working" ${task.status === 'Working' ? 'selected' : ''}>Working</option>
+						<option value="Pending Review" ${task.status === 'Pending Review' ? 'selected' : ''}>Pending Review</option>
+						<option value="Overdue" ${task.status === 'Overdue' ? 'selected' : ''}>Overdue</option>
+						<option value="Completed" ${task.status === 'Completed' ? 'selected' : ''}>Completed</option>
+						<option value="Cancelled" ${task.status === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
+					</select>
+				</div>
+				<div class="task-actions">
+					<button class="btn btn-xs btn-default" onclick="add_child_task('${task.name}', '${boqItemData.project}', this)" title="Add Sub-Task">
+						<i class="fa fa-plus"></i>
+					</button>
+					<button class="btn btn-xs btn-default" onclick="window.open('/app/task/${task.name}', '_blank')" title="Open Task">
+						<i class="fa fa-external-link"></i>
+					</button>
+				</div>
+			</div>
 					${hasChildren ? `<div class="task-children">${renderTaskNodes(task.children, level + 1)}</div>` : ''}
 				</div>
-			`;
+		`;
 		}
 		return html;
 	}
@@ -4936,7 +4704,7 @@ function getTaskStatusClass(status) {
 }
 
 function getTaskTreeStyles() {
-	return `<style>
+	return `< style>
 		.task-tree-container { padding: 0; }
 		.task-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px; margin-bottom: 16px; }
 		.task-header h4 { margin: 0 0 8px 0; font-size: 15px; }
@@ -4944,19 +4712,19 @@ function getTaskTreeStyles() {
 		.task-meta span { margin-right: 16px; }
 		.task-tree { border: 1px solid #e9ecef; border-radius: 8px; overflow: hidden; }
 		.task-node { border-bottom: 1px solid #f0f0f0; }
-		.task-node:last-child { border-bottom: none; }
+		.task-node: last-child { border-bottom: none; }
 		.task-node-content { display: flex; align-items: center; padding: 12px; gap: 12px; transition: background 0.2s; }
 		.task-node-content:hover { background: #f8f9fa; }
 		.task-toggle { cursor: pointer; width: 20px; text-align: center; color: #6c757d; }
 		.task-toggle-placeholder { width: 20px; }
 		.task-toggle i { transition: transform 0.2s; }
-		.task-node.collapsed .task-toggle i { transform: rotate(-90deg); }
-		.task-node.collapsed .task-children { display: none; }
+		.task-node.collapsed.task-toggle i { transform: rotate(-90deg); }
+		.task-node.collapsed.task-children { display: none; }
 		.task-info { flex: 1; min-width: 0; }
 		.task-subject { font-weight: 500; margin-bottom: 2px; }
 		.task-subject a { color: #333; text-decoration: none; }
 		.task-subject a:hover { color: #5e64ff; }
-		.task-subject .badge { font-size: 10px; margin-left: 8px; padding: 2px 6px; }
+		.task-subject.badge { font-size: 10px; margin-left: 8px; padding: 2px 6px; }
 		.task-details { font-size: 11px; color: #6c757d; }
 		.task-details span { margin-right: 8px; }
 		.task-progress-container { display: flex; align-items: center; gap: 6px; width: 140px; }
@@ -4977,7 +4745,7 @@ function getTaskTreeStyles() {
 		.task-actions { display: flex; gap: 4px; }
 		.task-children { background: #fafafa; }
 		.no-tasks-message { text-align: center; padding: 40px 20px; color: #6c757d; }
-	</style>`;
+	</style> `;
 }
 
 window.toggleTaskChildren = function (el) {
@@ -5185,7 +4953,7 @@ function show_resource_planner_dialog(project, data, filters = {}) {
 	}
 
 	const d = new frappe.ui.Dialog({
-		title: __('Resource Planner - {0}', [project]),
+		title: __('Resource Planner-{0}', [project]),
 		size: 'extra-large',
 		fields: [
 			{
@@ -5265,7 +5033,7 @@ function show_resource_planner_dialog(project, data, filters = {}) {
 	let employeeRows = '';
 	if (data.by_employee && data.by_employee.length > 0) {
 		employeeRows = data.by_employee.map(emp => `
-			<tr>
+		< tr >
 				<td>
 					<strong>${emp.employee_name || emp.employee}</strong>
 					<br><small class="text-muted">${emp.designation || ''}</small>
@@ -5278,13 +5046,13 @@ function show_resource_planner_dialog(project, data, filters = {}) {
 						<button class="assignment-delete" data-name="${a.name}" data-project="${project}" title="Delete">×</button>
 					</div>
 				`).join('')}</td>
-			</tr>
+			</tr >
 		`).join('');
 	} else {
 		employeeRows = '<tr><td colspan="3" class="text-center text-muted py-4">No resources allocated yet</td></tr>';
 	}
 
-	// Build pagination controls - always show
+	// Build pagination controls-always show
 	const paginationHtml = `
 		<div class="pagination-footer">
 			<div class="pagination-info-left">
@@ -5300,7 +5068,7 @@ function show_resource_planner_dialog(project, data, filters = {}) {
 				</button>
 			</div>
 		</div>
-	`;
+		`;
 
 	d.fields_dict.planner_html.$wrapper.html(`
 		<div class="resource-planner-container">
@@ -5341,31 +5109,31 @@ function show_resource_planner_dialog(project, data, filters = {}) {
 			${paginationHtml}
 		</div>
 		<style>
-			.resource-planner-container { padding: 0; }
-			.planner-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; color: white; }
-			.planner-stats { display: flex; gap: 32px; }
-			.stat-card { text-align: center; }
-			.stat-value { display: block; font-size: 28px; font-weight: 700; }
-			.stat-label { font-size: 12px; opacity: 0.9; }
-			.planner-actions { display: flex; gap: 8px; }
-			.planner-actions .btn { border: 1px solid rgba(255,255,255,0.3); }
-			.planner-actions .btn-primary { background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.3); }
-			.planner-actions .btn-default { background: rgba(255,255,255,0.1); color: white; }
-			.resource-table-wrapper { max-height: 350px; overflow-y: auto; border: 1px solid #e9ecef; border-radius: 8px; margin-bottom: 16px; }
-			.resource-table { margin: 0; }
-			.resource-table thead th { position: sticky; top: 0; background: #f8f9fa; z-index: 1; border-bottom: 2px solid #dee2e6; }
-			.resource-table tbody tr:hover { background: #f8f9fa; }
-			.assignment-chip { display: inline-flex; align-items: center; background: #e9ecef; padding: 6px 10px; border-radius: 6px; margin: 3px; font-size: 12px; gap: 8px; }
-			.assignment-dates { color: #495057; font-weight: 500; }
-			.assignment-bill { background: #5e64ff; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
-			.assignment-delete { background: none; border: none; color: #dc3545; cursor: pointer; font-size: 16px; padding: 0 4px; line-height: 1; font-weight: bold; }
-			.assignment-delete:hover { color: #a71d2a; transform: scale(1.2); }
-			.pagination-footer { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef; }
-			.pagination-info-left { font-size: 13px; color: #6c757d; }
-			.pagination-controls { display: flex; align-items: center; gap: 12px; }
-			.pagination-info { font-size: 13px; color: #495057; font-weight: 500; }
-			.pagination-btn { min-width: 70px; }
-			.py-4 { padding-top: 24px !important; padding-bottom: 24px !important; }
+			.resource-planner-container {padding: 0; }
+			.planner-header {display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; color: white; }
+			.planner-stats {display: flex; gap: 32px; }
+			.stat-card {text-align: center; }
+			.stat-value {display: block; font-size: 28px; font-weight: 700; }
+			.stat-label {font-size: 12px; opacity: 0.9; }
+			.planner-actions {display: flex; gap: 8px; }
+			.planner-actions .btn {border: 1px solid rgba(255,255,255,0.3); }
+			.planner-actions .btn-primary {background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.3); }
+			.planner-actions .btn-default {background: rgba(255,255,255,0.1); color: white; }
+			.resource-table-wrapper {max-height: 350px; overflow-y: auto; border: 1px solid #e9ecef; border-radius: 8px; margin-bottom: 16px; }
+			.resource-table {margin: 0; }
+			.resource-table thead th {position: sticky; top: 0; background: #f8f9fa; z-index: 1; border-bottom: 2px solid #dee2e6; }
+			.resource-table tbody tr:hover {background: #f8f9fa; }
+			.assignment-chip {display: inline-flex; align-items: center; background: #e9ecef; padding: 6px 10px; border-radius: 6px; margin: 3px; font-size: 12px; gap: 8px; }
+			.assignment-dates {color: #495057; font-weight: 500; }
+			.assignment-bill {background: #5e64ff; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+			.assignment-delete {background: none; border: none; color: #dc3545; cursor: pointer; font-size: 16px; padding: 0 4px; line-height: 1; font-weight: bold; }
+			.assignment-delete:hover {color: #a71d2a; transform: scale(1.2); }
+			.pagination-footer {display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef; }
+			.pagination-info-left {font-size: 13px; color: #6c757d; }
+			.pagination-controls {display: flex; align-items: center; gap: 12px; }
+			.pagination-info {font-size: 13px; color: #495057; font-weight: 500; }
+			.pagination-btn {min-width: 70px; }
+			.py-4 {padding-top: 24px !important; padding-bottom: 24px !important; }
 		</style>
 	`);
 
@@ -5562,13 +5330,13 @@ window.add_resource_allocation = function (project) {
 
 		if (selectedEmployees.length === 0) {
 			container.html(`
-				<div class="selected-employees-empty">
-					<p class="text-muted">No employees selected. Use the search field above to add employees.</p>
+		<div class="selected-employees-empty">
+			<p class="text-muted">No employees selected. Use the search field above to add employees.</p>
 				</div>
-			`);
+		`);
 		} else {
 			const chips = selectedEmployees.map((emp, idx) => `
-				<div class="employee-chip" data-idx="${idx}">
+		<div class="employee-chip" data-idx="${idx}">
 					<div class="chip-content">
 						<span class="chip-name">${emp.employee_name}</span>
 						<span class="chip-designation">${emp.designation || 'No Designation'}</span>
@@ -5578,49 +5346,49 @@ window.add_resource_allocation = function (project) {
 						<i class="fa fa-times"></i>
 					</button>
 				</div>
-			`).join('');
+		`).join('');
 
 			container.html(`
-				<div class="selected-employees-container">
+		<div class="selected-employees-container">
 					<div class="selected-count">${selectedEmployees.length} employee(s) selected</div>
 					<div class="employee-chips">${chips}</div>
 				</div>
-				<style>
-					.selected-employees-container { margin-bottom: 10px; }
-					.selected-count { font-size: 12px; color: #6c757d; margin-bottom: 8px; font-weight: 500; }
-					.employee-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-					.employee-chip { 
-						display: flex; 
-						align-items: center; 
-						background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
-						border: 1px solid #a5b4fc;
-						border-radius: 8px; 
-						padding: 8px 12px;
-						gap: 10px;
+		<style>
+			.selected-employees-container {margin-bottom: 10px; }
+			.selected-count {font-size: 12px; color: #6c757d; margin-bottom: 8px; font-weight: 500; }
+			.employee-chips {display: flex; flex-wrap: wrap; gap: 8px; }
+			.employee-chip {
+				display: flex;
+			align-items: center;
+			background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
+			border: 1px solid #a5b4fc;
+			border-radius: 8px;
+			padding: 8px 12px;
+			gap: 10px;
 					}
-					.chip-content { display: flex; flex-direction: column; }
-					.chip-name { font-weight: 600; font-size: 13px; color: #1e40af; }
-					.chip-designation { font-size: 11px; color: #6366f1; }
-					.chip-id { font-size: 10px; color: #9ca3af; }
-					.chip-remove { 
-						background: none; 
-						border: none; 
-						color: #dc2626; 
-						cursor: pointer; 
-						padding: 4px;
-						border-radius: 4px;
-						transition: background 0.2s;
+			.chip-content {display: flex; flex-direction: column; }
+			.chip-name {font-weight: 600; font-size: 13px; color: #1e40af; }
+			.chip-designation {font-size: 11px; color: #6366f1; }
+			.chip-id {font-size: 10px; color: #9ca3af; }
+			.chip-remove {
+				background: none;
+			border: none;
+			color: #dc2626;
+			cursor: pointer;
+			padding: 4px;
+			border-radius: 4px;
+			transition: background 0.2s;
 					}
-					.chip-remove:hover { background: #fee2e2; }
-					.selected-employees-empty { 
-						padding: 20px; 
-						text-align: center; 
-						background: #f8fafc; 
-						border-radius: 8px;
-						border: 1px dashed #e2e8f0;
+			.chip-remove:hover {background: #fee2e2; }
+			.selected-employees-empty {
+				padding: 20px;
+			text-align: center;
+			background: #f8fafc;
+			border-radius: 8px;
+			border: 1px dashed #e2e8f0;
 					}
-				</style>
-			`);
+		</style>
+	`);
 		}
 	}
 
@@ -5654,7 +5422,7 @@ window.upload_boq_template = function (project) {
 				fieldtype: 'HTML',
 				fieldname: 'template_info',
 				options: `
-					<div class="template-upload-info">
+		<div class="template-upload-info">
 						<div class="info-header">
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<circle cx="12" cy="12" r="10"></circle>
@@ -5692,44 +5460,44 @@ window.upload_boq_template = function (project) {
 							Download Sample Template
 						</button>
 					</div>
-					<style>
-						.template-upload-info { 
-							background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-							border: 1px solid #bae6fd;
-							border-radius: 8px;
-							padding: 16px;
-							margin-bottom: 16px;
+		<style>
+			.template-upload-info {
+				background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+			border: 1px solid #bae6fd;
+			border-radius: 8px;
+			padding: 16px;
+			margin-bottom: 16px;
 						}
-						.info-header { 
-							display: flex; 
-							align-items: center; 
-							gap: 8px; 
-							font-weight: 600; 
-							color: #0369a1;
-							margin-bottom: 8px;
+			.info-header {
+				display: flex;
+			align-items: center;
+			gap: 8px;
+			font-weight: 600;
+			color: #0369a1;
+			margin-bottom: 8px;
 						}
-						.template-upload-info p { margin: 0 0 12px 0; color: #374151; font-size: 13px; }
-						.columns-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
-						.column-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
-						.column-group strong { min-width: 70px; color: #374151; }
-						.column-tag { 
-							background: white; 
-							border: 1px solid #d1d5db; 
-							border-radius: 4px; 
-							padding: 2px 8px; 
-							font-size: 11px;
-							color: #4b5563;
+			.template-upload-info p {margin: 0 0 12px 0; color: #374151; font-size: 13px; }
+			.columns-list {display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+			.column-group {display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
+			.column-group strong {min-width: 70px; color: #374151; }
+			.column-tag {
+				background: white;
+			border: 1px solid #d1d5db;
+			border-radius: 4px;
+			padding: 2px 8px;
+			font-size: 11px;
+			color: #4b5563;
 						}
-						.column-group.required .column-tag { border-color: #f59e0b; background: #fffbeb; color: #92400e; }
-						.column-group.optional .column-tag { border-color: #10b981; background: #ecfdf5; color: #065f46; }
-						.download-template-btn { 
-							display: inline-flex; 
-							align-items: center; 
-							gap: 6px;
-							margin-top: 8px;
+			.column-group.required .column-tag {border-color: #f59e0b; background: #fffbeb; color: #92400e; }
+			.column-group.optional .column-tag {border-color: #10b981; background: #ecfdf5; color: #065f46; }
+			.download-template-btn {
+				display: inline-flex;
+			align-items: center;
+			gap: 6px;
+			margin-top: 8px;
 						}
-					</style>
-				`
+		</style>
+	`
 			},
 			{
 				fieldtype: 'Attach',
@@ -5757,22 +5525,22 @@ window.upload_boq_template = function (project) {
 
 			d.disable_primary_action();
 			$('#upload-result-container').html(`
-				<div class="upload-progress">
+		<div class="upload-progress">
 					<div class="spinner-border spinner-border-sm" role="status"></div>
 					<span>Processing template...</span>
 				</div>
-				<style>
-					.upload-progress { 
-						display: flex; 
-						align-items: center; 
-						gap: 10px; 
-						padding: 12px; 
-						background: #f3f4f6; 
-						border-radius: 6px;
-						color: #4b5563;
+		<style>
+			.upload-progress {
+				display: flex;
+			align-items: center;
+			gap: 10px;
+			padding: 12px;
+			background: #f3f4f6;
+			border-radius: 6px;
+			color: #4b5563;
 					}
-				</style>
-			`);
+		</style>
+	`);
 
 			frappe.call({
 				method: 'construction_management.api.template_upload.upload_boq_template',
@@ -5788,7 +5556,7 @@ window.upload_boq_template = function (project) {
 
 						if (result.success) {
 							$('#upload-result-container').html(`
-								<div class="upload-success">
+		<div class="upload-success">
 									<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 										<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
 										<polyline points="22 4 12 14.01 9 11.01"></polyline>
@@ -5801,21 +5569,21 @@ window.upload_boq_template = function (project) {
 										</div>
 									</div>
 								</div>
-								<style>
-									.upload-success { 
-										display: flex; 
-										align-items: center; 
-										gap: 12px; 
-										padding: 16px; 
-										background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
-										border: 1px solid #10b981;
-										border-radius: 8px;
-										color: #065f46;
+		<style>
+			.upload-success {
+				display: flex;
+			align-items: center;
+			gap: 12px;
+			padding: 16px;
+			background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+			border: 1px solid #10b981;
+			border-radius: 8px;
+			color: #065f46;
 									}
-									.success-content { display: flex; flex-direction: column; gap: 4px; }
-									.success-details { display: flex; gap: 16px; font-size: 12px; color: #047857; }
-								</style>
-							`);
+			.success-content {display: flex; flex-direction: column; gap: 4px; }
+			.success-details {display: flex; gap: 16px; font-size: 12px; color: #047857; }
+		</style>
+	`);
 
 							// Refresh dashboard after successful upload
 							setTimeout(() => {
@@ -5828,14 +5596,14 @@ window.upload_boq_template = function (project) {
 							if (result.errors && result.errors.length > 0) {
 								errorHtml = result.errors.map(e => {
 									if (typeof e === 'object') {
-										return `<div class="error-item">Row ${e.row}, ${e.column}: ${e.message}</div>`;
+										return `<div class="error-item"> Row ${e.row}, ${e.column}: ${e.message}</div> `;
 									}
-									return `<div class="error-item">${e}</div>`;
+									return `<div class="error-item"> ${e}</div> `;
 								}).join('');
 							}
 
 							$('#upload-result-container').html(`
-								<div class="upload-error">
+		<div class="upload-error">
 									<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 										<circle cx="12" cy="12" r="10"></circle>
 										<line x1="15" y1="9" x2="9" y2="15"></line>
@@ -5846,41 +5614,41 @@ window.upload_boq_template = function (project) {
 										<div class="error-list">${errorHtml}</div>
 									</div>
 								</div>
-								<style>
-									.upload-error { 
-										display: flex; 
-										align-items: flex-start; 
-										gap: 12px; 
-										padding: 16px; 
-										background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
-										border: 1px solid #ef4444;
-										border-radius: 8px;
-										color: #991b1b;
+		<style>
+			.upload-error {
+				display: flex;
+			align-items: flex-start;
+			gap: 12px;
+			padding: 16px;
+			background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+			border: 1px solid #ef4444;
+			border-radius: 8px;
+			color: #991b1b;
 									}
-									.error-content { display: flex; flex-direction: column; gap: 8px; flex: 1; }
-									.error-list { 
-										max-height: 150px; 
-										overflow-y: auto; 
-										font-size: 12px; 
-										background: white;
-										border-radius: 4px;
-										padding: 8px;
+			.error-content {display: flex; flex-direction: column; gap: 8px; flex: 1; }
+			.error-list {
+				max-height: 150px;
+			overflow-y: auto;
+			font-size: 12px;
+			background: white;
+			border-radius: 4px;
+			padding: 8px;
 									}
-									.error-item { 
-										padding: 4px 0; 
-										border-bottom: 1px solid #fecaca;
-										color: #b91c1c;
+			.error-item {
+				padding: 4px 0;
+			border-bottom: 1px solid #fecaca;
+			color: #b91c1c;
 									}
-									.error-item:last-child { border-bottom: none; }
-								</style>
-							`);
+			.error-item:last-child {border-bottom: none; }
+		</style>
+	`);
 						}
 					}
 				},
 				error: function (r) {
 					d.enable_primary_action();
 					$('#upload-result-container').html(`
-						<div class="upload-error">
+		<div class="upload-error">
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<circle cx="12" cy="12" r="10"></circle>
 								<line x1="15" y1="9" x2="9" y2="15"></line>
@@ -5891,7 +5659,7 @@ window.upload_boq_template = function (project) {
 								<p>${r.message || 'An unexpected error occurred'}</p>
 							</div>
 						</div>
-					`);
+		`);
 				}
 			});
 		}
@@ -5955,13 +5723,13 @@ function showFullScreenBOQModal(project, data, isLoading = false) {
 		<div class="fullscreen-loading">
 			<div class="loading-spinner"></div>
 			<p>Loading BOQ Management Table...</p>
-		</div>` : renderFullScreenBody(project, data);
+		</div> ` : renderFullScreenBody(project, data);
 
 	const modal = $(`
-		<div class="boq-fullscreen-modal" id="boq-fullscreen-modal">
+		<div class="boq-fullscreen-modal" id = "boq-fullscreen-modal">
 			<div class="fullscreen-header">
 				<div class="fullscreen-title">
-					<h2>BOQ Management - Full Screen View</h2>
+					<h2>BOQ Management-Full Screen View</h2>
 					<span class="project-name">${project}</span>
 				</div>
 				<div class="fullscreen-actions">
@@ -5977,7 +5745,7 @@ function showFullScreenBOQModal(project, data, isLoading = false) {
 				${modalContent}
 			</div>
 		</div>
-	`);
+		`);
 
 	// Add to body and show
 	$('body').append(modal);
@@ -6029,7 +5797,7 @@ function updateFullScreenBOQContent(project, data) {
 function renderFullScreenBody(project, data) {
 	return `
 		<div class="boq-fullscreen-container"></div>
-	`;
+			`;
 }
 
 function renderFullScreenScripts(project, data) {
@@ -6054,8 +5822,8 @@ function renderFullScreenScripts(project, data) {
 		}
 	});
 
-	// Ensure task management dialogs work properly
-	$(document).on('DOMNodeInserted', 'body', function (e) {
+	// Ensure task management dialogs work properly - use namespaced listener
+	$(document).off('DOMNodeInserted.boq_fullscreen').on('DOMNodeInserted.boq_fullscreen', 'body', function (e) {
 		const target = $(e.target);
 		if (target.hasClass('frappe-dialog') || target.hasClass('modal') || target.closest('.frappe-dialog').length) {
 			if ($('#boq-fullscreen-modal').is(':visible')) {
@@ -6072,239 +5840,239 @@ function applyFullScreenStyles() {
 	if (!$('#fullscreen-boq-styles').length) {
 		$('head').append(`
 			<style id="fullscreen-boq-styles">
-				/* Full Screen Button Styling */
+	/* Full Screen Button Styling */
 				.btn-fullscreen-icon {
-					background: transparent !important;
-					border: 1px solid #d1d5db !important;
-					color: #6b7280 !important;
-					padding: 8px !important;
-					border-radius: 6px !important;
-					transition: all 0.2s ease !important;
-				}
+		background: transparent!important;
+		border: 1px solid #d1d5db!important;
+		color: #6b7280!important;
+		padding: 8px!important;
+		border-radius: 6px!important;
+		transition: all 0.2s ease!important;
+	}
 				
 				.btn-fullscreen-icon:hover {
-					background: #f3f4f6 !important;
-					border-color: #9ca3af !important;
-					color: #374151 !important;
-					transform: translateY(-1px) !important;
-				}
+		background: #f3f4f6!important;
+		border-color: #9ca3af!important;
+		color: #374151!important;
+		transform: translateY(-1px)!important;
+	}
 				
 				.btn-fullscreen-icon:active {
-					transform: translateY(0) !important;
-				}
+		transform: translateY(0)!important;
+	}
 				
 				.boq-fullscreen-modal {
-					position: fixed;
-					top: 0;
-					left: 0;
-					width: 100vw;
-					height: 100vh;
-					background: white;
-					z-index: 10000 !important;
-					display: none;
-					flex-direction: column;
-				}
-				
-				/* Robust z-index fix for popups in full screen */
-				body.boq-fullscreen-active .modal,
-				body.boq-fullscreen-active .frappe-dialog {
-					z-index: 10002 !important;
-				}
-				
-				body.boq-fullscreen-active .modal-backdrop {
-					z-index: 10001 !important;
-				}
-				
-				body.boq-fullscreen-active .datepicker {
-					z-index: 10003 !important;
-				}
-				
-				body.boq-fullscreen-active .awesomplete > ul {
-					z-index: 10003 !important;
-				}
-				
-				body.boq-fullscreen-active .flatpickr-calendar {
-					z-index: 10003 !important;
-				}
+		position: fixed;
+		top: 0;
+		left: 0;
+		width: 100vw;
+		height: 100vh;
+		background: white;
+		z-index: 10000!important;
+		display: none;
+		flex-direction: column;
+	}
+
+	/* Robust z-index fix for popups in full screen */
+	body.boq-fullscreen-active .modal,
+	body.boq-fullscreen-active .frappe-dialog {
+		z-index: 10002!important;
+	}
+
+	body.boq-fullscreen-active .modal-backdrop {
+		z-index: 10001!important;
+	}
+
+	body.boq-fullscreen-active .datepicker {
+		z-index: 10003!important;
+	}
+
+	body.boq-fullscreen-active .awesomplete>ul {
+		z-index: 10003!important;
+	}
+
+	body.boq-fullscreen-active .flatpickr-calendar {
+		z-index: 10003!important;
+	}
 				
 				.boq-fullscreen-modal.fallback-fullscreen {
-					position: fixed !important;
-					top: 0 !important;
-					left: 0 !important;
-					width: 100vw !important;
-					height: 100vh !important;
-				}
+		position: fixed!important;
+		top: 0!important;
+		left: 0!important;
+		width: 100vw!important;
+		height: 100vh!important;
+	}
 				
 				.fullscreen-header {
-					display: flex;
-					justify-content: space-between;
-					align-items: center;
-					padding: 16px 24px;
-					background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-					color: white;
-					border-bottom: 1px solid #e5e7eb;
-					flex-shrink: 0;
-				}
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 16px 24px;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		color: white;
+		border-bottom: 1px solid #e5e7eb;
+		flex-shrink: 0;
+	}
 				
 				.fullscreen-title h2 {
-					margin: 0;
-					font-size: 20px;
-					font-weight: 600;
-				}
+		margin: 0;
+		font-size: 20px;
+		font-weight: 600;
+	}
 				
 				.project-name {
-					font-size: 14px;
-					opacity: 0.9;
-					margin-top: 4px;
-					display: block;
-				}
+		font-size: 14px;
+		opacity: 0.9;
+		margin-top: 4px;
+		display: block;
+	}
 				
 				.fullscreen-actions {
-					display: flex;
-					gap: 8px;
-				}
+		display: flex;
+		gap: 8px;
+	}
 				
-				.fullscreen-actions .btn {
-					border: 1px solid rgba(255,255,255,0.3);
-					color: white;
-					background: rgba(255,255,255,0.1);
-				}
+				.fullscreen-actions.btn {
+		border: 1px solid rgba(255, 255, 255, 0.3);
+		color: white;
+		background: rgba(255, 255, 255, 0.1);
+	}
 				
-				.fullscreen-actions .btn:hover {
-					background: rgba(255,255,255,0.2);
-				}
+				.fullscreen-actions.btn:hover {
+		background: rgba(255, 255, 255, 0.2);
+	}
 				
 				.fullscreen-content {
-					flex: 1;
-					overflow: auto;
-					padding: 16px 24px;
-					position: relative;
-				}
+		flex: 1;
+		overflow: auto;
+		padding: 16px 24px;
+		position: relative;
+	}
 				
 				.fullscreen-loading {
-					display: flex;
-					flex-direction: column;
-					align-items: center;
-					justify-content: center;
-					height: 200px;
-					color: #6c757d;
-				}
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		height: 200px;
+		color: #6c757d;
+	}
 				
-				.fullscreen-loading .loading-spinner {
-					width: 40px;
-					height: 40px;
-					border: 3px solid #f3f3f3;
-					border-top: 3px solid #667eea;
-					border-radius: 50%;
-					animation: spin 1s linear infinite;
-					margin-bottom: 16px;
-				}
-				
-				@keyframes spin {
-					0% { transform: rotate(0deg); }
-					100% { transform: rotate(360deg); }
-				}
-				
+				.fullscreen-loading.loading-spinner {
+		width: 40px;
+		height: 40px;
+		border: 3px solid #f3f3f3;
+		border-top: 3px solid #667eea;
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
+		margin-bottom: 16px;
+	}
+
+	@keyframes spin {
+		0% { transform: rotate(0deg); }
+		100% { transform: rotate(360deg); }
+	}
+
 				/* Full-screen table optimizations */
-				.boq-fullscreen-modal .comprehensive-items-table {
-					min-width: 100%;
-					font-size: 12px;
-				}
+				.boq-fullscreen-modal.comprehensive-items-table {
+		min-width: 100%;
+		font-size: 12px;
+	}
 				
-				.boq-fullscreen-modal .comprehensive-table-wrapper {
-					overflow-x: auto;
-					overflow-y: visible;
-				}
-				
+				.boq-fullscreen-modal.comprehensive-table-wrapper {
+		overflow-x: auto;
+		overflow-y: visible;
+	}
+
 				/* Responsive column widths for full-screen */
-				.boq-fullscreen-modal .col-desc {
-					min-width: 200px;
-					max-width: 300px;
-				}
+				.boq-fullscreen-modal.col-desc {
+		min-width: 200px;
+		max-width: 300px;
+	}
 				
-				.boq-fullscreen-modal .col-num {
-					width: 90px;
-					min-width: 80px;
-				}
+				.boq-fullscreen-modal.col-num {
+		width: 90px;
+		min-width: 80px;
+	}
 				
-				.boq-fullscreen-modal .col-actions {
-					width: 160px;
-					min-width: 160px;
-				}
-				
-				/* Larger screens get more space */
-				@media (min-width: 1920px) {
-					.boq-fullscreen-modal .comprehensive-items-table {
-						font-size: 13px;
-					}
+				.boq-fullscreen-modal.col-actions {
+		width: 160px;
+		min-width: 160px;
+	}
+
+	/* Larger screens get more space */
+	@media(min-width: 1920px) {
+					.boq-fullscreen-modal.comprehensive-items-table {
+			font-size: 13px;
+		}
 					
-					.boq-fullscreen-modal .col-desc {
-						min-width: 250px;
-						max-width: 350px;
-					}
+					.boq-fullscreen-modal.col-desc {
+			min-width: 250px;
+			max-width: 350px;
+		}
 					
-					.boq-fullscreen-modal .col-num {
-						width: 100px;
-						min-width: 90px;
-					}
+					.boq-fullscreen-modal.col-num {
+			width: 100px;
+			min-width: 90px;
+		}
 					
-					.boq-fullscreen-modal .col-actions {
-						width: 180px;
-						min-width: 180px;
-					}
-				}
-				
-				/* Medium screens optimization */
-				@media (min-width: 1366px) and (max-width: 1919px) {
-					.boq-fullscreen-modal .col-desc {
-						min-width: 180px;
-						max-width: 280px;
-					}
+					.boq-fullscreen-modal.col-actions {
+			width: 180px;
+			min-width: 180px;
+		}
+	}
+
+	/* Medium screens optimization */
+	@media(min-width: 1366px) and (max-width: 1919px) {
+					.boq-fullscreen-modal.col-desc {
+			min-width: 180px;
+			max-width: 280px;
+		}
 					
-					.boq-fullscreen-modal .col-num {
-						width: 85px;
-						min-width: 75px;
-					}
-				}
-				
+					.boq-fullscreen-modal.col-num {
+			width: 85px;
+			min-width: 75px;
+		}
+	}
+
 				/* Fix modal z-index issues in full-screen */
-				.boq-fullscreen-modal .modal {
-					z-index: 10002 !important;
-				}
+				.boq-fullscreen-modal.modal {
+		z-index: 10002!important;
+	}
 				
-				.boq-fullscreen-modal .modal-backdrop {
-					z-index: 10001 !important;
-				}
-				
+				.boq-fullscreen-modal.modal-backdrop {
+		z-index: 10001!important;
+	}
+
 				/* Ensure dialogs appear above full-screen modal */
 				.frappe-dialog {
-					z-index: 10002 !important;
-				}
+		z-index: 10002!important;
+	}
 				
-				.frappe-dialog .modal-dialog {
-					z-index: 10002 !important;
-				}
-				
+				.frappe-dialog.modal-dialog {
+		z-index: 10002!important;
+	}
+
 				/* Fix date picker z-index in full-screen modals */
-				.boq-fullscreen-modal .flatpickr-calendar {
-					z-index: 10003 !important;
-				}
+				.boq-fullscreen-modal.flatpickr-calendar {
+		z-index: 10003!important;
+	}
 				
-				.boq-fullscreen-modal .datepicker {
-					z-index: 10003 !important;
-				}
-				
+				.boq-fullscreen-modal.datepicker {
+		z-index: 10003!important;
+	}
+
 				/* Ensure proper scrolling in full-screen */
-				.boq-fullscreen-modal .fullscreen-content {
-					max-height: calc(100vh - 80px);
-					overflow-y: auto;
-					overflow-x: hidden;
-				}
+				.boq-fullscreen-modal.fullscreen-content {
+		max-height: calc(100vh - 80px);
+		overflow-y: auto;
+		overflow-x: hidden;
+	}
 				
-				.boq-fullscreen-modal .comprehensive-table-wrapper {
-					max-width: 100%;
-					overflow-x: auto;
-				}
+				.boq-fullscreen-modal.comprehensive-table-wrapper {
+		max-width: 100%;
+		overflow-x: auto;
+	}
 			</style>
 		`);
 	}
@@ -6331,6 +6099,7 @@ window.closeFullScreenBOQ = function () {
 	// Remove event listeners
 	$(document).off('keydown.fullscreen');
 	$(document).off('show.bs.modal');
+	$(document).off('DOMNodeInserted.boq_fullscreen');
 
 	// Reset modal z-indexes
 	$('.modal').css('z-index', '');
@@ -6355,7 +6124,7 @@ window.refreshFullScreenBOQ = function (project) {
 		// Show loading
 		// Explicitly use the loading html
 		$('#fullscreen-content-wrapper').html(`
-			<div class="fullscreen-loading">
+		<div class="fullscreen-loading">
 				<div class="loading-spinner"></div>
 				<p>Refreshing BOQ data...</p>
 			</div>
@@ -6404,7 +6173,7 @@ window.show_bulk_site_create_dialog = function (project) {
 						if (result.errors.length > 0) {
 							message += '<br><br><strong>' + __('Errors:') + '</strong><ul>';
 							result.errors.forEach(function (error) {
-								message += `<li>${error.site_name}: ${error.error}</li>`;
+								message += `< li> ${error.site_name}: ${error.error}</li> `;
 							});
 							message += '</ul>';
 						}

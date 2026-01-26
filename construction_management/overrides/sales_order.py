@@ -113,6 +113,7 @@ def create_ledger_entries(doc):
 				"amount": flt(item.amount),
 				"proforma_amount": flt(item.amount), # Keeping this for backward compatibility in reports
 				"retention_amount": flt(retention_share),
+				"percentage": flt(item.get("custom_billing_percentage", 0)),
 				"posting_date": doc.transaction_date or today(),
 				"source": "Order",
 				"reference_doctype": "Sales Order",
@@ -128,6 +129,7 @@ def create_ledger_entries(doc):
 					qty=flt(item.qty),
 					amount=flt(item.amount),
 					source="Order",
+					percentage=flt(item.get("custom_billing_percentage", 0)),
 					reference_doctype="Sales Order",
 					reference_name=doc.name,
 					posting_date=doc.transaction_date or today(),
