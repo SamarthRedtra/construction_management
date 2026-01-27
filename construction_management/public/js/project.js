@@ -4142,7 +4142,7 @@ class BulkDPRManager {
 	}
 
 	add_item(boq_item, bill_no) {
-		if (this.items.find(i => i.boq_item === boq_item)) return;
+		// Duplicates are allowed as long as sites are unique
 		this.items.push({
 			boq_item, bill_no,
 			data: { employees: [], materials: [], expenses: [], assets: [], overheads: [], subcontract_cost: 0, project_sites: '', area_covered: 0, consumed_qty: 0, balance_qty: 0 }
@@ -4321,6 +4321,28 @@ class BulkDPRManager {
 
 	update_item_field(idx, field, val) {
 		const item_data = this.items[idx].data;
+
+		if (field === "project_sites" && val) {
+			// Check for uniqueness of BOQ Item + Site within the current grid
+			const current_boq = this.items[idx].boq_item;
+			const is_duplicate = this.items.some((item, i) => {
+				return i !== idx && item.boq_item === current_boq && item.data.project_sites === val;
+			});
+
+			if (is_duplicate) {
+				frappe.msgprint({
+					title: __('Duplicate Selection'),
+					message: __('The BOQ Item <b>{0}</b> is already added for Site <b>{1}</b>. Please select a unique site.').format(current_boq, val),
+					indicator: 'orange'
+				});
+				// Reset the select field in the UI
+				this.dialog.$wrapper.find(`tr[data-idx="${idx}"] .dpr-site-select`).val('');
+				item_data.project_sites = '';
+				item_data.warehouse = '';
+				return;
+			}
+		}
+
 		item_data[field] = val;
 
 		if (field === "project_sites") {
