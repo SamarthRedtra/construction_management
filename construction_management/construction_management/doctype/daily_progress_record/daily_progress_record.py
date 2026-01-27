@@ -11,6 +11,7 @@ from construction_management.api.budget_control import validate_dpr_budget
 class DailyProgressRecord(Document):
 	def validate(self):
 		self.validate_site_location()
+		self.validate_uniqueness()
 		self.validate_boq_item()
 		self.fetch_bill_no()
 		self.validate_material_stock()
@@ -58,6 +59,31 @@ class DailyProgressRecord(Document):
 					_("Site Location or Project Site is mandatory for Company {0} as per BOQ Settings").format(self.company),
 					title=_("Mandatory Site Location")
 				)
+	
+	def validate_uniqueness(self):
+		"""
+		Ensure that a DPR for the same BOQ Item, Project Site, and Date doesn't already exist.
+		"""
+		if not (self.boq_item and self.date):
+			return
+
+		# Base filters
+		filters = {
+			"boq_item": self.boq_item,
+			"project_sites": self.project_sites,
+			"date": self.date,
+			"docstatus": ["<", 2],
+			"name": ["!=", self.name]
+		}
+
+		existing_dpr = frappe.db.get_value("Daily Progress Record", filters, "name")
+		if existing_dpr:
+			frappe.throw(
+				_("A Daily Progress Record (<b>{0}</b>) already exists for BOQ Item <b>{1}</b> at Site <b>{2}</b> on <b>{3}</b>.").format(
+					existing_dpr, self.boq_item, self.project_sites or _("No Site"), self.date
+				),
+				title=_("Duplicate Record")
+			)
 	
 	def validate_material_stock(self):
 		"""
