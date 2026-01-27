@@ -4111,6 +4111,8 @@ class BulkDPRManager {
 		this.items = frappe.ui.bulk_dpr_storage[project];
 
 		this.setup_styles();
+		this.sites_cache = null;
+		this.boq_qty_cache = {};
 	}
 
 	setup_styles() {
@@ -4142,12 +4144,30 @@ class BulkDPRManager {
 	}
 
 	add_item(boq_item, bill_no) {
-		// Duplicates are allowed as long as sites are unique
-		this.items.push({
-			boq_item, bill_no,
-			data: { employees: [], materials: [], expenses: [], assets: [], overheads: [], subcontract_cost: 0, project_sites: '', area_covered: 0, consumed_qty: 0, balance_qty: 0 }
-		});
+		const new_item = {
+			id: frappe.utils.get_random(5),
+			boq_item,
+			bill_no: bill_no || '-',
+			data: {
+				employees: [], materials: [], expenses: [], assets: [], overheads: [],
+				subcontract_cost: 0, project_sites: '', area_covered: 0,
+				consumed_qty: 0, balance_qty: 0, remarks: ''
+			}
+		};
+		this.items.push(new_item);
+
+		// Immediately render to show the new line
 		this.render();
+
+		// Fetch parent bill if not provided
+		if (!bill_no || bill_no === '-') {
+			frappe.db.get_value('BOQ Item', boq_item, 'parent_bill', (r) => {
+				if (r && r.parent_bill) {
+					new_item.bill_no = r.parent_bill;
+					this.render(); // Re-render to show bill_no
+				}
+			});
+		}
 	}
 
 	remove_item(idx) {
@@ -4234,10 +4254,8 @@ class BulkDPRManager {
 			],
 			primary_action_label: __('Add'),
 			primary_action: (values) => {
-				frappe.db.get_value('BOQ Item', values.boq_item, 'parent_bill', (r) => {
-					this.add_item(values.boq_item, r ? r.parent_bill : '');
-					link_dialog.hide();
-				});
+				this.add_item(values.boq_item);
+				link_dialog.hide();
 			}
 		});
 		link_dialog.show();
@@ -4277,29 +4295,48 @@ class BulkDPRManager {
 
 		// Setup Site Select
 		const $select = $row.find('.dpr-site-select');
-		frappe.call({
-			method: 'construction_management.api.dpr_utils.get_project_sites_list',
-			args: { project: this.project },
-			callback: (r) => {
-				const sites = r.message || [];
-				$select.append(`<option value="">${__('Select Site')}</option>`);
-				sites.forEach(s => $select.append(`<option value="${s.name}" ${s.name === data.project_sites ? 'selected' : ''}>${s.name}</option>`));
-			}
-		});
+		const populate_sites = (sites) => {
+			$select.append(`<option value="">${__('Select Site')}</option>`);
+			sites.forEach(s => $select.append(`<option value="${s.name}" ${s.name === data.project_sites ? 'selected' : ''}>${s.name}</option>`));
+		};
 
-		// Fetch Balance
-		frappe.db.get_value('BOQ Item', item.boq_item, 'total_qty', (r) => {
-			const total = r ? flt(r.total_qty) : 0;
-			$row.find('.dpr-total-qty').text(total.toFixed(2));
+		if (this.sites_cache) {
+			populate_sites(this.sites_cache);
+		} else {
+			frappe.call({
+				method: 'construction_management.api.dpr_utils.get_project_sites_list',
+				args: { project: this.project },
+				callback: (r) => {
+					this.sites_cache = r.message || [];
+					populate_sites(this.sites_cache);
+				}
+			});
+		}
+
+		// Fetch Balance / Total Qty
+		const update_qty_display = (total) => {
+			if ($row.closest('body').length === 0) return; // Row detached
+			$row.find('.dpr-total-qty').text(flt(total).toFixed(2));
 			this.update_row_balance($row, idx, total);
-		});
+		};
+
+		if (this.boq_qty_cache[item.boq_item] !== undefined) {
+			update_qty_display(this.boq_qty_cache[item.boq_item]);
+		} else {
+			frappe.db.get_value('BOQ Item', item.boq_item, 'total_qty', (r) => {
+				const total = r ? flt(r.total_qty) : 0;
+				this.boq_qty_cache[item.boq_item] = total;
+				update_qty_display(total);
+			});
+		}
 
 		// Events
 		$select.on('change', (e) => this.update_item_field(idx, 'project_sites', $(e.target).val()));
 		$row.find('.dpr-area-covered').on('input', (e) => {
 			const val = flt($(e.target).val());
 			this.update_item_field(idx, 'area_covered', val);
-			this.update_row_balance($row, idx, flt($row.find('.dpr-total-qty').text()));
+			const total = this.boq_qty_cache[item.boq_item] || 0;
+			this.update_row_balance($row, idx, total);
 		});
 		$row.find('.dpr-remove-row').on('click', () => this.remove_item(idx));
 		$row.find('.dpr-res-btn').on('click', (e) => this.open_resource_manager($(e.currentTarget).data('type'), idx));
