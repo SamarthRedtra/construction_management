@@ -4144,6 +4144,7 @@ class BulkDPRManager {
 	}
 
 	add_item(boq_item, bill_no) {
+		console.log("BulkDPRManager: Adding item", boq_item, "Current count:", this.items.length);
 		const new_item = {
 			id: frappe.utils.get_random(5),
 			boq_item,
@@ -4155,6 +4156,7 @@ class BulkDPRManager {
 			}
 		};
 		this.items.push(new_item);
+		console.log("BulkDPRManager: New item count after push:", this.items.length);
 
 		// Immediately render to show the new line
 		this.render();
@@ -4176,6 +4178,7 @@ class BulkDPRManager {
 	}
 
 	render() {
+		console.log("BulkDPRManager: Rendering", this.items.length, "items");
 		const container = this.dialog.$wrapper.find('.dpr-bulk-container');
 		if (!container.length) return;
 		container.empty();
