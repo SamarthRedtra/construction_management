@@ -89,6 +89,22 @@ frappe.ui.form.on('Payment Certificate', {
         let variance = original - total_accepted;
         frm.set_value('variance', variance);
         frm.set_value('variance_percent', original > 0 ? (variance / original) * 100 : 0);
+
+        // Task 3: Trigger retention calculation on amount change
+        frm.events.calculate_retention(frm);
+    },
+
+    retention_percentage: function (frm) {
+        frm.events.calculate_retention(frm);
+    },
+
+    calculate_retention: function (frm) {
+        if (frm.doc.type !== "Sales" || !frm.doc.project) return;
+
+        if (frm.doc.retention_percentage) {
+            let retention_amount = flt(frm.doc.accepted_amount) * (flt(frm.doc.retention_percentage) / 100.0);
+            frm.set_value('retention_amount', retention_amount);
+        }
     }
 });
 

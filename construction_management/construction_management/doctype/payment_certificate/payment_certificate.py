@@ -431,11 +431,23 @@ class PaymentCertificate(Document):
 		# If it's a multi-item PC, we update ledger per item
 		if self.get("items"):
 			for pc_item in self.items:
-				self._update_ledger_for_item(pc_item.boq_item, pc_item.qty, pc_item.amount, pc_item.accepted_amount)
+				# Pro-rate tax invoice amount based on item's share of total accepted amount
+				item_tax_invoice_amount = 0
+				if flt(self.accepted_amount) > 0:
+					item_share = flt(pc_item.accepted_amount) / flt(self.accepted_amount)
+					item_tax_invoice_amount = flt(self.tax_invoice_amount) * item_share
+				
+				self._update_ledger_for_item(
+					pc_item.boq_item, 
+					pc_item.qty, 
+					pc_item.amount, 
+					pc_item.accepted_amount,
+					item_tax_invoice_amount
+				)
 		elif self.boq_item:
-			self._update_ledger_for_item(self.boq_item, 0, self.proforma_amount, self.accepted_amount)
+			self._update_ledger_for_item(self.boq_item, 0, self.proforma_amount, self.accepted_amount, self.tax_invoice_amount)
 
-	def _update_ledger_for_item(self, boq_item, qty, amount, accepted_val):
+	def _update_ledger_for_item(self, boq_item, qty, amount, accepted_val, item_tax_invoice_amount=0):
 		"""Update ledger entry for a specific BOQ item"""
 		from construction_management.api.boq_ledger import create_ledger_entry, recalculate_ledger_for_item
 		
@@ -460,7 +472,7 @@ class PaymentCertificate(Document):
 					"payment_certificate": self.name,
 					"certified_amount": flt(accepted_val),
 					"tax_invoice": self.tax_invoice,
-					"tax_invoice_amount": flt(self.tax_invoice_amount) if self.tax_invoice else 0,
+					"tax_invoice_amount": flt(item_tax_invoice_amount),
 					"posting_date": self.posting_date
 				},
 				update_modified=False
@@ -480,7 +492,7 @@ class PaymentCertificate(Document):
 				payment_certificate=self.name,
 				certified_amount=flt(accepted_val),
 				tax_invoice=self.tax_invoice,
-				tax_invoice_amount=flt(self.tax_invoice_amount) if self.tax_invoice else 0
+				tax_invoice_amount=flt(item_tax_invoice_amount)
 			)
 		
 		recalculate_ledger_for_item(boq_item)
@@ -636,6 +648,8 @@ def create_payment_certificate_from_sales_order(sales_order: str, accepted_amoun
 	# Override if specific amount provided
 	if accepted_amount is not None:
 		pc.accepted_amount = flt(accepted_amount)
+		# Recalculate retention if accepted amount is changed
+		pc.calculate_retention()
 	
 	pc.insert()
 	

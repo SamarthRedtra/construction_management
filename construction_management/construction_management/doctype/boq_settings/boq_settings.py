@@ -112,7 +112,7 @@ class BOQSettings(Document):
 		
 		# Get projects without site locations
 		projects = frappe.db.sql("""
-			SELECT name, project_name 
+			SELECT name, project_name, custom_project_short_name
 			FROM `tabProject` 
 			WHERE company = %s 
 			AND enable_progressive_boq = 1
@@ -122,7 +122,11 @@ class BOQSettings(Document):
 		
 		for project in projects:
 			try:
-				warehouse = self.create_warehouse_for_project(project.name, project.project_name)
+				warehouse = self.create_warehouse_for_project(
+					project.name, 
+					project.project_name, 
+					project.custom_project_short_name
+				)
 				
 				# Update project with new warehouse
 				frappe.db.set_value("Project", project.name, "site_location", warehouse)
@@ -132,11 +136,11 @@ class BOQSettings(Document):
 			except Exception as e:
 				frappe.logger().error(f"Error creating warehouse for project {project.name}: {str(e)}")
 	
-	def create_warehouse_for_project(self, project_name, project_title):
+	def create_warehouse_for_project(self, project_name, project_title, project_short_name=None):
 		"""Create a warehouse for a specific project"""
 		
 		# Generate warehouse name using naming series
-		warehouse_name = self.get_warehouse_name(project_name, project_title)
+		warehouse_name = self.get_warehouse_name(project_name, project_title, project_short_name)
 		
 		# Check if warehouse already exists
 		if frappe.db.exists("Warehouse", warehouse_name):
@@ -157,8 +161,14 @@ class BOQSettings(Document):
 		
 		return warehouse_doc.name
 	
-	def get_warehouse_name(self, project_name, project_title):
+	def get_warehouse_name(self, project_name, project_title, project_short_name=None):
 		"""Generate warehouse name based on naming series"""
+		
+		if self.warehouse_naming_series == "Project ID - Short Name":
+			if project_short_name:
+				return f"{project_name} - {project_short_name}"
+			else:
+				return f"{project_name} - {project_title}"
 		
 		if self.warehouse_naming_series == "PROJ-WH-.####":
 			return f"PROJ-WH-{project_name}"
@@ -267,10 +277,16 @@ def auto_create_project_warehouse(doc, method=None):
 	if settings.get("auto_create_warehouse"):
 		try:
 			boq_settings_doc = frappe.get_doc("BOQ Settings", doc.company)
-			warehouse = boq_settings_doc.create_warehouse_for_project(doc.name, doc.project_name)
+			warehouse = boq_settings_doc.create_warehouse_for_project(
+				doc.name, 
+				doc.project_name, 
+				doc.get("custom_project_short_name")
+			)
 			
 			# Update project with new warehouse
 			doc.site_location = warehouse
+			doc.save(ignore_permissions=True)
+			frappe.db.commit()
 			
 			frappe.logger().info(f"Auto-created warehouse {warehouse} for project {doc.name}")
 			

@@ -59,6 +59,7 @@ def calculate_retention_and_net_amount(doc):
 def create_ledger_entries(doc):
 	"""
 	Create BOQ Progress Ledger entries for each item in the Sales Order.
+	Aggregates multiple lines for the same BOQ item to avoid overwriting.
 	"""
 	if not frappe.db.exists("DocType", "BOQ Progress Ledger"):
 		return
@@ -71,16 +72,35 @@ def create_ledger_entries(doc):
 	total_order_amount = sum(flt(item.amount) for item in doc.items if item.boq_item)
 	total_retention = total_order_amount * (retention_pct / 100)
 
+	# Aggregate items by boq_item
+	aggregated_items = {}
 	for item in doc.items:
 		if not item.boq_item:
 			continue
+		
+		if item.boq_item not in aggregated_items:
+			aggregated_items[item.boq_item] = {
+				"qty": 0.0,
+				"amount": 0.0,
+				"retention_share": 0.0,
+				"billing_percentage": 0.0
+			}
+		
+		retention_share = 0
+		if total_order_amount:
+			retention_share = total_retention * (flt(item.amount) / total_order_amount)
+			
+		aggregated_items[item.boq_item]["qty"] += flt(item.qty)
+		aggregated_items[item.boq_item]["amount"] += flt(item.amount)
+		aggregated_items[item.boq_item]["retention_share"] += flt(retention_share)
+		# For billing percentage, we take the maximum value from the lines
+		aggregated_items[item.boq_item]["billing_percentage"] = max(
+			aggregated_items[item.boq_item]["billing_percentage"], 
+			flt(item.get("custom_billing_percentage", 0))
+		)
 
+	for boq_item, data in aggregated_items.items():
 		try:
-			# Pro-rate retention to this item
-			retention_share = 0
-			if total_order_amount:
-				retention_share = total_retention * (flt(item.amount) / total_order_amount)
-
 			# Create or update ledger entry
 			ledger_entry = None
 			
@@ -89,7 +109,7 @@ def create_ledger_entries(doc):
 				ledger_entry = frappe.db.get_value(
 					"BOQ Progress Ledger",
 					{
-						"boq_item": item.boq_item,
+						"boq_item": boq_item,
 						"reference_doctype": "Sales Order",
 						"reference_name": doc.amended_from
 					},
@@ -101,7 +121,7 @@ def create_ledger_entries(doc):
 				ledger_entry = frappe.db.get_value(
 					"BOQ Progress Ledger",
 					{
-						"boq_item": item.boq_item,
+						"boq_item": boq_item,
 						"reference_doctype": "Sales Order",
 						"reference_name": doc.name
 					},
@@ -109,11 +129,11 @@ def create_ledger_entries(doc):
 				)
 
 			update_data = {
-				"qty": flt(item.qty),
-				"amount": flt(item.amount),
-				"proforma_amount": flt(item.amount), # Keeping this for backward compatibility in reports
-				"retention_amount": flt(retention_share),
-				"percentage": flt(item.get("custom_billing_percentage", 0)),
+				"qty": flt(data["qty"]),
+				"amount": flt(data["amount"]),
+				"proforma_amount": flt(data["amount"]),
+				"retention_amount": flt(data["retention_share"]),
+				"percentage": flt(data["billing_percentage"]),
 				"posting_date": doc.transaction_date or today(),
 				"source": "Order",
 				"reference_doctype": "Sales Order",
@@ -125,23 +145,23 @@ def create_ledger_entries(doc):
 				frappe.db.set_value("BOQ Progress Ledger", ledger_entry, update_data, update_modified=False)
 			else:
 				create_ledger_entry(
-					boq_item=item.boq_item,
-					qty=flt(item.qty),
-					amount=flt(item.amount),
+					boq_item=boq_item,
+					qty=flt(data["qty"]),
+					amount=flt(data["amount"]),
 					source="Order",
-					percentage=flt(item.get("custom_billing_percentage", 0)),
+					percentage=flt(data["billing_percentage"]),
 					reference_doctype="Sales Order",
 					reference_name=doc.name,
 					posting_date=doc.transaction_date or today(),
 					remarks=f"Sales Order {doc.name}",
-					proforma_amount=flt(item.amount),
-					retention_amount=flt(retention_share)
+					proforma_amount=flt(data["amount"]),
+					retention_amount=flt(data["retention_share"])
 				)
 
-			recalculate_ledger_for_item(item.boq_item)
+			recalculate_ledger_for_item(boq_item)
 		except Exception as e:
 			frappe.log_error(
-				f"Error creating ledger for Sales Order {doc.name}, Item {item.boq_item}: {str(e)}",
+				f"Error creating ledger for Sales Order {doc.name}, Item {boq_item}: {str(e)}",
 				"Sales Order Ledger Error"
 			)
 			raise

@@ -72,7 +72,7 @@ class DailyProgressRecord(Document):
 			"boq_item": self.boq_item,
 			"project_sites": self.project_sites,
 			"date": self.date,
-			"docstatus": ["<", 2],
+			"docstatus":1,
 			"name": ["!=", self.name]
 		}
 

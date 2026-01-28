@@ -48,6 +48,7 @@ class BOQFullScreenManager {
 			// Create and show full-screen modal
 			await this.createFullScreenModal(project, data);
 			this.isFullScreenActive = true;
+			$('body').addClass('boq-modal-active');
 
 			// Setup event listeners
 			this.setupEventListeners();
@@ -111,6 +112,7 @@ class BOQFullScreenManager {
 
 		// Render BOQ content after modal is visible
 		setTimeout(() => {
+			this.adjustModalSize();
 			this.renderBOQContent(data);
 		}, 350); // Slight delay to ensure modal is fully rendered
 	}
@@ -180,6 +182,9 @@ class BOQFullScreenManager {
 
 			// Setup content-specific event handlers
 			this.setupContentEventHandlers();
+
+			// Final size adjustment
+			this.adjustModalSize();
 
 		} catch (error) {
 			console.error('Error rendering BOQ content:', error);
@@ -348,8 +353,9 @@ class BOQFullScreenManager {
 		const headerHeight = header.outerHeight() || 60;
 
 		content.css({
-			'max-height': `calc(100vh - ${headerHeight + 20}px)`,
-			'height': `calc(100vh - ${headerHeight + 20}px)`
+			'height': `calc(100vh - ${headerHeight}px)`,
+			'max-height': `calc(100vh - ${headerHeight}px)`,
+			'overflow-y': 'auto'
 		});
 	}
 
@@ -429,6 +435,11 @@ class BOQFullScreenManager {
 					z-index: 10000;
 					display: flex;
 					flex-direction: column;
+					overflow: hidden;
+				}
+				
+				body.boq-modal-active {
+					overflow: hidden !important;
 				}
 				
 				.fullscreen-header {
@@ -461,7 +472,7 @@ class BOQFullScreenManager {
 				.fullscreen-content {
 					flex: 1;
 					background: #fff;
-					overflow: hidden;
+					overflow-y: auto !important;
 					position: relative;
 				}
 				
@@ -594,6 +605,7 @@ class BOQFullScreenManager {
 		this.isFullScreenActive = false;
 		this.currentProject = null;
 		this.expansionStates.clear();
+		$('body').removeClass('boq-modal-active');
 
 		// Remove styles
 		$('#boq-fullscreen-styles').remove();
