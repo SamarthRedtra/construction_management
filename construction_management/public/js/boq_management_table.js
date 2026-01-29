@@ -2950,7 +2950,9 @@ function get_table_styles() {
 		
 		/* Table - Requirements: 4.1, 4.4 */
 		.comprehensive-table-wrapper { 
+			max-height: 600px;
 			overflow-x: auto; 
+			overflow-y: auto;
 			-webkit-overflow-scrolling: touch; /* Smooth scrolling on touch devices */
 			scroll-behavior: smooth;
 		}
