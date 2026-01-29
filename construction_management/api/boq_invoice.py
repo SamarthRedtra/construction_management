@@ -1096,6 +1096,54 @@ def get_advance_balance(project: str) -> float:
 
 
 @frappe.whitelist()
+def get_deduction_details(project: str, items: list = None, invoice_name: str = None) -> dict:
+	"""
+	Calculate available retention and advance deduction details for a project/invoice.
+	
+	Args:
+		project: Project name
+		items: List of invoice items with amounts (optional)
+		invoice_name: Name of current invoice to exclude from balance (optional)
+		
+	Returns:
+		dict with retention_percentage, available_advance, suggested_retention, suggested_advance
+	"""
+	if isinstance(items, str):
+		import json
+		items = json.loads(items)
+		
+	project_doc = frappe.get_doc("Project", project)
+	retention_percentage = flt(project_doc.retention_percentage) if hasattr(project_doc, 'retention_percentage') else 0
+	advance_percentage = flt(project_doc.advance_deduction) if hasattr(project_doc, 'advance_deduction') else 0
+	enable_progressive_boq = getattr(project_doc, "enable_progressive_boq", 0)
+	
+	total_amount = 0
+	if items:
+		total_amount = sum(flt(item.get("amount", 0)) for item in items if not item.get("item_code") in ["RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"])
+	
+	suggested_retention = flt(total_amount * retention_percentage / 100, 2)
+	available_advance = get_advance_balance(project)
+	
+	# Suggested advance based on percentage cap
+	suggested_advance = flt(total_amount * advance_percentage / 100, 2)
+	suggested_advance = min(suggested_advance, available_advance)
+	
+	# Ensure items exist
+	get_or_create_retention_item()
+	get_or_create_advance_item()
+	
+	return {
+		"retention_percentage": retention_percentage,
+		"advance_percentage": advance_percentage,
+		"available_advance": available_advance,
+		"suggested_retention": suggested_retention,
+		"suggested_advance": suggested_advance,
+		"total_billable_amount": total_amount,
+		"enable_progressive_boq": enable_progressive_boq
+	}
+
+
+@frappe.whitelist()
 def get_retention_summary(project: str) -> dict:
 	"""Get retention summary for a project"""
 	# Get total retention deducted

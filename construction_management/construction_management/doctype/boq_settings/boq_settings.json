@@ -1,224 +1,236 @@
 {
-    "actions": [],
-    "allow_rename": 1,
-    "autoname": "field:company",
-    "creation": "2024-12-31 10:00:00",
-    "doctype": "DocType",
-    "editable_grid": 1,
-    "engine": "InnoDB",
-    "field_order": [
-        "company",
-        "section_break_2",
-        "mandatory_site_location",
-        "default_warehouse",
-        "column_break_5",
-        "auto_create_warehouse",
-        "warehouse_naming_series",
-        "retention_settings_section",
-        "default_retention_percentage",
-        "retention_account",
-        "column_break_12",
-        "advance_settings_section",
-        "advance_account",
-        "advance_deduction_item",
-        "section_break_cost",
-        "asset_labor_cost_account",
-        "asset_cost_account",
-        "column_break_cost",
-        "salary_labor_account",
-        "asset_cost_credit",
-        "expenses_account",
-        "overhead_account"
-    ],
-    "fields": [
-        {
-            "fieldname": "company",
-            "fieldtype": "Link",
-            "in_list_view": 1,
-            "label": "Company",
-            "options": "Company",
-            "reqd": 1,
-            "unique": 1
-        },
-        {
-            "fieldname": "section_break_2",
-            "fieldtype": "Section Break",
-            "label": "Warehouse/Site Location Settings"
-        },
-        {
-            "default": "0",
-            "description": "Enforce warehouse/site location selection in Daily Progress Records",
-            "fieldname": "mandatory_site_location",
-            "fieldtype": "Check",
-            "label": "Mandatory Site Location in DPR"
-        },
-        {
-            "description": "Default warehouse for projects without site location",
-            "fieldname": "default_warehouse",
-            "fieldtype": "Link",
-            "label": "Default Warehouse",
-            "options": "Warehouse"
-        },
-        {
-            "fieldname": "column_break_5",
-            "fieldtype": "Column Break"
-        },
-        {
-            "default": "0",
-            "description": "Automatically create warehouse for each project",
-            "fieldname": "auto_create_warehouse",
-            "fieldtype": "Check",
-            "label": "Auto Create Project Warehouses"
-        },
-        {
-            "default": "PROJ-WH-.####",
-            "depends_on": "eval:doc.auto_create_warehouse",
-            "fieldname": "warehouse_naming_series",
-            "fieldtype": "Select",
-            "label": "Warehouse Naming Series",
-            "options": "PROJ-WH-.####\nSITE-.####\nWH-.YYYY.-.####\nProject ID - Short Name"
-        },
-        {
-            "fieldname": "retention_settings_section",
-            "fieldtype": "Section Break",
-            "label": "Retention Settings"
-        },
-        {
-            "description": "Default retention percentage for new projects",
-            "fieldname": "default_retention_percentage",
-            "fieldtype": "Percent",
-            "label": "Default Retention %"
-        },
-        {
-            "description": "Account for retention deductions",
-            "fieldname": "retention_account",
-            "fieldtype": "Link",
-            "label": "Retention Account",
-            "options": "Account"
-        },
-        {
-            "fieldname": "column_break_12",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "advance_settings_section",
-            "fieldtype": "Section Break",
-            "label": "Advance Settings"
-        },
-        {
-            "description": "Account for advance payments",
-            "fieldname": "advance_account",
-            "fieldtype": "Link",
-            "label": "Advance Account",
-            "options": "Account"
-        },
-        {
-            "default": "ADVANCE-DEDUCTION",
-            "description": "Service item for advance deductions in invoices",
-            "fieldname": "advance_deduction_item",
-            "fieldtype": "Link",
-            "label": "Advance Deduction Item",
-            "options": "Item"
-        },
-        {
-            "fieldname": "section_break_cost",
-            "fieldtype": "Section Break",
-            "label": "Cost Accounting Accounts"
-        },
-        {
-            "description": "Expense account for capitalised/allocated labour cost on assets",
-            "fieldname": "asset_labor_cost_account",
-            "fieldtype": "Link",
-            "label": "Labour Cost",
-            "options": "Account"
-        },
-        {
-            "description": "Expense account for asset cost allocation",
-            "fieldname": "asset_cost_account",
-            "fieldtype": "Link",
-            "label": "Debit Asset Cost",
-            "options": "Account"
-        },
-        {
-            "fieldname": "column_break_cost",
-            "fieldtype": "Column Break"
-        },
-        {
-            "description": "Default expense/overhead account for DPR JVs",
-            "fieldname": "expenses_account",
-            "fieldtype": "Link",
-            "label": "Expenses & Overhead Account",
-            "options": "Account"
-        },
-        {
-            "description": "Default overhead account for DPR postings",
-            "fieldname": "overhead_account",
-            "fieldtype": "Link",
-            "label": "Overhead Account",
-            "options": "Account"
-        },
-        {
-            "description": "Account used for labour cost mapping / salary payout reconciliation",
-            "fieldname": "salary_labor_account",
-            "fieldtype": "Link",
-            "label": "Salary Labour Account",
-            "options": "Account"
-        },
-        {
-            "description": "Expense account for asset cost allocation",
-            "fieldname": "asset_cost_credit",
-            "fieldtype": "Link",
-            "label": "Asset Cost Credit",
-            "options": "Account"
-        }
-    ],
-    "index_web_pages_for_search": 1,
-    "links": [],
-    "modified": "2026-01-09 22:40:58.275002",
-    "modified_by": "Administrator",
-    "module": "Construction Management",
-    "name": "BOQ Settings",
-    "naming_rule": "By fieldname",
-    "owner": "Administrator",
-    "permissions": [
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "System Manager",
-            "share": 1,
-            "write": 1
-        },
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Construction Manager",
-            "share": 1,
-            "write": 1
-        },
-        {
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Construction User",
-            "share": 1
-        }
-    ],
-    "row_format": "Dynamic",
-    "sort_field": "modified",
-    "sort_order": "DESC",
-    "states": [],
-    "title_field": "company",
-    "track_changes": 1
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:company",
+ "creation": "2024-12-31 10:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "section_break_2",
+  "mandatory_site_location",
+  "default_warehouse",
+  "column_break_5",
+  "auto_create_warehouse",
+  "warehouse_naming_series",
+  "retention_settings_section",
+  "default_retention_percentage",
+  "retention_account",
+  "column_break_12",
+  "retention_account_credit",
+  "advance_settings_section",
+  "advance_deduction_item",
+  "column_break_hcla",
+  "default_advance_item",
+  "section_break_cost",
+  "asset_labor_cost_account",
+  "asset_cost_account",
+  "column_break_cost",
+  "salary_labor_account",
+  "asset_cost_credit",
+  "expenses_account",
+  "overhead_account"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "section_break_2",
+   "fieldtype": "Section Break",
+   "label": "Warehouse/Site Location Settings"
+  },
+  {
+   "default": "0",
+   "description": "Enforce warehouse/site location selection in Daily Progress Records",
+   "fieldname": "mandatory_site_location",
+   "fieldtype": "Check",
+   "label": "Mandatory Site Location in DPR"
+  },
+  {
+   "description": "Default warehouse for projects without site location",
+   "fieldname": "default_warehouse",
+   "fieldtype": "Link",
+   "label": "Default Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Automatically create warehouse for each project",
+   "fieldname": "auto_create_warehouse",
+   "fieldtype": "Check",
+   "label": "Auto Create Project Warehouses"
+  },
+  {
+   "default": "PROJ-WH-.####",
+   "depends_on": "eval:doc.auto_create_warehouse",
+   "fieldname": "warehouse_naming_series",
+   "fieldtype": "Select",
+   "label": "Warehouse Naming Series",
+   "options": "Project ID - Short Name\nPROJ-WH-.####\nSITE-.####\nWH-.YYYY.-.####"
+  },
+  {
+   "fieldname": "retention_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Retention Settings"
+  },
+  {
+   "description": "Default retention percentage for new projects",
+   "fieldname": "default_retention_percentage",
+   "fieldtype": "Percent",
+   "label": "Default Retention %"
+  },
+  {
+   "description": "Account for retention deductions",
+   "fieldname": "retention_account",
+   "fieldtype": "Link",
+   "label": "Retention Account Debit",
+   "options": "Account"
+  },
+  {
+   "fieldname": "column_break_12",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "advance_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Advance Settings"
+  },
+  {
+   "default": "ADVANCE-DEDUCTION",
+   "description": "Service item for advance deductions in invoices",
+   "fieldname": "advance_deduction_item",
+   "fieldtype": "Link",
+   "label": "Advance Deduction Item",
+   "options": "Item"
+  },
+  {
+   "fieldname": "section_break_cost",
+   "fieldtype": "Section Break",
+   "label": "Cost Accounting Accounts"
+  },
+  {
+   "description": "Expense account for capitalised/allocated labour cost on assets",
+   "fieldname": "asset_labor_cost_account",
+   "fieldtype": "Link",
+   "label": "Labour Cost",
+   "options": "Account"
+  },
+  {
+   "description": "Expense account for asset cost allocation",
+   "fieldname": "asset_cost_account",
+   "fieldtype": "Link",
+   "label": "Debit Asset Cost",
+   "options": "Account"
+  },
+  {
+   "fieldname": "column_break_cost",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Default expense/overhead account for DPR JVs",
+   "fieldname": "expenses_account",
+   "fieldtype": "Link",
+   "label": "Expenses & Overhead Account",
+   "options": "Account"
+  },
+  {
+   "description": "Default overhead account for DPR postings",
+   "fieldname": "overhead_account",
+   "fieldtype": "Link",
+   "label": "Overhead Account",
+   "options": "Account"
+  },
+  {
+   "description": "Account used for labour cost mapping / salary payout reconciliation",
+   "fieldname": "salary_labor_account",
+   "fieldtype": "Link",
+   "label": "Salary Labour Account",
+   "options": "Account"
+  },
+  {
+   "description": "Expense account for asset cost allocation",
+   "fieldname": "asset_cost_credit",
+   "fieldtype": "Link",
+   "label": "Asset Cost Credit",
+   "options": "Account"
+  },
+  {
+   "fieldname": "column_break_hcla",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_advance_item",
+   "fieldtype": "Link",
+   "label": "Default Advance Item",
+   "options": "Item"
+  },
+  {
+   "description": "Account for retention Credits",
+   "fieldname": "retention_account_credit",
+   "fieldtype": "Link",
+   "label": "Retention Account Credit",
+   "options": "Account"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-01-29 23:57:55.854125",
+ "modified_by": "Administrator",
+ "module": "Construction Management",
+ "name": "BOQ Settings",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Construction Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Construction User",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "company",
+ "track_changes": 1
 }

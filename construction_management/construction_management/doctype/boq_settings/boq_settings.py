@@ -55,11 +55,11 @@ class BOQSettings(Document):
 	def validate_advance_settings(self):
 		"""Validate advance payment configuration"""
 		
-		# Validate advance account belongs to the same company
-		if self.advance_account:
-			account_company = frappe.db.get_value("Account", self.advance_account, "company")
-			if account_company != self.company:
-				frappe.throw(_("Advance Account must belong to company {0}").format(self.company))
+		# # Validate advance account belongs to the same company
+		# if self.advance_account:
+		# 	account_company = frappe.db.get_value("Account", self.advance_account, "company")
+		# 	if account_company != self.company:
+		# 		frappe.throw(_("Advance Account must belong to company {0}").format(self.company))
 		
 		# Validate advance deduction item exists
 		if self.advance_deduction_item and not frappe.db.exists("Item", self.advance_deduction_item):
@@ -163,12 +163,12 @@ class BOQSettings(Document):
 	
 	def get_warehouse_name(self, project_name, project_title, project_short_name=None):
 		"""Generate warehouse name based on naming series"""
-		
+		print("self.warehouse_naming_series","999",self.warehouse_naming_series)
 		if self.warehouse_naming_series == "Project ID - Short Name":
 			if project_short_name:
-				return f"{project_name} - {project_short_name}"
+				return f"{project_title} - {project_short_name}"
 			else:
-				return f"{project_name} - {project_title}"
+				return f"{project_title}"
 		
 		if self.warehouse_naming_series == "PROJ-WH-.####":
 			return f"PROJ-WH-{project_name}"

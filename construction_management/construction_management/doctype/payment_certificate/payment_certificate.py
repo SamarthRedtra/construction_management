@@ -583,8 +583,13 @@ def get_pending_sales_orders(project: str = None) -> list:
 	
 	pending = []
 	for so in sos:
-		has_boq = frappe.db.exists("Sales Order Item", {"parent": so.name, "boq_item": ["!=", ""]})
-		if not has_boq:
+		so_items = frappe.get_all(
+			"Sales Order Item",
+			filters={"parent": so.name, "boq_item": ["!=", ""]},
+			fields=["boq_item", "bill_no"]
+		)
+		
+		if not so_items:
 			continue
 			
 		# Calculate total accepted amount for this SO across all PCs
@@ -598,6 +603,8 @@ def get_pending_sales_orders(project: str = None) -> list:
 		# A Sales Order is pending if it has an uncertified balance
 		if flt(so.base_grand_total) > total_accepted:
 			so["amount"] = so.base_grand_total # Mapping for UI
+			so["boq_items"] = list(set(item.boq_item for item in so_items if item.boq_item))
+			so["bill_nos"] = list(set(item.bill_no for item in so_items if item.bill_no))
 			pending.append(so)
 			
 	return pending
@@ -685,6 +692,41 @@ def get_payment_certificate_summary(project: str) -> dict:
 		"total_variance": flt(summary.total_variance),
 		"total_received": flt(summary.total_received)
 	}
+
+
+@frappe.whitelist()
+def get_payment_certificates_with_items(project: str) -> list:
+	"""Fetch Payment Certificates with associated BOQ items and bills for filtering"""
+	pcs = frappe.get_all(
+		"Payment Certificate",
+		filters={"project": project},
+		fields=["name", "posting_date", "proforma_amount", "accepted_amount", "variance", "status", "tax_invoice", "sales_order", "boq_item", "bill_no"],
+		order_by="posting_date desc"
+	)
+	
+	for pc in pcs:
+		# If it's a multi-item PC, fetch all items/bills
+		pc_items = frappe.get_all(
+			"Payment Certificate Item",
+			filters={"parent": pc.name},
+			fields=["boq_item", "bill_no"]
+		)
+		
+		# Combine direct fields and child items
+		boq_items = set()
+		bill_nos = set()
+		
+		if pc.boq_item: boq_items.add(pc.boq_item)
+		if pc.bill_no: bill_nos.add(pc.bill_no)
+		
+		for item in pc_items:
+			if item.boq_item: boq_items.add(item.boq_item)
+			if item.bill_no: bill_nos.add(item.bill_no)
+			
+		pc["boq_items"] = list(boq_items)
+		pc["bill_nos"] = list(bill_nos)
+		
+	return pcs
 
 
 @frappe.whitelist()

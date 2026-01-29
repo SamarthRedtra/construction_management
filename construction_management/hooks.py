@@ -144,9 +144,11 @@ after_install = "construction_management.setup.install.after_install"
 
 doc_events = {
 	"Sales Invoice": {
+		"validate": "construction_management.overrides.sales_invoice.validate",
 		"before_insert": "construction_management.overrides.sales_invoice.before_insert",
 		"on_submit": "construction_management.overrides.sales_invoice.on_submit",
-		"on_cancel": "construction_management.overrides.sales_invoice.on_cancel"
+		"on_cancel": "construction_management.overrides.sales_invoice.on_cancel",
+		"on_update_after_submit": "construction_management.overrides.sales_invoice.on_update"
 	},
 	"Purchase Invoice": {
 		"on_submit": "construction_management.overrides.purchase_invoice.on_submit",
@@ -171,6 +173,9 @@ doc_events = {
 	},
 	"GL Entry": {
 		"on_update": "construction_management.api.gl_hook.update_cost_from_gl"
+	},
+	"Payment Entry": {
+		"on_submit": "construction_management.overrides.payment_entry.on_submit"
 	}
 }
 

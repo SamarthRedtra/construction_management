@@ -6,6 +6,93 @@ from frappe import _
 from frappe.utils import flt, today
 
 
+def validate(doc, method):
+	"""Server-side validation and automatic deductions"""
+	if doc.project and doc.docstatus == 0:
+		apply_automatic_deductions(doc)
+
+
+def apply_automatic_deductions(doc):
+	"""Automatically apply retention and advance deductions if enabled"""
+	from construction_management.api.boq_invoice import get_deduction_details, get_or_create_retention_item, get_or_create_advance_item
+	
+	details = get_deduction_details(doc.project, doc.items, invoice_name=doc.name)
+	
+	if not details.get("enable_progressive_boq"):
+		return
+		
+	# Common defaults for deduction items
+	default_income_account = frappe.db.get_value("Company", doc.company, "default_income_account")
+	default_cost_center = frappe.db.get_value("Company", doc.company, "cost_center")
+	
+	# 1. Handle Retention Deduction
+	if details.get("suggested_retention") > 0:
+		retention_item = "RETENTION-DEDUCTION"
+		get_or_create_retention_item() # Ensure it exists
+		
+		# Find existing or add new
+		found = False
+		for item in doc.items:
+			if item.item_code == retention_item:
+				item.rate = -flt(details["suggested_retention"])
+				item.amount = -flt(details["suggested_retention"])
+				item.qty = 1
+				item.description = f"Retention deduction ({details['retention_percentage']}%)"
+				item.project = doc.project
+				found = True
+				break
+		
+		if not found:
+			doc.append("items", {
+				"item_code": retention_item,
+				"qty": 1,
+				"rate": -flt(details["suggested_retention"]),
+				"amount": -flt(details["suggested_retention"]),
+				"description": f"Retention deduction ({details['retention_percentage']}%)",
+				"project": doc.project,
+				"income_account": default_income_account,
+				"cost_center": default_cost_center,
+				"uom": "Nos",
+				"conversion_factor": 1.0,
+				"item_name": "Retention Deduction"
+			})
+
+	# 2. Advance Deduction
+	if details.get("suggested_advance") > 0:
+		advance_item = "ADVANCE-DEDUCTION"
+		get_or_create_advance_item()
+		
+		# Find existing or add new
+		found = False
+		for item in doc.items:
+			if item.item_code == advance_item:
+				item.rate = -flt(details["suggested_advance"])
+				item.amount = -flt(details["suggested_advance"])
+				item.qty = 1
+				item.description = "Deduction from advance payment"
+				item.project = doc.project
+				found = True
+				break
+		
+		if not found:
+			doc.append("items", {
+				"item_code": advance_item,
+				"qty": 1,
+				"rate": -flt(details["suggested_advance"]),
+				"amount": -flt(details["suggested_advance"]),
+				"description": "Deduction from advance payment",
+				"project": doc.project,
+				"income_account": default_income_account,
+				"cost_center": default_cost_center,
+				"uom": "Nos",
+				"conversion_factor": 1.0,
+				"item_name": "Advance Deduction"
+			})
+
+	# Recalculate totals to handle the new items
+	doc.run_method("calculate_taxes_and_totals")
+
+
 def before_insert(doc, method):
 	"""Auto-set BOQ dimensions on Sales Invoice Items"""
 	for item in doc.items:
@@ -39,6 +126,33 @@ def on_submit(doc, method):
 			update_project_completion(doc.project)
 		except Exception as e:
 			frappe.log_error(f"Error updating project completion: {str(e)}")
+
+
+def on_update(doc, method):
+	"""Handle status changes on update"""
+	if doc.get("custom_is_advanced") and doc.status == "Paid" and doc.docstatus == 1:
+		print("sshshhs")
+		create_boq_advance_payment_from_invoice(doc)
+
+
+def create_boq_advance_payment_from_invoice(invoice):
+	"""Automatically create BOQ Advance Payment record from a Paid Advance Invoice"""
+	# Check if already exists to avoid duplication
+	if frappe.db.exists("BOQ Advance Payment", {"linked_invoice": invoice.name, "docstatus": ["!=", 2]}):
+		return
+
+	adv = frappe.new_doc("BOQ Advance Payment")
+	adv.project = invoice.project
+	adv.amount = invoice.net_total
+	adv.linked_invoice = invoice.name
+	adv.date = invoice.posting_date
+	adv.remarks = f"Automatically created from Advance Invoice {invoice.name}"
+	
+	adv.flags.ignore_permissions = True
+	adv.insert()
+	adv.submit()
+	frappe.msgprint(_("BOQ Advance Payment {0} created automatically.").format(adv.name))
+	frappe.db.commit()
 
 
 def on_cancel(doc, method):
