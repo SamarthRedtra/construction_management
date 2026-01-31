@@ -279,6 +279,7 @@ class PaymentCertificate(Document):
 		invoice.custom_payment_certificate = self.name
 		invoice.custom_sales_order = self.sales_order
 		invoice.custom_is_proforma = 0  # This is a final tax invoice
+		invoice.cost_center = frappe.db.get_value("Company", company, "cost_center")
 		
 		# Set retention fields on invoice
 		if hasattr(invoice, "custom_retention_amount"):
@@ -289,12 +290,13 @@ class PaymentCertificate(Document):
 		# Add items from PC items table
 		if self.get("items"):
 			for pc_item in self.items:
+				# Task: Payment Certificate Optimization - Gross Amount
 				invoice.append("items", {
 					"item_code": frappe.db.get_value("BOQ Item", pc_item.boq_item, "item_code") or "Service",
-					"item_name": pc_item.description[:140],
 					"description": pc_item.description,
-					"qty": flt(pc_item.accepted_amount) / flt(pc_item.rate) if flt(pc_item.rate) > 0 else 0,
+					"qty": pc_item.qty,
 					"rate": pc_item.rate,
+					"amount": flt(pc_item.qty) * flt(pc_item.rate),
 					"income_account": income_account,
 					"project": self.project,
 					"boq_item": pc_item.boq_item,
@@ -302,33 +304,22 @@ class PaymentCertificate(Document):
 					"sales_order": self.sales_order,
 					"so_detail": pc_item.sales_order_item
 				})
-		else:
-			# Fallback for old single-item PCs
-			item_desc = "Progress Billing"
-			if self.boq_item:
-				item_desc = frappe.db.get_value("BOQ Item", self.boq_item, "description") or item_desc
-			elif self.bill_no:
-				item_desc = frappe.db.get_value("BOQ Bill", self.bill_no, "description") or f"Bill: {self.bill_no}"
-				
-			invoice.append("items", {
-				"item_name": item_desc[:140],
-				"description": item_desc,
-				"qty": 1,
-				"rate": flt(self.proforma_amount),
-				"income_account": income_account,
-				"project": self.project,
-				"boq_item": self.boq_item,
-				"bill_no": self.bill_no,
-				"sales_order": self.sales_order
-			})
 		
-		# Add global variance discount line if total variance exists
+		# Add global variance deduction line if total variance exists
 		if flt(self.variance) > 0:
+			boq_settings = frappe.get_doc("BOQ Settings", company)
+			variance_item = boq_settings.varience_item
+			
+			if not variance_item:
+				frappe.throw(_("Please set 'Varience Deduction Item' in BOQ Settings matching company {0}").format(company))
+
 			invoice.append("items", {
-				"item_name": "Variance Discount",
+				"item_code": variance_item,
+				"item_name": "Variance Deduction",
 				"description": f"Variance adjustment (PC: {self.name})",
 				"qty": 1,
 				"rate": -flt(self.variance),
+				"amount": -flt(self.variance),
 				"income_account": income_account,
 				"project": self.project
 			})
@@ -583,8 +574,13 @@ def get_pending_sales_orders(project: str = None) -> list:
 	
 	pending = []
 	for so in sos:
-		has_boq = frappe.db.exists("Sales Order Item", {"parent": so.name, "boq_item": ["!=", ""]})
-		if not has_boq:
+		so_items = frappe.get_all(
+			"Sales Order Item",
+			filters={"parent": so.name, "boq_item": ["!=", ""]},
+			fields=["boq_item", "bill_no"]
+		)
+		
+		if not so_items:
 			continue
 			
 		# Calculate total accepted amount for this SO across all PCs
@@ -598,6 +594,8 @@ def get_pending_sales_orders(project: str = None) -> list:
 		# A Sales Order is pending if it has an uncertified balance
 		if flt(so.base_grand_total) > total_accepted:
 			so["amount"] = so.base_grand_total # Mapping for UI
+			so["boq_items"] = list(set(item.boq_item for item in so_items if item.boq_item))
+			so["bill_nos"] = list(set(item.bill_no for item in so_items if item.bill_no))
 			pending.append(so)
 			
 	return pending
@@ -685,6 +683,41 @@ def get_payment_certificate_summary(project: str) -> dict:
 		"total_variance": flt(summary.total_variance),
 		"total_received": flt(summary.total_received)
 	}
+
+
+@frappe.whitelist()
+def get_payment_certificates_with_items(project: str) -> list:
+	"""Fetch Payment Certificates with associated BOQ items and bills for filtering"""
+	pcs = frappe.get_all(
+		"Payment Certificate",
+		filters={"project": project},
+		fields=["name", "posting_date", "proforma_amount", "accepted_amount", "variance", "status", "tax_invoice", "sales_order", "boq_item", "bill_no"],
+		order_by="posting_date desc"
+	)
+	
+	for pc in pcs:
+		# If it's a multi-item PC, fetch all items/bills
+		pc_items = frappe.get_all(
+			"Payment Certificate Item",
+			filters={"parent": pc.name},
+			fields=["boq_item", "bill_no"]
+		)
+		
+		# Combine direct fields and child items
+		boq_items = set()
+		bill_nos = set()
+		
+		if pc.boq_item: boq_items.add(pc.boq_item)
+		if pc.bill_no: bill_nos.add(pc.bill_no)
+		
+		for item in pc_items:
+			if item.boq_item: boq_items.add(item.boq_item)
+			if item.bill_no: bill_nos.add(item.bill_no)
+			
+		pc["boq_items"] = list(boq_items)
+		pc["bill_nos"] = list(bill_nos)
+		
+	return pcs
 
 
 @frappe.whitelist()

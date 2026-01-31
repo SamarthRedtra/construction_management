@@ -1,0 +1,41 @@
+{
+ "content": null,
+ "creation": "2026-01-31 10:44:23.818371",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-01-31 10:44:23.818371",
+ "modified_by": "Administrator",
+ "module": "Construction Management",
+ "name": "bulk-dpr-entry",
+ "owner": "Administrator",
+ "page_name": "bulk-dpr-entry",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Accounts Manager"
+  },
+  {
+   "role": "Accounts User"
+  },
+  {
+   "role": "Construction Manager"
+  },
+  {
+   "role": "Construction User"
+  },
+  {
+   "role": "Project Manager"
+  },
+  {
+   "role": "Projects User"
+  }
+ ],
+ "script": null,
+ "standard": "Yes",
+ "style": null,
+ "system_page": 1,
+ "title": "Bulk DPR Entry"
+}

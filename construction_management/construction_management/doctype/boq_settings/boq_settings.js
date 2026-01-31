@@ -26,7 +26,8 @@ function set_account_queries(frm) {
 		"expenses_account",
 		"overhead_account",
 		"salary_labor_account",
-		"asset_cost_credit"
+		"asset_cost_credit",
+		"varience_account_debit"
 	];
 
 	account_fields.forEach((fieldname) => {

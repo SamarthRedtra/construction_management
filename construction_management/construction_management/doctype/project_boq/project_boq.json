@@ -20,6 +20,7 @@
 		"prepared_date",
 		"section_totals",
 		"total_boq_value",
+		"total_estimated_boq_value",
 		"total_billed",
 		"column_break_3",
 		"total_collected",
@@ -113,6 +114,13 @@
 			"fieldtype": "Currency",
 			"in_list_view": 1,
 			"label": "Total BOQ Value",
+			"read_only": 1,
+			"options": "currency"
+		},
+		{
+			"fieldname": "total_estimated_boq_value",
+			"fieldtype": "Currency",
+			"label": "Total Estimated BOQ Value",
 			"read_only": 1,
 			"options": "currency"
 		},

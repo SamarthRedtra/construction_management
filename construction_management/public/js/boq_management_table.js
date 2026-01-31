@@ -230,7 +230,7 @@ function render_item_row(item, frm) {
 					</svg>
 				</button>
 			</td>
-			<td class="col-checkbox sticky-col"><input type="checkbox" class="item-checkbox" data-item="${item.name}" ${isFullyBilled ? 'disabled' : ''} aria-label="Select item ${item.description || item.name}" tabindex="0"></td>
+			<td class="col-checkbox sticky-col"><input type="checkbox" class="item-checkbox" data-item="${item.name}" aria-label="Select item ${item.description || item.name}" tabindex="0"></td>
 			<td class="col-desc sticky-col">
 				<div class="item-desc-wrapper">
 					${rowStatusIcon ? `<span class="row-status-icon" title="${rowStatusTooltip}">${rowStatusIcon}</span>` : ''}
@@ -2950,7 +2950,9 @@ function get_table_styles() {
 		
 		/* Table - Requirements: 4.1, 4.4 */
 		.comprehensive-table-wrapper { 
+			max-height: 600px;
 			overflow-x: auto; 
+			overflow-y: auto;
 			-webkit-overflow-scrolling: touch; /* Smooth scrolling on touch devices */
 			scroll-behavior: smooth;
 		}

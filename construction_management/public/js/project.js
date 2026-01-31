@@ -17,6 +17,9 @@ frappe.ui.form.on('Project', {
 				add_site_stock_button(frm);
 			}
 		}
+
+		// Render payment terms interface
+		render_payment_terms_interface(frm);
 	},
 
 	enable_progressive_boq(frm) {
@@ -56,10 +59,7 @@ function setup_dashboard_protection() {
 }
 
 function add_site_stock_button(frm) {
-	if (!frm.custom_site_stock_btn_added) {
-		frm.add_custom_button(__('Site Stock'), () => show_site_stock_dialog(frm), __('Construction'));
-		frm.custom_site_stock_btn_added = true;
-	}
+	frm.add_custom_button(__('Site Stock'), () => show_site_stock_dialog(frm), __('Construction'));
 }
 
 function show_site_stock_dialog(frm) {
@@ -3124,22 +3124,16 @@ window.record_advance_payment = function (project) {
 // ============================================
 
 window.view_payment_certificates = function (project) {
-	// Fetch pending proformas and existing payment certificates
+	// Fetch pending sales orders and existing payment certificates
 	frappe.call({
-		method: 'construction_management.construction_management.doctype.payment_certificate.payment_certificate.get_pending_proformas',
+		method: 'construction_management.construction_management.doctype.payment_certificate.payment_certificate.get_pending_sales_orders',
 		args: { project: project },
-		callback: function (proformaRes) {
+		callback: function (soRes) {
 			frappe.call({
-				method: 'frappe.client.get_list',
-				args: {
-					doctype: 'Payment Certificate',
-					filters: { project: project },
-					fields: ['name', 'posting_date', 'proforma_amount', 'accepted_amount', 'variance', 'status', 'tax_invoice'],
-					order_by: 'posting_date desc',
-					limit_page_length: 50
-				},
+				method: 'construction_management.construction_management.doctype.payment_certificate.payment_certificate.get_payment_certificates_with_items',
+				args: { project: project },
 				callback: function (pcRes) {
-					show_payment_certificates_dialog(project, proformaRes.message || [], pcRes.message || []);
+					show_payment_certificates_dialog(project, soRes.message || [], pcRes.message || []);
 				}
 			});
 		}
@@ -3147,14 +3141,14 @@ window.view_payment_certificates = function (project) {
 };
 
 function show_payment_certificates_dialog(project, pendingProformas, paymentCertificates) {
-	// Build pending proformas table
+	// Build pending proformas table (now using Sales Orders)
 	let proformasHtml = '';
 	if (pendingProformas.length > 0) {
 		proformasHtml = `
-			<table class="table table-bordered" style="font-size: 12px;">
+			<table class="table table-bordered pending-table" style="font-size: 12px;">
 				<thead>
 					<tr>
-						<th>Invoice</th>
+						<th>Sales Order (Proforma)</th>
 						<th>Date</th>
 						<th>Customer</th>
 						<th class="text-right">Amount</th>
@@ -3164,14 +3158,14 @@ function show_payment_certificates_dialog(project, pendingProformas, paymentCert
 				</thead>
 				<tbody>
 					${pendingProformas.map(p => `
-						<tr>
-							<td><a href="/app/sales-invoice/${p.name}">${p.name}</a></td>
+						<tr class="pc-dialog-row" data-items="${(p.boq_items || []).join(',')}" data-bills="${(p.bill_nos || []).join(',')}">
+							<td><a href="/app/sales-order/${p.name}" target="_blank">${p.name}</a></td>
 							<td>${p.posting_date}</td>
 							<td>${p.customer_name || p.customer || '-'}</td>
-							<td class="text-right">${format_currency(p.grand_total)}</td>
+							<td class="text-right">${format_currency(p.amount || p.grand_total)}</td>
 							<td class="text-center">${p.age_days || 0}</td>
 							<td>
-								<button class="btn btn-xs btn-primary" onclick="create_payment_certificate_from_dialog('${p.name}', ${p.grand_total}, '${project}')">
+								<button class="btn btn-xs btn-primary" onclick="create_pc_from_so_dialog('${p.name}', ${p.amount || p.grand_total}, '${project}')">
 									Create PC
 								</button>
 							</td>
@@ -3188,7 +3182,7 @@ function show_payment_certificates_dialog(project, pendingProformas, paymentCert
 	let pcsHtml = '';
 	if (paymentCertificates.length > 0) {
 		pcsHtml = `
-			<table class="table table-bordered" style="font-size: 12px;">
+			<table class="table table-bordered pcs-table" style="font-size: 12px;">
 				<thead>
 					<tr>
 						<th>PC #</th>
@@ -3202,7 +3196,7 @@ function show_payment_certificates_dialog(project, pendingProformas, paymentCert
 				</thead>
 				<tbody>
 					${paymentCertificates.map(pc => `
-						<tr>
+						<tr class="pc-dialog-row" data-items="${(pc.boq_items || []).join(',')}" data-bills="${(pc.bill_nos || []).join(',')}">
 							<td><a href="/app/payment-certificate/${pc.name}">${pc.name}</a></td>
 							<td>${pc.posting_date}</td>
 							<td class="text-right">${format_currency(pc.proforma_amount)}</td>
@@ -3220,9 +3214,35 @@ function show_payment_certificates_dialog(project, pendingProformas, paymentCert
 	}
 
 	const d = new frappe.ui.Dialog({
-		title: __('Payment Certificates-{0}', [project]),
+		title: __('Payment Certificates - {0}', [project]),
 		size: 'extra-large',
 		fields: [
+			{
+				label: __('Filters'),
+				fieldtype: 'Section Break'
+			},
+			{
+				fieldname: 'boq_item_filter',
+				label: __('Filter by BOQ Item'),
+				fieldtype: 'Link',
+				options: 'BOQ Item',
+				get_query: () => {
+					return { filters: { project: project } };
+				},
+				onchange: () => applyPCFilters()
+			},
+			{ fieldtype: 'Column Break' },
+			{
+				fieldname: 'bill_no_filter',
+				label: __('Filter by Bill No'),
+				fieldtype: 'Link',
+				options: 'BOQ Bill',
+				get_query: () => {
+					return { filters: { project: project } };
+				},
+				onchange: () => applyPCFilters()
+			},
+			{ fieldtype: 'Section Break' },
 			{
 				fieldtype: 'HTML',
 				fieldname: 'content',
@@ -3238,9 +3258,10 @@ function show_payment_certificates_dialog(project, pendingProformas, paymentCert
 						.indicator-pill.blue { background: #dbeafe; color: #1e40af; }
 						.indicator-pill.orange { background: #fef3c7; color: #92400e; }
 						.indicator-pill.gray { background: #f3f4f6; color: #4b5563; }
+						.pc-dialog-row.filtered-out { display: none; }
 					</style>
 					<div class="pc-tabs">
-						<div class="pc-tab active" data-tab="pending">Pending Proformas (${pendingProformas.length})</div>
+						<div class="pc-tab active" data-tab="pending">Pending Orders (${pendingProformas.length})</div>
 						<div class="pc-tab" data-tab="certificates">Payment Certificates (${paymentCertificates.length})</div>
 					</div>
 					<div class="pc-tab-content active" data-content="pending">
@@ -3252,16 +3273,38 @@ function show_payment_certificates_dialog(project, pendingProformas, paymentCert
 				`
 			}
 		],
-		primary_action_label: __('Create Proforma Invoice'),
+		primary_action_label: __('Create Proforma (Bulk)'),
 		primary_action: function () {
-			create_proforma_invoice_dialog(project);
+			generate_invoice_for_all(project);
 		}
 	});
+
+	function applyPCFilters() {
+		const boqItem = d.get_value('boq_item_filter');
+		const billNo = d.get_value('bill_no_filter');
+
+		d.$wrapper.find('.pc-dialog-row').each(function () {
+			const $row = $(this);
+			const rowItems = ($row.attr('data-items') || '').split(',');
+			const rowBills = ($row.attr('data-bills') || '').split(',');
+
+			let show = true;
+			if (boqItem && !rowItems.includes(boqItem)) show = false;
+			if (billNo && !rowBills.includes(billNo)) show = false;
+
+			if (show) {
+				$row.removeClass('filtered-out');
+			} else {
+				$row.addClass('filtered-out');
+			}
+		});
+	}
 
 	// Fix: Ensure proper cleanup when dialog is closed
 	d.onhide = function () {
 		cleanup_modal_and_restore_dashboard();
 	};
+	window.cur_pc_dialog = d; // Store for potential updates
 	d.show();
 
 	// Tab switching
@@ -3284,15 +3327,15 @@ function get_pc_status_color(status) {
 	}
 }
 
-window.create_payment_certificate_from_dialog = function (proforma_invoice, proforma_amount, project) {
+window.create_pc_from_so_dialog = function (sales_order, amount, project) {
 	const d = new frappe.ui.Dialog({
 		title: __('Create Payment Certificate'),
 		fields: [
-			{ fieldname: 'proforma_invoice', label: 'Proforma Invoice', fieldtype: 'Link', options: 'Sales Invoice', read_only: 1, default: proforma_invoice },
-			{ fieldname: 'proforma_amount', label: 'Proforma Amount', fieldtype: 'Currency', read_only: 1, default: proforma_amount },
+			{ fieldname: 'sales_order', label: 'Sales Order (Proforma)', fieldtype: 'Link', options: 'Sales Order', read_only: 1, default: sales_order },
+			{ fieldname: 'proforma_amount', label: 'Proforma Amount', fieldtype: 'Currency', read_only: 1, default: amount },
 			{ fieldtype: 'Column Break' },
 			{
-				fieldname: 'accepted_amount', label: 'Accepted Amount', fieldtype: 'Currency', reqd: 1, default: proforma_amount,
+				fieldname: 'accepted_amount', label: 'Accepted Amount', fieldtype: 'Currency', reqd: 1, default: amount,
 				description: 'Amount approved by customer',
 				onchange: function () {
 					const accepted = d.get_value('accepted_amount') || 0;
@@ -3306,7 +3349,7 @@ window.create_payment_certificate_from_dialog = function (proforma_invoice, prof
 			{ fieldtype: 'Section Break', label: 'Variance Calculation' },
 			{
 				fieldname: 'variance', label: 'Variance', fieldtype: 'Currency', read_only: 1, default: 0,
-				description: 'Proforma Amount-Accepted Amount (positive = loss)'
+				description: 'Proforma Amount - Accepted Amount (positive = loss)'
 			},
 			{ fieldtype: 'Column Break' },
 			{ fieldname: 'variance_percent', label: 'Variance %', fieldtype: 'Percent', read_only: 1, default: 0 },
@@ -3316,15 +3359,16 @@ window.create_payment_certificate_from_dialog = function (proforma_invoice, prof
 		primary_action_label: __('Create'),
 		primary_action: function (values) {
 			frappe.call({
-				method: 'construction_management.construction_management.doctype.payment_certificate.payment_certificate.create_payment_certificate_from_proforma',
+				method: 'construction_management.construction_management.doctype.payment_certificate.payment_certificate.create_payment_certificate_from_sales_order',
 				args: {
-					proforma_invoice: proforma_invoice,
+					sales_order: sales_order,
 					accepted_amount: values.accepted_amount,
 					remarks: values.remarks
 				},
 				callback: function (r) {
 					if (r.message) {
 						d.hide();
+						if (window.cur_pc_dialog) window.cur_pc_dialog.hide();
 						frappe.show_alert({ message: __('Payment Certificate {0} created', [r.message.name]), indicator: 'green' });
 						frappe.set_route('Form', 'Payment Certificate', r.message.name);
 					}
@@ -4602,7 +4646,7 @@ window.show_dpr_dialog_enhanced = function (project, is_bulk = false) {
 };
 
 window.create_dpr_bulk = function (project) {
-	window.show_dpr_dialog_enhanced(project, true);
+	frappe.set_route('page', 'bulk-dpr-entry', { project: project });
 };
 
 
@@ -6264,3 +6308,617 @@ window.show_bulk_site_create_dialog = function (project) {
 	d.show();
 	ensure_dashboard_visible();
 };
+
+// ============================================
+// BOQ Payment Terms Interface
+// ============================================
+
+function render_payment_terms_interface(frm) {
+	const wrapper = frm.fields_dict.custom_payment_terms_html?.$wrapper;
+	if (!wrapper) return;
+
+	// Get existing payment terms data - handle both string and object
+	let paymentTermsData = {};
+	try {
+		if (frm.doc.custom_payment_terms_data) {
+			if (typeof frm.doc.custom_payment_terms_data === 'string') {
+				paymentTermsData = JSON.parse(frm.doc.custom_payment_terms_data);
+			} else if (typeof frm.doc.custom_payment_terms_data === 'object') {
+				paymentTermsData = frm.doc.custom_payment_terms_data;
+			}
+		}
+	} catch (e) {
+		console.error('Error parsing payment terms data:', e);
+		paymentTermsData = {};
+	}
+
+	// Fetch ALL BOQ items for this project, not just those in bills
+	frappe.call({
+		method: 'frappe.client.get_list',
+		args: {
+			doctype: 'BOQ Item',
+			filters: { project: frm.doc.name },
+			fields: ['name', 'item_code', 'description', 'parent_bill'],
+			limit: 1000
+		},
+		callback: function (r) {
+			const boqItems = (r.message || []).map(item => ({
+				name: item.name,
+				label: `${item.item_code || ''} - ${item.description || ''}`
+			}));
+
+			render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData);
+		},
+		error: function (r) {
+			console.error('Error fetching BOQ items:', r);
+			render_payment_terms_table(wrapper, frm, [], paymentTermsData);
+		}
+	});
+}
+
+function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
+	const html = `
+		<style>
+			.payment-terms-container {
+				font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+				padding: 10px 14px;
+				background: #ffffff;
+				border: 1px solid #e5e7eb;
+				border-radius: 8px;
+				margin: 10px 0;
+				box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+			}
+			.payment-terms-header {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				margin-bottom: 8px;
+				padding-bottom: 6px;
+				border-bottom: 1px solid #f3f4f6;
+			}
+			.payment-terms-title {
+				font-size: 13px;
+				font-weight: 700;
+				color: #111827;
+				margin: 0;
+				display: flex;
+				align-items: center;
+				gap: 6px;
+			}
+			.payment-terms-title::before {
+				content: '';
+				display: inline-block;
+				width: 3px;
+				height: 16px;
+				background: #3b82f6;
+				border-radius: 2px;
+			}
+			.add-boq-btn {
+				background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+				color: white;
+				border: none;
+				padding: 4px 10px;
+				border-radius: 6px;
+				font-size: 11px;
+				font-weight: 600;
+				cursor: pointer;
+				display: flex;
+				align-items: center;
+				gap: 4px;
+				transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+				box-shadow: 0 2px 4px -1px rgba(37, 99, 235, 0.2);
+			}
+			.add-boq-btn:hover {
+				transform: translateY(-1px);
+				box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3);
+				background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+			}
+			.boq-terms-list {
+				display: grid;
+				grid-template-columns: 1fr;
+				gap: 8px;
+			}
+			.boq-term-card {
+				background: #ffffff;
+				border: 1px solid #f3f4f6;
+				border-radius: 8px;
+				padding: 14px;
+				transition: all 0.3s ease;
+				background: linear-gradient(to bottom right, #ffffff, #f9fafb);
+				box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+				overflow: hidden;
+			}
+			.boq-term-card:hover {
+				border-color: #e5e7eb;
+				box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+			}
+			.boq-term-header {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				cursor: pointer;
+				padding: 2px 0;
+			}
+			.boq-term-header-left {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				flex: 1;
+			}
+			.boq-term-content {
+				margin-top: 14px;
+				transition: all 0.3s ease;
+			}
+			.boq-term-card.collapsed .boq-term-content {
+				display: none;
+			}
+			.boq-term-card.collapsed {
+				padding-bottom: 2px;
+			}
+			.boq-term-label {
+				font-size: 14px;
+				font-weight: 600;
+				color: #374151;
+				background: #f3f4f6;
+				padding: 4px 10px;
+				border-radius: 4px;
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				max-width: 80%;
+			}
+			.chevron-icon {
+				transition: transform 0.3s ease;
+				color: #6b7280;
+			}
+			.boq-term-card.collapsed .chevron-icon {
+				transform: rotate(-90deg);
+			}
+			.header-total-indicator {
+				font-size: 11px;
+				font-weight: 700;
+				padding: 2px 8px;
+				border-radius: 12px;
+				margin-left: auto;
+				margin-right: 12px;
+				transition: all 0.3s ease;
+			}
+			.header-total-indicator.valid {
+				background: #ecfdf5;
+				color: #059669;
+				border: 1px solid #10b981;
+			}
+			.header-total-indicator.invalid {
+				background: #fef2f2;
+				color: #dc2626;
+				border: 1px solid #ef4444;
+			}
+			.boq-term-breakdown {
+				font-size: 11px;
+				color: #6b7280;
+				margin-left: 8px;
+				font-style: italic;
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				max-width: 350px;
+				display: inline-block;
+				vertical-align: middle;
+			}
+			.remove-boq-btn {
+				background: #fee2e2;
+				color: #dc2626;
+				border: 1px solid #fecaca;
+				padding: 4px 10px;
+				border-radius: 4px;
+				font-size: 11px;
+				font-weight: 500;
+				cursor: pointer;
+				transition: all 0.2s;
+				z-index: 2;
+			}
+			.remove-boq-btn:hover {
+				background: #fecaca;
+				color: #b91c1c;
+			}
+			.payment-terms-table {
+				width: 100%;
+				border-collapse: separate;
+				border-spacing: 0 6px;
+			}
+			.payment-terms-table th {
+				padding: 8px;
+				text-align: left;
+				font-size: 10px;
+				font-weight: 700;
+				color: #6b7280;
+				text-transform: uppercase;
+				letter-spacing: 0.05em;
+				border: none;
+			}
+			.payment-terms-table td {
+				padding: 8px;
+				background: white;
+				border-top: 1px solid #f3f4f6;
+				border-bottom: 1px solid #f3f4f6;
+			}
+			.payment-terms-table td:first-child {
+				border-left: 1px solid #f3f4f6;
+				border-top-left-radius: 6px;
+				border-bottom-left-radius: 6px;
+			}
+			.payment-terms-table td:last-child {
+				border-right: 1px solid #f3f4f6;
+				border-top-right-radius: 6px;
+				border-bottom-right-radius: 6px;
+			}
+			.payment-terms-table input {
+				width: 100%;
+				padding: 5px 10px;
+				border: 1px solid #e5e7eb;
+				border-radius: 4px;
+				font-size: 13px;
+				color: #1f2937;
+				transition: all 0.2s;
+			}
+			.payment-terms-table input:focus {
+				outline: none;
+				border-color: #3b82f6;
+				box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+				background: #f0f7ff;
+			}
+			.add-term-btn {
+				background: #ecfdf5;
+				color: #059669;
+				border: 1px solid #d1fae5;
+				padding: 6px 12px;
+				border-radius: 6px;
+				font-size: 11px;
+				font-weight: 600;
+				cursor: pointer;
+				display: inline-flex;
+				align-items: center;
+				gap: 4px;
+				transition: all 0.2s;
+			}
+			.add-term-btn:hover {
+				background: #d1fae5;
+				color: #047857;
+				transform: translateX(2px);
+			}
+			.remove-term-btn {
+				background: transparent;
+				color: #9ca3af;
+				border: none;
+				padding: 6px;
+				border-radius: 4px;
+				cursor: pointer;
+				transition: all 0.2s;
+			}
+			.remove-term-btn:hover {
+				background: #fee2e2;
+				color: #ef4444;
+			}
+			.total-indicator {
+				display: inline-flex;
+				align-items: center;
+				gap: 8px;
+				padding: 6px 12px;
+				background: #f9fafb;
+				border: 1px solid #e5e7eb;
+				border-radius: 6px;
+				font-size: 13px;
+				font-weight: 600;
+			}
+			.total-indicator.valid {
+				border-color: #10b981;
+				color: #059669;
+				background: #f0fdf4;
+			}
+			.total-indicator.invalid {
+				border-color: #ef4444;
+				color: #dc2626;
+				background: #fef2f2;
+			}
+			.total-value {
+				font-size: 14px;
+			}
+			.text-right {
+				text-align: right;
+			}
+		</style>
+		<div class="payment-terms-container" id="payment-terms-container">
+			<div class="payment-terms-header">
+				<h3 class="payment-terms-title">BOQ Payment Terms</h3>
+				<button class="add-boq-btn" id="add-boq-term-btn">
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<line x1="12" y1="5" x2="12" y2="19"></line>
+						<line x1="5" y1="12" x2="19" y2="12"></line>
+					</svg>
+					Add Payment Terms
+				</button>
+			</div>
+			<div class="boq-terms-list" id="boq-terms-list"></div>
+		</div>
+	`;
+
+	wrapper.html(html);
+
+	// Render existing BOQ terms
+	renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData);
+
+	// Attach event listeners
+	wrapper.find('#add-boq-term-btn').on('click', function () {
+		showAddBoqTermDialog(wrapper, frm, boqItems, paymentTermsData);
+	});
+}
+
+function renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData) {
+	const container = wrapper.find('#boq-terms-list');
+	container.empty();
+
+	if (Object.keys(paymentTermsData).length === 0) {
+		container.html('<div style="text-align: center; padding: 40px; color: #9ca3af;">No payment terms defined. Click "Add BOQ Item" to start.</div>');
+		return;
+	}
+
+	Object.keys(paymentTermsData).forEach(boqItemName => {
+		const terms = paymentTermsData[boqItemName];
+		const boqLabel = boqItems.find(b => b.name === boqItemName)?.label || boqItemName;
+
+		const cardHtml = `
+			<div class="boq-term-card collapsed" data-boq-item="${boqItemName}">
+				<div class="boq-term-header">
+					<div class="boq-term-header-left">
+						<svg class="chevron-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<polyline points="6 9 12 15 18 9"></polyline>
+						</svg>
+						<div class="boq-term-label" title="${boqLabel}">${boqLabel}</div>
+						<span class="boq-term-breakdown" data-boq-item="${boqItemName}"></span>
+						<span class="header-total-indicator" data-boq-item="${boqItemName}">0%</span>
+					</div>
+					<button class="remove-boq-btn" data-boq-item="${boqItemName}">Remove</button>
+				</div>
+				<div class="boq-term-content">
+					<table class="payment-terms-table">
+						<thead>
+							<tr>
+								<th style="width: 40%;">Payment Milestone</th>
+								<th style="width: 15%;" class="text-right">Percentage (%)</th>
+								<th style="width: 15%;" class="text-right">Advance (%)</th>
+								<th style="width: 15%;" class="text-right">Retention (%)</th>
+								<th style="width: 15%; text-align: center;">Actions</th>
+							</tr>
+						</thead>
+						<tbody class="terms-tbody" data-boq-item="${boqItemName}">
+						</tbody>
+					</table>
+					<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
+						<button class="add-term-btn" data-boq-item="${boqItemName}">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<line x1="12" y1="5" x2="12" y2="19"></line>
+								<line x1="5" y1="12" x2="19" y2="12"></line>
+							</svg>
+							Add Payment Term
+						</button>
+						<div class="total-indicator" data-boq-item="${boqItemName}">
+							Total: <span class="total-value">0%</span>
+						</div>
+					</div>
+				</div>
+			</div>
+		`;
+
+		container.append(cardHtml);
+
+		// Render terms rows
+		const tbody = container.find(`.terms-tbody[data-boq-item="${boqItemName}"]`);
+		terms.forEach((term, idx) => {
+			addTermRow(tbody, term, idx, boqItemName);
+		});
+
+		// Update total
+		updateTotal(container, boqItemName);
+	});
+
+	// Attach event listeners for collapse/expand
+	container.find('.boq-term-header').on('click', function (e) {
+		// Don't toggle if remove button was clicked
+		if ($(e.target).closest('.remove-boq-btn').length) return;
+
+		const card = $(this).closest('.boq-term-card');
+		card.toggleClass('collapsed');
+	});
+
+	// Attach event listeners for remove BOQ
+	wrapper.find('.remove-boq-btn').on('click', function (e) {
+		e.stopPropagation();
+		const boqItem = $(this).data('boq-item');
+		if (confirm('Are you sure you want to remove all payment terms for this BOQ item?')) {
+			delete paymentTermsData[boqItem];
+			savePaymentTermsData(frm, paymentTermsData);
+			renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData);
+		}
+	});
+
+	// Attach event listeners for add term
+	wrapper.find('.add-term-btn').on('click', function () {
+		const boqItem = $(this).data('boq-item');
+		if (!paymentTermsData[boqItem]) {
+			paymentTermsData[boqItem] = [];
+		}
+		paymentTermsData[boqItem].push({
+			milestone: '',
+			percentage: 0,
+			advance: 100,
+			retention: 0
+		});
+		savePaymentTermsData(frm, paymentTermsData);
+		renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData);
+	});
+
+	// Attach event listeners for input changes
+	wrapper.find('.payment-terms-table input').on('change', function () {
+		const input = $(this);
+		const boqItem = input.closest('.boq-term-card').data('boq-item');
+		const rowIdx = input.closest('tr').data('idx');
+		const field = input.data('field');
+		const value = input.val();
+
+		if (paymentTermsData[boqItem] && paymentTermsData[boqItem][rowIdx]) {
+			if (field === 'percentage' || field === 'advance' || field === 'retention') {
+				paymentTermsData[boqItem][rowIdx][field] = parseFloat(value) || 0;
+			} else {
+				paymentTermsData[boqItem][rowIdx][field] = value;
+			}
+			savePaymentTermsData(frm, paymentTermsData);
+			updateTotal(wrapper, boqItem);
+		}
+	});
+
+	// Attach event listeners for remove term
+	wrapper.find('.remove-term-btn').on('click', function () {
+		const btn = $(this);
+		const boqItem = btn.data('boq-item');
+		const idx = btn.data('idx');
+
+		if (paymentTermsData[boqItem]) {
+			paymentTermsData[boqItem].splice(idx, 1);
+			savePaymentTermsData(frm, paymentTermsData);
+			renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData);
+		}
+	});
+}
+
+function addTermRow(tbody, term, idx, boqItemName) {
+	const rowHtml = `
+		<tr data-idx="${idx}">
+			<td><input type="text" value="${term.milestone || ''}" data-field="milestone" placeholder="e.g., After Installation"></td>
+			<td class="text-right"><input type="number" value="${term.percentage || 0}" data-field="percentage" min="0" max="100" step="0.01"></td>
+			<td class="text-right"><input type="number" value="${term.advance || 0}" data-field="advance" min="0" max="100" step="0.01"></td>
+			<td class="text-right"><input type="number" value="${term.retention || 0}" data-field="retention" min="0" max="100" step="0.01"></td>
+			<td style="text-align: center;">
+				<button class="remove-term-btn" data-boq-item="${boqItemName}" data-idx="${idx}" title="Remove Milestone">
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<polyline points="3 6 5 6 21 6"></polyline>
+						<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+					</svg>
+				</button>
+			</td>
+		</tr>
+	`;
+	tbody.append(rowHtml);
+}
+
+function updateTotal(wrapper, boqItemName) {
+	const card = wrapper.find(`.boq-term-card[data-boq-item="${boqItemName}"]`);
+	const inputs = card.find('input[data-field="percentage"]');
+	let total = 0;
+
+	inputs.each(function () {
+		total += parseFloat($(this).val()) || 0;
+	});
+
+	const indicator = card.find(`.total-indicator[data-boq-item="${boqItemName}"]`);
+	const headerIndicator = card.find(`.header-total-indicator[data-boq-item="${boqItemName}"]`);
+	const breakdownIndicator = card.find(`.boq-term-breakdown[data-boq-item="${boqItemName}"]`);
+	const valueSpan = indicator.find('.total-value');
+
+	const breakdownParts = [];
+	const rows = card.find('.terms-tbody tr');
+
+	rows.each(function () {
+		const milestone = $(this).find('input[data-field="milestone"]').val() || 'Unnamed';
+		const percentage = parseFloat($(this).find('input[data-field="percentage"]').val()) || 0;
+		if (percentage > 0) {
+			breakdownParts.push(`${milestone}: ${percentage}%`);
+		}
+	});
+
+	const totalFormatted = total.toFixed(2) + '%';
+	const breakdownText = breakdownParts.length > 0 ? `(${breakdownParts.join(' / ')})` : '';
+
+	valueSpan.text(totalFormatted);
+	headerIndicator.text(totalFormatted);
+	breakdownIndicator.text(breakdownText);
+
+	if (Math.abs(total - 100) < 0.01) {
+		indicator.removeClass('invalid').addClass('valid');
+		headerIndicator.removeClass('invalid').addClass('valid');
+	} else {
+		indicator.removeClass('valid').addClass('invalid');
+		headerIndicator.removeClass('valid').addClass('invalid');
+	}
+}
+
+function showAddBoqTermDialog(wrapper, frm, boqItems, paymentTermsData) {
+	const availableItems = boqItems.filter(item => !paymentTermsData[item.name]);
+
+	if (availableItems.length === 0) {
+		frappe.msgprint({
+			title: __('No Items Available'),
+			message: __('All BOQ items already have payment terms defined.'),
+			indicator: 'orange'
+		});
+		return;
+	}
+
+	// Create options as "label\nvalue" format for Select field
+	const options = availableItems.map(item => `${item.label} (${item.name})`).join('\n');
+
+	const d = new frappe.ui.Dialog({
+		title: 'Add BOQ Item Payment Terms',
+		fields: [
+			{
+				fieldname: 'boq_item',
+				label: 'Select BOQ Item',
+				fieldtype: 'Select',
+				options: options,
+				reqd: 1,
+				description: 'Choose a BOQ item to define payment terms'
+			}
+		],
+		primary_action_label: 'Add Payment Terms',
+		primary_action: function (values) {
+			const boqItem = values.boq_item;
+			if (!paymentTermsData[boqItem]) {
+				paymentTermsData[boqItem] = [
+					{
+						milestone: 'After Installation',
+						percentage: 50,
+						advance: 80,
+						retention: 20
+					},
+					{
+						milestone: 'After Effect',
+						percentage: 20,
+						advance: 100,
+						retention: 0
+					},
+					{
+						milestone: 'After Cleaning',
+						percentage: 30,
+						advance: 70,
+						retention: 30
+					}
+				];
+				savePaymentTermsData(frm, paymentTermsData);
+				// Re-render after save completes
+				setTimeout(() => {
+					renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData);
+				}, 500);
+			}
+			d.hide();
+		}
+	});
+
+	d.show();
+}
+
+function savePaymentTermsData(frm, paymentTermsData) {
+	// Update the hidden JSON field
+	frm.set_value('custom_payment_terms_data', JSON.stringify(paymentTermsData));
+
+	// Mark form as dirty so user can save when ready
+	frm.dirty();
+}

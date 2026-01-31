@@ -55,11 +55,11 @@ class BOQSettings(Document):
 	def validate_advance_settings(self):
 		"""Validate advance payment configuration"""
 		
-		# Validate advance account belongs to the same company
-		if self.advance_account:
-			account_company = frappe.db.get_value("Account", self.advance_account, "company")
-			if account_company != self.company:
-				frappe.throw(_("Advance Account must belong to company {0}").format(self.company))
+		# # Validate advance account belongs to the same company
+		# if self.advance_account:
+		# 	account_company = frappe.db.get_value("Account", self.advance_account, "company")
+		# 	if account_company != self.company:
+		# 		frappe.throw(_("Advance Account must belong to company {0}").format(self.company))
 		
 		# Validate advance deduction item exists
 		if self.advance_deduction_item and not frappe.db.exists("Item", self.advance_deduction_item):
@@ -92,6 +92,45 @@ class BOQSettings(Document):
 		# Create default warehouse for projects if auto-create is enabled
 		if self.auto_create_warehouse:
 			self.create_project_warehouses()
+			
+		# Update Advance Item defaults
+		if self.default_advance_item and self.advance_account:
+			self.update_advance_item_defaults()
+	
+	def update_advance_item_defaults(self):
+		"""Update the Default Advance Item's Income Account for this company"""
+		try:
+			item = frappe.get_doc("Item", self.default_advance_item)
+			
+			# Check if Item Default exists for this company
+			item_default = None
+			for d in item.item_defaults:
+				if d.company == self.company:
+					item_default = d
+					break
+			
+			if item_default:
+				# Update existing row
+				if item_default.income_account != self.advance_account:
+					item_default.income_account = self.advance_account
+					item.save(ignore_permissions=True)
+					frappe.msgprint(_("Updated Income Account for Item {0} to {1}").format(
+						self.default_advance_item, self.advance_account
+					))
+			else:
+				# Append new row
+				item.append("item_defaults", {
+					"company": self.company,
+					"income_account": self.advance_account
+				})
+				item.save(ignore_permissions=True)
+				frappe.msgprint(_("Set Income Account for Item {0} to {1}").format(
+					self.default_advance_item, self.advance_account
+				))
+				
+		except Exception as e:
+			frappe.logger().error(f"Error updating advance item defaults: {str(e)}")
+			frappe.msgprint(_("Could not update Advance Item defaults. Check error log."), indicator='orange')
 	
 	def update_project_retention_defaults(self):
 		"""Update existing projects with default retention percentage"""
@@ -123,7 +162,7 @@ class BOQSettings(Document):
 		for project in projects:
 			try:
 				warehouse = self.create_warehouse_for_project(
-					project.name, 
+					project.custom_project_no, 
 					project.project_name, 
 					project.custom_project_short_name
 				)
@@ -163,12 +202,14 @@ class BOQSettings(Document):
 	
 	def get_warehouse_name(self, project_name, project_title, project_short_name=None):
 		"""Generate warehouse name based on naming series"""
-		
+		print("self.warehouse_naming_series","999",self.warehouse_naming_series)
 		if self.warehouse_naming_series == "Project ID - Short Name":
-			if project_short_name:
+			if project_short_name and project_name:
 				return f"{project_name} - {project_short_name}"
+			elif project_name:
+				return f"{project_name}"
 			else:
-				return f"{project_name} - {project_title}"
+				return f"{project_title}"
 		
 		if self.warehouse_naming_series == "PROJ-WH-.####":
 			return f"PROJ-WH-{project_name}"
