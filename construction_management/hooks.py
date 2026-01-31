@@ -134,9 +134,9 @@ after_install = "construction_management.setup.install.after_install"
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+override_doctype_class = {
+	"Sales Invoice": "construction_management.overrides.sales_invoice.SalesInvoiceOverride"
+}
 
 # Document Events
 # ---------------
@@ -144,11 +144,7 @@ after_install = "construction_management.setup.install.after_install"
 
 doc_events = {
 	"Sales Invoice": {
-		"validate": "construction_management.overrides.sales_invoice.validate",
-		"before_insert": "construction_management.overrides.sales_invoice.before_insert",
-		"on_submit": "construction_management.overrides.sales_invoice.on_submit",
-		"on_cancel": "construction_management.overrides.sales_invoice.on_cancel",
-		"on_update_after_submit": "construction_management.overrides.sales_invoice.on_update"
+		# Handled in class override
 	},
 	"Purchase Invoice": {
 		"on_submit": "construction_management.overrides.purchase_invoice.on_submit",
@@ -176,6 +172,9 @@ doc_events = {
 	},
 	"Payment Entry": {
 		"on_submit": "construction_management.overrides.payment_entry.on_submit"
+	},
+	"BOQ Item": {
+		"after_delete": "construction_management.construction_management.doctype.boq_item.boq_item.update_parent_totals"
 	}
 }
 

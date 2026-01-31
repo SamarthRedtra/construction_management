@@ -169,9 +169,9 @@ function pull_advance_deduction(frm) {
 function calculate_advance_amount(frm) {
 	if (!frm.doc.project || !frm.doc.custom_advanced_percentage || !frm.doc.custom_is_advanced) return;
 
-	frappe.db.get_value('Project BOQ', { project: frm.doc.project }, 'total_boq_value')
+	frappe.db.get_value('Project BOQ', { project: frm.doc.project }, 'total_estimated_boq_value')
 		.then(r => {
-			const total_boq_value = r.message ? r.message.total_boq_value : 0;
+			const total_boq_value = r.message ? r.message.total_estimated_boq_value : 0;
 			if (!total_boq_value) {
 				frappe.show_alert({ message: __('Total BOQ Value not found for project {0}', [frm.doc.project]), indicator: 'orange' });
 				return;

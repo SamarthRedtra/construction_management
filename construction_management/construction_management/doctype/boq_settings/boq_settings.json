@@ -18,8 +18,10 @@
   "default_retention_percentage",
   "retention_account",
   "column_break_12",
-  "retention_account_credit",
+  "varience_account_debit",
+  "varience_item",
   "advance_settings_section",
+  "advance_account",
   "advance_deduction_item",
   "column_break_hcla",
   "default_advance_item",
@@ -83,7 +85,7 @@
   {
    "fieldname": "retention_settings_section",
    "fieldtype": "Section Break",
-   "label": "Retention Settings"
+   "label": "Retention & Varience Settings"
   },
   {
    "description": "Default retention percentage for new projects",
@@ -96,7 +98,8 @@
    "fieldname": "retention_account",
    "fieldtype": "Link",
    "label": "Retention Account Debit",
-   "options": "Account"
+   "options": "Account",
+   "reqd": 0
   },
   {
    "fieldname": "column_break_12",
@@ -113,7 +116,8 @@
    "fieldname": "advance_deduction_item",
    "fieldtype": "Link",
    "label": "Advance Deduction Item",
-   "options": "Item"
+   "options": "Item",
+   "reqd": 0
   },
   {
    "fieldname": "section_break_cost",
@@ -174,19 +178,35 @@
    "fieldname": "default_advance_item",
    "fieldtype": "Link",
    "label": "Default Advance Item",
-   "options": "Item"
+   "options": "Item",
+   "reqd": 0
   },
   {
-   "description": "Account for retention Credits",
-   "fieldname": "retention_account_credit",
+   "fieldname": "advance_account",
    "fieldtype": "Link",
-   "label": "Retention Account Credit",
-   "options": "Account"
+   "label": "Advance Account",
+   "options": "Account",
+   "reqd": 0
+  },
+  {
+   "fieldname": "varience_account_debit",
+   "fieldtype": "Link",
+   "label": "Varience Account Debit",
+   "options": "Account",
+   "reqd": 0
+  },
+  {
+   "description": "Item used for varience deductions in invoices",
+   "fieldname": "varience_item",
+   "fieldtype": "Link",
+   "label": "Varience Deduction Item",
+   "options": "Item",
+   "reqd": 0
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-29 23:57:55.854125",
+ "modified": "2026-01-30 11:31:24.943090",
  "modified_by": "Administrator",
  "module": "Construction Management",
  "name": "BOQ Settings",

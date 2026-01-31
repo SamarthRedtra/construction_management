@@ -1081,19 +1081,25 @@ def get_advance_balance(project: str) -> float:
 	total_collected = flt(total_advances[0].total) if total_advances else 0
 	
 	# Get total advances already deducted (from invoice items)
+	# Include Draft (0) as well as Submitted (1) invoices
 	total_deducted = frappe.db.sql("""
 		SELECT COALESCE(SUM(ABS(sii.amount)), 0) as total
 		FROM `tabSales Invoice Item` sii
 		JOIN `tabSales Invoice` si ON si.name = sii.parent
 		WHERE si.project = %s 
-		AND si.docstatus = 1
+		AND si.docstatus IN (0, 1)
 		AND sii.item_code = 'ADVANCE-DEDUCTION'
 	""", project, as_dict=True)
 	
 	total_used = flt(total_deducted[0].total) if total_deducted else 0
 	
-	return total_collected - total_used
+	remaining_advance = total_collected - total_used
 
+	# User's previous logic effectively capped the POOL by the percentage, which causes issues.
+	# The requirement "percentage will be calculated on total of invoice" is handled in get_deduction_details.
+	# get_advance_balance should return the AVAILABLE POOL.
+	# Thus, we ignore the percentage here or return the full remaining amount.
+	return remaining_advance
 
 @frappe.whitelist()
 def get_deduction_details(project: str, items: list = None, invoice_name: str = None) -> dict:
@@ -1117,16 +1123,43 @@ def get_deduction_details(project: str, items: list = None, invoice_name: str = 
 	advance_percentage = flt(project_doc.advance_deduction) if hasattr(project_doc, 'advance_deduction') else 0
 	enable_progressive_boq = getattr(project_doc, "enable_progressive_boq", 0)
 	
-	total_amount = 0
-	if items:
-		total_amount = sum(flt(item.get("amount", 0)) for item in items if not item.get("item_code") in ["RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"])
+	total_gross_amount = 0
+	total_net_amount = 0
 	
-	suggested_retention = flt(total_amount * retention_percentage / 100, 2)
+	if items:
+		# Fetch variance item from BOQ Settings
+		boq_settings = frappe.get_cached_doc("BOQ Settings", project_doc.company)
+		variance_item = getattr(boq_settings, "varience_item", None)
+		
+		# Gross Amount: Exclude Variance (since Variance reduces total, ignoring it gives Gross)
+		total_gross_amount = sum(flt(item.get("amount", 0)) for item in items 
+			if not item.get("item_code") in ["RETENTION-DEDUCTION", "ADVANCE-DEDUCTION", variance_item])
+			
+		# Net Amount: Include Variance deduction (so Gross - Variance)
+		total_net_amount = sum(flt(item.get("amount", 0)) for item in items 
+			if not item.get("item_code") in ["RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"])
+	
+	# Retention is usually on Gross Amount
+	suggested_retention = flt(total_gross_amount * retention_percentage / 100, 2)
+	
 	available_advance = get_advance_balance(project)
 	
+	# If invoice_name is provided, it means we are recalculating for an existing (possibly Draft) invoice.
+	# The get_advance_balance(project) now includes Drafts, so it already subtracted this invoice's deductions.
+	# We should add them back for THIS invoice's "available" calculation so it doesn't double-subtract.
+	if invoice_name:
+		current_deductions = frappe.db.sql("""
+			SELECT COALESCE(SUM(ABS(sii.amount)), 0) as total
+			FROM `tabSales Invoice Item` sii
+			WHERE sii.parent = %s AND sii.item_code = 'ADVANCE-DEDUCTION'
+		""", invoice_name, as_dict=True)
+		available_advance += flt(current_deductions[0].total) if current_deductions else 0
+	
 	# Suggested advance based on percentage cap
-	suggested_advance = flt(total_amount * advance_percentage / 100, 2)
-	suggested_advance = min(suggested_advance, available_advance)
+	# Calculate suggested advance deduction based on NET Amount (Gross - Variance)
+	suggested_advance_deduction = flt(total_net_amount * advance_percentage / 100, 2)
+	
+	suggested_advance = min(available_advance, suggested_advance_deduction)
 	
 	# Ensure items exist
 	get_or_create_retention_item()
@@ -1135,10 +1168,10 @@ def get_deduction_details(project: str, items: list = None, invoice_name: str = 
 	return {
 		"retention_percentage": retention_percentage,
 		"advance_percentage": advance_percentage,
-		"available_advance": available_advance,
+		"available_advance": flt(available_advance),
 		"suggested_retention": suggested_retention,
 		"suggested_advance": suggested_advance,
-		"total_billable_amount": total_amount,
+		"total_billable_amount": total_gross_amount,
 		"enable_progressive_boq": enable_progressive_boq
 	}
 

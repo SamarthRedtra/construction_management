@@ -416,11 +416,8 @@ class BOQItem(Document):
 			)
 	
 	def on_update(self):
-		"""Update parent Bill totals"""
-		if self.parent_bill:
-			bill = frappe.get_doc("BOQ Bill", self.parent_bill)
-			bill.calculate_totals()
-			bill.db_update()
+		"""Update parent Bill and Project BOQ totals"""
+		self.update_parent_totals()
 	
 	def on_trash(self):
 		"""Validate before deletion"""
@@ -439,6 +436,11 @@ class BOQItem(Document):
 				_("Cannot delete BOQ Item with existing billing transactions."),
 				title=_("Has Transactions")
 			)
+	
+	def update_parent_totals(self):
+		"""Update parent BOQ Bill and Project BOQ totals."""
+		update_parent_totals(self)
+
 	
 	@frappe.whitelist()
 	def create_invoice(self):
@@ -602,3 +604,22 @@ def recalculate_costs(boq_item_name: str) -> dict:
 			"success": False,
 			"error": str(e)
 		}
+
+
+def update_parent_totals(doc, method=None):
+	"""Update parent Bill and Project BOQ totals after an item is updated or deleted"""
+	if doc.parent_bill:
+		try:
+			bill = frappe.get_doc("BOQ Bill", doc.parent_bill)
+			bill.calculate_totals()
+			bill.db_update()
+		except frappe.DoesNotExistError:
+			pass
+	
+	if doc.project_boq:
+		try:
+			boq = frappe.get_doc("Project BOQ", doc.project_boq)
+			boq.calculate_totals()
+			boq.db_update()
+		except frappe.DoesNotExistError:
+			pass

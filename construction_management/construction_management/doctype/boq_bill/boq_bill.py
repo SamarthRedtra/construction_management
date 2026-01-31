@@ -117,6 +117,15 @@ class BOQBill(Document):
 		
 		# balance_amount = total_amount - to_date_amount
 		self.balance_amount = flt(self.total_amount) - flt(self.to_date_amount)
+
+		# Calculate Total Estimated BOQ Value (Total value of Project's BOQ Items)
+		total_boq_val = frappe.db.sql("""
+			SELECT COALESCE(SUM(bi.total_amount), 0)
+			FROM `tabBOQ Item` bi
+			WHERE bi.project = %s
+		""", self.project)
+		
+		self.total_estimated_boq_value = flt(total_boq_val[0][0]) if total_boq_val else 0.0
 	
 	def get_estimated_costs(self):
 		"""Get aggregated estimated costs from child BOQ Items"""

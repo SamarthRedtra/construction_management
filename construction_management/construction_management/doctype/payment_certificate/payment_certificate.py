@@ -279,6 +279,7 @@ class PaymentCertificate(Document):
 		invoice.custom_payment_certificate = self.name
 		invoice.custom_sales_order = self.sales_order
 		invoice.custom_is_proforma = 0  # This is a final tax invoice
+		invoice.cost_center = frappe.db.get_value("Company", company, "cost_center")
 		
 		# Set retention fields on invoice
 		if hasattr(invoice, "custom_retention_amount"):
@@ -289,12 +290,13 @@ class PaymentCertificate(Document):
 		# Add items from PC items table
 		if self.get("items"):
 			for pc_item in self.items:
+				# Task: Payment Certificate Optimization - Gross Amount
 				invoice.append("items", {
 					"item_code": frappe.db.get_value("BOQ Item", pc_item.boq_item, "item_code") or "Service",
-					"item_name": pc_item.description[:140],
 					"description": pc_item.description,
-					"qty": flt(pc_item.accepted_amount) / flt(pc_item.rate) if flt(pc_item.rate) > 0 else 0,
+					"qty": pc_item.qty,
 					"rate": pc_item.rate,
+					"amount": flt(pc_item.qty) * flt(pc_item.rate),
 					"income_account": income_account,
 					"project": self.project,
 					"boq_item": pc_item.boq_item,
@@ -302,33 +304,22 @@ class PaymentCertificate(Document):
 					"sales_order": self.sales_order,
 					"so_detail": pc_item.sales_order_item
 				})
-		else:
-			# Fallback for old single-item PCs
-			item_desc = "Progress Billing"
-			if self.boq_item:
-				item_desc = frappe.db.get_value("BOQ Item", self.boq_item, "description") or item_desc
-			elif self.bill_no:
-				item_desc = frappe.db.get_value("BOQ Bill", self.bill_no, "description") or f"Bill: {self.bill_no}"
-				
-			invoice.append("items", {
-				"item_name": item_desc[:140],
-				"description": item_desc,
-				"qty": 1,
-				"rate": flt(self.proforma_amount),
-				"income_account": income_account,
-				"project": self.project,
-				"boq_item": self.boq_item,
-				"bill_no": self.bill_no,
-				"sales_order": self.sales_order
-			})
 		
-		# Add global variance discount line if total variance exists
+		# Add global variance deduction line if total variance exists
 		if flt(self.variance) > 0:
+			boq_settings = frappe.get_doc("BOQ Settings", company)
+			variance_item = boq_settings.varience_item
+			
+			if not variance_item:
+				frappe.throw(_("Please set 'Varience Deduction Item' in BOQ Settings matching company {0}").format(company))
+
 			invoice.append("items", {
-				"item_name": "Variance Discount",
+				"item_code": variance_item,
+				"item_name": "Variance Deduction",
 				"description": f"Variance adjustment (PC: {self.name})",
 				"qty": 1,
 				"rate": -flt(self.variance),
+				"amount": -flt(self.variance),
 				"income_account": income_account,
 				"project": self.project
 			})

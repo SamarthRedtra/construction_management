@@ -46,6 +46,17 @@ class ProjectBOQ(Document):
 		
 		self.total_boq_value = flt(total[0][0]) if total else 0
 		
+		# Calculate Total Estimated BOQ Value (from BOQ Items)
+		# This reflects the total estimated cost of the Project's BOQ Items.
+		estimated_total = frappe.db.sql("""
+			SELECT COALESCE(SUM(bi.total_estimated_cost), 0)
+			FROM `tabBOQ Item` bi
+			JOIN `tabBOQ Bill` bb ON bi.parent_bill = bb.name
+			WHERE bb.project_boq = %s
+		""", self.name)
+		
+		self.total_estimated_boq_value = flt(estimated_total[0][0]) if estimated_total else 0
+
 		# Calculate billed and collected from ledger
 		billed = frappe.db.sql("""
 			SELECT COALESCE(SUM(amount), 0)
@@ -70,7 +81,14 @@ class ProjectBOQ(Document):
 		""", (self.project, self.name))
 		self.total_collected = flt(collected[0][0]) if collected else 0
 		
-		self.pending_amount = flt(self.total_billed) - flt(self.total_collected)
+		self.total_estimated_boq_value = flt(estimated_total[0][0]) if estimated_total else 0
+	
+	@frappe.whitelist()
+	def recalculate_estimated_value(self):
+		"""Manually recalculate Total Estimated BOQ Value (button action)"""
+		self.calculate_totals()
+		self.save()
+		return self.total_estimated_boq_value
 	
 	def on_update(self):
 		"""Update project's enable_progressive_boq flag if not set"""
