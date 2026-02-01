@@ -11,10 +11,14 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, getdate, today
+from erpnext.controllers.accounts_controller import get_default_taxes_and_charges
 
 
 class PaymentCertificate(Document):
 	def validate(self):
+		if not self.get("company") and self.get("project"):
+			self.company = frappe.db.get_value("Project", self.project, "company")
+		
 		self.calculate_totals()
 		self.calculate_retention()
 		self.validate_type_based_fields()
@@ -46,6 +50,20 @@ class PaymentCertificate(Document):
 			
 		self.proforma_amount = total_proforma
 		self.accepted_amount = total_accepted
+
+		self.calculate_taxes()
+		self.grand_total = flt(self.accepted_amount) + flt(self.get("total_taxes_and_charges") or 0)
+
+	def calculate_taxes(self):
+		"""Calculate taxes from taxes table"""
+		total_taxes = 0
+		for tax in self.get("taxes"):
+			if tax.charge_type == "On Net Total":
+				tax.tax_amount = flt(self.accepted_amount) * flt(tax.rate) / 100.0
+			
+			total_taxes += flt(tax.tax_amount)
+		
+		self.total_taxes_and_charges = total_taxes
 
 	def calculate_retention(self):
 		"""Calculate retention amount from BOQ Settings if not manually set"""
@@ -229,10 +247,11 @@ class PaymentCertificate(Document):
 		"""Cancel linked invoice if not paid"""
 		self.db_set("status", "Cancelled")
 		
-		if self.type == "Sales" and self.tax_invoice:
+		if self.type == "Sales" and self.tax_invoice and not self.flags.ignore_sales_invoice_cancel:
 			tax_inv = frappe.get_doc("Sales Invoice", self.tax_invoice)
 			if tax_inv.docstatus == 1:
 				# Allow cancel even if linked
+				tax_inv.flags.ignore_payment_certificate_cancel = True
 				tax_inv.cancel()
 				frappe.msgprint(_("Tax Invoice {0} cancelled").format(self.tax_invoice))
 		
@@ -287,10 +306,27 @@ class PaymentCertificate(Document):
 			invoice.custom_retention_percentage = flt(self.retention_percentage)
 			invoice.custom_retention_account = retention_account
 		
-		# Add items from PC items table
+		# Add items from PC items table with per-item deductions
+		from construction_management.api.boq_invoice import get_deduction_details, get_or_create_retention_item, get_or_create_advance_item
+		
+		# Get deduction settings for the project
+		deduction_details = get_deduction_details(self.project, self.items, invoice_name=None)
+		suggested_retention = flt(deduction_details.get("suggested_retention"))
+		suggested_advance = flt(deduction_details.get("suggested_advance"))
+		
+		total_proforma = flt(self.proforma_amount)
+		total_accepted = flt(self.accepted_amount)
+		
+		variance_item_code = settings.varience_item
+		retention_item_code = "RETENTION-DEDUCTION"
+		advance_item_code = "ADVANCE-DEDUCTION"
+		
+		get_or_create_retention_item()
+		get_or_create_advance_item()
+
 		if self.get("items"):
 			for pc_item in self.items:
-				# Task: Payment Certificate Optimization - Gross Amount
+				# 1. Main BOQ Item line
 				invoice.append("items", {
 					"item_code": frappe.db.get_value("BOQ Item", pc_item.boq_item, "item_code") or "Service",
 					"description": pc_item.description,
@@ -302,28 +338,98 @@ class PaymentCertificate(Document):
 					"boq_item": pc_item.boq_item,
 					"bill_no": pc_item.bill_no,
 					"sales_order": self.sales_order,
-					"so_detail": pc_item.sales_order_item
+					"so_detail": pc_item.sales_order_item,
+					"cost_center": invoice.cost_center
+				})
+				
+				# 2. Per-item Variance Deduction
+				item_variance = flt(pc_item.amount) - flt(pc_item.accepted_amount)
+				if item_variance > 0:
+					if not variance_item_code:
+						frappe.throw(_("Please set 'Varience Deduction Item' in BOQ Settings matching company {0}").format(company))
+					
+					invoice.append("items", {
+						"item_code": variance_item_code,
+						"item_name": "Variance Deduction",
+						"description": f"Variance adjustment for: {pc_item.description or pc_item.boq_item}",
+						"qty": 1,
+						"rate": -item_variance,
+						"amount": -item_variance,
+						"income_account": income_account,
+						"project": self.project,
+						"boq_item": pc_item.boq_item,
+						"bill_no": pc_item.bill_no,
+						"cost_center": invoice.cost_center
+					})
+				
+				# 3. Per-item Retention Deduction
+				if suggested_retention > 0 and total_proforma > 0:
+					share = flt(pc_item.amount) / total_proforma
+					item_retention = flt(suggested_retention * share, 2)
+					if item_retention > 0:
+						invoice.append("items", {
+							"item_code": retention_item_code,
+							"item_name": "Retention Deduction",
+							"description": f"Retention deduction ({deduction_details['retention_percentage']}%) for: {pc_item.description or pc_item.boq_item}",
+							"qty": 1,
+							"rate": -item_retention,
+							"amount": -item_retention,
+							"income_account": income_account,
+							"project": self.project,
+							"boq_item": pc_item.boq_item,
+							"bill_no": pc_item.bill_no,
+							"cost_center": invoice.cost_center
+						})
+
+				# 4. Per-item Advance Deduction
+				if suggested_advance > 0 and total_accepted > 0:
+					share = flt(pc_item.accepted_amount) / total_accepted
+					item_advance = flt(suggested_advance * share, 2)
+					if item_advance > 0:
+						invoice.append("items", {
+							"item_code": advance_item_code,
+							"item_name": "Advance Deduction",
+							"description": f"Deduction from advance payment for: {pc_item.description or pc_item.boq_item}",
+							"qty": 1,
+							"rate": -item_advance,
+							"amount": -item_advance,
+							"income_account": income_account,
+							"project": self.project,
+							"boq_item": pc_item.boq_item,
+							"bill_no": pc_item.bill_no,
+							"cost_center": invoice.cost_center
+						})
+		
+		# Populate taxes from Payment Certificate or Defaults
+		if self.get("taxes_and_charges"):
+			invoice.taxes_and_charges = self.taxes_and_charges
+		
+		if self.get("taxes"):
+			for tax in self.get("taxes"):
+				invoice.append("taxes", {
+					"charge_type": tax.charge_type,
+					"account_head": tax.account_head,
+					"description": tax.description,
+					"rate": tax.rate,
+					"tax_amount": tax.tax_amount,
+					"cost_center": tax.cost_center or invoice.cost_center,
+					"included_in_print_rate": tax.included_in_print_rate
 				})
 		
-		# Add global variance deduction line if total variance exists
-		if flt(self.variance) > 0:
-			boq_settings = frappe.get_doc("BOQ Settings", company)
-			variance_item = boq_settings.varience_item
-			
-			if not variance_item:
-				frappe.throw(_("Please set 'Varience Deduction Item' in BOQ Settings matching company {0}").format(company))
-
-			invoice.append("items", {
-				"item_code": variance_item,
-				"item_name": "Variance Deduction",
-				"description": f"Variance adjustment (PC: {self.name})",
-				"qty": 1,
-				"rate": -flt(self.variance),
-				"amount": -flt(self.variance),
-				"income_account": income_account,
-				"project": self.project
-			})
+		# If no taxes on invoice yet, try default taxes
+		if not invoice.get("taxes") and not invoice.get("taxes_and_charges"):
+			default_tax = get_default_taxes_and_charges("Sales Taxes and Charges Template", company=company)
+			if default_tax and default_tax.get("taxes_and_charges"):
+				invoice.taxes_and_charges = default_tax["taxes_and_charges"]
+				if not invoice.get("taxes"):
+					for tax in default_tax.get("taxes", []):
+						invoice.append("taxes", tax)
 		
+		if not invoice.get("taxes") and not invoice.get("taxes_and_charges"):
+			invoice.run_method("set_taxes_and_charges")
+
+		invoice.run_method("calculate_taxes_and_totals")
+		# invoice.run_method("calculate_taxes_and_totals")
 		invoice.flags.ignore_permissions = True
 		invoice.insert()
 		invoice.submit()
@@ -398,6 +504,36 @@ class PaymentCertificate(Document):
 				"project": self.project
 			})
 		
+		# Populate taxes from Payment Certificate or Defaults
+		if self.get("taxes_and_charges"):
+			pi.taxes_and_charges = self.taxes_and_charges
+		
+		if self.get("taxes"):
+			for tax in self.get("taxes"):
+				pi.append("taxes", {
+					"charge_type": tax.charge_type,
+					"account_head": tax.account_head,
+					"description": tax.description,
+					"rate": tax.rate,
+					"tax_amount": tax.tax_amount,
+					"cost_center": tax.cost_center or pi.cost_center,
+					"included_in_print_rate": tax.included_in_print_rate
+				})
+		
+		# If no taxes yet, try default taxes
+		if not pi.get("taxes") and not pi.get("taxes_and_charges"):
+			default_tax = get_default_taxes_and_charges("Purchase Taxes and Charges Template", company=company)
+			if default_tax and default_tax.get("taxes_and_charges"):
+				pi.taxes_and_charges = default_tax["taxes_and_charges"]
+				if not pi.get("taxes"):
+					for tax in default_tax.get("taxes", []):
+						pi.append("taxes", tax)
+		
+		if not pi.get("taxes") and not pi.get("taxes_and_charges"):
+			# Fetch default taxes from Supplier or Company
+			pi.run_method("set_taxes")
+		
+		pi.run_method("calculate_taxes_and_totals")
 		pi.flags.ignore_permissions = True
 		pi.insert()
 		pi.submit()
@@ -638,6 +774,14 @@ def create_payment_certificate_from_sales_order(sales_order: str, accepted_amoun
 				"accepted_amount": item.amount, # Default to full amount
 				"sales_order_item": item.name
 			})
+	
+	# Populate default taxes
+	company = frappe.db.get_value("Project", so.project, "company")
+	default_tax = get_default_taxes_and_charges("Sales Taxes and Charges Template", company=company)
+	if default_tax and default_tax.get("taxes_and_charges"):
+		pc.taxes_and_charges = default_tax["taxes_and_charges"]
+		for tax in default_tax.get("taxes", []):
+			pc.append("taxes", tax)
 	
 	# Trigger totals calculation
 	pc.calculate_totals()

@@ -6,6 +6,7 @@ from frappe import _
 from frappe.utils import flt, today, getdate
 from construction_management.api.boq_ledger import create_ledger_entry, recalculate_ledger_for_item
 from construction_management.construction_management.doctype.payment_certificate.payment_certificate import create_payment_certificate_from_sales_order
+from erpnext.controllers.accounts_controller import get_default_taxes_and_charges
 
 
 def has_invoice_permission() -> bool:
@@ -226,6 +227,26 @@ def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float
 			"project": project  # Set project on item level
 		})
 	
+	# Populate taxes
+	if not invoice.get("taxes_and_charges"):
+		company_curr = frappe.get_cached_value("Project", project, "company")
+		default_tax = get_default_taxes_and_charges("Sales Taxes and Charges Template", company=company_curr)
+		
+		if default_tax and default_tax.get("taxes_and_charges"):
+			invoice.taxes_and_charges = default_tax["taxes_and_charges"]
+			if not invoice.get("taxes"):
+				for tax in default_tax.get("taxes", []):
+					invoice.append("taxes", tax)
+	
+	if not invoice.get("taxes") and not invoice.get("taxes_and_charges"):
+		customer_taxes = frappe.db.get_value("Customer", customer, "taxes_and_charges")
+		if customer_taxes:
+			invoice.taxes_and_charges = customer_taxes
+			invoice.run_method("set_taxes")
+	
+	invoice.run_method("calculate_taxes_and_totals")
+
+	
 	try:
 		invoice.insert()
 		
@@ -412,6 +433,26 @@ def create_invoice_from_multiple_items(project: str, items: list,
 			"amount": -advance_deduction,
 			"project": project  # Set project on item level
 		})
+	
+	# Populate taxes
+	if not invoice.get("taxes_and_charges"):
+		company_curr = frappe.get_cached_value("Project", project, "company")
+		default_tax = get_default_taxes_and_charges("Sales Taxes and Charges Template", company=company_curr)
+		
+		if default_tax and default_tax.get("taxes_and_charges"):
+			invoice.taxes_and_charges = default_tax["taxes_and_charges"]
+			if not invoice.get("taxes"):
+				for tax in default_tax.get("taxes", []):
+					invoice.append("taxes", tax)
+	
+	if not invoice.get("taxes") and not invoice.get("taxes_and_charges"):
+		customer_taxes = frappe.db.get_value("Customer", customer, "taxes_and_charges")
+		if customer_taxes:
+			invoice.taxes_and_charges = customer_taxes
+			invoice.run_method("set_taxes")
+	
+	invoice.run_method("calculate_taxes_and_totals")
+
 	
 	try:
 		invoice.insert()
@@ -625,6 +666,25 @@ def create_invoice_from_selected_bills(project: str, bill_names: list,
 			"amount": -advance_deduction,
 			"project": project
 		})
+	
+	# Populate taxes
+	if not invoice.get("taxes_and_charges"):
+		company_doc = frappe.get_cached_value("Project", project, "company")
+		default_tax = get_default_taxes_and_charges("Sales Taxes and Charges Template", company=company_doc)
+		
+		if default_tax and default_tax.get("taxes_and_charges"):
+			invoice.taxes_and_charges = default_tax["taxes_and_charges"]
+			if not invoice.get("taxes"):
+				for tax in default_tax.get("taxes", []):
+					invoice.append("taxes", tax)
+	
+	if not invoice.get("taxes") and not invoice.get("taxes_and_charges"):
+		customer_taxes = frappe.db.get_value("Customer", customer, "taxes_and_charges")
+		if customer_taxes:
+			invoice.taxes_and_charges = customer_taxes
+			invoice.run_method("set_taxes")
+			
+	invoice.run_method("calculate_taxes_and_totals")
 	
 	try:
 		invoice.insert()
