@@ -115,7 +115,7 @@ class SalesInvoiceOverride(SalesInvoice):
 	def apply_automatic_deductions(self):
 		"""Automatically apply retention and advance deductions if enabled"""
 		# Skip if deductions are already handled (e.g. from Payment Certificate)
-		if self.custom_payment_certificate:
+		if self.get("custom_payment_certificate") or self.get("custom_proforma_invoice"):
 			return
 
 		from construction_management.api.boq_invoice import get_deduction_details, get_or_create_retention_item, get_or_create_advance_item
@@ -125,9 +125,8 @@ class SalesInvoiceOverride(SalesInvoice):
 		if not details.get("enable_progressive_boq"):
 			return
 			
-		# Common defaults for deduction items
 		default_income_account = frappe.db.get_value("Company", self.company, "default_income_account")
-		default_cost_center = frappe.db.get_value("Company", self.company, "cost_center")
+		default_cost_center = self.cost_center or frappe.db.get_value("Company", self.company, "cost_center")
 		
 		# 1. Handle Retention Deduction
 		if details.get("suggested_retention") > 0:
@@ -205,14 +204,17 @@ class SalesInvoiceOverride(SalesInvoice):
 		advance_account = boq_settings.advance_account
 		variance_account = boq_settings.varience_account_debit
 		variance_item_code = boq_settings.varience_item
-		default_income_account = frappe.db.get_value("Company", self.company, "default_income_account")
 
 		if not (retention_account or advance_account or variance_account):
 			return gl_entries
 
-		# 1. Identify all deduction items and their dimensions
+		# 1. Map items to their dimensions and identify deduction items
 		deductions = []
+		income_accounts = set()
 		for item in self.items:
+			if item.income_account:
+				income_accounts.add(item.income_account)
+			
 			target_acc = None
 			if item.item_code == "RETENTION-DEDUCTION": target_acc = retention_account
 			elif item.item_code == "ADVANCE-DEDUCTION": target_acc = advance_account
@@ -220,7 +222,8 @@ class SalesInvoiceOverride(SalesInvoice):
 			
 			if target_acc:
 				deductions.append({
-					"amount": abs(flt(item.base_amount)),
+					"amount": abs(flt(item.base_amount)), # Base currency
+					"transaction_amount": abs(flt(item.amount)), # Transaction currency
 					"account": target_acc,
 					"boq_item": item.boq_item,
 					"bill_no": item.bill_no,
@@ -232,7 +235,7 @@ class SalesInvoiceOverride(SalesInvoice):
 		if not deductions:
 			return gl_entries
 
-		# 2. Reconstruct entries: Gross up income entries and add separate deduction entries
+		# 2. Reconstruct entries
 		new_entries = []
 		processed_deduction_indices = []
 		
@@ -246,54 +249,109 @@ class SalesInvoiceOverride(SalesInvoice):
 			return gl_dict
 
 		for entry in gl_entries:
-			# If this is an income entry, check if any deductions were merged into it
-			if entry.get("account") == default_income_account:
+			# Match income entries (Credits to an account used in items)
+			if entry.get("account") in income_accounts and flt(entry.get("credit")) > 0:
 				total_gross_up = 0
+				total_gross_up_transaction = 0
 				for i, d in enumerate(deductions):
-					# Match dimensions to identify if this deduction belongs to this income entry
-					if (d["project"] == entry.get("project") and 
-						d["cost_center"] == entry.get("cost_center") and 
-						d["boq_item"] == entry.get("boq_item") and 
-						d["bill_no"] == entry.get("bill_no")):
+					if i in processed_deduction_indices:
+						continue
 						
+					# Loose match: Project + BOQ Item (most reliable)
+					match = (d["project"] == entry.get("project") and 
+							 d["boq_item"] == entry.get("boq_item"))
+					
+					# Fallback for parent level entries or if dimensions are slightly inconsistent
+					if not match and not entry.get("boq_item") and not d["boq_item"]:
+						match = (d["project"] == entry.get("project") and 
+								 d["cost_center"] == entry.get("cost_center"))
+
+					if match:
 						total_gross_up += d["amount"]
+						total_gross_up_transaction += d["transaction_amount"]
 						
-						# Create the separate debit entry for the deduction
+						# Create separate debit entry
+						# For debit entries, get_gl_dict handles conversion if we pass basic info
+						# but we want to be explicit about dimensions
 						deduction_entry = self.get_gl_dict(add_party_if_needed({
 							"account": d["account"],
 							"debit": d["amount"],
-							"credit": 0,
+							"debit_in_account_currency": d["amount"] if entry.get("account_currency") == self.company_currency else d["transaction_amount"],
 							"project": d["project"],
 							"boq_item": d["boq_item"],
 							"bill_no": d["bill_no"],
 							"cost_center": d["cost_center"],
 							"against": self.customer,
-							"remarks": f"{d['item_code']} for {d['boq_item'] or d['bill_no'] or self.name}"
+							"remarks": f"{d['item_code']} for {self.name}"
 						}, d["account"]))
+						
+						# Ensure transaction currency fields are set on deduction
+						deduction_entry.update({
+							"transaction_currency": self.currency,
+							"transaction_exchange_rate": self.get("conversion_rate") or 1,
+							"debit_in_transaction_currency": d["transaction_amount"]
+						})
 						
 						new_entries.append(deduction_entry)
 						processed_deduction_indices.append(i)
 				
-				# Gross up the income credit entry
 				if total_gross_up > 0:
+					# Update all currency-specific credit fields for the income entry
 					entry["credit"] = flt(entry.get("credit", 0)) + total_gross_up
+					
+					if "credit_in_account_currency" in entry:
+						# If income account is in transaction currency (foreign) or base
+						acc_curr = entry.get("account_currency")
+						if acc_curr == self.currency:
+							entry["credit_in_account_currency"] = flt(entry.get("credit_in_account_currency", 0)) + total_gross_up_transaction
+						else:
+							# Default to grossing up by base amount (assuming base == account currency or conversion is handled)
+							entry["credit_in_account_currency"] = flt(entry.get("credit_in_account_currency", 0)) + total_gross_up
+							
+					if "credit_in_transaction_currency" in entry:
+						entry["credit_in_transaction_currency"] = flt(entry.get("credit_in_transaction_currency", 0)) + total_gross_up_transaction
+						
+					if "credit_in_reporting_currency" in entry:
+						# Usually reporting currency matches base currency if exchange rate is 1
+						entry["credit_in_reporting_currency"] = flt(entry.get("credit_in_reporting_currency", 0)) + total_gross_up
 			
 			new_entries.append(entry)
 
-		# Add any deductions that somehow weren't matched to an income entry (orphans)
+		# 3. Add any unmatched deductions as orphans
 		for i, d in enumerate(deductions):
 			if i not in processed_deduction_indices:
-				new_entries.append(self.get_gl_dict(add_party_if_needed({
+				# Try to find a fallback income entry to credit
+				for entry in new_entries:
+					if entry.get("account") in income_accounts and flt(entry.get("credit")) > 0:
+						entry["credit"] = flt(entry.get("credit", 0)) + d["amount"]
+						if "credit_in_transaction_currency" in entry:
+							entry["credit_in_transaction_currency"] = flt(entry.get("credit_in_transaction_currency", 0)) + d["transaction_amount"]
+						if "credit_in_account_currency" in entry:
+							if entry.get("account_currency") == self.currency:
+								entry["credit_in_account_currency"] = flt(entry.get("credit_in_account_currency", 0)) + d["transaction_amount"]
+							else:
+								entry["credit_in_account_currency"] = flt(entry.get("credit_in_account_currency", 0)) + d["amount"]
+						break
+				
+				# Add the deduction debit entry
+				deduction_entry = self.get_gl_dict(add_party_if_needed({
 					"account": d["account"],
 					"debit": d["amount"],
-					"credit": 0,
 					"project": d["project"],
 					"boq_item": d["boq_item"],
 					"bill_no": d["bill_no"],
 					"cost_center": d["cost_center"],
 					"against": self.customer,
-					"remarks": f"{d['item_code']} (orphan) for {self.name}"
-				}, d["account"])))
+					"remarks": f"{d['item_code']} for {self.name}"
+				}, d["account"]))
+				
+				deduction_entry.update({
+					"transaction_currency": self.currency,
+					"transaction_exchange_rate": self.get("conversion_rate") or 1,
+					"debit_in_transaction_currency": d["transaction_amount"]
+				})
+				
+				new_entries.append(deduction_entry)
 
 		return new_entries
 
