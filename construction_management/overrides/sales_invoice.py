@@ -50,17 +50,21 @@ class SalesInvoiceOverride(SalesInvoice):
 			variance_item_code = frappe.db.get_value("BOQ Settings", self.company, "varience_item")
 			
 		for item in self.items:
-			if item.get("boq_item"):
+			# Deductions should not count towards gross BOQ amount
+			is_deduction = item.item_code in ["RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"] or (variance_item_code and item.item_code == variance_item_code)
+
+			if item.get("boq_item") and not is_deduction:
 				total_boq_amount += flt(item.amount)
 				
 			# Check only for Variance for BOQ Ledger Impact
 			is_variance = variance_item_code and item.item_code == variance_item_code
-			
 			if is_variance:
 				total_variance += flt(item.amount) # Variance is negative
 				
 		for item in self.items:
-			if item.get("boq_item"):
+			is_deduction = item.item_code in ["RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"] or (variance_item_code and item.item_code == variance_item_code)
+
+			if item.get("boq_item") and not is_deduction:
 				net_amount = flt(item.amount)
 				if total_boq_amount > 0 and total_variance != 0:
 					# Distribute variance proportionally
@@ -81,12 +85,20 @@ class SalesInvoiceOverride(SalesInvoice):
 
 	def on_cancel(self):
 		super().on_cancel()
-		"""Create reversing ledger entries on invoice cancel"""
+		"""Create reversing ledger entries on invoice cancel and cancel linked PC"""
 		for item in self.items:
 			if item.get("boq_item"):
 				create_boq_reversal_entry(self, item)
 				update_boq_item_after_invoice(item.boq_item)
 		
+		# Cancel linked Payment Certificate if not already being cancelled from there
+		if self.custom_payment_certificate and not self.flags.ignore_payment_certificate_cancel:
+			pc_doc = frappe.get_doc("Payment Certificate", self.custom_payment_certificate)
+			if pc_doc.docstatus == 1:
+				pc_doc.flags.ignore_sales_invoice_cancel = True
+				pc_doc.cancel()
+				frappe.msgprint(_("Linked Payment Certificate {0} cancelled").format(self.custom_payment_certificate))
+
 		# Update project completion percentage
 		if self.project:
 			from construction_management.api.project_completion import update_project_completion
@@ -102,6 +114,10 @@ class SalesInvoiceOverride(SalesInvoice):
 
 	def apply_automatic_deductions(self):
 		"""Automatically apply retention and advance deductions if enabled"""
+		# Skip if deductions are already handled (e.g. from Payment Certificate)
+		if self.custom_payment_certificate:
+			return
+
 		from construction_management.api.boq_invoice import get_deduction_details, get_or_create_retention_item, get_or_create_advance_item
 		
 		details = get_deduction_details(self.project, self.items, invoice_name=self.name)
@@ -189,57 +205,37 @@ class SalesInvoiceOverride(SalesInvoice):
 		advance_account = boq_settings.advance_account
 		variance_account = boq_settings.varience_account_debit
 		variance_item_code = boq_settings.varience_item
+		default_income_account = frappe.db.get_value("Company", self.company, "default_income_account")
 
 		if not (retention_account or advance_account or variance_account):
 			return gl_entries
 
-		# Identify which items were handled by super (usually they are merged into one Sales/Income credit)
-		total_retention = 0
-		total_advance = 0
-		total_variance = 0
-		
+		# 1. Identify all deduction items and their dimensions
+		deductions = []
 		for item in self.items:
-			if item.item_code == "RETENTION-DEDUCTION" and retention_account:
-				total_retention += abs(flt(item.base_amount))
-			elif item.item_code == "ADVANCE-DEDUCTION" and advance_account:
-				total_advance += abs(flt(item.base_amount))
-			elif variance_item_code and item.item_code == variance_item_code and variance_account:
-				total_variance += abs(flt(item.base_amount))
+			target_acc = None
+			if item.item_code == "RETENTION-DEDUCTION": target_acc = retention_account
+			elif item.item_code == "ADVANCE-DEDUCTION": target_acc = advance_account
+			elif variance_item_code and item.item_code == variance_item_code: target_acc = variance_account
+			
+			if target_acc:
+				deductions.append({
+					"amount": abs(flt(item.base_amount)),
+					"account": target_acc,
+					"boq_item": item.boq_item,
+					"bill_no": item.bill_no,
+					"cost_center": item.cost_center or self.cost_center,
+					"project": item.project or self.project,
+					"item_code": item.item_code
+				})
 
-		if total_retention == 0 and total_advance == 0 and total_variance == 0:
+		if not deductions:
 			return gl_entries
 
-		# Find and consolidate all income/sales entries for this project
-		default_income_account = frappe.db.get_value("Company", self.company, "default_income_account")
-
-		# 1. Separate income entries from others
-		other_entries = []
-		income_net_credit = 0
-		income_entry_template = None
-
-		for entry in gl_entries:
-			if entry.get("account") == default_income_account and entry.get("project") == self.project:
-				income_net_credit += flt(entry.get("credit")) - flt(entry.get("debit"))
-				if not income_entry_template:
-					income_entry_template = entry
-			else:
-				other_entries.append(entry)
-
-		if not income_entry_template:
-			# If no income entry found (e.g. all items were deductions?), 
-			# we might need to create one, but usually there's at least one BOQ item.
-			return gl_entries
-
-		# 2. Create the consolidated Gross Credit entry
-		gross_credit = income_net_credit + total_retention + total_advance + total_variance
-		income_entry_template.update({
-			"credit": gross_credit,
-			"debit": 0
-		})
+		# 2. Reconstruct entries: Gross up income entries and add separate deduction entries
+		new_entries = []
+		processed_deduction_indices = []
 		
-		new_entries = [income_entry_template] + other_entries
-
-		# 3. Add separate entries for deductions (Debit specific accounts)
 		def add_party_if_needed(gl_dict, account):
 			acc_type = frappe.db.get_value("Account", account, "account_type")
 			if acc_type in ["Receivable", "Payable"]:
@@ -249,38 +245,55 @@ class SalesInvoiceOverride(SalesInvoice):
 				})
 			return gl_dict
 
-		if total_retention > 0 and retention_account:
-			new_entries.append(self.get_gl_dict(add_party_if_needed({
-				"account": retention_account,
-				"debit": total_retention,
-				"credit": 0,
-				"project": self.project,
-				"against": self.customer,
-				"cost_center": self.cost_center,
-				"remarks": f"Retention deduction for {self.name}"
-			}, retention_account)))
-		
-		if total_advance > 0 and advance_account:
-			new_entries.append(self.get_gl_dict(add_party_if_needed({
-				"account": advance_account,
-				"debit": total_advance,
-				"credit": 0,
-				"project": self.project,
-				"against": self.customer,
-				"cost_center": self.cost_center,
-				"remarks": f"Advance deduction for {self.name}"
-			}, advance_account)))
+		for entry in gl_entries:
+			# If this is an income entry, check if any deductions were merged into it
+			if entry.get("account") == default_income_account:
+				total_gross_up = 0
+				for i, d in enumerate(deductions):
+					# Match dimensions to identify if this deduction belongs to this income entry
+					if (d["project"] == entry.get("project") and 
+						d["cost_center"] == entry.get("cost_center") and 
+						d["boq_item"] == entry.get("boq_item") and 
+						d["bill_no"] == entry.get("bill_no")):
+						
+						total_gross_up += d["amount"]
+						
+						# Create the separate debit entry for the deduction
+						deduction_entry = self.get_gl_dict(add_party_if_needed({
+							"account": d["account"],
+							"debit": d["amount"],
+							"credit": 0,
+							"project": d["project"],
+							"boq_item": d["boq_item"],
+							"bill_no": d["bill_no"],
+							"cost_center": d["cost_center"],
+							"against": self.customer,
+							"remarks": f"{d['item_code']} for {d['boq_item'] or d['bill_no'] or self.name}"
+						}, d["account"]))
+						
+						new_entries.append(deduction_entry)
+						processed_deduction_indices.append(i)
+				
+				# Gross up the income credit entry
+				if total_gross_up > 0:
+					entry["credit"] = flt(entry.get("credit", 0)) + total_gross_up
+			
+			new_entries.append(entry)
 
-		if total_variance > 0 and variance_account:
-			new_entries.append(self.get_gl_dict(add_party_if_needed({
-				"account": variance_account,
-				"debit": total_variance,
-				"credit": 0,
-				"project": self.project,
-				"against": self.customer,
-				"cost_center": self.cost_center,
-				"remarks": f"Variance for {self.name}"
-			}, variance_account)))
+		# Add any deductions that somehow weren't matched to an income entry (orphans)
+		for i, d in enumerate(deductions):
+			if i not in processed_deduction_indices:
+				new_entries.append(self.get_gl_dict(add_party_if_needed({
+					"account": d["account"],
+					"debit": d["amount"],
+					"credit": 0,
+					"project": d["project"],
+					"boq_item": d["boq_item"],
+					"bill_no": d["bill_no"],
+					"cost_center": d["cost_center"],
+					"against": self.customer,
+					"remarks": f"{d['item_code']} (orphan) for {self.name}"
+				}, d["account"])))
 
 		return new_entries
 
@@ -447,12 +460,16 @@ def create_boq_reversal_entry(invoice, item):
 			finally:
 				frappe.flags.allow_boq_ledger_deletion = False
 		else:
+			# Get original proforma/order amount to restore
+			orig_val = frappe.db.get_value("BOQ Progress Ledger", ledger_entry, "proforma_amount")
+			
 			frappe.db.set_value(
 				"BOQ Progress Ledger",
 				ledger_entry,
 				{
 					"tax_invoice": None,
 					"tax_invoice_amount": 0,
+					"amount": flt(orig_val), # Restore original value
 					"remarks": f"Reversal of Invoice {invoice.name}",
 					"source": "Order" if item.get("sales_order") else ("Proforma" if invoice.get("custom_proforma_invoice") else "Adjustment")
 				},

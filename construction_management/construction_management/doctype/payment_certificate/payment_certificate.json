@@ -1,353 +1,400 @@
 {
- "actions": [],
- "autoname": "naming_series:",
- "creation": "2024-12-23 10:00:00",
- "doctype": "DocType",
- "engine": "InnoDB",
- "field_order": [
-  "naming_series",
-  "type",
-  "project",
-  "bill_no",
-  "boq_item",
-  "column_break_1",
-  "customer",
-  "supplier",
-  "status",
-  "posting_date",
-  "section_break_sflx",
-  "items",
-  "section_proforma",
-  "sales_order",
-  "proforma_invoice",
-  "proforma_amount",
-  "column_break_proforma",
-  "purchase_receipt",
-  "pr_amount",
-  "section_accepted",
-  "accepted_amount",
-  "variance",
-  "variance_percent",
-  "column_break_2",
-  "purchase_order",
-  "section_tax_invoice",
-  "tax_invoice",
-  "tax_invoice_amount",
-  "column_break_3",
-  "purchase_invoice",
-  "invoice_status",
-  "payment_received",
-  "section_remarks",
-  "remarks",
-  "amended_from"
- ],
- "fields": [
-  {
-   "fieldname": "naming_series",
-   "fieldtype": "Select",
-   "label": "Series",
-   "options": "PC-.YYYY.-",
-   "reqd": 1
-  },
-  {
-   "default": "Sales",
-   "fieldname": "type",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Type",
-   "options": "Sales\nPurchase",
-   "reqd": 1
-  },
-  {
-   "fieldname": "project",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Project",
-   "options": "Project",
-   "reqd": 1
-  },
-  {
-   "depends_on": "project",
-   "fieldname": "bill_no",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Bill No",
-   "options": "BOQ Bill"
-  },
-  {
-   "depends_on": "bill_no",
-   "fieldname": "boq_item",
-   "fieldtype": "Link",
-   "label": "BOQ Item",
-   "options": "BOQ Item"
-  },
-  {
-   "fieldname": "items",
-   "fieldtype": "Table",
-   "label": "Certified Items",
-   "options": "Payment Certificate Item"
-  },
-  {
-   "fieldname": "column_break_1",
-   "fieldtype": "Column Break"
-  },
-  {
-   "depends_on": "eval:doc.type=='Sales'",
-   "fetch_from": "project.customer",
-   "fieldname": "customer",
-   "fieldtype": "Link",
-   "label": "Customer",
-   "mandatory_depends_on": "eval:doc.type=='Sales'",
-   "options": "Customer"
-  },
-  {
-   "depends_on": "eval:doc.type=='Purchase'",
-   "fieldname": "supplier",
-   "fieldtype": "Link",
-   "label": "Supplier",
-   "mandatory_depends_on": "eval:doc.type=='Purchase'",
-   "options": "Supplier"
-  },
-  {
-   "default": "Draft",
-   "fieldname": "status",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Status",
-   "options": "Draft\nSubmitted\nInvoiced\nPaid\nCancelled",
-   "read_only": 1
-  },
-  {
-   "default": "Today",
-   "fieldname": "posting_date",
-   "fieldtype": "Date",
-   "in_list_view": 1,
-   "label": "Posting Date",
-   "reqd": 1
-  },
-  {
-   "depends_on": "eval:doc.type=='Sales'",
-   "fieldname": "section_proforma",
-   "fieldtype": "Section Break",
-   "label": "Proforma Invoice Details"
-  },
-  {
-   "depends_on": "eval:doc.type=='Sales'",
-   "description": "Reference Sales Order for certification",
-   "fieldname": "sales_order",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Sales Order",
-   "options": "Sales Order"
-  },
-  {
-   "depends_on": "eval:doc.type=='Sales'",
-   "description": "Legacy reference proforma invoice",
-   "fieldname": "proforma_invoice",
-   "fieldtype": "Link",
-   "label": "Proforma Invoice (Old)",
-   "options": "Proforma Invoice"
-  },
-  {
-   "depends_on": "eval:doc.type=='Sales'",
-   "description": "Original amount from proforma invoice",
-   "fieldname": "proforma_amount",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Proforma Amount"
-  },
-  {
-   "fieldname": "column_break_proforma",
-   "fieldtype": "Column Break"
-  },
-  {
-   "depends_on": "eval:doc.type=='Purchase'",
-   "description": "Reference Purchase Receipt",
-   "fieldname": "purchase_receipt",
-   "fieldtype": "Link",
-   "label": "Purchase Receipt",
-   "mandatory_depends_on": "eval:doc.type=='Purchase'",
-   "options": "Purchase Receipt"
-  },
-  {
-   "depends_on": "eval:doc.type=='Purchase'",
-   "description": "Amount from Purchase Receipt",
-   "fieldname": "pr_amount",
-   "fieldtype": "Currency",
-   "label": "PR Amount"
-  },
-  {
-   "fieldname": "section_accepted",
-   "fieldtype": "Section Break",
-   "label": "Accepted Amount"
-  },
-  {
-   "description": "Amount accepted/approved",
-   "fieldname": "accepted_amount",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Accepted Amount",
-   "reqd": 1
-  },
-  {
-   "description": "Difference: Original - Accepted",
-   "fieldname": "variance",
-   "fieldtype": "Currency",
-   "label": "Variance",
-   "read_only": 1
-  },
-  {
-   "fieldname": "variance_percent",
-   "fieldtype": "Percent",
-   "label": "Variance %",
-   "read_only": 1
-  },
-  {
-   "fieldname": "column_break_2",
-   "fieldtype": "Column Break"
-  },
-  {
-   "depends_on": "eval:doc.type=='Purchase'",
-   "description": "Reference Purchase Order",
-   "fieldname": "purchase_order",
-   "fieldtype": "Link",
-   "label": "Purchase Order",
-   "options": "Purchase Order"
-  },
-  {
-   "fieldname": "section_tax_invoice",
-   "fieldtype": "Section Break",
-   "label": "Invoice"
-  },
-  {
-   "depends_on": "eval:doc.type=='Sales'",
-   "description": "Final Sales Invoice created on submit",
-   "fieldname": "tax_invoice",
-   "fieldtype": "Link",
-   "label": "Tax Invoice",
-   "options": "Sales Invoice",
-   "read_only": 1
-  },
-  {
-   "depends_on": "eval:doc.type=='Sales'",
-   "fieldname": "tax_invoice_amount",
-   "fieldtype": "Currency",
-   "label": "Tax Invoice Amount",
-   "read_only": 1
-  },
-  {
-   "fieldname": "column_break_3",
-   "fieldtype": "Column Break"
-  },
-  {
-   "depends_on": "eval:doc.type=='Purchase'",
-   "description": "Purchase Invoice created on submit",
-   "fieldname": "purchase_invoice",
-   "fieldtype": "Link",
-   "label": "Purchase Invoice",
-   "options": "Purchase Invoice",
-   "read_only": 1
-  },
-  {
-   "fieldname": "invoice_status",
-   "fieldtype": "Data",
-   "label": "Invoice Status",
-   "read_only": 1
-  },
-  {
-   "default": "0",
-   "fieldname": "payment_received",
-   "fieldtype": "Currency",
-   "label": "Payment Received",
-   "read_only": 1
-  },
-  {
-   "fieldname": "section_remarks",
-   "fieldtype": "Section Break",
-   "label": "Remarks"
-  },
-  {
-   "fieldname": "remarks",
-   "fieldtype": "Small Text",
-   "label": "Remarks"
-  },
-  {
-   "fieldname": "amended_from",
-   "fieldtype": "Link",
-   "label": "Amended From",
-   "no_copy": 1,
-   "options": "Payment Certificate",
-   "print_hide": 1,
-   "read_only": 1
-  },
-  {
-   "fieldname": "section_break_sflx",
-   "fieldtype": "Section Break"
-  }
- ],
- "index_web_pages_for_search": 1,
- "is_submittable": 1,
- "links": [
-  {
-   "group": "Invoices",
-   "link_doctype": "Sales Invoice",
-   "link_fieldname": "custom_payment_certificate"
-  }
- ],
- "modified": "2026-01-23 23:14:00.302681",
- "modified_by": "Administrator",
- "module": "Construction Management",
- "name": "Payment Certificate",
- "naming_rule": "By \"Naming Series\" field",
- "owner": "Administrator",
- "permissions": [
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "System Manager",
-   "share": 1,
-   "submit": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Accounts User",
-   "share": 1,
-   "submit": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Quantity Surveyor",
-   "share": 1,
-   "submit": 1,
-   "write": 1
-  }
- ],
- "row_format": "Dynamic",
- "search_fields": "project,bill_no,proforma_invoice",
- "sort_field": "modified",
- "sort_order": "DESC",
- "states": [],
- "title_field": "project",
- "track_changes": 1
+    "actions": [],
+    "autoname": "naming_series:",
+    "creation": "2024-12-23 10:00:00",
+    "doctype": "DocType",
+    "engine": "InnoDB",
+    "field_order": [
+        "naming_series",
+        "type",
+        "company",
+        "project",
+        "bill_no",
+        "boq_item",
+        "column_break_1",
+        "customer",
+        "supplier",
+        "status",
+        "posting_date",
+        "section_break_sflx",
+        "items",
+        "section_proforma",
+        "sales_order",
+        "proforma_invoice",
+        "proforma_amount",
+        "column_break_proforma",
+        "purchase_receipt",
+        "pr_amount",
+        "section_accepted",
+        "accepted_amount",
+        "variance",
+        "variance_percent",
+        "section_taxes",
+        "taxes_and_charges",
+        "taxes",
+        "column_break_tax_totals",
+        "total_taxes_and_charges",
+        "grand_total",
+        "column_break_2",
+        "purchase_order",
+        "section_tax_invoice",
+        "tax_invoice",
+        "tax_invoice_amount",
+        "column_break_3",
+        "purchase_invoice",
+        "invoice_status",
+        "payment_received",
+        "section_remarks",
+        "remarks",
+        "amended_from"
+    ],
+    "fields": [
+        {
+            "fieldname": "naming_series",
+            "fieldtype": "Select",
+            "label": "Series",
+            "options": "PC-.YYYY.-",
+            "reqd": 1
+        },
+        {
+            "default": "Sales",
+            "fieldname": "type",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "label": "Type",
+            "options": "Sales\nPurchase",
+            "reqd": 1
+        },
+        {
+            "fieldname": "company",
+            "fieldtype": "Link",
+            "label": "Company",
+            "options": "Company",
+            "reqd": 1,
+            "remember_last_selected_value": 1
+        },
+        {
+            "fieldname": "project",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "label": "Project",
+            "options": "Project",
+            "reqd": 1
+        },
+        {
+            "depends_on": "project",
+            "fieldname": "bill_no",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "label": "Bill No",
+            "options": "BOQ Bill"
+        },
+        {
+            "depends_on": "bill_no",
+            "fieldname": "boq_item",
+            "fieldtype": "Link",
+            "label": "BOQ Item",
+            "options": "BOQ Item"
+        },
+        {
+            "fieldname": "items",
+            "fieldtype": "Table",
+            "label": "Certified Items",
+            "options": "Payment Certificate Item"
+        },
+        {
+            "fieldname": "column_break_1",
+            "fieldtype": "Column Break"
+        },
+        {
+            "depends_on": "eval:doc.type=='Sales'",
+            "fetch_from": "project.customer",
+            "fieldname": "customer",
+            "fieldtype": "Link",
+            "label": "Customer",
+            "mandatory_depends_on": "eval:doc.type=='Sales'",
+            "options": "Customer"
+        },
+        {
+            "depends_on": "eval:doc.type=='Purchase'",
+            "fieldname": "supplier",
+            "fieldtype": "Link",
+            "label": "Supplier",
+            "mandatory_depends_on": "eval:doc.type=='Purchase'",
+            "options": "Supplier"
+        },
+        {
+            "default": "Draft",
+            "fieldname": "status",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "label": "Status",
+            "options": "Draft\nSubmitted\nInvoiced\nPaid\nCancelled",
+            "read_only": 1
+        },
+        {
+            "default": "Today",
+            "fieldname": "posting_date",
+            "fieldtype": "Date",
+            "in_list_view": 1,
+            "label": "Posting Date",
+            "reqd": 1
+        },
+        {
+            "depends_on": "eval:doc.type=='Sales'",
+            "fieldname": "section_proforma",
+            "fieldtype": "Section Break",
+            "label": "Proforma Invoice Details"
+        },
+        {
+            "depends_on": "eval:doc.type=='Sales'",
+            "description": "Reference Sales Order for certification",
+            "fieldname": "sales_order",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "Sales Order",
+            "options": "Sales Order"
+        },
+        {
+            "depends_on": "eval:doc.type=='Sales'",
+            "description": "Legacy reference proforma invoice",
+            "fieldname": "proforma_invoice",
+            "fieldtype": "Link",
+            "label": "Proforma Invoice (Old)",
+            "options": "Proforma Invoice"
+        },
+        {
+            "depends_on": "eval:doc.type=='Sales'",
+            "description": "Original amount from proforma invoice",
+            "fieldname": "proforma_amount",
+            "fieldtype": "Currency",
+            "in_list_view": 1,
+            "label": "Proforma Amount"
+        },
+        {
+            "fieldname": "column_break_proforma",
+            "fieldtype": "Column Break"
+        },
+        {
+            "depends_on": "eval:doc.type=='Purchase'",
+            "description": "Reference Purchase Receipt",
+            "fieldname": "purchase_receipt",
+            "fieldtype": "Link",
+            "label": "Purchase Receipt",
+            "mandatory_depends_on": "eval:doc.type=='Purchase'",
+            "options": "Purchase Receipt"
+        },
+        {
+            "depends_on": "eval:doc.type=='Purchase'",
+            "description": "Amount from Purchase Receipt",
+            "fieldname": "pr_amount",
+            "fieldtype": "Currency",
+            "label": "PR Amount"
+        },
+        {
+            "fieldname": "section_accepted",
+            "fieldtype": "Section Break",
+            "label": "Accepted Amount"
+        },
+        {
+            "description": "Amount accepted/approved",
+            "fieldname": "accepted_amount",
+            "fieldtype": "Currency",
+            "in_list_view": 1,
+            "label": "Accepted Amount",
+            "reqd": 1
+        },
+        {
+            "description": "Difference: Original - Accepted",
+            "fieldname": "variance",
+            "fieldtype": "Currency",
+            "label": "Variance",
+            "read_only": 1
+        },
+        {
+            "fieldname": "variance_percent",
+            "fieldtype": "Percent",
+            "label": "Variance %",
+            "read_only": 1
+        },
+        {
+            "fieldname": "section_taxes",
+            "fieldtype": "Section Break",
+            "label": "Taxes and Charges"
+        },
+        {
+            "fieldname": "taxes_and_charges",
+            "fieldtype": "Link",
+            "label": "Taxes and Charges Template",
+            "options": "Sales Taxes and Charges Template"
+        },
+        {
+            "fieldname": "taxes",
+            "fieldtype": "Table",
+            "label": "Taxes",
+            "options": "Sales Taxes and Charges"
+        },
+        {
+            "fieldname": "column_break_tax_totals",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "total_taxes_and_charges",
+            "fieldtype": "Currency",
+            "label": "Total Taxes and Charges",
+            "read_only": 1
+        },
+        {
+            "fieldname": "grand_total",
+            "fieldtype": "Currency",
+            "label": "Grand Total",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_2",
+            "fieldtype": "Column Break"
+        },
+        {
+            "depends_on": "eval:doc.type=='Purchase'",
+            "description": "Reference Purchase Order",
+            "fieldname": "purchase_order",
+            "fieldtype": "Link",
+            "label": "Purchase Order",
+            "options": "Purchase Order"
+        },
+        {
+            "fieldname": "section_tax_invoice",
+            "fieldtype": "Section Break",
+            "label": "Invoice"
+        },
+        {
+            "depends_on": "eval:doc.type=='Sales'",
+            "description": "Final Sales Invoice created on submit",
+            "fieldname": "tax_invoice",
+            "fieldtype": "Data",
+            "label": "Tax Invoice",
+            "read_only": 1
+        },
+        {
+            "depends_on": "eval:doc.type=='Sales'",
+            "fieldname": "tax_invoice_amount",
+            "fieldtype": "Currency",
+            "label": "Tax Invoice Amount",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_3",
+            "fieldtype": "Column Break"
+        },
+        {
+            "depends_on": "eval:doc.type=='Purchase'",
+            "description": "Purchase Invoice created on submit",
+            "fieldname": "purchase_invoice",
+            "fieldtype": "Link",
+            "label": "Purchase Invoice",
+            "options": "Purchase Invoice",
+            "read_only": 1
+        },
+        {
+            "fieldname": "invoice_status",
+            "fieldtype": "Data",
+            "label": "Invoice Status",
+            "read_only": 1
+        },
+        {
+            "default": "0",
+            "fieldname": "payment_received",
+            "fieldtype": "Currency",
+            "label": "Payment Received",
+            "read_only": 1
+        },
+        {
+            "fieldname": "section_remarks",
+            "fieldtype": "Section Break",
+            "label": "Remarks"
+        },
+        {
+            "fieldname": "remarks",
+            "fieldtype": "Small Text",
+            "label": "Remarks"
+        },
+        {
+            "fieldname": "amended_from",
+            "fieldtype": "Link",
+            "label": "Amended From",
+            "no_copy": 1,
+            "options": "Payment Certificate",
+            "print_hide": 1,
+            "read_only": 1
+        },
+        {
+            "fieldname": "section_break_sflx",
+            "fieldtype": "Section Break"
+        }
+    ],
+    "index_web_pages_for_search": 1,
+    "is_submittable": 1,
+    "links": [
+        {
+            "group": "Invoices",
+            "link_doctype": "Sales Invoice",
+            "link_fieldname": "custom_payment_certificate"
+        }
+    ],
+    "modified": "2026-02-01 22:27:47.880336",
+    "modified_by": "Administrator",
+    "module": "Construction Management",
+    "name": "Payment Certificate",
+    "naming_rule": "By \"Naming Series\" field",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "System Manager",
+            "share": 1,
+            "submit": 1,
+            "write": 1
+        },
+        {
+            "create": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "Accounts User",
+            "share": 1,
+            "submit": 1,
+            "write": 1
+        },
+        {
+            "create": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "Quantity Surveyor",
+            "share": 1,
+            "submit": 1,
+            "write": 1
+        }
+    ],
+    "row_format": "Dynamic",
+    "search_fields": "project,bill_no,proforma_invoice",
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "states": [],
+    "title_field": "project",
+    "track_changes": 1
 }

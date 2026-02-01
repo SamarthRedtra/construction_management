@@ -552,16 +552,22 @@ def recalculate_ledger_for_item(boq_item):
 	
 	for entry in entries:
 		# Determine the "Active Amount" for this ledger row
-		# If it's a consolidated row (PI->PC->TI), use the most mature amount available
-		active_qty = flt(entry.qty) # Base qty
+		# Requirements: We want to track the ORIGINAL consumed value (Proforma/Order)
+		# Certified amount and Tax Invoice amount are for reference but shouldn't 
+		# necessarily overwrite the "amount" used for cumulative billing tracking
+		# unless they are the primary source.
 		
-		# If we updated the row with PC/TI amounts, use those for calculation
+		# If it's a consolidated row (PI->PC->TI), we use:
+		# 1. Tax Invoice Amount (if SI submitted)
+		# 2. Base Amount (Proforma/Order) - This preserves the original value if SI is cancelled
+		
+		active_qty = flt(entry.qty) 
+		
 		if entry.tax_invoice_amount:
 			active_amount = flt(entry.tax_invoice_amount)
-		elif entry.certified_amount:
-			active_amount = flt(entry.certified_amount)
 		else:
-			active_amount = flt(entry.amount) # Base amount (defaults to PI)
+			# Revert to original amount (Proforma/Order) if no tax invoice is active
+			active_amount = flt(entry.amount)
 		
 		# Set context for this row
 		prev_qty = running_qty
