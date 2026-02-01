@@ -47,9 +47,9 @@ class ProjectBOQ(Document):
 		self.total_boq_value = flt(total[0][0]) if total else 0
 		
 		# Calculate Total Estimated BOQ Value (from BOQ Items)
-		# This reflects the total estimated cost of the Project's BOQ Items.
+		# Per user request: This field should have the BOQ items sum of total_amount field
 		estimated_total = frappe.db.sql("""
-			SELECT COALESCE(SUM(bi.total_estimated_cost), 0)
+			SELECT COALESCE(SUM(bi.total_amount), 0)
 			FROM `tabBOQ Item` bi
 			JOIN `tabBOQ Bill` bb ON bi.parent_bill = bb.name
 			WHERE bb.project_boq = %s

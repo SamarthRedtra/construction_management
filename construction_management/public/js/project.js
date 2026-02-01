@@ -6456,16 +6456,14 @@ function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
 				padding-bottom: 2px;
 			}
 			.boq-term-label {
-				font-size: 14px;
+				font-size: 13px;
 				font-weight: 600;
 				color: #374151;
 				background: #f3f4f6;
 				padding: 4px 10px;
 				border-radius: 4px;
-				white-space: nowrap;
-				overflow: hidden;
-				text-overflow: ellipsis;
-				max-width: 80%;
+				word-break: break-word;
+				max-width: 60%;
 			}
 			.chevron-icon {
 				transition: transform 0.3s ease;
@@ -6655,19 +6653,26 @@ function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
 
 function renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData) {
 	const container = wrapper.find('#boq-terms-list');
+	// Capture current expansion state
+	const expandedItems = [];
+	container.find('.boq-term-card:not(.collapsed)').each(function () {
+		expandedItems.push($(this).data('boq-item'));
+	});
+
 	container.empty();
 
 	if (Object.keys(paymentTermsData).length === 0) {
-		container.html('<div style="text-align: center; padding: 40px; color: #9ca3af;">No payment terms defined. Click "Add BOQ Item" to start.</div>');
+		container.html('<div style="text-align: center; padding: 40px; color: #9ca3af;">No payment terms defined. Click "Add Payment Terms" to start.</div>');
 		return;
 	}
 
 	Object.keys(paymentTermsData).forEach(boqItemName => {
 		const terms = paymentTermsData[boqItemName];
 		const boqLabel = boqItems.find(b => b.name === boqItemName)?.label || boqItemName;
+		const isExpanded = expandedItems.includes(boqItemName);
 
 		const cardHtml = `
-			<div class="boq-term-card collapsed" data-boq-item="${boqItemName}">
+			<div class="boq-term-card ${isExpanded ? '' : 'collapsed'}" data-boq-item="${boqItemName}">
 				<div class="boq-term-header">
 					<div class="boq-term-header-left">
 						<svg class="chevron-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
