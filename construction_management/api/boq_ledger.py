@@ -22,11 +22,10 @@ def get_previous_qty(boq_item: str) -> float:
 	# 'Invoice' entries come from submitted Sales Invoices
 	# 'Proforma Reversal' entries are from cancelled proformas
 	result = frappe.db.sql("""
-		SELECT COALESCE(SUM(qty), 0) as total
+		SELECT COALESCE(SUM(current_qty), 0) as total
 		FROM `tabBOQ Progress Ledger`
 		WHERE boq_item = %s
 		AND source IN ('Invoice', 'Proforma', 'Proforma Reversal', 'Order', 'Order Reversal', 'Adjustment', 'Reversal')
-		AND posting_date <= CURDATE()
 	""", boq_item)
 	
 	return flt(result[0][0]) if result else 0
@@ -45,11 +44,10 @@ def get_previous_amount(boq_item: str) -> float:
 	"""
 	# Sum all ledger entries
 	result = frappe.db.sql("""
-		SELECT COALESCE(SUM(amount), 0) as total
+		SELECT COALESCE(SUM(current_amount), 0) as total
 		FROM `tabBOQ Progress Ledger`
 		WHERE boq_item = %s
 		AND source IN ('Invoice', 'Proforma', 'Proforma Reversal', 'Order', 'Order Reversal', 'Adjustment', 'Reversal')
-		AND posting_date <= CURDATE()
 	""", boq_item)
 	
 	return flt(result[0][0]) if result else 0
@@ -67,11 +65,10 @@ def get_to_date_qty(boq_item: str) -> float:
 		float: To-date quantity
 	"""
 	result = frappe.db.sql("""
-		SELECT COALESCE(SUM(qty), 0) as total
+		SELECT COALESCE(SUM(current_qty), 0) as total
 		FROM `tabBOQ Progress Ledger`
 		WHERE boq_item = %s
-		AND posting_date <= %s
-	""", (boq_item, today()))
+	""", (boq_item))
 	
 	return flt(result[0][0]) if result else 0
 
@@ -88,11 +85,10 @@ def get_to_date_amount(boq_item: str) -> float:
 		float: To-date amount
 	"""
 	result = frappe.db.sql("""
-		SELECT COALESCE(SUM(amount), 0) as total
+		SELECT COALESCE(SUM(current_amount), 0) as total
 		FROM `tabBOQ Progress Ledger`
 		WHERE boq_item = %s
-		AND posting_date <= %s
-	""", (boq_item, today()))
+	""", (boq_item))
 	
 	return flt(result[0][0]) if result else 0
 
@@ -550,6 +546,27 @@ def recalculate_ledger_for_item(boq_item):
 	running_qty = 0.0
 	running_amount = 0.0
 	
+	if not entries:
+		# If no ledger entries exist, reset all progressive fields on BOQ Item
+		item_data = frappe.db.get_value("BOQ Item", boq_item, ["total_qty", "total_amount", "project"], as_dict=True)
+		if item_data:
+			frappe.db.set_value("BOQ Item", boq_item, {
+				"prev_qty": 0,
+				"prev_amount": 0,
+				"current_qty": 0,
+				"current_amount": 0,
+				"to_date_qty": 0,
+				"to_date_amount": 0,
+				"balance_qty": item_data.total_qty,
+				"balance_amount": item_data.total_amount,
+				"total_retention_amount": 0.0,
+				"total_advance_deducted": 0.0,
+				"billing_status": "Not Billed"
+			}, update_modified=False)
+			
+			update_project_financials(item_data.project)
+		return
+
 	for entry in entries:
 		# Determine the "Active Amount" for this ledger row
 		# Requirements: We want to track the ORIGINAL consumed value (Proforma/Order)
@@ -565,8 +582,10 @@ def recalculate_ledger_for_item(boq_item):
 		
 		if entry.tax_invoice_amount:
 			active_amount = flt(entry.tax_invoice_amount)
+		elif entry.certified_amount:
+			active_amount = flt(entry.certified_amount)
 		else:
-			# Revert to original amount (Proforma/Order) if no tax invoice is active
+			# Revert to original amount (Proforma/Order) if no tax invoice or certificate is active
 			active_amount = flt(entry.amount)
 		
 		# Set context for this row

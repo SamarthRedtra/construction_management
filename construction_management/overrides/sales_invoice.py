@@ -22,6 +22,19 @@ class SalesInvoiceOverride(SalesInvoice):
 				break
 		return is_bill_invoice
 
+	def get_item_tax_amount(self, item):
+		"""Extract tax amount for a specific item from item_wise_tax_details child table"""
+		if not self.get("item_wise_tax_details"):
+			# Fallback to sum of taxes if child table is empty (though it should be populated on submit)
+			return 0
+		
+		total_tax = 0
+		for detail in self.item_wise_tax_details:
+			if detail.item_row == item.name:
+				total_tax += flt(detail.amount)
+		
+		return total_tax
+
 	def before_insert(self):
 		"""Auto-set BOQ dimensions on Sales Invoice Items"""
 		for item in self.items:
@@ -40,40 +53,81 @@ class SalesInvoiceOverride(SalesInvoice):
 		super().on_submit()
 		"""Create ledger entries for BOQ items on invoice submit"""
 		
-		# Calculate totals for distribution
-		total_boq_amount = 0
-		total_variance = 0
-		
-		# Fetch settings safely
+		# 1. First Pass: Identify variance item code and total gross BOQ amount
 		variance_item_code = None
 		if frappe.db.exists("BOQ Settings", self.company):
 			variance_item_code = frappe.db.get_value("BOQ Settings", self.company, "varience_item")
 			
-		for item in self.items:
-			# Deductions should not count towards gross BOQ amount
-			is_deduction = item.item_code in ["RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"] or (variance_item_code and item.item_code == variance_item_code)
+		# Buckets for allocation
+		boq_items = [] # List of base BOQ item rows
+		global_deductions = {
+			"retention": 0,
+			"advance": 0,
+			"variance": 0
+		}
+		item_specific_deductions = {} # {boq_item_id: {"retention": 0, "advance": 0, "variance": 0}}
+		
+		total_boq_amount = 0
 
-			if item.get("boq_item") and not is_deduction:
-				total_boq_amount += flt(item.amount)
-				
-			# Check only for Variance for BOQ Ledger Impact
+		for item in self.items:
+			is_retention = item.item_code == "RETENTION-DEDUCTION"
+			is_advance = item.item_code == "ADVANCE-DEDUCTION"
 			is_variance = variance_item_code and item.item_code == variance_item_code
-			if is_variance:
-				total_variance += flt(item.amount) # Variance is negative
+			
+			if not (is_retention or is_advance or is_variance) and item.get("boq_item"):
+				boq_items.append(item)
+				total_boq_amount += flt(item.amount)
+			elif (is_retention or is_advance or is_variance):
+				target_boq_item = item.get("boq_item")
+				val = flt(item.amount) # Deductions are usually negative in rate/amount
 				
-		for item in self.items:
-			is_deduction = item.item_code in ["RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"] or (variance_item_code and item.item_code == variance_item_code)
-
-			if item.get("boq_item") and not is_deduction:
-				net_amount = flt(item.amount)
-				if total_boq_amount > 0 and total_variance != 0:
-					# Distribute variance proportionally
-					share = flt(item.amount) / total_boq_amount
-					allocated_variance = total_variance * share
-					net_amount = flt(item.amount) + allocated_variance # + because variance is negative
+				if target_boq_item:
+					if target_boq_item not in item_specific_deductions:
+						item_specific_deductions[target_boq_item] = {"retention": 0, "advance": 0, "variance": 0}
 					
-				create_boq_ledger_entry(self, item, net_amount=net_amount)
-				update_boq_item_after_invoice(item.boq_item)
+					if is_retention: item_specific_deductions[target_boq_item]["retention"] += val
+					if is_advance: item_specific_deductions[target_boq_item]["advance"] += val
+					if is_variance: item_specific_deductions[target_boq_item]["variance"] += val
+				else:
+					if is_retention: global_deductions["retention"] += val
+					if is_advance: global_deductions["advance"] += val
+					if is_variance: global_deductions["variance"] += val
+
+		# 2. Second Pass: Create ledger entries with combined deductions
+		for item in boq_items:
+			boq_id = item.boq_item
+			gross_amount = flt(item.amount)
+			
+			# Specific deductions
+			spec = item_specific_deductions.get(boq_id, {"retention": 0, "advance": 0, "variance": 0})
+			
+			# Pro-rated global deductions
+			allocated = {"retention": 0, "advance": 0, "variance": 0}
+			if total_boq_amount > 0:
+				share = gross_amount / total_boq_amount
+				allocated["retention"] = global_deductions["retention"] * share
+				allocated["advance"] = global_deductions["advance"] * share
+				allocated["variance"] = global_deductions["variance"] * share
+			
+			# Total deductions for this item
+			item_retention = spec["retention"] + allocated["retention"]
+			item_advance = spec["advance"] + allocated["advance"]
+			item_variance = spec["variance"] + allocated["variance"]
+			
+			# Refined Value = Gross + Retention + Advance + Variance + Tax
+			# Note: Retention, Advance, and Variance are captured as negative values from line items.
+			item_tax = self.get_item_tax_amount(item)
+			net_amount = gross_amount + item_retention + item_advance + item_variance + item_tax
+			
+			create_boq_ledger_entry(
+				self, 
+				item, 
+				net_amount=net_amount,
+				retention=abs(item_retention), # Storing as positive deduction values
+				advance=abs(item_advance),
+				variance=abs(item_variance)
+			)
+			update_boq_item_after_invoice(boq_id)
 		
 		# Update project completion percentage
 		if self.project:
@@ -377,7 +431,7 @@ def create_boq_advance_payment_from_invoice(invoice):
 	frappe.db.commit()
 
 
-def create_boq_ledger_entry(invoice, item, net_amount=None):
+def create_boq_ledger_entry(invoice, item, net_amount=None, retention=0, advance=0, variance=0):
 	"""
 	Create or Update a BOQ Progress Ledger entry for an invoice item.
 	Updates existing PC/PI ledger entry if found to maintain single-row-per-cycle.
@@ -417,7 +471,10 @@ def create_boq_ledger_entry(invoice, item, net_amount=None):
 				"tax_invoice": invoice.name,
 				"tax_invoice_amount": flt(amount_to_book),
 				"source": "Invoice",
-				"amount": flt(amount_to_book)
+				"amount": flt(amount_to_book),
+				"retention_amount": flt(retention),
+				"advance_deduction": flt(advance),
+				"variance": flt(variance)
 			},
 			update_modified=False
 		)
@@ -453,7 +510,10 @@ def create_boq_ledger_entry(invoice, item, net_amount=None):
 		posting_date=invoice.posting_date or today(),
 		remarks=f"Invoice {invoice.name}",
 		tax_invoice=invoice.name,
-		tax_invoice_amount=flt(amount_to_book)
+		tax_invoice_amount=flt(amount_to_book),
+		retention_amount=flt(retention),
+		advance_deduction=flt(advance),
+		variance=flt(variance)
 	)
 	
 	recalculate_ledger_for_item(boq_item)

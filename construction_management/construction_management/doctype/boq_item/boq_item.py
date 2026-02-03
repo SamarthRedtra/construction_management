@@ -209,7 +209,7 @@ class BOQItem(Document):
 					COALESCE(SUM(retention_amount), 0),
 					COALESCE(SUM(advance_deduction), 0)
 				FROM `tabBOQ Progress Ledger`
-				WHERE boq_item = %s AND docstatus = 1
+				WHERE boq_item = %s
 			""", self.name)
 			
 			if ret_adv:
@@ -604,6 +604,27 @@ def recalculate_costs(boq_item_name: str) -> dict:
 			"success": False,
 			"error": str(e)
 		}
+
+
+@frappe.whitelist()
+def recalculate_progressive_billing(boq_item_name: str):
+	"""Manually trigger recalculation of progressive billing from ledger."""
+	try:
+		from construction_management.api.boq_ledger import recalculate_ledger_for_item
+		
+		# 1. Recalculate ledger state (Active row amount etc)
+		recalculate_ledger_for_item(boq_item_name)
+		
+		# 2. Update BOQ Item statistics from ledger
+		doc = frappe.get_doc("BOQ Item", boq_item_name)
+		doc.calculate_amounts()
+		doc.update_billing_status()
+		doc.save()
+		
+		return {"success": True}
+	except Exception as e:
+		frappe.log_error(f"Error recalculating progressive billing for {boq_item_name}: {str(e)}")
+		return {"success": False, "error": str(e)}
 
 
 def update_parent_totals(doc, method=None):

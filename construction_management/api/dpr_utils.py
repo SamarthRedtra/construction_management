@@ -632,6 +632,28 @@ def get_warehouse_items_query(doctype, txt, searchfield, start, page_len, filter
 
 
 @frappe.whitelist()
+def get_warehouse_items_with_stock(warehouse: str) -> list:
+	"""
+	Returns list of items with actual_qty > 0 in a specific warehouse.
+	"""
+	if not warehouse:
+		return []
+		
+	return frappe.db.sql("""
+		SELECT 
+			b.item_code,
+			i.item_name,
+			b.actual_qty,
+			b.valuation_rate
+		FROM `tabBin` b
+		JOIN `tabItem` i ON i.name = b.item_code
+		WHERE b.warehouse = %s
+		AND b.actual_qty > 0
+		ORDER BY i.item_name
+	""", warehouse, as_dict=True)
+
+
+@frappe.whitelist()
 def validate_material_stock(warehouse: str, item_code: str, qty: float) -> dict:
 	"""
 	Whitelisted API for real-time stock validation.

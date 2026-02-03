@@ -1451,6 +1451,25 @@ def create_sales_order_from_selected_items(
 		if not order.items:
 			return {"status": "error", "error_message": _("No valid items to order")}
 		
+		# Populate taxes
+		if not order.get("taxes_and_charges"):
+			company_curr = project_doc.company
+			default_tax = get_default_taxes_and_charges("Sales Taxes and Charges Template", company=company_curr)
+			
+			if default_tax and default_tax.get("taxes_and_charges"):
+				order.taxes_and_charges = default_tax["taxes_and_charges"]
+				if not order.get("taxes"):
+					for tax in default_tax.get("taxes", []):
+						order.append("taxes", tax)
+		
+		if not order.get("taxes") and not order.get("taxes_and_charges"):
+			customer_taxes = frappe.db.get_value("Customer", customer, "taxes_and_charges")
+			if customer_taxes:
+				order.taxes_and_charges = customer_taxes
+				order.run_method("set_taxes")
+		
+		order.run_method("calculate_taxes_and_totals")
+		
 		# Insert the order
 		order.insert()
 		

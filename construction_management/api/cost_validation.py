@@ -15,8 +15,17 @@ Properties validated:
 import frappe
 from frappe import _
 from frappe.utils import flt
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Any
+
+
+@dataclass
+class ValidationResult:
+	is_valid: bool = True
+	has_errors: bool = False
+	has_warnings: bool = False
+	errors: List[str] = field(default_factory=list)
+	warnings: List[str] = field(default_factory=list)
 
 @frappe.whitelist()
 def update_estimated_costs(boq_item: str, new_values: Any, old_values: Any) -> dict:
@@ -261,3 +270,53 @@ def validate_dpr_costs(boq_item_name, dpr_costs, dpr_name=None):
 		errors.append(msg)
 		
 	return Result(len(warnings) > 0, warnings, len(errors) > 0, errors)
+
+
+def validate_total_cost(estimated: float, incurred: float, new_cost: float) -> Optional[str]:
+	"""
+	Validate total cost against estimate.
+	"""
+	if estimated <= 0:
+		return None
+		
+	if (flt(incurred) + flt(new_cost)) > flt(estimated):
+		return _("Total cost exceeds estimated cost")
+	return None
+
+
+def validate_component_costs(boq_doc: Any, incurred: dict, new_costs: dict) -> List[str]:
+	"""
+	Validate component costs and return warnings.
+	"""
+	warnings = []
+	components = {
+		"material": ("estimated_material_cost", "material_cost", "Material"),
+		"labour": ("estimated_labour_cost", "labour_cost", "Labour"),
+		"subcontract": ("estimated_subcontract_cost", "subcontract_cost", "Subcontract"),
+		"asset": ("estimated_asset_cost", "asset_cost", "Asset"),
+		"other": ("estimated_other_cost", "expense_cost", "Other")
+	}
+	
+	for key, (est_field, new_field, label) in components.items():
+		est_val = flt(boq_doc.get(est_field))
+		if est_val > 0:
+			curr_incurred = flt(incurred.get(key, 0))
+			new_val = flt(new_costs.get(new_field, 0))
+			if (curr_incurred + new_val) > est_val:
+				warnings.append(_("{0} cost exceeds estimate").format(label))
+				
+	return warnings
+
+
+def get_incurred_costs(boq_item: str) -> dict:
+	"""
+	Get accumulated costs per component.
+	"""
+	# Placeholder implementation
+	return {
+		"material": 0,
+		"labour": 0,
+		"subcontract": 0,
+		"asset": 0,
+		"other": 0
+	}

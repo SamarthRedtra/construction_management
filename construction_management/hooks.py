@@ -165,7 +165,8 @@ doc_events = {
 		"validate": "construction_management.overrides.sales_order.validate",
 		"on_submit": "construction_management.overrides.sales_order.on_submit",
 		"on_cancel": "construction_management.overrides.sales_order.on_cancel",
-		"on_update_after_submit": "construction_management.overrides.sales_order.on_update_after_submit"
+		"on_update_after_submit": "construction_management.overrides.sales_order.on_update_after_submit",
+		"on_trash": "construction_management.overrides.sales_order.on_trash"
 	},
 	"GL Entry": {
 		"on_update": "construction_management.api.gl_hook.update_cost_from_gl"
