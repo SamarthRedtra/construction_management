@@ -30,6 +30,32 @@ frappe.ui.form.on("BOQ Item", {
 					}
 				});
 			}, __("Actions"));
+
+			frm.add_custom_button(__("Calculate Progressive Billing"), function () {
+				frappe.call({
+					method: "construction_management.construction_management.doctype.boq_item.boq_item.recalculate_progressive_billing",
+					args: {
+						boq_item_name: frm.doc.name
+					},
+					freeze: true,
+					freeze_message: __("Recalculating billing..."),
+					callback: function (r) {
+						if (r.message && r.message.success) {
+							frappe.show_alert({
+								message: __("Progressive billing recalculated successfully"),
+								indicator: "green"
+							});
+							frm.reload_doc();
+						} else {
+							frappe.msgprint({
+								title: __("Error"),
+								message: r.message?.error || __("Failed to recalculate billing"),
+								indicator: "red"
+							});
+						}
+					}
+				});
+			}, __("Actions"));
 		}
 
 		// Add "Update Estimated Cost" button for Project Managers

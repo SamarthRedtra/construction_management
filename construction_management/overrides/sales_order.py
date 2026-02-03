@@ -22,16 +22,32 @@ def on_submit(doc, method=None):
 
 
 def on_cancel(doc, method=None):
-	# When Sales Order is cancelled, reverse BOQ Progress Ledger entries.
-	# Skip reversal if this is an amendment (the new revision will update these entries)
+	# When Sales Order is cancelled, reverse or delete BOQ Progress Ledger entries.
+	# Skip if this is an amendment (the new revision will update these entries)
 	if doc.flags.get("is_amending"):
 		return
 
 	# Check if linked to Payment Certificate
 	if frappe.db.exists("Payment Certificate", {"sales_order": doc.name, "docstatus": ["!=", 2]}):
 		frappe.throw(_("Cannot cancel Sales Order {0} as it is linked to a Payment Certificate").format(doc.name))
-		
-	create_reversing_ledger_entries(doc)
+	
+	# Check if any Sales Invoice has been created against this Sales Order
+	# We check Sales Invoice Item for the link to this SO
+	has_invoice = frappe.db.exists("Sales Invoice Item", {"sales_order": doc.name, "docstatus": ["!=", 2]})
+	
+	if not has_invoice:
+		# If no invoice exists, delete the ledger entries entirely
+		delete_ledger_entries(doc)
+	else:
+		# If invoice exists, just zero out the values (reversal)
+		create_reversing_ledger_entries(doc)
+
+
+def on_trash(doc, method=None):
+	"""
+	When Sales Order is deleted, ensure all linked BOQ Progress Ledger entries are removed.
+	"""
+	delete_ledger_entries(doc)
 
 
 def on_update_after_submit(doc, method=None):
@@ -54,6 +70,19 @@ def calculate_retention_and_net_amount(doc):
 	
 	doc.custom_retention_amount = flt(total_amount * (retention_pct / 100))
 	doc.custom_net_amount = flt(total_amount - doc.custom_retention_amount)
+
+
+def get_item_tax_amount(doc, item):
+	"""Extract tax amount for a specific item from item_wise_tax_details child table"""
+	if not doc.get("item_wise_tax_details"):
+		return 0
+	
+	total_tax = 0
+	for detail in doc.item_wise_tax_details:
+		if detail.item_row == item.name:
+			total_tax += flt(detail.amount)
+	
+	return total_tax
 
 
 def create_ledger_entries(doc):
@@ -91,13 +120,15 @@ def create_ledger_entries(doc):
 			retention_share = total_retention * (flt(item.amount) / total_order_amount)
 			
 		aggregated_items[item.boq_item]["qty"] += flt(item.qty)
-		aggregated_items[item.boq_item]["amount"] += flt(item.amount)
 		aggregated_items[item.boq_item]["retention_share"] += flt(retention_share)
-		# For billing percentage, we take the maximum value from the lines
 		aggregated_items[item.boq_item]["billing_percentage"] = max(
 			aggregated_items[item.boq_item]["billing_percentage"], 
 			flt(item.get("custom_billing_percentage", 0))
 		)
+		
+		# Grand Total Requirement: Add net amount + its respective tax
+		item_tax = get_item_tax_amount(doc, item)
+		aggregated_items[item.boq_item]["amount"] += (flt(item.amount) + item_tax)
 
 	for boq_item, data in aggregated_items.items():
 		try:
@@ -170,6 +201,7 @@ def create_ledger_entries(doc):
 def create_reversing_ledger_entries(doc):
 	"""
 	Reverse BOQ Progress Ledger entries when Sales Order is cancelled.
+	Zeroes out the entries to maintain a trace that the order existed but was cancelled.
 	"""
 	for item in doc.items:
 		if not item.boq_item:
@@ -200,6 +232,33 @@ def create_reversing_ledger_entries(doc):
 				update_modified=False
 			)
 			recalculate_ledger_for_item(item.boq_item)
+
+
+def delete_ledger_entries(doc):
+	"""
+	Permanently delete BOQ Progress Ledger entries related to this Sales Order.
+	Used when cancelling an SO with no invoices, or when deleting an SO.
+	"""
+	ledger_entries = frappe.get_all(
+		"BOQ Progress Ledger",
+		filters={
+			"reference_doctype": "Sales Order",
+			"reference_name": doc.name
+		},
+		fields=["name", "boq_item"]
+	)
+
+	items_to_recalculate = set()
+	frappe.flags.allow_boq_ledger_deletion = True
+	try:
+		for entry in ledger_entries:
+			items_to_recalculate.add(entry.boq_item)
+			frappe.delete_doc("BOQ Progress Ledger", entry.name, ignore_permissions=True, force=True)
+	finally:
+		frappe.flags.allow_boq_ledger_deletion = False
+
+	for boq_item in items_to_recalculate:
+		recalculate_ledger_for_item(boq_item)
 
 
 def update_ledger_entries_on_revision(doc):

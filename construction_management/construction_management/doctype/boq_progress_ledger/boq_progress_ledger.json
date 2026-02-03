@@ -33,6 +33,7 @@
         "amount",
         "retention_amount",
         "advance_deduction",
+        "variance",
         "section_progressive",
         "prev_qty",
         "prev_amount",
@@ -236,6 +237,12 @@
             "fieldname": "advance_deduction",
             "fieldtype": "Currency",
             "label": "Advance Deduction",
+            "read_only": 1
+        },
+        {
+            "fieldname": "variance",
+            "fieldtype": "Currency",
+            "label": "Variance Amount",
             "read_only": 1
         },
         {
