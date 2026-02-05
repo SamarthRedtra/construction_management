@@ -35,6 +35,19 @@ class SalesInvoiceOverride(SalesInvoice):
 		
 		return total_tax
 
+	def get_effective_tax_rate(self):
+		"""Extract effective tax rate from taxes table"""
+		if not self.get("taxes"):
+			return 0
+		
+		total_tax_rate = 0
+		for tax_row in self.taxes:
+			if tax_row.rate:
+				total_tax_rate += flt(tax_row.rate)
+		
+		return total_tax_rate / 100  # Convert percentage to decimal
+
+
 	def before_insert(self):
 		"""Auto-set BOQ dimensions on Sales Invoice Items"""
 		for item in self.items:
@@ -114,10 +127,16 @@ class SalesInvoiceOverride(SalesInvoice):
 			item_advance = spec["advance"] + allocated["advance"]
 			item_variance = spec["variance"] + allocated["variance"]
 			
-			# Refined Value = Gross + Retention + Advance + Variance + Tax
+			# Calculate base amount (after deductions)
 			# Note: Retention, Advance, and Variance are captured as negative values from line items.
-			item_tax = self.get_item_tax_amount(item)
-			net_amount = gross_amount + item_retention + item_advance + item_variance + item_tax
+			base_amount = gross_amount + item_retention + item_advance + item_variance
+			
+			# Get tax rate and calculate tax on the adjusted base amount
+			tax_rate = self.get_effective_tax_rate()
+			item_tax = base_amount * tax_rate
+			
+			# Final BOQ Value = Base Amount + Tax (calculated on adjusted amount)
+			net_amount = base_amount + item_tax
 			
 			create_boq_ledger_entry(
 				self, 

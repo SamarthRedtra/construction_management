@@ -763,6 +763,10 @@ def create_payment_certificate_from_sales_order(sales_order: str, accepted_amoun
 	# Populate items from Sales Order
 	if so.items:
 		for item in so.items:
+			# Skip deduction items created on Sales Order as PC calculates its own
+			if item.item_code in ["RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"]:
+				continue
+				
 			pc.append("items", {
 				"boq_item": item.get("boq_item"),
 				"bill_no": item.get("bill_no"),

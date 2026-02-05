@@ -54,7 +54,7 @@ def on_update_after_submit(doc, method=None):
 	"""
 	Handle revisions to submitted Sales Order.
 	"""
-	calculate_retention_and_net_amount(doc)
+	# calculate_retention_and_net_amount(doc)
 	update_ledger_entries_on_revision(doc)
 
 
@@ -85,53 +85,120 @@ def get_item_tax_amount(doc, item):
 	return total_tax
 
 
+def get_effective_tax_rate(doc):
+	"""Extract effective tax rate from taxes table"""
+	if not doc.get("taxes"):
+		return 0
+	
+	total_tax_rate = 0
+	for tax_row in doc.taxes:
+		if tax_row.rate:
+			total_tax_rate += flt(tax_row.rate)
+	
+	return total_tax_rate / 100  # Convert percentage to decimal
+
+
+
 def create_ledger_entries(doc):
 	"""
 	Create BOQ Progress Ledger entries for each item in the Sales Order.
 	Aggregates multiple lines for the same BOQ item to avoid overwriting.
+	Matches logic from Sales Invoice for deduction allocation.
 	"""
 	if not frappe.db.exists("DocType", "BOQ Progress Ledger"):
 		return
 
-	# Determine retention pro-rating
-	retention_pct = 0
-	if doc.project:
-		retention_pct = flt(frappe.db.get_value("Project", doc.project, "retention_percentage"))
+	# 1. First Pass: Identify variance item code and total gross BOQ amount
+	variance_item_code = None
+	company = doc.company or frappe.defaults.get_user_default("Company")
+	if frappe.db.exists("BOQ Settings", company):
+		variance_item_code = frappe.db.get_value("BOQ Settings", company, "varience_item")
+		
+	# Buckets for allocation
+	boq_items_map = {} # {boq_item: {qty, amount, billing_percentage, tax, doc_item}} 
+	global_deductions = {
+		"retention": 0,
+		"advance": 0,
+		"variance": 0
+	}
+	item_specific_deductions = {} # {boq_item_id: {"retention": 0, "advance": 0, "variance": 0}}
 	
-	total_order_amount = sum(flt(item.amount) for item in doc.items if item.boq_item)
-	total_retention = total_order_amount * (retention_pct / 100)
+	total_boq_amount = 0
 
-	# Aggregate items by boq_item
-	aggregated_items = {}
 	for item in doc.items:
-		if not item.boq_item:
-			continue
+		is_retention = item.item_code == "RETENTION-DEDUCTION"
+		is_advance = item.item_code == "ADVANCE-DEDUCTION"
+		is_variance = variance_item_code and item.item_code == variance_item_code
 		
-		if item.boq_item not in aggregated_items:
-			aggregated_items[item.boq_item] = {
-				"qty": 0.0,
-				"amount": 0.0,
-				"retention_share": 0.0,
-				"billing_percentage": 0.0
-			}
-		
-		retention_share = 0
-		if total_order_amount:
-			retention_share = total_retention * (flt(item.amount) / total_order_amount)
+		if not (is_retention or is_advance or is_variance) and item.get("boq_item"):
+			# Aggregate main BOQ items
+			boq_id = item.boq_item
+			if boq_id not in boq_items_map:
+				boq_items_map[boq_id] = {
+					"qty": 0.0,
+					"amount": 0.0,
+					"billing_percentage": 0.0
+				}
 			
-		aggregated_items[item.boq_item]["qty"] += flt(item.qty)
-		aggregated_items[item.boq_item]["retention_share"] += flt(retention_share)
-		aggregated_items[item.boq_item]["billing_percentage"] = max(
-			aggregated_items[item.boq_item]["billing_percentage"], 
-			flt(item.get("custom_billing_percentage", 0))
-		)
-		
-		# Grand Total Requirement: Add net amount + its respective tax
-		item_tax = get_item_tax_amount(doc, item)
-		aggregated_items[item.boq_item]["amount"] += (flt(item.amount) + item_tax)
+			boq_items_map[boq_id]["qty"] += flt(item.qty)
+			boq_items_map[boq_id]["amount"] += flt(item.amount)
+			boq_items_map[boq_id]["billing_percentage"] = max(
+				boq_items_map[boq_id]["billing_percentage"], 
+				flt(item.get("custom_billing_percentage", 0))
+			)
+			
+			total_boq_amount += flt(item.amount)
+			
+		elif (is_retention or is_advance or is_variance):
+			target_boq_item = item.get("boq_item")
+			val = flt(item.amount) # Deductions are usually negative in rate/amount
+			
+			if target_boq_item:
+				if target_boq_item not in item_specific_deductions:
+					item_specific_deductions[target_boq_item] = {"retention": 0, "advance": 0, "variance": 0}
+				
+				if is_retention: item_specific_deductions[target_boq_item]["retention"] += val
+				if is_advance: item_specific_deductions[target_boq_item]["advance"] += val
+				if is_variance: item_specific_deductions[target_boq_item]["variance"] += val
+			else:
+				if is_retention: global_deductions["retention"] += val
+				if is_advance: global_deductions["advance"] += val
+				if is_variance: global_deductions["variance"] += val
 
-	for boq_item, data in aggregated_items.items():
+	# 2. Second Pass: Create ledger entries with combined deductions
+	# Get tax rate once for all items
+	tax_rate = get_effective_tax_rate(doc)
+	
+	for boq_item, data in boq_items_map.items():
 		try:
+			gross_amount = flt(data["amount"])
+			
+			# Specific deductions
+			spec = item_specific_deductions.get(boq_item, {"retention": 0, "advance": 0, "variance": 0})
+			
+			# Pro-rated global deductions
+			allocated = {"retention": 0, "advance": 0, "variance": 0}
+			if total_boq_amount > 0:
+				share = gross_amount / total_boq_amount
+				allocated["retention"] = global_deductions["retention"] * share
+				allocated["advance"] = global_deductions["advance"] * share
+				allocated["variance"] = global_deductions["variance"] * share
+			
+			# Total deductions for this item (Values are usually negative)
+			item_retention = spec["retention"] + allocated["retention"]
+			item_advance = spec["advance"] + allocated["advance"]
+			item_variance = spec["variance"] + allocated["variance"]
+			
+			# Calculate base amount (after deductions)
+			# (Deductions are negative, so adding them reduces the amount)
+			base_amount = gross_amount + item_retention + item_advance + item_variance
+			
+			# Calculate tax on the adjusted base amount
+			item_tax = base_amount * tax_rate
+			
+			# Final BOQ Value = Base Amount + Tax (calculated on adjusted amount)
+			net_amount = base_amount + item_tax
+			
 			# Create or update ledger entry
 			ledger_entry = None
 			
@@ -161,9 +228,11 @@ def create_ledger_entries(doc):
 
 			update_data = {
 				"qty": flt(data["qty"]),
-				"amount": flt(data["amount"]),
-				"proforma_amount": flt(data["amount"]),
-				"retention_amount": flt(data["retention_share"]),
+				"amount": flt(net_amount),
+				"proforma_amount": flt(net_amount), # Using net amount as the tracked amount
+				"retention_amount": abs(item_retention),
+				"advance_deduction": abs(item_advance),
+				"variance": abs(item_variance),
 				"percentage": flt(data["billing_percentage"]),
 				"posting_date": doc.transaction_date or today(),
 				"source": "Order",
@@ -178,15 +247,17 @@ def create_ledger_entries(doc):
 				create_ledger_entry(
 					boq_item=boq_item,
 					qty=flt(data["qty"]),
-					amount=flt(data["amount"]),
+					amount=flt(net_amount),
 					source="Order",
 					percentage=flt(data["billing_percentage"]),
 					reference_doctype="Sales Order",
 					reference_name=doc.name,
 					posting_date=doc.transaction_date or today(),
 					remarks=f"Sales Order {doc.name}",
-					proforma_amount=flt(data["amount"]),
-					retention_amount=flt(data["retention_share"])
+					proforma_amount=flt(net_amount),
+					retention_amount=abs(item_retention),
+					advance_deduction=abs(item_advance),
+					variance=abs(item_variance)
 				)
 
 			recalculate_ledger_for_item(boq_item)
