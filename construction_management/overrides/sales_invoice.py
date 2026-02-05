@@ -107,6 +107,12 @@ class SalesInvoiceOverride(SalesInvoice):
 					if is_variance: global_deductions["variance"] += val
 
 		# 2. Second Pass: Create ledger entries with combined deductions
+		tax_rate = self.get_effective_tax_rate()
+		discount_amount = flt(getattr(self, "discount_amount", 0))
+		discount_share = 0
+		if discount_amount > 0 and boq_items:
+			discount_share = discount_amount / len(boq_items)
+
 		for item in boq_items:
 			boq_id = item.boq_item
 			gross_amount = flt(item.amount)
@@ -131,12 +137,18 @@ class SalesInvoiceOverride(SalesInvoice):
 			# Note: Retention, Advance, and Variance are captured as negative values from line items.
 			base_amount = gross_amount + item_retention + item_advance + item_variance
 			
+			# Apply additional discount evenly across BOQ items
+			if self.apply_discount_on == "Net Total" and discount_share > 0:
+				base_amount = max(0, base_amount - discount_share)
+
 			# Get tax rate and calculate tax on the adjusted base amount
-			tax_rate = self.get_effective_tax_rate()
 			item_tax = base_amount * tax_rate
 			
 			# Final BOQ Value = Base Amount + Tax (calculated on adjusted amount)
 			net_amount = base_amount + item_tax
+
+			if self.apply_discount_on == "Grand Total" and discount_share > 0:
+				net_amount = max(0, net_amount - discount_share)
 			
 			create_boq_ledger_entry(
 				self, 

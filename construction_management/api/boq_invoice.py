@@ -1412,6 +1412,7 @@ def create_sales_order_from_selected_items(
 		order.remarks = remarks
 		
 		bills_included = set()
+		items_for_deductions = []
 		
 		for item_data in items:
 			boq_item_name = item_data.get("boq_item")
@@ -1445,6 +1446,10 @@ def create_sales_order_from_selected_items(
 			})
 			
 			amount = qty * flt(boq_item.rate)
+			items_for_deductions.append({
+				"item_code": boq_item.linked_item or boq_item.item_code,
+				"amount": amount
+			})
 			
 			# Calculate and add Retention Deduction
 			if project_doc.retention_percentage:
@@ -1463,38 +1468,22 @@ def create_sales_order_from_selected_items(
 						"bill_no": boq_item.parent_bill
 					})
 
-			# Calculate and add Advance Deduction
-			# For Sales Order, we just estimate based on percentage if set, similar to invoice
-			# But we need to be careful about the "Pool". 
-			# However, for SO creation, usually it's just a proforma/agreement, 
-			# so we might strip this if strictly not needed, but user asked for it.
-			# We will use the simple percentage calculation like in create_tax_invoice logic for "suggested".
-			
-			if getattr(project_doc, "advance_deduction", 0):
-				advance_pct = flt(project_doc.advance_deduction)
-				advance_amount = flt(amount * advance_pct / 100, 2)
-				
-				# Check pool? Sales order doesn't consume pool until invoiced potentially?
-				# User said "bring the adavance and rentetion as item like we are doing on sales invoice"
-				# In Sales Invoice (create_tax_invoice), we check available pool.
-				# Here we might just put the item.
-				
-				if advance_amount > 0:
-					advance_item_code = get_or_create_advance_item()
-					order.append("items", {
-						"item_code": advance_item_code,
-						"item_name": "Advance Deduction", 
-						"description": f"Deduction from advance payment ({advance_pct}%) for: {boq_item.description}",
-						"qty": 1,
-						"rate": -advance_amount,
-						"uom": "Nos",
-						"project": project,
-						"boq_item": boq_item_name,
-						"bill_no": boq_item.parent_bill
-					})
-
 			bill_no = frappe.db.get_value("BOQ Bill", boq_item.parent_bill, "bill_no")
 			bills_included.add(bill_no or boq_item.parent_bill)
+		
+		deduction_details = get_deduction_details(project, items_for_deductions)
+		if deduction_details.get("suggested_advance", 0) > 0:
+			advance_item_code = get_or_create_advance_item()
+			advance_pct = deduction_details.get("advance_percentage", 0)
+			order.append("items", {
+				"item_code": advance_item_code,
+				"item_name": "Advance Deduction",
+				"description": f"Deduction from advance payment ({advance_pct}%)",
+				"qty": 1,
+				"rate": -flt(deduction_details["suggested_advance"]),
+				"uom": "Nos",
+				"project": project
+			})
 		
 		if not order.items:
 			return {"status": "error", "error_message": _("No valid items to order")}
@@ -1522,8 +1511,8 @@ def create_sales_order_from_selected_items(
 		order.insert()
 		
 		# Auto-submit if requested
-		if auto_submit:
-			order.submit()
+		# if auto_submit:
+		# 	order.submit()
 		
 		frappe.db.commit()
 		frappe.flags.commit = True
@@ -2737,6 +2726,35 @@ def create_payment_certificate_from_sales_order(sales_order: str, accepted_amoun
 			pc_item.retention_amount = retention_amount
 			pc_item.advance_amount = advance_amount
 			pc_item.invoiced_amount = gross_amount - retention_amount - advance_amount
+
+	def apply_so_additional_discount(pc_doc, so_doc):
+		"""Distribute SO additional discount across PC items without adding negative rows."""
+		if not pc_doc.get("items"):
+			return
+		
+		discount_amount = flt(getattr(so_doc, "discount_amount", 0))
+		if discount_amount <= 0:
+			return
+		
+		total_amount = sum(flt(i.amount) for i in pc_doc.items)
+		if total_amount <= 0:
+			return
+		
+		remaining_discount = discount_amount
+		for idx, pc_item in enumerate(pc_doc.items):
+			if idx == len(pc_doc.items) - 1:
+				share = remaining_discount
+			else:
+				share = flt(discount_amount * (flt(pc_item.amount) / total_amount), 2)
+				remaining_discount -= share
+			
+			pc_item.accepted_amount = max(0, flt(pc_item.accepted_amount) - share)
+		
+		pc_doc.discount_type = "Amount"
+		pc_doc.discount_amount = discount_amount
+		apply_on = (getattr(so_doc, "apply_discount_on", "") or "").strip()
+		if apply_on:
+			pc_doc.select_discount_on = apply_on
 	
 	# Populate items from Sales Order
 	if so.items:
@@ -2760,6 +2778,7 @@ def create_payment_certificate_from_sales_order(sales_order: str, accepted_amoun
 	# Populate default taxes
 	company = frappe.db.get_value("Project", so.project, "company")
 	apply_si_deductions_to_items(pc, so, company)
+	# apply_so_additional_discount(pc, so)
 	default_tax = get_default_taxes_and_charges("Sales Taxes and Charges Template", company=company)
 	if default_tax and default_tax.get("taxes_and_charges"):
 		pc.taxes_and_charges = default_tax["taxes_and_charges"]

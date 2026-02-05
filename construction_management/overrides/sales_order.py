@@ -168,6 +168,10 @@ def create_ledger_entries(doc):
 	# 2. Second Pass: Create ledger entries with combined deductions
 	# Get tax rate once for all items
 	tax_rate = get_effective_tax_rate(doc)
+	discount_amount = flt(getattr(doc, "discount_amount", 0))
+	discount_share = 0
+	if discount_amount > 0 and boq_items_map:
+		discount_share = discount_amount / len(boq_items_map)
 	
 	for boq_item, data in boq_items_map.items():
 		try:
@@ -193,11 +197,19 @@ def create_ledger_entries(doc):
 			# (Deductions are negative, so adding them reduces the amount)
 			base_amount = gross_amount + item_retention + item_advance + item_variance
 			
+			# Apply additional discount evenly across BOQ items
+			if doc.apply_discount_on == "Net Total"  and discount_share > 0:
+				base_amount = max(0, base_amount - discount_share)
+			
+			
 			# Calculate tax on the adjusted base amount
 			item_tax = base_amount * tax_rate
 			
 			# Final BOQ Value = Base Amount + Tax (calculated on adjusted amount)
 			net_amount = base_amount + item_tax
+
+			if doc.apply_discount_on == "Grand Total" and discount_share > 0:
+				net_amount = max(0, net_amount - discount_share)
 			
 			# Create or update ledger entry
 			ledger_entry = None
