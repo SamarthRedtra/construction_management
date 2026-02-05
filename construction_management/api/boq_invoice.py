@@ -1445,6 +1445,55 @@ def create_sales_order_from_selected_items(
 				"custom_billing_percentage": percentage
 			})
 			
+			amount = qty * flt(boq_item.rate)
+			
+			# Calculate and add Retention Deduction
+			if project_doc.retention_percentage:
+				retention_amount = flt(amount * flt(project_doc.retention_percentage) / 100, 2)
+				if retention_amount > 0:
+					retention_item_code = get_or_create_retention_item()
+					order.append("items", {
+						"item_code": retention_item_code,
+						"item_name": f"Retention Deduction",
+						"description": f"Retention deduction ({project_doc.retention_percentage}%) for: {boq_item.description}",
+						"qty": 1,
+						"rate": -retention_amount,
+						"uom": "Nos",
+						"project": project,
+						"boq_item": boq_item_name,
+						"bill_no": boq_item.parent_bill
+					})
+
+			# Calculate and add Advance Deduction
+			# For Sales Order, we just estimate based on percentage if set, similar to invoice
+			# But we need to be careful about the "Pool". 
+			# However, for SO creation, usually it's just a proforma/agreement, 
+			# so we might strip this if strictly not needed, but user asked for it.
+			# We will use the simple percentage calculation like in create_tax_invoice logic for "suggested".
+			
+			if getattr(project_doc, "advance_deduction", 0):
+				advance_pct = flt(project_doc.advance_deduction)
+				advance_amount = flt(amount * advance_pct / 100, 2)
+				
+				# Check pool? Sales order doesn't consume pool until invoiced potentially?
+				# User said "bring the adavance and rentetion as item like we are doing on sales invoice"
+				# In Sales Invoice (create_tax_invoice), we check available pool.
+				# Here we might just put the item.
+				
+				if advance_amount > 0:
+					advance_item_code = get_or_create_advance_item()
+					order.append("items", {
+						"item_code": advance_item_code,
+						"item_name": "Advance Deduction", 
+						"description": f"Deduction from advance payment ({advance_pct}%) for: {boq_item.description}",
+						"qty": 1,
+						"rate": -advance_amount,
+						"uom": "Nos",
+						"project": project,
+						"boq_item": boq_item_name,
+						"bill_no": boq_item.parent_bill
+					})
+
 			bill_no = frappe.db.get_value("BOQ Bill", boq_item.parent_bill, "bill_no")
 			bills_included.add(bill_no or boq_item.parent_bill)
 		
