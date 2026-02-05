@@ -29,6 +29,13 @@
         "accepted_amount",
         "variance",
         "variance_percent",
+        "section_deductions_discounts",
+        "retention_percentage",
+        "retention_amount",
+        "column_break_disc",
+        "apply_discount_on",
+        "discount_amount",
+        "base_discount_amount",
         "section_taxes",
         "taxes_and_charges",
         "taxes",
@@ -219,6 +226,44 @@
             "fieldname": "variance_percent",
             "fieldtype": "Percent",
             "label": "Variance %",
+            "read_only": 1
+        },
+        {
+            "fieldname": "section_deductions_discounts",
+            "fieldtype": "Section Break",
+            "label": "Deductions & Discounts"
+        },
+        {
+            "fieldname": "retention_percentage",
+            "fieldtype": "Percent",
+            "label": "Retention %"
+        },
+        {
+            "fieldname": "retention_amount",
+            "fieldtype": "Currency",
+            "label": "Retention Amount",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_disc",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "apply_discount_on",
+            "fieldtype": "Select",
+            "label": "Apply Discount On",
+            "options": "\nNet Total\nGrand Total"
+        },
+        {
+            "fieldname": "discount_amount",
+            "fieldtype": "Currency",
+            "label": "Discount Amount"
+        },
+        {
+            "fieldname": "base_discount_amount",
+            "fieldtype": "Currency",
+            "hidden": 1,
+            "label": "Base Discount Amount",
             "read_only": 1
         },
         {

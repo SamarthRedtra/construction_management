@@ -87,20 +87,37 @@ frappe.ui.form.on('Payment Certificate', {
         }
     },
 
+    apply_discount_on: function (frm) {
+        frm.events.calculate_totals(frm);
+    },
+
+    discount_amount: function (frm) {
+        frm.events.calculate_totals(frm);
+    },
+
     calculate_taxes: function (frm) {
         let total_taxes = 0;
         let accepted_amount = flt(frm.doc.accepted_amount);
+
+        // If discount is on Net Total, the taxable amount is reduced
+        // But wait, the calculate_totals already reduces accepted_amount if On Net Total.
+        // So we just use accepted_amount.
 
         (frm.doc.taxes || []).forEach(tax => {
             if (tax.charge_type === "On Net Total") {
                 tax.tax_amount = flt(accepted_amount * tax.rate / 100);
             }
-            // Add categorical sums for Purchase type valuation taxes if needed
             total_taxes += flt(tax.tax_amount);
         });
 
         frm.set_value('total_taxes_and_charges', total_taxes);
-        frm.set_value('grand_total', accepted_amount + total_taxes);
+
+        // Grand Total calculation depends on where discount is applied
+        let grand_total = accepted_amount + total_taxes;
+        if (frm.doc.apply_discount_on === "Grand Total" && frm.doc.discount_amount) {
+            grand_total -= flt(frm.doc.discount_amount);
+        }
+        frm.set_value('grand_total', grand_total);
     },
 
     project: function (frm) {
@@ -133,7 +150,7 @@ frappe.ui.form.on('Payment Certificate', {
                             frm.set_value('accepted_amount', details.net_amount || details.amount);
                         }
                         // Recalculate taxes if amount changes
-                        frm.events.calculate_taxes(frm);
+                        frm.events.calculate_totals(frm);
                     }
                 }
             });
@@ -152,29 +169,52 @@ frappe.ui.form.on('Payment Certificate', {
         });
 
         frm.set_value('proforma_amount', total_proforma);
-        frm.set_value('accepted_amount', total_accepted);
+
+        // Trigger retention calculation so we have retention_amount for net_certified_amount
+        frm.events.calculate_retention(frm);
+
+        let accepted_amount = total_accepted;
+        if (frm.doc.apply_discount_on === "Net Total" && frm.doc.discount_amount) {
+            accepted_amount -= flt(frm.doc.discount_amount);
+        }
+        frm.set_value('accepted_amount', accepted_amount);
+
+        // Calculate net_certified_amount for items
+        let total_retention = flt(frm.doc.retention_amount);
+        frm.doc.items.forEach(item => {
+            let item_retention = 0;
+            if (total_accepted > 0) {
+                let item_share = flt(item.accepted_amount) / total_accepted;
+                item_retention = total_retention * item_share;
+            }
+            item.net_certified_amount = flt(item.accepted_amount) - item_retention;
+        });
+        frm.refresh_field('items');
 
         let original = frm.doc.type === "Sales" ? flt(frm.doc.proforma_amount) : flt(frm.doc.pr_amount);
         let variance = original - total_accepted;
         frm.set_value('variance', variance);
         frm.set_value('variance_percent', original > 0 ? (variance / original) * 100 : 0);
 
-        // Task 3: Trigger retention calculation on amount change
-        frm.events.calculate_retention(frm);
-
         // Recalculate taxes on amount change
         frm.events.calculate_taxes(frm);
     },
 
     retention_percentage: function (frm) {
-        frm.events.calculate_retention(frm);
+        frm.events.calculate_totals(frm);
     },
 
     calculate_retention: function (frm) {
         if (frm.doc.type !== "Sales" || !frm.doc.project) return;
 
         if (frm.doc.retention_percentage) {
-            let retention_amount = flt(frm.doc.accepted_amount) * (flt(frm.doc.retention_percentage) / 100.0);
+            let total_accepted_before_discount = 0;
+            (frm.doc.items || []).forEach(item => {
+                total_accepted_before_discount += flt(item.accepted_amount);
+            });
+
+            // Retention is usually on Gross Accepted (before extra discounts)
+            let retention_amount = total_accepted_before_discount * (flt(frm.doc.retention_percentage) / 100.0);
             frm.set_value('retention_amount', retention_amount);
         }
     }

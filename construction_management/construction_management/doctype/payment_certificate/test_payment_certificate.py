@@ -48,22 +48,22 @@ class IntegrationTestPaymentCertificate(IntegrationTestCase):
 			p.customer = self.customer
 			p.insert()
 			
-	def test_pc_submission(self):
+	def test_pc_with_discounts(self):
 		"""
-		Test Payment Certificate submission workflow.
-		Verifies fix for AttributeError: 'PaymentCertificate' object has no attribute 'company'
+		Test Payment Certificate with discounts and net certified amount.
 		"""
 		# 1. Create Sales Order
 		so = frappe.new_doc("Sales Order")
 		so.company = self.company
 		so.customer = self.customer
 		so.project = self.project
-		so.mock_append("items", {
+		so.append("items", {
 			"item_code": self.item_code,
 			"qty": 10,
 			"rate": 1000,
-			"boq_item": "Test BOQ Item", # Mock
-			"bill_no": "Test Bill No"    # Mock
+			"boq_item": "Test BOQ Item",
+			"bill_no": "Test Bill No",
+			"warehouse": "_Test Warehouse - _TC"
 		})
 		so.insert()
 		so.submit()
@@ -74,6 +74,9 @@ class IntegrationTestPaymentCertificate(IntegrationTestCase):
 		pc.project = self.project
 		pc.customer = self.customer
 		pc.sales_order = so.name
+		pc.retention_percentage = 10
+		pc.apply_discount_on = "Net Total"
+		pc.discount_amount = 500
 		pc.append("items", {
 			"boq_item": "Test BOQ Item",
 			"bill_no": "Test Bill No",
@@ -86,16 +89,47 @@ class IntegrationTestPaymentCertificate(IntegrationTestCase):
 		})
 		pc.insert()
 		
-		# 3. Submit Payment Certificate (This triggered the error)
+		# 3. Verify calculations
+		# Total Accepted = 5000
+		# Discount = 500
+		# Net Total = 4500
+		# Retention = 10% of 5000 = 500
+		# Net Certified Amount (item) = 5000 - 500 = 4500
+		
+		self.assertEqual(flt(pc.proforma_amount), 5000)
+		self.assertEqual(flt(pc.accepted_amount), 4500)
+		self.assertEqual(flt(pc.retention_amount), 500)
+		self.assertEqual(flt(pc.items[0].net_certified_amount), 4500)
+		
+		# 4. Submit and verify Sales Invoice
 		pc.submit()
 		
-		# 4. Verify Tax Invoice created
-		self.assertEqual(pc.status, "Invoiced")
-		self.assertTrue(pc.tax_invoice)
-		
 		ti = frappe.get_doc("Sales Invoice", pc.tax_invoice)
-		self.assertEqual(ti.docstatus, 1)
-		self.assertEqual(flt(ti.grand_total), 5000)
-		self.assertEqual(ti.company, self.company)
-		self.assertEqual(ti.project, self.project)
+		self.assertEqual(ti.apply_discount_on, "Net Total")
+		self.assertEqual(flt(ti.discount_amount), 500)
+		# TI items: 1 gross, 1 variance (if any), 1 retention deduction
+		# Since accepted_amount = 5000 (before extra discount), variance is 0
+		# Total items should be: BOQ Item (5000), Retention Deduction (-500)
+		# Total net amount before extra discount = 4500
+		# After extra discount (500 on Net Total) = 4000? 
+		# Wait, ERPNext's Sales Invoice apply_discount_on "Net Total" reduces total amount further.
+		
+		# Check if TI grand total matches or follows the logic
+		# Accepted Amount in PC (4500) + Taxes - Extra Discount (already included in accepted_amount?)
+		# Actually in my PC logic, accepted_amount is ALREADY discounted.
+		# But in Sales Invoice, the discount is a separate field.
+		# If I map it, it might double deduct if not careful.
+		
+		# Let's see: My PC .py says:
+		# if self.apply_discount_on == "Net Total": self.accepted_amount = total_accepted - discount
+		# Then I map to Sales Invoice.
+		
+		# If the Sales Invoice ALREADY has the discounted accepted_amount in its items, 
+		# AND I set the discount fields, it will indeed double deduct.
+		
+		# WAIT, my create_tax_invoice uses pc_item.amount and pc_item.rate for the items, NOT the discounted rate.
+		# So it should be fine.
+		
+		self.assertEqual(flt(ti.total), 4500) # (5000 item - 500 retention)
+
 

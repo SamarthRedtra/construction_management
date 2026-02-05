@@ -51,15 +51,41 @@ class PaymentCertificate(Document):
 		self.proforma_amount = total_proforma
 		self.accepted_amount = total_accepted
 
+		# Calculate retention first as it affects net_certified_amount
+		self.calculate_retention()
+
+		# Apply discount on Net Total if applicable
+		if self.apply_discount_on == "Net Total" and self.discount_amount:
+			self.accepted_amount = flt(self.accepted_amount) - flt(self.discount_amount)
+
+		# Calculate net_certified_amount for each item
+		total_retention = flt(self.retention_amount)
+		for item in self.items:
+			item_retention = 0
+			if total_accepted > 0:
+				item_share = flt(item.accepted_amount) / total_accepted
+				item_retention = total_retention * item_share
+			
+			item.net_certified_amount = flt(item.accepted_amount) - item_retention
+
 		self.calculate_taxes()
-		self.grand_total = flt(self.accepted_amount) + flt(self.get("total_taxes_and_charges") or 0)
+		
+		# Final Grand Total calculation
+		if self.apply_discount_on == "Grand Total" and self.discount_amount:
+			self.grand_total = flt(self.accepted_amount) + flt(self.total_taxes_and_charges) - flt(self.discount_amount)
+		else:
+			self.grand_total = flt(self.accepted_amount) + flt(self.total_taxes_and_charges)
+
 
 	def calculate_taxes(self):
 		"""Calculate taxes from taxes table"""
 		total_taxes = 0
+		# Tax is calculated on the accepted amount (which might already be discounted if "On Net Total")
+		taxable_amount = flt(self.accepted_amount)
+		
 		for tax in self.get("taxes"):
 			if tax.charge_type == "On Net Total":
-				tax.tax_amount = flt(self.accepted_amount) * flt(tax.rate) / 100.0
+				tax.tax_amount = taxable_amount * flt(tax.rate) / 100.0
 			
 			total_taxes += flt(tax.tax_amount)
 		
@@ -305,6 +331,12 @@ class PaymentCertificate(Document):
 			invoice.custom_retention_amount = flt(self.retention_amount)
 			invoice.custom_retention_percentage = flt(self.retention_percentage)
 			invoice.custom_retention_account = retention_account
+
+		# Set discount fields on invoice
+		if self.apply_discount_on:
+			invoice.apply_discount_on = self.apply_discount_on
+			invoice.discount_amount = self.discount_amount
+
 		
 		# Add items from PC items table with per-item deductions
 		from construction_management.api.boq_invoice import get_deduction_details, get_or_create_retention_item, get_or_create_advance_item

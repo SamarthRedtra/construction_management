@@ -100,6 +100,14 @@
             "label": "Sales Order Item",
             "read_only": 1,
             "hidden": 1
+        },
+        {
+            "fieldname": "net_certified_amount",
+            "fieldtype": "Currency",
+            "in_list_view": 1,
+            "label": "Net Certified Amount",
+            "description": "Amount after variance and retention deductions",
+            "read_only": 1
         }
     ],
     "index_web_pages_for_search": 1,
