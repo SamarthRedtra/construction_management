@@ -31,12 +31,15 @@ class PaymentCertificate(Document):
 	def calculate_totals(self):
 		"""Calculate totals from child table if items present"""
 		if not self.get("items"):
+			self.total_advance_deducted = 0
+			self._apply_discount_and_taxes()
 			return
-			
+
+		total_advance = 0
 		total_proforma = 0
 		total_accepted = 0
 		
-		for item in self.items:
+		for item in self.get("items") or []:
 			item.amount = flt(item.qty) * flt(item.rate)
 			
 			# Ensure accepted_amount is initialized if zero and newly added
@@ -47,19 +50,52 @@ class PaymentCertificate(Document):
 			
 			total_proforma += flt(item.amount)
 			total_accepted += flt(item.accepted_amount)
+			total_advance += abs(flt(item.get("advance_amount")))
 			
 		self.proforma_amount = total_proforma
 		self.accepted_amount = total_accepted
 
-		self.calculate_taxes()
-		self.grand_total = flt(self.accepted_amount) + flt(self.get("total_taxes_and_charges") or 0)
+		self.total_advance_deducted = total_advance
+		self._apply_discount_and_taxes()
 
-	def calculate_taxes(self):
+	def _get_additional_discount(self, base_amount: float) -> float:
+		"""Calculate additional discount based on type and base amount."""
+		discount_type = (self.discount_type or "").strip()
+		discount_amount = 0
+		if discount_type == "Percentage":
+			discount_amount = flt(base_amount) * flt(self.percentage) / 100.0
+		elif discount_type == "Amount":
+			discount_amount = flt(self.discount_amount)
+		
+		# Clamp discount to valid range
+		discount_amount = max(0, min(flt(base_amount), flt(discount_amount)))
+		return discount_amount
+
+	def _map_discount_apply_on(self) -> str:
+		"""Map PC discount apply-on values to Invoice choices."""
+		value = (self.select_discount_on or "").strip()
+		mapping = {
+			"On Net Total": "Net Total",
+			"On Grand Total": "Grand Total",
+			"Net Total": "Net Total",
+			"Grand Total": "Grand Total",
+		}
+		return mapping.get(value, "")
+
+	def _apply_discount_and_taxes(self):
+		"""Compute taxes and grand total without discount."""
+		net_total = flt(self.accepted_amount)
+		self.discount_amount = 0
+		self.calculate_taxes(net_total)
+		self.grand_total = flt(net_total) + flt(self.get("total_taxes_and_charges") or 0)
+
+	def calculate_taxes(self, net_total: float | None = None):
 		"""Calculate taxes from taxes table"""
+		base = flt(net_total) if net_total is not None else flt(self.accepted_amount)
 		total_taxes = 0
 		for tax in self.get("taxes"):
 			if tax.charge_type == "On Net Total":
-				tax.tax_amount = flt(self.accepted_amount) * flt(tax.rate) / 100.0
+				tax.tax_amount = flt(base) * flt(tax.rate) / 100.0
 			
 			total_taxes += flt(tax.tax_amount)
 		
@@ -427,6 +463,13 @@ class PaymentCertificate(Document):
 		
 		if not invoice.get("taxes") and not invoice.get("taxes_and_charges"):
 			invoice.run_method("set_taxes_and_charges")
+   
+		mapped_apply_on = self._map_discount_apply_on()
+		if self.discount_type and mapped_apply_on and (self.discount_amount or self.percentage):
+			invoice.apply_discount_on = mapped_apply_on
+			invoice.additional_discount_percentage = self.percentage
+			invoice.additional_discount_amount = self.discount_amount
+			invoice.run_method("apply_discount_and_taxes")
 
 		invoice.run_method("calculate_taxes_and_totals")
 		# invoice.run_method("calculate_taxes_and_totals")
@@ -532,6 +575,13 @@ class PaymentCertificate(Document):
 		if not pi.get("taxes") and not pi.get("taxes_and_charges"):
 			# Fetch default taxes from Supplier or Company
 			pi.run_method("set_taxes")
+   
+		mapped_apply_on = self._map_discount_apply_on()
+		if self.discount_type and mapped_apply_on and (self.discount_amount or self.percentage):
+			pi.apply_discount_on = mapped_apply_on
+			pi.additional_discount_percentage = self.percentage
+			pi.additional_discount_amount = self.discount_amount
+			pi.run_method("apply_discount_and_taxes")
 		
 		pi.run_method("calculate_taxes_and_totals")
 		pi.flags.ignore_permissions = True
@@ -759,6 +809,79 @@ def create_payment_certificate_from_sales_order(sales_order: str, accepted_amoun
 	pc.customer = so.customer
 	pc.sales_order = sales_order
 	pc.remarks = remarks
+
+	def get_latest_sales_invoice_for_so(so_name: str):
+		latest = frappe.get_all(
+			"Sales Invoice",
+			filters={"custom_sales_order": so_name, "docstatus": 1},
+			fields=["name"],
+			order_by="posting_date desc, creation desc",
+			limit=1
+		)
+		if latest:
+			return frappe.get_doc("Sales Invoice", latest[0].name)
+		return None
+
+	def apply_si_deductions_to_items(pc_doc, si_doc, company_name):
+		"""Map SI retention/advance deductions to PC items."""
+		if not pc_doc.get("items"):
+			return
+		
+		if not si_doc:
+			for pc_item in pc_doc.items:
+				pc_item.invoiced_amount = flt(pc_item.amount)
+			return
+		
+		variance_item_code = None
+		if company_name and frappe.db.exists("BOQ Settings", company_name):
+			variance_item_code = frappe.db.get_value("BOQ Settings", company_name, "varience_item")
+		
+		gross_by_boq = {}
+		total_gross = 0
+		item_specific = {}
+		global_deductions = {"retention": 0, "advance": 0}
+		
+		for item in si_doc.items:
+			is_retention = item.item_code == "RETENTION-DEDUCTION"
+			is_advance = item.item_code == "ADVANCE-DEDUCTION"
+			is_variance = variance_item_code and item.item_code == variance_item_code
+			
+			if not (is_retention or is_advance or is_variance) and item.get("boq_item"):
+				gross_by_boq[item.boq_item] = flt(gross_by_boq.get(item.boq_item)) + flt(item.amount)
+				total_gross += flt(item.amount)
+			elif is_retention or is_advance:
+				target_boq_item = item.get("boq_item")
+				val = flt(item.amount)
+				if target_boq_item:
+					item_specific.setdefault(target_boq_item, {"retention": 0, "advance": 0})
+					if is_retention:
+						item_specific[target_boq_item]["retention"] += val
+					if is_advance:
+						item_specific[target_boq_item]["advance"] += val
+				else:
+					if is_retention:
+						global_deductions["retention"] += val
+					if is_advance:
+						global_deductions["advance"] += val
+		
+		for pc_item in pc_doc.items:
+			boq_item = pc_item.boq_item
+			gross_amount = flt(gross_by_boq.get(boq_item) or pc_item.amount)
+			spec = item_specific.get(boq_item, {"retention": 0, "advance": 0})
+			
+			allocated_retention = 0
+			allocated_advance = 0
+			if total_gross > 0:
+				share = gross_amount / total_gross
+				allocated_retention = global_deductions["retention"] * share
+				allocated_advance = global_deductions["advance"] * share
+			
+			retention_amount = abs(flt(spec["retention"] + allocated_retention))
+			advance_amount = abs(flt(spec["advance"] + allocated_advance))
+			
+			pc_item.retention_amount = retention_amount
+			pc_item.advance_amount = advance_amount
+			pc_item.invoiced_amount = gross_amount - retention_amount - advance_amount
 	
 	# Populate items from Sales Order
 	if so.items:
@@ -781,6 +904,8 @@ def create_payment_certificate_from_sales_order(sales_order: str, accepted_amoun
 	
 	# Populate default taxes
 	company = frappe.db.get_value("Project", so.project, "company")
+	latest_si = get_latest_sales_invoice_for_so(so.name)
+	apply_si_deductions_to_items(pc, latest_si, company)
 	default_tax = get_default_taxes_and_charges("Sales Taxes and Charges Template", company=company)
 	if default_tax and default_tax.get("taxes_and_charges"):
 		pc.taxes_and_charges = default_tax["taxes_and_charges"]

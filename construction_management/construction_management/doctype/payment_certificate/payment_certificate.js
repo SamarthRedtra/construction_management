@@ -80,16 +80,16 @@ frappe.ui.form.on('Payment Certificate', {
                 callback: function (r) {
                     if (r.message) {
                         frm.set_value("taxes", r.message);
-                        frm.events.calculate_taxes(frm);
+                        frm.events.apply_discount_and_taxes(frm);
                     }
                 }
             });
         }
     },
 
-    calculate_taxes: function (frm) {
+    calculate_taxes: function (frm, net_total = null) {
         let total_taxes = 0;
-        let accepted_amount = flt(frm.doc.accepted_amount);
+        let accepted_amount = flt(net_total !== null ? net_total : frm.doc.accepted_amount);
 
         (frm.doc.taxes || []).forEach(tax => {
             if (tax.charge_type === "On Net Total") {
@@ -100,7 +100,40 @@ frappe.ui.form.on('Payment Certificate', {
         });
 
         frm.set_value('total_taxes_and_charges', total_taxes);
-        frm.set_value('grand_total', accepted_amount + total_taxes);
+    },
+
+    apply_discount_and_taxes: function (frm) {
+        frm.events.calculate_taxes(frm);
+        return;
+        const net_total = flt(frm.doc.accepted_amount);
+        const apply_on = (frm.doc.select_discount_on || "").trim();
+        const discount_type = (frm.doc.discount_type || "").trim();
+
+        const get_discount = (base) => {
+            let discount = 0;
+            if (discount_type === "Percentage") {
+                discount = flt(base) * flt(frm.doc.percentage) / 100;
+            } else if (discount_type === "Amount") {
+                discount = flt(frm.doc.discount_amount);
+            }
+            discount = Math.max(0, Math.min(flt(base), flt(discount)));
+            return discount;
+        };
+
+        if (apply_on === "On Net Total") {
+            const discount = get_discount(net_total);
+            frm.set_value("discount_amount", discount);
+            const net_for_tax = net_total - discount;
+            frm.events.calculate_taxes(frm, net_for_tax);
+            frm.set_value("grand_total", net_for_tax + flt(frm.doc.total_taxes_and_charges));
+            return;
+        }
+
+        frm.events.calculate_taxes(frm, net_total);
+        const pre_discount_grand = net_total + flt(frm.doc.total_taxes_and_charges);
+        const discount = get_discount(pre_discount_grand);
+        frm.set_value("discount_amount", discount);
+        frm.set_value("grand_total", pre_discount_grand - discount);
     },
 
     project: function (frm) {
@@ -133,26 +166,49 @@ frappe.ui.form.on('Payment Certificate', {
                             frm.set_value('accepted_amount', details.net_amount || details.amount);
                         }
                         // Recalculate taxes if amount changes
-                        frm.events.calculate_taxes(frm);
+                        frm.events.apply_discount_and_taxes(frm);
                     }
                 }
             });
         }
     },
+    
+    accepted_amount: function (frm) {
+        frm.events.apply_discount_and_taxes(frm);
+    },
+    
+    // select_discount_on: function (frm) {
+    //     frm.events.apply_discount_and_taxes(frm);
+    // },
+    
+    // discount_type: function (frm) {
+    //     frm.events.apply_discount_and_taxes(frm);
+    // },
+    
+    // percentage: function (frm) {
+    //     frm.events.apply_discount_and_taxes(frm);
+    // },
+    
+    // discount_amount: function (frm) {
+    //     frm.events.apply_discount_and_taxes(frm);
+    // },
 
     calculate_totals: function (frm) {
         if (!frm.doc.items || frm.doc.items.length === 0) return;
 
         let total_proforma = 0;
         let total_accepted = 0;
+        let total_advance = 0;
 
         frm.doc.items.forEach(item => {
             total_proforma += flt(item.amount);
             total_accepted += flt(item.accepted_amount);
+            total_advance += Math.abs(flt(item.advance_amount));
         });
 
         frm.set_value('proforma_amount', total_proforma);
         frm.set_value('accepted_amount', total_accepted);
+        frm.set_value('total_advance_deducted', total_advance);
 
         let original = frm.doc.type === "Sales" ? flt(frm.doc.proforma_amount) : flt(frm.doc.pr_amount);
         let variance = original - total_accepted;
@@ -163,7 +219,7 @@ frappe.ui.form.on('Payment Certificate', {
         frm.events.calculate_retention(frm);
 
         // Recalculate taxes on amount change
-        frm.events.calculate_taxes(frm);
+        frm.events.apply_discount_and_taxes(frm);
     },
 
     retention_percentage: function (frm) {
@@ -182,25 +238,25 @@ frappe.ui.form.on('Payment Certificate', {
 
 frappe.ui.form.on('Sales Taxes and Charges', {
     rate: function (frm, cdt, cdn) {
-        frm.events.calculate_taxes(frm);
+        frm.events.apply_discount_and_taxes(frm);
     },
     tax_amount: function (frm, cdt, cdn) {
-        frm.events.calculate_taxes(frm);
+        frm.events.apply_discount_and_taxes(frm);
     },
     taxes_remove: function (frm) {
-        frm.events.calculate_taxes(frm);
+        frm.events.apply_discount_and_taxes(frm);
     }
 });
 
 frappe.ui.form.on('Purchase Taxes and Charges', {
     rate: function (frm, cdt, cdn) {
-        frm.events.calculate_taxes(frm);
+        frm.events.apply_discount_and_taxes(frm);
     },
     tax_amount: function (frm, cdt, cdn) {
-        frm.events.calculate_taxes(frm);
+        frm.events.apply_discount_and_taxes(frm);
     },
     taxes_remove: function (frm) {
-        frm.events.calculate_taxes(frm);
+        frm.events.apply_discount_and_taxes(frm);
     }
 });
 

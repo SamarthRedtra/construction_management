@@ -5,7 +5,6 @@ import frappe
 from frappe import _
 from frappe.utils import flt, today, getdate
 from construction_management.api.boq_ledger import create_ledger_entry, recalculate_ledger_for_item
-from construction_management.construction_management.doctype.payment_certificate.payment_certificate import create_payment_certificate_from_sales_order
 from erpnext.controllers.accounts_controller import get_default_taxes_and_charges
 
 
@@ -2644,13 +2643,157 @@ def create_pc_from_purchase_receipt(
 
 
 @frappe.whitelist()
+def create_payment_certificate_from_sales_order(sales_order: str, accepted_amount: float = None, remarks: str = None) -> dict:
+	"""Create Payment Certificate from a Sales Order with multiple items."""
+	so = frappe.get_doc("Sales Order", sales_order)
+	
+	if so.docstatus != 1:
+		frappe.throw(_("Sales Order must be submitted"))
+	
+	# Check if PC already exists for this SO
+	existing_pc = frappe.db.exists("Payment Certificate", {
+		"sales_order": sales_order,
+		"docstatus": ["!=", 2]
+	})
+	if existing_pc:
+		frappe.throw(_("Payment Certificate {0} already exists for this Sales Order").format(existing_pc))
+	
+	pc = frappe.new_doc("Payment Certificate")
+	pc.type = "Sales"
+	pc.project = so.project
+	pc.customer = so.customer
+	pc.sales_order = sales_order
+	pc.remarks = remarks
+	
+	def get_latest_sales_invoice_for_so(so_name: str):
+		latest = frappe.get_all(
+			"Sales Invoice",
+			filters={"custom_sales_order": so_name, "docstatus": 1},
+			fields=["name"],
+			order_by="posting_date desc, creation desc",
+			limit=1
+		)
+		if latest:
+			return frappe.get_doc("Sales Invoice", latest[0].name)
+		return None
+	
+	def apply_si_deductions_to_items(pc_doc, si_doc, company_name):
+		"""Map SI retention/advance deductions to PC items."""
+		if not pc_doc.get("items"):
+			return
+		
+		if not si_doc:
+			for pc_item in pc_doc.items:
+				pc_item.invoiced_amount = flt(pc_item.amount)
+			return
+		
+		variance_item_code = None
+		if company_name and frappe.db.exists("BOQ Settings", company_name):
+			variance_item_code = frappe.db.get_value("BOQ Settings", company_name, "varience_item")
+		
+		gross_by_boq = {}
+		total_gross = 0
+		item_specific = {}
+		global_deductions = {"retention": 0, "advance": 0}
+		
+		for item in si_doc.items:
+			is_retention = item.item_code == "RETENTION-DEDUCTION"
+			is_advance = item.item_code == "ADVANCE-DEDUCTION"
+			is_variance = variance_item_code and item.item_code == variance_item_code
+			
+			if not (is_retention or is_advance or is_variance) and item.get("boq_item"):
+				gross_by_boq[item.boq_item] = flt(gross_by_boq.get(item.boq_item)) + flt(item.amount)
+				total_gross += flt(item.amount)
+			elif is_retention or is_advance:
+				target_boq_item = item.get("boq_item")
+				val = flt(item.amount)
+				if target_boq_item:
+					item_specific.setdefault(target_boq_item, {"retention": 0, "advance": 0})
+					if is_retention:
+						item_specific[target_boq_item]["retention"] += val
+					if is_advance:
+						item_specific[target_boq_item]["advance"] += val
+				else:
+					if is_retention:
+						global_deductions["retention"] += val
+					if is_advance:
+						global_deductions["advance"] += val
+		
+		for pc_item in pc_doc.items:
+			boq_item = pc_item.boq_item
+			gross_amount = flt(gross_by_boq.get(boq_item) or pc_item.amount)
+			spec = item_specific.get(boq_item, {"retention": 0, "advance": 0})
+			
+			allocated_retention = 0
+			allocated_advance = 0
+			if total_gross > 0:
+				share = gross_amount / total_gross
+				allocated_retention = global_deductions["retention"] * share
+				allocated_advance = global_deductions["advance"] * share
+			
+			retention_amount = abs(flt(spec["retention"] + allocated_retention))
+			advance_amount = abs(flt(spec["advance"] + allocated_advance))
+			
+			pc_item.retention_amount = retention_amount
+			pc_item.advance_amount = advance_amount
+			pc_item.invoiced_amount = gross_amount - retention_amount - advance_amount
+	
+	# Populate items from Sales Order
+	if so.items:
+		for item in so.items:
+			# Skip deduction items created on Sales Order as PC calculates its own
+			if item.item_code in ["RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"]:
+				continue
+			
+			pc.append("items", {
+				"boq_item": item.get("boq_item"),
+				"bill_no": item.get("bill_no"),
+				"description": item.description,
+				"unit": item.uom,
+				"qty": item.qty,
+				"rate": item.rate,
+				"amount": item.amount,
+				"accepted_amount": item.amount, # Default to full amount
+				"sales_order_item": item.name
+			})
+	
+	# Populate default taxes
+	company = frappe.db.get_value("Project", so.project, "company")
+	apply_si_deductions_to_items(pc, so, company)
+	default_tax = get_default_taxes_and_charges("Sales Taxes and Charges Template", company=company)
+	if default_tax and default_tax.get("taxes_and_charges"):
+		pc.taxes_and_charges = default_tax["taxes_and_charges"]
+		for tax in default_tax.get("taxes", []):
+			pc.append("taxes", tax)
+	
+	# Trigger totals calculation
+	pc.calculate_totals()
+	pc.calculate_retention()
+	
+	# Override if specific amount provided
+	if accepted_amount is not None:
+		pc.accepted_amount = flt(accepted_amount)
+		# Recalculate retention if accepted amount is changed
+		pc.calculate_retention()
+	
+	pc.insert()
+	
+	return {
+		"name": pc.name,
+		"project": pc.project,
+		"proforma_amount": pc.proforma_amount,
+		"accepted_amount": pc.accepted_amount,
+		"variance": pc.variance
+	}
+
+
+@frappe.whitelist()
 def create_payment_certificate(proforma_invoice: str, posting_date: str = None, accepted_amount: float = None) -> str:
 	"""
 	Create Payment Certificate from Proforma or Sales Order.
 	"""
 	# Check if it's a Sales Order
 	if frappe.db.exists("Sales Order", proforma_invoice):
-		from construction_management.construction_management.doctype.payment_certificate.payment_certificate import create_payment_certificate_from_sales_order
 		result = create_payment_certificate_from_sales_order(proforma_invoice, accepted_amount)
 		return result.get("name")
 		
