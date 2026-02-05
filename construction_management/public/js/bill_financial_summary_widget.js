@@ -7,18 +7,18 @@
  * Show bill financial summary dialog
  * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5
  */
-window.showBillFinancialSummary = function(billNo) {
+window.showBillFinancialSummary = function (billNo) {
 	frappe.call({
 		method: 'construction_management.api.bill_financial_aggregator.get_bill_financial_breakdown',
 		args: { bill_no: billNo },
 		freeze: true,
 		freeze_message: __('Loading financial summary...'),
-		callback: function(r) {
+		callback: function (r) {
 			if (r.message) {
 				renderBillFinancialSummaryDialog(r.message);
 			}
 		},
-		error: function(err) {
+		error: function (err) {
 			frappe.show_alert({
 				message: __('Failed to load financial summary'),
 				indicator: 'red'
@@ -146,12 +146,12 @@ function renderFinancialSummaryContent(data) {
 			${renderInvoicesSection(data.invoices || [])}
 
 			<!-- Retention Transactions Section -->
-			${data.retention_transactions && data.retention_transactions.length > 0 ? 
-				renderRetentionTransactionsSection(data.retention_transactions) : ''}
+			${data.retention_transactions && data.retention_transactions.length > 0 ?
+			renderRetentionTransactionsSection(data.retention_transactions) : ''}
 
 			<!-- Advance Transactions Section -->
-			${data.advance_transactions && data.advance_transactions.length > 0 ? 
-				renderAdvanceTransactionsSection(data.advance_transactions) : ''}
+			${data.advance_transactions && data.advance_transactions.length > 0 ?
+			renderAdvanceTransactionsSection(data.advance_transactions) : ''}
 		</div>
 		${getBillFinancialSummaryStyles()}
 	`;
@@ -194,7 +194,7 @@ function renderInvoicesSection(invoices) {
 							<td class="invoice-link">${inv.invoice_no}</td>
 							<td>${inv.posting_date || '-'}</td>
 							<td>${inv.customer || '-'}</td>
-							<td><span class="type-badge ${inv.is_proforma ? 'type-proforma' : 'type-tax'}">${inv.is_proforma ? 'Proforma' : 'Tax Invoice'}</span></td>
+							<td><span class="type-badge ${inv.is_proforma ? 'type-proforma' : 'type-tax'}">${inv.is_proforma ? 'Sales Order' : 'Tax Invoice'}</span></td>
 							<td class="text-right">${format_currency(inv.grand_total || 0)}</td>
 							<td class="text-right">${format_currency(inv.outstanding_amount || 0)}</td>
 							<td><span class="status-badge status-${(inv.status || '').toLowerCase().replace(' ', '-')}">${inv.status || 'Draft'}</span></td>

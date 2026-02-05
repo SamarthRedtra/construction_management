@@ -1237,8 +1237,8 @@ window.create_item_invoice = function (boq_item) {
 		fields: [
 			{ fieldname: 'qty', label: 'Quantity', fieldtype: 'Float', read_only: 1, default: currentQty },
 			{
-				fieldname: 'is_proforma', label: 'Create as Proforma', fieldtype: 'Check', default: 0,
-				description: 'Proforma invoices remain in Draft status for customer approval'
+				fieldname: 'is_proforma', label: 'Create as Sales Order', fieldtype: 'Check', default: 0,
+				description: 'Sales Orders remain in Draft status for customer approval'
 			},
 			{ fieldtype: 'Section Break' },
 			{ fieldname: 'apply_retention', label: 'Apply Retention', fieldtype: 'Check', default: 1 },
@@ -1259,7 +1259,7 @@ window.create_item_invoice = function (boq_item) {
 				callback: function (r) {
 					if (r.message) {
 						d.hide();
-						const invoiceType = values.is_proforma ? 'Proforma Invoice' : 'Invoice';
+						const invoiceType = values.is_proforma ? 'Sales Order' : 'Invoice';
 						frappe.show_alert({ message: __(`${invoiceType} {0} created`, [r.message.invoice]), indicator: 'green' });
 						frappe.set_route('Form', 'Sales Invoice', r.message.invoice);
 					}
@@ -1295,7 +1295,7 @@ function show_invoice_dialog(boq_item, data) {
 		const statusClass = entry.invoice_status === 'Paid' ? 'status-success' :
 			(entry.invoice_status === 'Unpaid' || entry.invoice_status === 'Overdue') ? 'status-warning' : 'status-default';
 
-		const typeLabel = entry.is_proforma ? '<span class="type-badge proforma">Proforma</span>' : '<span class="type-badge tax">Tax Inv</span>';
+		const typeLabel = entry.is_proforma ? '<span class="type-badge proforma">Sales Order</span>' : '<span class="type-badge tax">Tax Inv</span>';
 
 		return `
 		<tr>
@@ -2109,7 +2109,7 @@ function show_invoice_selection_dialog(project, billsWithItems) {
 	`).join('');
 
 	const d = new frappe.ui.Dialog({
-		title: __('Generate Invoice-Select Items'),
+		title: __('Generate Sales Order - Select Items'),
 		size: 'extra-large',
 		fields: [
 			{
@@ -2185,7 +2185,7 @@ function show_invoice_selection_dialog(project, billsWithItems) {
 				default: 1
 			}
 		],
-		primary_action_label: __('Generate Proforma Invoice'),
+		primary_action_label: __('Generate Sales Order'),
 		primary_action: function (values) {
 			// Build items array from selected items with qty>0
 			const itemsToInvoice = [];
@@ -2221,7 +2221,7 @@ function show_invoice_selection_dialog(project, billsWithItems) {
 					if (r.message) {
 						d.hide();
 						frappe.show_alert({
-							message: __('Proforma Invoice {0} created with {1} items', [
+							message: __('Sales Order {0} created with {1} items', [
 								r.message.name,
 								r.message.item_count
 							]),
@@ -2490,7 +2490,7 @@ function show_bill_selection_dialog(project, bills) {
 			{
 				fieldtype: 'Check',
 				fieldname: 'is_proforma',
-				label: __('Create as Proforma Invoice'),
+				label: __('Create as Sales Order'),
 				default: 0
 			},
 			{
@@ -3142,7 +3142,7 @@ function show_payment_certificates_dialog(project, pendingProformas, paymentCert
 			<table class="table table-bordered pending-table" style="font-size: 12px;">
 				<thead>
 					<tr>
-						<th>Sales Order (Proforma)</th>
+						<th>Sales Order</th>
 						<th>Date</th>
 						<th>Customer</th>
 						<th class="text-right">Amount</th>
@@ -3169,7 +3169,7 @@ function show_payment_certificates_dialog(project, pendingProformas, paymentCert
 			</table>
 		`;
 	} else {
-		proformasHtml = '<p class="text-muted">No pending proforma invoices</p>';
+		proformasHtml = '<p class="text-muted">No pending sales orders</p>';
 	}
 
 	// Build payment certificates table
@@ -3181,7 +3181,7 @@ function show_payment_certificates_dialog(project, pendingProformas, paymentCert
 					<tr>
 						<th>PC #</th>
 						<th>Date</th>
-						<th class="text-right">Proforma</th>
+						<th class="text-right">SO Amount</th>
 						<th class="text-right">Accepted</th>
 						<th class="text-right">Variance</th>
 						<th>Status</th>
@@ -3255,7 +3255,7 @@ function show_payment_certificates_dialog(project, pendingProformas, paymentCert
 						.pc-dialog-row.filtered-out { display: none; }
 					</style>
 					<div class="pc-tabs">
-						<div class="pc-tab active" data-tab="pending">Pending Orders (${pendingProformas.length})</div>
+						<div class="pc-tab active" data-tab="pending">Pending Sales Orders (${pendingProformas.length})</div>
 						<div class="pc-tab" data-tab="certificates">Payment Certificates (${paymentCertificates.length})</div>
 					</div>
 					<div class="pc-tab-content active" data-content="pending">
@@ -3267,7 +3267,7 @@ function show_payment_certificates_dialog(project, pendingProformas, paymentCert
 				`
 			}
 		],
-		primary_action_label: __('Create Proforma (Bulk)'),
+		primary_action_label: __('Create Sales Order (Bulk)'),
 		primary_action: function () {
 			generate_invoice_for_all(project);
 		}
@@ -3325,8 +3325,8 @@ window.create_pc_from_so_dialog = function (sales_order, amount, project) {
 	const d = new frappe.ui.Dialog({
 		title: __('Create Payment Certificate'),
 		fields: [
-			{ fieldname: 'sales_order', label: 'Sales Order (Proforma)', fieldtype: 'Link', options: 'Sales Order', read_only: 1, default: sales_order },
-			{ fieldname: 'proforma_amount', label: 'Proforma Amount', fieldtype: 'Currency', read_only: 1, default: amount },
+			{ fieldname: 'sales_order', label: 'Sales Order', fieldtype: 'Link', options: 'Sales Order', read_only: 1, default: sales_order },
+			{ fieldname: 'proforma_amount', label: 'Sales Order Amount', fieldtype: 'Currency', read_only: 1, default: amount },
 			{ fieldtype: 'Column Break' },
 			{
 				fieldname: 'accepted_amount', label: 'Accepted Amount', fieldtype: 'Currency', reqd: 1, default: amount,
@@ -3343,7 +3343,7 @@ window.create_pc_from_so_dialog = function (sales_order, amount, project) {
 			{ fieldtype: 'Section Break', label: 'Variance Calculation' },
 			{
 				fieldname: 'variance', label: 'Variance', fieldtype: 'Currency', read_only: 1, default: 0,
-				description: 'Proforma Amount - Accepted Amount (positive = loss)'
+				description: 'Sales Order Amount - Accepted Amount (positive = loss)'
 			},
 			{ fieldtype: 'Column Break' },
 			{ fieldname: 'variance_percent', label: 'Variance %', fieldtype: 'Percent', read_only: 1, default: 0 },
@@ -3385,7 +3385,7 @@ function create_proforma_invoice_dialog(project) {
 			const customer = r.message ? r.message.customer : null;
 
 			const d = new frappe.ui.Dialog({
-				title: __('Create Proforma Invoice'),
+				title: __('Create Sales Order'),
 				fields: [
 					{
 						fieldname: 'bill_no', label: 'Bill No', fieldtype: 'Link', options: 'BOQ Bill',
@@ -3400,7 +3400,7 @@ function create_proforma_invoice_dialog(project) {
 					{ fieldname: 'amount', label: 'Amount', fieldtype: 'Currency', reqd: 1 },
 					{ fieldname: 'description', label: 'Description', fieldtype: 'Small Text' }
 				],
-				primary_action_label: __('Create Proforma'),
+				primary_action_label: __('Create Sales Order'),
 				primary_action: function (values) {
 					frappe.call({
 						method: 'construction_management.construction_management.doctype.payment_certificate.payment_certificate.create_proforma_invoice',
@@ -3415,7 +3415,7 @@ function create_proforma_invoice_dialog(project) {
 						callback: function (r) {
 							if (r.message) {
 								d.hide();
-								frappe.show_alert({ message: __('Proforma Invoice {0} created', [r.message.name]), indicator: 'green' });
+								frappe.show_alert({ message: __('Sales Order {0} created', [r.message.name]), indicator: 'green' });
 								frappe.set_route('Form', 'Sales Invoice', r.message.name);
 							}
 						}
