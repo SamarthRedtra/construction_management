@@ -209,6 +209,15 @@ class SalesInvoiceOverride(SalesInvoice):
 		
 		if not details.get("enable_progressive_boq"):
 			return
+
+		has_deduction = False
+		for item in self.items:
+			if item.item_code in ["RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"]:
+				has_deduction = True
+				break
+		
+		if has_deduction:
+			return
 			
 		default_income_account = frappe.db.get_value("Company", self.company, "default_income_account")
 		default_cost_center = self.cost_center or frappe.db.get_value("Company", self.company, "cost_center")
@@ -557,7 +566,7 @@ def create_boq_reversal_entry(invoice, item):
 	from construction_management.api.boq_ledger import recalculate_ledger_for_item
 	
 	boq_item = item.boq_item
-	is_orphan = not invoice.custom_payment_certificate and not invoice.get("custom_proforma_invoice")
+	is_orphan = not invoice.custom_payment_certificate and not invoice.get("custom_proforma_invoice") and not item.get("sales_order")
 	
 	ledger_entry = None
 	if invoice.custom_payment_certificate:

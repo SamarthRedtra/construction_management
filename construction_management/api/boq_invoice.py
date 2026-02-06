@@ -1413,6 +1413,7 @@ def create_sales_order_from_selected_items(
 		
 		bills_included = set()
 		items_for_deductions = []
+		advance_base_items = []
 		
 		for item_data in items:
 			boq_item_name = item_data.get("boq_item")
@@ -1450,6 +1451,12 @@ def create_sales_order_from_selected_items(
 				"item_code": boq_item.linked_item or boq_item.item_code,
 				"amount": amount
 			})
+			advance_base_items.append({
+				"boq_item": boq_item_name,
+				"bill_no": boq_item.parent_bill,
+				"description": boq_item.description,
+				"amount": amount
+			})
 			
 			# Calculate and add Retention Deduction
 			if project_doc.retention_percentage:
@@ -1472,18 +1479,50 @@ def create_sales_order_from_selected_items(
 			bills_included.add(bill_no or boq_item.parent_bill)
 		
 		deduction_details = get_deduction_details(project, items_for_deductions)
-		if deduction_details.get("suggested_advance", 0) > 0:
+		advance_pct = flt(deduction_details.get("advance_percentage", 0))
+		available_advance = flt(deduction_details.get("available_advance", 0))
+		if advance_pct > 0 and available_advance > 0 and advance_base_items:
 			advance_item_code = get_or_create_advance_item()
-			advance_pct = deduction_details.get("advance_percentage", 0)
-			order.append("items", {
-				"item_code": advance_item_code,
-				"item_name": "Advance Deduction",
-				"description": f"Deduction from advance payment ({advance_pct}%)",
-				"qty": 1,
-				"rate": -flt(deduction_details["suggested_advance"]),
-				"uom": "Nos",
-				"project": project
-			})
+			desired_advances = []
+			total_desired = 0
+			for entry in advance_base_items:
+				desired = flt(entry["amount"] * advance_pct / 100, 2)
+				if desired > 0:
+					desired_advances.append((entry, desired))
+					total_desired += desired
+			
+			if total_desired > 0:
+				target_total = flt(min(available_advance, total_desired), 2)
+				scale = target_total / total_desired if total_desired else 0
+				running_total = 0
+				allocated_total = 0
+				last_index = len(desired_advances) - 1
+				
+				for idx, (entry, desired) in enumerate(desired_advances):
+					if idx == last_index:
+						advance_amount = flt(target_total - running_total, 2)
+					else:
+						advance_amount = flt(desired * scale, 2)
+						running_total += advance_amount
+					
+					if advance_amount <= 0:
+						continue
+					
+					allocated_total += advance_amount
+					order.append("items", {
+						"item_code": advance_item_code,
+						"item_name": "Advance Deduction",
+						"description": f"Advance deduction ({advance_pct}%) for: {entry['description']}",
+						"qty": 1,
+						"rate": -advance_amount,
+						"uom": "Nos",
+						"project": project,
+						"boq_item": entry["boq_item"],
+						"bill_no": entry["bill_no"]
+					})
+				
+				if allocated_total - target_total > 0.01:
+					frappe.throw(_("Advance deduction allocation exceeds available advance."))
 		
 		if not order.items:
 			return {"status": "error", "error_message": _("No valid items to order")}
@@ -1500,10 +1539,14 @@ def create_sales_order_from_selected_items(
 						order.append("taxes", tax)
 		
 		if not order.get("taxes") and not order.get("taxes_and_charges"):
-			customer_taxes = frappe.db.get_value("Customer", customer, "taxes_and_charges")
+			try:
+				customer_taxes = frappe.db.get_value("Customer", customer, "taxes_and_charges")
+			except Exception as e:
+				customer_taxes = None
 			if customer_taxes:
-				order.taxes_and_charges = customer_taxes
-				order.run_method("set_taxes")
+					order.taxes_and_charges = customer_taxes
+					order.run_method("set_taxes")
+			
 		
 		order.run_method("calculate_taxes_and_totals")
 		

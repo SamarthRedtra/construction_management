@@ -73,7 +73,7 @@ class PaymentCertificate(Document):
 
 	def _map_discount_apply_on(self) -> str:
 		"""Map PC discount apply-on values to Invoice choices."""
-		value = (self.select_discount_on or "").strip()
+		value = (self.get("select_discount_on") or "").strip()
 		mapping = {
 			"On Net Total": "Net Total",
 			"On Grand Total": "Grand Total",
@@ -93,7 +93,7 @@ class PaymentCertificate(Document):
 		"""Calculate taxes from taxes table"""
 		base = flt(net_total) if net_total is not None else flt(self.accepted_amount)
 		total_taxes = 0
-		for tax in self.get("taxes"):
+		for tax in self.get("taxes") or []:
 			if tax.charge_type == "On Net Total":
 				tax.tax_amount = flt(base) * flt(tax.rate) / 100.0
 			

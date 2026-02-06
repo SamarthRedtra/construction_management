@@ -120,10 +120,38 @@ class TestSalesInvoiceDeductions(unittest.TestCase):
             "doctype": "Project",
             "project_name": project_name,
             "status": "Open",
+            "company": self.company,
             "retention_percentage": 10.0,
-            "customer": self.customer
+            "customer": self.customer,
+            "enable_progressive_boq": 1
         })
         project.insert(ignore_permissions=True)
+        
+        # Create a mock BOQ Bill
+        if not frappe.db.exists("BOQ Bill", "TEST-BILL"):
+            frappe.get_doc({
+                "doctype": "BOQ Bill",
+                "name": "TEST-BILL",
+                "bill_no": "TEST-BILL",
+                "project": project.name,
+                "description": "Test Bill"
+            }).insert(ignore_permissions=True)
+
+        if not frappe.db.exists("BOQ Item", "TEST-BOQ-ITEM"):
+            frappe.get_doc({
+                "doctype": "BOQ Item",
+                "name": "TEST-BOQ-ITEM",
+                "boq_item_name": "TEST-BOQ-ITEM",
+                "item_code": self.item,
+                "project": project.name,
+                "parent_bill": "TEST-BILL",
+                "description": "Test BOQ Item",
+                "unit": "Nos",
+                "total_qty": 1000,
+                "rate": 100,
+                "amount": 100000
+            }).insert(ignore_permissions=True)
+
         return project.name
 
     def _create_advance_payment(self, amount):
@@ -165,7 +193,8 @@ class TestSalesInvoiceDeductions(unittest.TestCase):
             "item_code": "ITEM-1",
             "qty": 1,
             "rate": 1000,
-            "amount": 1000
+            "amount": 1000,
+            "boq_item": "TEST-BOQ-ITEM"
         })
         inv.append("items", {
             "item_code": "ADVANCE-DEDUCTION",
@@ -201,7 +230,8 @@ class TestSalesInvoiceDeductions(unittest.TestCase):
             "item_code": self.item,
             "qty": 1,
             "rate": 10000,
-            "amount": 10000
+            "amount": 10000,
+            "boq_item": "TEST-BOQ-ITEM"
         })
         
         # This should trigger 'apply_automatic_deductions' via 'validate' hook
@@ -309,7 +339,8 @@ class TestSalesInvoiceDeductions(unittest.TestCase):
             "item_code": self.item,
             "qty": 1,
             "rate": 10000,
-            "amount": 10000
+            "amount": 10000,
+            "boq_item": "TEST-BOQ-ITEM"
         })
         # Retention 10% (1000)
         inv.append("items", {
