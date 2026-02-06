@@ -6657,10 +6657,8 @@ function renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData) {
 					<table class="payment-terms-table">
 						<thead>
 							<tr>
-								<th style="width: 40%;">Payment Milestone</th>
-								<th style="width: 15%;" class="text-right">Percentage (%)</th>
-								<th style="width: 15%;" class="text-right">Advance (%)</th>
-								<th style="width: 15%;" class="text-right">Retention (%)</th>
+								<th style="width: 55%;">Payment Milestone</th>
+								<th style="width: 30%;" class="text-right">Percentage (%)</th>
 								<th style="width: 15%; text-align: center;">Actions</th>
 							</tr>
 						</thead>
@@ -6769,8 +6767,6 @@ function addTermRow(tbody, term, idx, boqItemName) {
 		<tr data-idx="${idx}">
 			<td><input type="text" value="${term.milestone || ''}" data-field="milestone" placeholder="e.g., After Installation"></td>
 			<td class="text-right"><input type="number" value="${term.percentage || 0}" data-field="percentage" min="0" max="100" step="0.01"></td>
-			<td class="text-right"><input type="number" value="${term.advance || 0}" data-field="advance" min="0" max="100" step="0.01"></td>
-			<td class="text-right"><input type="number" value="${term.retention || 0}" data-field="retention" min="0" max="100" step="0.01"></td>
 			<td style="text-align: center;">
 				<button class="remove-term-btn" data-boq-item="${boqItemName}" data-idx="${idx}" title="Remove Milestone">
 					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
