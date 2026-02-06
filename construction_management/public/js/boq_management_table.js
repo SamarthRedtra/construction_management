@@ -26,6 +26,20 @@ function render_boq_management_table(container, frm, bills) {
 	}
 
 	let html = '<div class="boq-management-table-container">';
+	html += `
+		<div class="boq-management-topbar">
+			<a class="variance-report-link" href="#" onclick="frappe.set_route('query-report', 'Sales Order Analysis'); return false;">
+				View Variance Balance Report
+				<svg class="variance-report-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+					<path d="M14 3h7v7"></path>
+					<path d="M10 14L21 3"></path>
+					<path d="M21 14v7h-7"></path>
+					<path d="M3 10V3h7"></path>
+					<path d="M3 21h7v-7"></path>
+				</svg>
+			</a>
+		</div>
+	`;
 
 	// Render each bill as a collapsible section
 	bills.forEach((bill, idx) => {
@@ -320,14 +334,6 @@ function render_item_row(item, frm) {
 			<!-- Actions - Requirements: 3.2, 3.3 -->
 			<td class="col-actions" role="cell">
 				<div class="action-icons" role="group" aria-label="Item actions">
-					${(hasProforma && !hasPC && !isFullyBilled) ? `
-					<button class="action-btn action-btn-pc" onclick="createPCFromRow('${item.name}'); event.stopPropagation();" title="Create Payment Certificate" aria-label="Create PC for this item" tabindex="0">
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-							<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-							<polyline points="22 4 12 14.01 9 11.01"></polyline>
-						</svg>
-					</button>
-					` : ''}
 					<button class="action-btn action-btn-tasks" onclick="showTasksPopup('${item.name}'); event.stopPropagation();" title="View Tasks" aria-label="View tasks for this item" tabindex="0">
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
 							<rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
@@ -522,12 +528,12 @@ function updateSelectionToolbar(container) {
 							</svg>
 							Generate Sales Order
 						</button>
-						<button class="btn-toolbar btn-secondary-toolbar" onclick="createPaymentCertificate()">
+						<button class="btn-toolbar btn-secondary-toolbar" onclick="generateSalesInvoiceFromSelection()">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-								<polyline points="22 4 12 14.01 9 11.01"></polyline>
+								<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+								<polyline points="14 2 14 8 20 8"></polyline>
 							</svg>
-							Create PC
+							Generate Sales Invoice
 						</button>
 						<button class="btn-toolbar btn-clear-toolbar" onclick="clearSelection()">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -637,6 +643,39 @@ window.createPaymentCertificate = function () {
 					}
 				});
 			}, __('Create Payment Certificate'), __('Create'));
+		}
+	});
+};
+
+window.generateSalesInvoiceFromSelection = function () {
+	const selectedItems = $('.item-checkbox:checked');
+	if (selectedItems.length === 0) {
+		frappe.show_alert({ message: __('Please select items first'), indicator: 'orange' });
+		return;
+	}
+
+	frappe.call({
+		method: 'construction_management.construction_management.doctype.payment_certificate.payment_certificate.get_pending_sales_orders',
+		args: { project: cur_frm.doc.name },
+		callback: function (r) {
+			const pending_sos = r.message || [];
+			if (pending_sos.length === 0) {
+				frappe.show_alert({ message: __('No Sales Orders found for this project'), indicator: 'orange' });
+				return;
+			}
+
+			frappe.prompt([
+				{
+					fieldname: 'sales_order', fieldtype: 'Select', label: 'Sales Order',
+					options: pending_sos.map(so => ({ label: `${so.name} (${format_currency(so.amount)})`, value: so.name })),
+					reqd: 1
+				}
+			], function (values) {
+				frappe.model.open_mapped_doc({
+					method: 'erpnext.selling.doctype.sales_order.sales_order.make_sales_invoice',
+					source_name: values.sales_order
+				});
+			}, __('Generate Sales Invoice'), __('Generate'));
 		}
 	});
 };
@@ -861,16 +900,6 @@ function renderRawTransactionsSection(ledgerEntries, paymentCertificates, pendin
 		</div>
 		` : ''}
 		
-		<!-- Pending Proformas Section -->
-		${pendingProformas.length > 0 ? `
-		<div class="transaction-section">
-			<div class="transaction-section-title">
-				Pending Orders
-				<span class="entry-count-badge">${pendingProformas.length}</span>
-			</div>
-			${renderPendingProformasTable(pendingProformas)}
-		</div>
-		` : ''}
 	`;
 }
 
@@ -1288,9 +1317,6 @@ function renderPendingProformasTable(proformas) {
 				<td>${pi.customer || '-'}</td>
 				<td class="text-right ${ageClass}">${pi.age_days || 0}</td>
 				<td>
-					<button class="btn btn-xs btn-primary" onclick="createPCFromProforma('${pi.name}'); event.stopPropagation();">
-						Create PC
-					</button>
 				</td>
 			</tr>
 		`;
@@ -2887,6 +2913,26 @@ function get_table_styles() {
 		}
 		
 		.boq-management-table-container { display: flex; flex-direction: column; gap: 12px; }
+		.boq-management-topbar { display: flex; justify-content: flex-end; }
+		.variance-report-link {
+			display: inline-flex;
+			align-items: center;
+			padding: 6px 10px;
+			border-radius: 6px;
+			border: 1px solid var(--boq-border);
+			background: #fff;
+			color: var(--boq-text-primary);
+			font-size: 12px;
+			font-weight: 600;
+			text-decoration: none;
+			gap: 6px;
+		}
+		.variance-report-icon { flex-shrink: 0; }
+		.variance-report-link:hover {
+			border-color: var(--boq-primary);
+			color: var(--boq-primary);
+			background: var(--boq-primary-light);
+		}
 		
 		/* Bill Section */
 		.bill-section { background: var(--boq-bg-primary); border-radius: var(--boq-radius); border: 1px solid var(--boq-border); overflow: hidden; }

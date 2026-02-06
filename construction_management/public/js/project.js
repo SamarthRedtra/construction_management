@@ -1363,14 +1363,9 @@ function show_invoice_dialog(boq_item, data) {
 			<td><a href="/app/sales-order/${p.name}" class="invoice-link">${p.name}</a></td>
 			<td class="text-right">${format_currency(p.amount)}</td>
 			<td class="text-center ${ageClass}">${p.age_days} days</td>
-			<td>
-				<button class="btn btn-xs btn-primary" onclick="create_pc_from_history('${p.name}', ${p.amount}, '${boq_item}')">
-					Create PC
-				</button>
-			</td>
 		</tr>
 		`;
-	}).join('') : '<tr><td colspan="6" class="text-center text-muted">No pending orders</td></tr>';
+	}).join('') : '<tr><td colspan="5" class="text-center text-muted">No pending orders</td></tr>';
 
 	// Aggressive cleanup of any stale backdrops before opening
 	cleanup_modal_backdrop();
@@ -1404,7 +1399,7 @@ function show_invoice_dialog(boq_item, data) {
 				<div class="pc-stat accepted"><span class="pc-stat-label">Total Certified</span><span class="pc-stat-value">${format_currency(pcSummary.total_accepted || 0)}</span></div>
 				<div class="pc-stat variance"><span class="pc-stat-label">Total Variance</span><span class="pc-stat-value">${format_currency(pcSummary.total_variance || 0)}</span></div>
 				<div class="pc-stat received"><span class="pc-stat-label">Total Received</span><span class="pc-stat-value">${format_currency(pcSummary.total_received || 0)}</span></div>
-				<div class="pc-stat pending-proforma"><span class="pc-stat-label">Pending Orders</span><span class="pc-stat-value">${pcSummary.pending_proforma_count || 0} (${format_currency(pcSummary.pending_proforma_amount || 0)})</span></div>
+				<div class="pc-stat pending-proforma"><span class="pc-stat-label">Proforma Invoices</span><span class="pc-stat-value">${pcSummary.pending_proforma_count || 0} (${format_currency(pcSummary.pending_proforma_amount || 0)})</span></div>
 			</div>
 		</div>
 		
@@ -1413,7 +1408,7 @@ function show_invoice_dialog(boq_item, data) {
 			<div class="tab-buttons">
 				<button class="tab-btn active" data-tab="ledger">📊 Progress Ledger</button>
 				<button class="tab-btn" data-tab="certificates">📜 Payment Certificates (${paymentCertificates.length})</button>
-				<button class="tab-btn ${pendingProformas.length > 0 ? 'has-pending' : ''}" data-tab="proformas">⏳ Pending Orders (${pendingProformas.length})</button>
+				<button class="tab-btn ${pendingProformas.length > 0 ? 'has-pending' : ''}" data-tab="proformas">⏳ Proforma Invoices (${pendingProformas.length})</button>
 			</div>
 			
 			<div class="tab-content active" data-content="ledger">
@@ -1484,7 +1479,6 @@ function show_invoice_dialog(boq_item, data) {
 								<th>Sales Order</th>
 								<th class="text-right">Amount</th>
 								<th class="text-center">Age</th>
-								<th>Action</th>
 							</tr>
 						</thead>
 						<tbody>${proformaRows}</tbody>
@@ -3147,7 +3141,8 @@ function show_payment_certificates_dialog(project, pendingProformas, paymentCert
 						<th>Customer</th>
 						<th class="text-right">Amount</th>
 						<th class="text-center">Age (Days)</th>
-						<th>Action</th>
+						<th class="text-center">Invoiced?</th>
+						<th class="text-right">Invoiced Amount</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -3158,18 +3153,15 @@ function show_payment_certificates_dialog(project, pendingProformas, paymentCert
 							<td>${p.customer_name || p.customer || '-'}</td>
 							<td class="text-right">${format_currency(p.amount || p.grand_total)}</td>
 							<td class="text-center">${p.age_days || 0}</td>
-							<td>
-								<button class="btn btn-xs btn-primary" onclick="create_pc_from_so_dialog('${p.name}', ${p.amount || p.grand_total}, '${project}')">
-									Create PC
-								</button>
-							</td>
+							<td class="text-center">${p.has_invoice ? 'Yes' : 'No'}</td>
+							<td class="text-right">${format_currency(p.invoiced_amount || 0)}</td>
 						</tr>
 					`).join('')}
 				</tbody>
 			</table>
 		`;
 	} else {
-		proformasHtml = '<p class="text-muted">No pending proforma invoices</p>';
+		proformasHtml = '<p class="text-muted">No proforma invoices found</p>';
 	}
 
 	// Build payment certificates table
@@ -3254,23 +3246,13 @@ function show_payment_certificates_dialog(project, pendingProformas, paymentCert
 						.indicator-pill.gray { background: #f3f4f6; color: #4b5563; }
 						.pc-dialog-row.filtered-out { display: none; }
 					</style>
-					<div class="pc-tabs">
-						<div class="pc-tab active" data-tab="pending">Pending Orders (${pendingProformas.length})</div>
-						<div class="pc-tab" data-tab="certificates">Payment Certificates (${paymentCertificates.length})</div>
-					</div>
 					<div class="pc-tab-content active" data-content="pending">
+						<h4 style="margin: 0 0 12px; font-size: 14px;">Proforma Invoices (${pendingProformas.length})</h4>
 						${proformasHtml}
-					</div>
-					<div class="pc-tab-content" data-content="certificates">
-						${pcsHtml}
 					</div>
 				`
 			}
 		],
-		primary_action_label: __('Create Proforma (Bulk)'),
-		primary_action: function () {
-			generate_invoice_for_all(project);
-		}
 	});
 
 	function applyPCFilters() {
@@ -3301,14 +3283,7 @@ function show_payment_certificates_dialog(project, pendingProformas, paymentCert
 	window.cur_pc_dialog = d; // Store for potential updates
 	d.show();
 
-	// Tab switching
-	d.$wrapper.find('.pc-tab').on('click', function () {
-		const tab = $(this).data('tab');
-		d.$wrapper.find('.pc-tab').removeClass('active');
-		$(this).addClass('active');
-		d.$wrapper.find('.pc-tab-content').removeClass('active');
-		d.$wrapper.find(`.pc-tab-content[data-content="${tab}"]`).addClass('active');
-	});
+	// Tab switching removed (single tab view)
 }
 
 function get_pc_status_color(status) {

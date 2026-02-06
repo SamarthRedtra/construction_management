@@ -758,6 +758,18 @@ def get_pending_sales_orders(project: str = None) -> list:
 		order_by="transaction_date DESC"
 	)
 	
+	def get_invoiced_amount(so_name: str) -> float:
+		conditions = "si.docstatus = 1 AND si.is_return = 0 AND sii.sales_order = %s"
+		if frappe.db.has_column("Sales Invoice", "custom_is_proforma"):
+			conditions += " AND (si.custom_is_proforma = 0 OR si.custom_is_proforma IS NULL)"
+		total = frappe.db.sql(f"""
+			SELECT SUM(sii.base_amount)
+			FROM `tabSales Invoice Item` sii
+			JOIN `tabSales Invoice` si ON si.name = sii.parent
+			WHERE {conditions}
+		""", so_name)[0][0] or 0
+		return flt(total)
+
 	pending = []
 	for so in sos:
 		so_items = frappe.get_all(
@@ -780,6 +792,8 @@ def get_pending_sales_orders(project: str = None) -> list:
 		# A Sales Order is pending if it has an uncertified balance
 		if flt(so.base_grand_total) > total_accepted:
 			so["amount"] = so.base_grand_total # Mapping for UI
+			so["invoiced_amount"] = get_invoiced_amount(so.name)
+			so["has_invoice"] = 1 if so["invoiced_amount"] > 0 else 0
 			so["boq_items"] = list(set(item.boq_item for item in so_items if item.boq_item))
 			so["bill_nos"] = list(set(item.bill_no for item in so_items if item.bill_no))
 			pending.append(so)
