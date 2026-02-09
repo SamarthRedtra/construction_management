@@ -48,16 +48,40 @@ class BulkDPREntry {
 
 		const App = {
 			setup() {
+				const defaultCompany = frappe.defaults.get_user_default('Company') || frappe.defaults.get_user_default('company');
+				const company = ref(defaultCompany || '');
 				const project = ref(me.project);
 				const date = ref(frappe.datetime.get_today());
 				const loading = ref(false);
 				const rows = ref([]);
+				const currentPage = ref(1);
+				const pageSize = ref(20);
+				const pageSizeOptions = ref([20, 50, 100]);
+				const totalRows = ref(0);
 				const masterData = ref({
 					boq_items: [],
 					sites: [],
 					employees: [],
 					materials: [],
+					assets: [],
 					overhead_accounts: []
+				});
+
+				// paginatedRows is now the same as rows since rows only holds current page
+				const paginatedRows = computed(() => rows.value);
+
+				const totalPages = computed(() => Math.ceil(totalRows.value / pageSize.value) || 1);
+
+				const summaryTotals = computed(() => {
+					let labour = 0, material = 0, asset = 0, overhead = 0, total = 0;
+					rows.value.forEach(row => {
+						labour += parseFloat(row.labour_cost || 0);
+						material += parseFloat(row.material_cost || 0);
+						asset += parseFloat(row.asset_cost || 0);
+						overhead += parseFloat(row.overhead_cost || 0);
+						total += parseFloat(row.total_cost || 0);
+					});
+					return { labour, material, asset, overhead, total };
 				});
 
 				const boqItemsMap = computed(() => {
@@ -68,12 +92,77 @@ class BulkDPREntry {
 					return map;
 				});
 
+				const employeeRatesMap = computed(() => {
+					const map = {};
+					masterData.value.employees.forEach(emp => {
+						map[emp.name] = emp.rate_per_day || 0;
+					});
+					return map;
+				});
+
+				const assetRatesMap = computed(() => {
+					const map = {};
+					masterData.value.assets.forEach(asset => {
+						map[asset.name] = {
+							hour: asset.rate_per_hour || 0,
+							day: asset.rate_per_day || 0
+						};
+					});
+					return map;
+				});
+
 				const allSelected = computed({
-					get: () => rows.value.length > 0 && rows.value.every(r => r.selected),
-					set: (val) => rows.value.forEach(r => r.selected = val)
+					get: () => rows.value.length > 0 && paginatedRows.value.every(r => r.selected),
+					set: (val) => paginatedRows.value.forEach(r => r.selected = val)
 				});
 
 				const hasSelection = computed(() => rows.value.some(r => r.selected));
+				const hasDraftSelection = computed(() => rows.value.some(r => r.selected && r.docstatus === 0));
+				const hasSubmittedSelection = computed(() => rows.value.some(r => r.selected && r.docstatus === 1));
+
+				// Calculate costs for a row
+				const calculateRowCosts = (row) => {
+					// Labour Cost
+					let labour = 0;
+					(row.employees || []).forEach(emp => {
+						const rate = employeeRatesMap.value[typeof emp === 'object' ? emp.employee : emp] || 0;
+						const hours = parseFloat(emp.hours || 8);
+						labour += rate * (hours / 8);
+					});
+					row.labour_cost = labour;
+
+					// Material Cost
+					let material = 0;
+					(row.materials || []).forEach(mat => {
+						const rate = parseFloat(mat.rate || 0);
+						const qty = parseFloat(mat.qty || 0);
+						material += rate * qty;
+					});
+					row.material_cost = material;
+
+					// Asset Cost (Simplified for bulk, assuming 8 hours default if not specified)
+					let asset = 0;
+					(row.assets || []).forEach(a => {
+						const rate = assetRatesMap.value[a.asset]?.hour || 0;
+						const hours = parseFloat(a.hours || 8);
+						asset += rate * hours;
+					});
+					row.asset_cost = asset;
+
+					// Overhead Cost
+					let overhead = 0;
+					(row.overheads || []).forEach(ovh => {
+						overhead += parseFloat(ovh.amount || ovh.qty || 0);
+					});
+					row.overhead_cost = overhead;
+
+					row.total_cost = labour + material + asset + overhead;
+				};
+
+				// Watch for changes in child arrays to recalculate
+				watch(() => rows.value, (newRows) => {
+					newRows.forEach(row => calculateRowCosts(row));
+				}, { deep: true });
 
 				// Calculate real-time balance
 				const getAvailableBalance = (boqItemName) => {
@@ -116,43 +205,67 @@ class BulkDPREntry {
 					});
 
 					// Return materials with adjusted balance
-					return masterData.value.materials.map(mat => {
+					return (masterData.value.materials || []).map(mat => {
 						const usedQty = usageMap[mat.name] || 0;
 						// Ensure we have a numeric balance to start with
 						const originalBalance = parseFloat(mat.balance) || 0;
+						const valuationRate = parseFloat(mat.valuation_rate) || 0;
+						const displayLabel = `${mat.item_name || mat.name} | Stock: ${originalBalance.toFixed(2)} | Rate: ${valuationRate.toFixed(2)}`;
 						return {
 							...mat,
+							display_label: displayLabel,
+							valuation_rate: valuationRate,
 							balance: Math.max(0, originalBalance - usedQty) // Prevent negative for display? Or show negative? User said "deduct".
 						};
 					});
 				});
 
-				const fetchData = async () => {
+				const fetchData = async (page = 1) => {
 					if (!project.value) return;
 					loading.value = true;
+					currentPage.value = page;
 
 					try {
 						const r = await frappe.call({
 							method: 'construction_management.construction_management.page.bulk_dpr_entry.bulk_dpr_entry.get_initial_data',
-							args: { project: project.value, date: date.value }
+							args: {
+								project: project.value,
+								company: company.value,
+								date: date.value,
+								start: (page - 1) * pageSize.value,
+								page_length: pageSize.value
+							}
 						});
 						if (r.message) {
 							masterData.value = r.message;
-							// Initialize rows with existing DPRs if any, or empty row
+							totalRows.value = r.message.total_dprs || 0;
+
+							// Initialize rows with existing DPRs
 							if (r.message.existing_dprs && r.message.existing_dprs.length) {
 								rows.value = r.message.existing_dprs.map(dpr => ({
 									...dpr,
 									selected: false,
-									// ensure multiselects are arrays
+									site: dpr.site || '',
+									area_covered: dpr.area_covered || 0,
+									remarks: dpr.remarks || '',
+									// ensure multiselects are arrays and standardized
 									employees: dpr.employees || [],
-									materials: dpr.materials || [],
-									overheads: dpr.overheads || [],
-									remarks: dpr.comment || ''
+									materials: (dpr.materials || []).map(m => ({
+										...m,
+										name: m.item_code,
+										item_code: m.item_code
+									})),
+									overheads: (dpr.overheads || []).map(o => ({
+										...o,
+										name: o.account,
+										account: o.account
+									}))
 								}));
 							} else {
 								rows.value = [];
-								addRow();
+								if (page === 1) addRow(); // Only auto-add on first page if empty
 							}
+							rows.value.forEach(row => calculateRowCosts(row));
 						}
 					} catch (e) {
 						console.error(e);
@@ -163,46 +276,96 @@ class BulkDPREntry {
 				};
 
 				const addRow = () => {
-					rows.value.push({
+					rows.value.unshift({
 						selected: false,
+						docstatus: 0,
 						boq_item: '',
 						site: '',
 						area_covered: 0,
 						employees: [],
 						materials: [],
 						overheads: [],
+						labour_cost: 0,
+						material_cost: 0,
+						asset_cost: 0,
+						overhead_cost: 0,
+						total_cost: 0,
 						remarks: ''
 					});
+					// Note: totalRows.value++ if we want pagination to reflect added rows? 
+					// Usually, added rows are just temporary.
 				};
 
-				const removeRow = (index) => {
-					rows.value.splice(index, 1);
+				const removeRow = async (idx) => {
+					const row = rows.value[idx];
+					if (row.name) {
+						if (row.docstatus > 0) {
+							frappe.msgprint(__('Cannot delete a submitted or cancelled DPR. Please cancel it first.'));
+							return;
+						}
+
+						frappe.confirm(__('Are you sure you want to delete this DPR record ({0})?', [row.name]), async () => {
+							loading.value = true;
+							try {
+								await frappe.db.delete("Daily Progress Record", row.name);
+								rows.value.splice(idx, 1);
+								totalRows.value--;
+								frappe.show_alert({ message: __('DPR deleted'), indicator: 'green' });
+							} catch (e) {
+								console.error(e);
+							} finally {
+								loading.value = false;
+							}
+						});
+					} else {
+						rows.value.splice(idx, 1);
+					}
+				};
+
+				const changePage = (newPage) => {
+					if (newPage < 1 || newPage > totalPages.value) return;
+					// Check for unsaved changes (simple check: any row without a name or any selected row?)
+					const hasUnsaved = rows.value.some(r => !r.name || r.selected);
+					if (hasUnsaved) {
+						frappe.confirm('You have unsaved changes or selected rows. Changing the page will reload data. Continue?', () => {
+							fetchData(newPage);
+						});
+					} else {
+						fetchData(newPage);
+					}
+				};
+
+				const changePageSize = () => {
+					currentPage.value = 1;
+					fetchData(1);
 				};
 
 				const save = async (submit = false) => {
-					loading.value = true;
+					if (!project.value) {
+						frappe.msgprint(__('Please select a project first'));
+						return;
+					}
 
-					// If submit is true, we only process SELECTED rows, unless none selected then all?
-					// "submit where i can select the row" implies explicit selection.
-					// Let's say: Save = All rows. Submit = Selected rows (if any) or Confirm All?
-					// Strategy: 
-					// Save: Saves ALL rows.
-					// Submit: Submits SELECTED rows. If none selected, warn user / submit nothing? Or ask to submit all?
-					// Let's implement: Submit requires selection.
-
-					let rowsToProcess = rows.value;
+					let rowsToProcess = [];
 					if (submit) {
-						const selected = rows.value.filter(r => r.selected);
+						const selected = rows.value.filter(r => r.selected && r.docstatus === 0);
 						if (selected.length === 0) {
-							frappe.msgprint("Please select rows to submit.");
-							loading.value = false;
+							frappe.msgprint(__('Please select Draft rows to submit.'));
 							return;
 						}
 						rowsToProcess = selected;
+					} else {
+						// Save all modified or new rows that are not submitted
+						rowsToProcess = rows.value.filter(r => r.docstatus === 0 && (r.name || r.boq_item));
+						if (rowsToProcess.length === 0) {
+							frappe.msgprint(__('No new or modified rows to save.'));
+							return;
+						}
 					}
 
+					loading.value = true;
 					try {
-						await frappe.call({
+						const res = await frappe.call({
 							method: 'construction_management.construction_management.page.bulk_dpr_entry.bulk_dpr_entry.save_bulk_dpr',
 							args: {
 								project: project.value,
@@ -211,10 +374,30 @@ class BulkDPREntry {
 								submit: submit
 							}
 						});
-						frappe.show_alert({ message: submit ? 'Submitted successfully' : 'Saved successfully', indicator: 'green' });
-						fetchData(); // Refresh to get updated statuses
+
+						if (res.message) {
+							const result = res.message;
+							const saved = Array.isArray(result) ? result : (result.saved_names || []);
+							const errors = Array.isArray(result) ? [] : (result.errors || []);
+
+							if (saved.length) {
+								frappe.show_alert({
+									message: __('{0} DPRs {1} successfully', [saved.length, submit ? 'submitted' : 'saved']),
+									indicator: 'green'
+								});
+							}
+
+							if (errors.length) {
+								frappe.msgprint({
+									title: __('Some DPRs failed'),
+									message: errors.join('<br>'),
+									indicator: 'orange'
+								});
+							}
+
+							fetchData(currentPage.value);
+						}
 					} catch (e) {
-						frappe.msgprint(__('Error processing DPRs'));
 						console.error(e);
 					} finally {
 						loading.value = false;
@@ -227,12 +410,81 @@ class BulkDPREntry {
 					});
 				};
 
+				const cancelSelected = async () => {
+					const selected = rows.value.filter(r => r.selected && r.docstatus === 1);
+					if (selected.length === 0) {
+						frappe.msgprint(__('Please select submitted rows to cancel.'));
+						return;
+					}
+
+					frappe.confirm(__('Are you sure you want to Cancel {0} selected DPRs?', [selected.length]), async () => {
+						loading.value = true;
+						try {
+							await frappe.call({
+								method: 'construction_management.construction_management.page.bulk_dpr_entry.bulk_dpr_entry.cancel_bulk_dpr',
+								args: { names: selected.map(r => r.name) }
+							});
+							frappe.show_alert({ message: __('DPRs cancelled successfully'), indicator: 'green' });
+							fetchData(currentPage.value);
+						} catch (e) {
+							console.error(e);
+						} finally {
+							loading.value = false;
+						}
+					});
+				};
+
 				watch(project, () => {
+					if (!project.value) {
+						rows.value = [];
+						totalRows.value = 0;
+						masterData.value = {
+							boq_items: [],
+							sites: [],
+							employees: [],
+							materials: [],
+							assets: [],
+							overhead_accounts: []
+						};
+						return;
+					}
 					fetchData();
-					me.page.set_title_sub(project.value);
+				});
+				
+				watch(date, () => {
+					if (project.value) {
+						fetchData(1);
+					}
 				});
 
 				onMounted(() => {
+					// Initialize Company Link Field
+					const $companyWrapper = me.wrapper.find('#company-field-wrapper');
+					if ($companyWrapper.length) {
+						me.companyField = frappe.ui.form.make_control({
+							parent: $companyWrapper,
+							df: {
+								label: 'Company',
+								fieldname: 'company',
+								fieldtype: 'Link',
+								options: 'Company',
+								placeholder: 'Select Company',
+								change: async () => {
+									company.value = me.companyField.get_value();
+									project.value = '';
+									if (me.projectField) {
+										me.projectField.set_value('');
+									}
+								}
+							},
+							render_input: true
+						});
+
+						if (company.value) {
+							me.companyField.set_value(company.value);
+						}
+					}
+
 					// Initialize Project Link Field
 					const $wrapper = me.wrapper.find('#project-field-wrapper');
 					if ($wrapper.length) {
@@ -247,7 +499,8 @@ class BulkDPREntry {
 								get_query: function () {
 									return {
 										filters: {
-											enable_progressive_boq: 1
+											enable_progressive_boq: 1,
+											...(company.value ? { company: company.value } : {})
 										}
 									};
 								},
@@ -263,137 +516,305 @@ class BulkDPREntry {
 						}
 					}
 
-					if (project.value) fetchData();
+					if (project.value && !company.value) {
+						frappe.db.get_value('Project', project.value, 'company').then(r => {
+							const projectCompany = r.message?.company;
+							if (projectCompany) {
+								company.value = projectCompany;
+								if (me.companyField) {
+									me.companyField.set_value(projectCompany);
+								}
+							}
+							fetchData();
+						});
+					} else if (project.value) {
+						fetchData();
+					}
 
 					// Setup Page Actions
 					me.page.set_primary_action('Save', () => save(false));
 					me.page.add_inner_button('Submit Selected', submitSelected);
+					me.page.add_inner_button('Cancel Selected', cancelSelected);
 				});
 
 				return {
+					company,
 					project,
 					date,
 					loading,
 					rows,
+					paginatedRows,
+					currentPage,
+					totalPages,
+					totalRows,
+					pageSize,
+					pageSizeOptions,
+					summaryTotals,
 					masterData,
 					boqItemsMap,
 					computedMaterialOptions,
 					getAvailableBalance,
 					allSelected,
 					hasSelection,
+					hasDraftSelection,
+					hasSubmittedSelection,
 					addRow,
 					removeRow,
 					save,
-					submitSelected
+					fetchData,
+					submitSelected,
+					cancelSelected,
+					changePageSize
 				};
 			},
 			template: `
 				<div class="bulk-dpr-app">
-					<div class="filters mb-3">
-							<div class="row">
-							<div class="col-md-4">
-								<div id="project-field-wrapper" style="height: 38px;"></div>
-							</div>
-							<div class="col-md-3">
-								<label>Date</label>
-								<input type="date" class="form-control" v-model="date" @change="fetchData">
-							</div>
-                            <div class="col-md-5 text-right pt-4">
-                                <!-- Actions moved to page menu, but can keep some here if needed -->
-                            </div>
+					<style>
+						.bulk-dpr-app { background: #f8fafc; padding: 20px; border-radius: 12px; }
+						.filters-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); margin-bottom: 24px; }
+						.dpr-table-container { background: white; border-radius: 12px; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); overflow: hidden; }
+						.table th { background: #f1f5f9; color: #475569; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; padding: 12px 16px; border: none; }
+						.table td { padding: 16px; vertical-align: top; border-color: #f1f5f9; }
+						.form-control { border-radius: 6px; border: 1px solid #e2e8f0; transition: all 0.2s; }
+						.compact-link .control-label { display: none !important; }
+						.compact-link .control-input input { height: 32px; padding: 4px 8px; }
+						.compact-link .control-input { min-height: 32px; }
+						.compact-date { height: 32px; padding: 4px 8px; }
+						.form-control:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1); }
+						.btn-primary-modern { background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; border: none; box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.4); }
+						.btn-secondary-modern { background: white; color: #475569; border: 1px solid #e2e8f0; }
+						.badge-primary { background: #e0e7ff; color: #4338ca; border-radius: 4px; padding: 4px 8px; font-weight: 500; }
+						.cost-card { background: #f8fafc; border-radius: 8px; padding: 10px; font-size: 12px; line-height: 1.6; }
+						.cost-label { color: #64748b; margin-right: 4px; }
+						.cost-value { color: #1e293b; font-weight: 500; }
+						.cost-total { border-top: 1px solid #e2e8f0; margin-top: 6px; padding-top: 6px; font-weight: 600; color: #4f46e5; }
+						.table-success td { background-color: #f0fdf4 !important; }
+						.table-secondary td { background-color: #f8fafc !important; }
+						.pagination-controls { padding: 16px 24px; background: #f8fafc; border-top: 1px solid #f1f5f9; }
+						.boq-select-wrapper { position: relative; }
+						.boq-select-wrapper select { appearance: none; padding-right: 30px; }
+						.boq-select-wrapper::after { content: '\u25BC'; position: absolute; right: 10px; top: 12px; font-size: 10px; color: #94a3b8; pointer-events: none; }
+						.site-area-scroll { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+						.site-area-scroll .form-control { min-width: 140px; }
+						.site-area-scroll .area-input { min-width: 90px; max-width: 120px; }
+						.cost-remarks-stack { display: flex; flex-direction: column; gap: 8px; }
+						.footer-totals { background: #f8fafc; }
+						.footer-totals tr:first-child td { border-top: 2px solid #e2e8f0; }
+						.day-total-row { color: #4f46e5; font-size: 14px; }
+						.page-total-row { color: #64748b; font-size: 12px; }
+						.dpr-table-container { overflow-x: auto; }
+						.table { min-width: 980px; }
+						@media (max-width: 992px) {
+							.filters-card .row { gap: 8px; }
+							.filters-card .col-md-2,
+							.filters-card .col-md-3,
+							.filters-card .col-md-5 { flex: 0 0 100%; max-width: 100%; }
+							.filters-card .text-right { justify-content: flex-start; flex-wrap: wrap; }
+							.pagination-controls { flex-wrap: wrap; gap: 8px; }
+							.pagination-controls .d-flex { flex-wrap: wrap; gap: 8px; }
+						}
+						@media (max-width: 768px) {
+							.table { min-width: 880px; }
+							.cost-card { padding: 8px; }
+							.site-area-scroll .form-control { min-width: 120px; }
+						}
+					</style>
+
+					<div class="filters-card">
+							<div class="row align-items-end">
+								<div class="col-md-2 compact-link">
+									<div id="company-field-wrapper"></div>
+								</div>
+								<div class="col-md-3 compact-link">
+									<div id="project-field-wrapper"></div>
+								</div>
+								<div class="col-md-2">
+									<input type="date" class="form-control compact-date" v-model="date" @change="fetchData(1)">
+								</div>
+								<div class="col-md-5 text-right d-flex justify-content-end gap-2 align-items-center">
+									<button class="btn btn-secondary-modern btn-sm px-3" @click="addRow">
+										<i class="fa fa-plus mr-1"></i> Add Row
+									</button>
+									<button class="btn btn-primary-modern btn-sm px-4" @click="save(false)">
+										<i class="fa fa-save mr-1"></i> Save
+									</button>
+									<button class="btn btn-info btn-sm px-4" @click="save(true)" :disabled="!hasDraftSelection">
+										<i class="fa fa-check-circle mr-1"></i> Submit Selected
+									</button>
+									<button class="btn btn-outline-danger btn-sm px-3" @click="cancelSelected" :disabled="!hasSubmittedSelection">
+										<i class="fa fa-ban mr-1"></i> Cancel Selected
+									</button>
+								</div>
 							</div>
 					</div>
 
-                    <div v-if="loading" class="text-center p-4">Loading...</div>
+                    <div v-if="loading" class="text-center p-5">
+						<div class="spinner-border text-primary mb-3" role="status"></div>
+						<p class="text-muted">Loading data...</p>
+					</div>
 					<div v-else class="dpr-table-container">
-						<table class="table table-bordered table-striped">
+						<table class="table mb-0">
 							<thead>
 								<tr>
-                                    <th style="width: 3%" class="text-center">
+                                    <th style="width: 40px" class="text-center p-3">
                                         <input type="checkbox" v-model="allSelected">
                                     </th>
-									<th style="width: 20%">BOQ Item / Balance</th>
-									<th style="width: 12%">Site</th>
-									<th style="width: 8%">Area</th>
-									<th style="width: 18%">Employees</th>
-									<th style="width: 18%">Materials</th>
-									<th style="width: 12%">Overheads</th>
-                                    <th style="width: 12%">Remarks</th>
-									<th style="width: 3%"></th>
+									<th class="p-3 text-muted small text-uppercase" style="width: 15%;">BOQ Item</th>
+									<th class="p-3 text-muted small text-uppercase" style="width: 16%;">Site & Area</th>
+									<th class="p-3 text-muted small text-uppercase" style="width: 32%;">Labour, Materials & Overheads</th>
+									<th class="p-3 text-muted small text-uppercase" style="width: 22%;">Costs & Remarks</th>
+									<th class="p-3 text-muted small text-uppercase text-center" style="width: 8%;">Actions</th>
 								</tr>
 							</thead>
 							<tbody>
-								<tr v-for="(row, idx) in rows" :key="idx">
-                                    <td class="text-center align-middle">
+								<tr v-for="(row, idx) in paginatedRows" :key="idx" :class="{'table-success': row.docstatus == 1, 'table-secondary': row.docstatus == 2}">
+                                    <td class="text-center">
                                         <input type="checkbox" v-model="row.selected">
                                     </td>
 									<td>
-                                        <select class="form-control input-sm mb-1" v-model="row.boq_item">
-                                            <option value="">Select Item</option>
-                                            <option v-for="item in masterData.boq_items" :value="item.name">
-                                                {{ item.item_code }} - {{ item.description }}
-                                            </option>
-                                        </select>
-                                        <div class="text-muted small" v-if="row.boq_item">
-                                            Balance: {{ getAvailableBalance(row.boq_item).toFixed(2) }} {{ boqItemsMap[row.boq_item]?.unit }}
+										<div class="boq-select-wrapper mb-2">
+                                        	<select class="form-control" v-model="row.boq_item" :disabled="row.docstatus > 0">
+                                            	<option value="">Select BOQ Item</option>
+                                            	<option v-for="item in masterData.boq_items" :key="item.name" :value="item.name">
+                                                	{{ item.item_code }} - {{ item.description }}
+                                            	</option>
+                                        	</select>
+										</div>
+                                        <div class="text-muted small px-1" v-if="row.boq_item">
+                                            <i class="fa fa-info-circle mr-1"></i>
+											Balance: <strong>{{ getAvailableBalance(row.boq_item).toFixed(2) }}</strong> {{ boqItemsMap[row.boq_item]?.unit }}
                                         </div>
+										<div v-if="row.name" class="mt-2 px-1">
+											<a :href="'/app/daily-progress-record/' + row.name" target="_blank" class="badge badge-light text-primary border">
+												<i class="fa fa-link mr-1"></i>{{ row.name }}
+											</a>
+										</div>
                                     </td>
 									<td>
-                                         <select class="form-control input-sm" v-model="row.site">
-                                            <option value="">Select Site</option>
-                                            <option v-for="site in masterData.sites" :value="site.name">
-                                                {{ site.site_name }}
-                                            </option>
-                                        </select>
+										<div class="small mb-1" style="visibility: hidden;">&nbsp;</div>
+										<div class="site-area-scroll" style="display: flex;gap: 10px; flex-direction: column;">
+											 <select class="form-control" v-model="row.site" :disabled="row.docstatus > 0">
+												<option value="">Select Site</option>
+												<option v-for="site in masterData.sites" :key="site.name" :value="site.name">
+													{{ site.site_name }}
+												</option>
+											</select>
+											<div>
+											<label>Area : </label>
+											<input type="number" class="form-control text-center area-input" v-model.number="row.area_covered" step="0.01" :disabled="row.docstatus > 0" placeholder="Area">
+											</div>
+										</div>
                                     </td>
 									<td>
-                                        <input type="number" class="form-control input-sm" v-model.number="row.area_covered" step="0.01">
-                                    </td>
-									<td>
-                                        <!-- Multiselect Employees -->
-                                        <SimpleMultiselect 
-                                            :options="masterData.employees" 
-                                            v-model="row.employees"
-                                            label-field="employee_name"
-                                            value-field="name"
-                                            placeholder="Add Employees"
-                                        />
-                                    </td>
-									<td>
-                                         <!-- Multiselect Materials -->
-                                        <SimpleMultiselect 
-                                            :options="computedMaterialOptions" 
-                                            v-model="row.materials"
-                                            label-field="item_name"
-                                            value-field="name"
-                                            :with-quantity="true"
-                                             placeholder="Add Materials"
-                                        />
-                                    </td>
-									<td>
-                                        <!-- Multiselect Overheads -->
-                                        <SimpleMultiselect 
-                                            :options="masterData.overhead_accounts" 
-                                            v-model="row.overheads"
-                                            label-field="account_name"
-                                            value-field="name"
-                                            :with-quantity="true"
-                                            prompt-label="Amount"
-                                             placeholder="Add Overheads"
-                                        />
+										<div class="row">
+											<div class="col-md-12 mb-2">
+												<label class="small text-muted mb-1">Employees</label>
+												<SimpleMultiselect 
+													:options="masterData.employees" 
+													v-model="row.employees"
+													label-field="employee_name"
+													value-field="name"
+													placeholder="Add Employees"
+													:disabled="row.docstatus > 0"
+												/>
+											</div>
+											<div class="col-md-6">
+												<label class="small text-muted mb-1">Materials</label>
+												<SimpleMultiselect 
+													:options="computedMaterialOptions" 
+													v-model="row.materials"
+													label-field="display_label"
+													value-field="name"
+													:with-quantity="true"
+													:rate-field="'rate'"
+													placeholder="Add Materials"
+													:disabled="row.docstatus > 0"
+												/>
+											</div>
+											<div class="col-md-6">
+												<label class="small text-muted mb-1">Overheads</label>
+												<SimpleMultiselect 
+													:options="masterData.overhead_accounts" 
+													v-model="row.overheads"
+													label-field="account_name"
+													value-field="name"
+													:with-quantity="true"
+													prompt-label="Amount"
+													placeholder="Add Overheads"
+													:disabled="row.docstatus > 0"
+												/>
+											</div>
+										</div>
                                     </td>
                                     <td>
-                                        <textarea class="form-control input-sm" v-model="row.remarks" rows="2" placeholder="Remarks"></textarea>
+										<div class="small mb-1" style="visibility: hidden;">&nbsp;</div>
+										<div class="cost-remarks-stack" style="display: flex; flex-direction: column; gap: 8px;">
+											<div class="cost-card border">
+												<div v-if="row.labour_cost"><span class="cost-label">Labour:</span><span class="cost-value">{{ row.labour_cost.toFixed(2) }}</span></div>
+												<div v-if="row.material_cost"><span class="cost-label">Material:</span><span class="cost-value">{{ row.material_cost.toFixed(2) }}</span></div>
+												<div v-if="row.asset_cost"><span class="cost-label">Asset:</span><span class="cost-value">{{ row.asset_cost.toFixed(2) }}</span></div>
+												<div v-if="row.overhead_cost"><span class="cost-label">Overhead:</span><span class="cost-value">{{ row.overhead_cost.toFixed(2) }}</span></div>
+												<div class="cost-total" v-if="row.total_cost">Total: {{ row.total_cost.toFixed(2) }}</div>
+											</div>
+											<div>
+											<label>Remarks: </label>
+											<textarea class="form-control form-control-sm" v-model="row.remarks" rows="2" placeholder="Enter remarks..."></textarea>
+											</div>
+										</div>
                                     </td>
-									<td class="text-center align-middle">
-                                        <button class="btn btn-danger btn-xs" @click="removeRow(idx)">
-                                            X
-                                        </button>
+									<td class="text-center">
+										<div class="d-flex flex-column gap-2 align-items-center">
+											<a v-if="row.name" :href="'/app/daily-progress-record/' + row.name" target="_blank" class="btn btn-outline-secondary btn-sm" title="View Detail">
+												<i class="fa fa-external-link"></i>
+											</a>
+                                        	<button v-if="row.docstatus === 0 || !row.name" class="btn btn-outline-danger btn-sm" @click="removeRow(idx)" title="Delete">
+                                            	<i class="fa fa-trash"></i>
+                                        	</button>
+										</div>
                                     </td>
 								</tr>
 							</tbody>
+							<tfoot class="footer-totals">
+								<tr class="day-total-row">
+									<td colspan="6" class="p-3">
+										<div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+											<div class="font-weight-bold">Day Totals (All Pages):</div>
+											<div class="text-muted small">
+												L: <span class="cost-value">{{ (masterData.day_totals?.labour_cost || 0).toFixed(2) }}</span>
+												| M: <span class="cost-value">{{ (masterData.day_totals?.material_cost || 0).toFixed(2) }}</span>
+												| O: <span class="cost-value">{{ (masterData.day_totals?.overhead_cost || 0).toFixed(2) }}</span>
+												| Total: <span class="cost-total">{{ (masterData.day_totals?.total_cost || 0).toFixed(2) }}</span>
+											</div>
+											<div class="text-muted small">
+												Page Totals: L {{ summaryTotals.labour.toFixed(2) }} | M {{ summaryTotals.material.toFixed(2) }} | O {{ summaryTotals.overhead.toFixed(2) }} | Total {{ summaryTotals.total.toFixed(2) }}
+											</div>
+										</div>
+									</td>
+								</tr>
+							</tfoot>
 						</table>
-			<button class="btn btn-secondary btn-sm" @click="addRow">Add Row</button>
+						
+						<!-- Pagination -->
+						<div class="pagination-controls d-flex justify-content-between align-items-center">
+							<div class="text-muted small">
+								Showing <strong>{{ paginatedRows.length }}</strong> of <strong>{{ totalRows }}</strong> records
+							</div>
+							<div class="d-flex align-items-center gap-3">
+								<div class="d-flex align-items-center">
+									<span class="text-muted small mr-2">Page size</span>
+									<select class="form-control form-control-sm" v-model.number="pageSize" @change="changePageSize">
+										<option v-for="size in pageSizeOptions" :key="size" :value="size">{{ size }}</option>
+									</select>
+								</div>
+								<button class="btn btn-secondary-modern btn-sm px-3" :disabled="currentPage == 1" @click="changePage(currentPage - 1)">
+									<i class="fa fa-chevron-left mr-1"></i> Previous
+								</button>
+								<span class="font-weight-bold small">Page {{ currentPage }} of {{ totalPages }}</span>
+								<button class="btn btn-secondary-modern btn-sm px-3" :disabled="currentPage == totalPages" @click="changePage(currentPage + 1)">
+									Next <i class="fa fa-chevron-right ml-1"></i>
+								</button>
+							</div>
+						</div>
 					</div>
 				</div>
 			`
@@ -401,7 +822,7 @@ class BulkDPREntry {
 
 		// Simple Multiselect Component
 		const SimpleMultiselect = {
-			props: ['options', 'modelValue', 'labelField', 'valueField', 'placeholder', 'withQuantity', 'promptLabel'],
+			props: ['options', 'modelValue', 'labelField', 'valueField', 'placeholder', 'withQuantity', 'promptLabel', 'rateField', 'disabled'],
 			emits: ['update:modelValue'],
 			setup(props, { emit }) {
 				const isOpen = ref(false);
@@ -420,23 +841,21 @@ class BulkDPREntry {
 				});
 
 				const selectedItems = computed(() => {
-					if (props.withQuantity) {
-						// Model value is array of objects
-						return (props.modelValue || []).map(item => {
-							// Find updated info from options if needed, but item has qty
-							const opt = props.options.find(o => o[props.valueField] === item[props.valueField]);
-							return {
-								...item,
-								[props.labelField]: opt ? opt[props.labelField] : (item[props.labelField] || item[props.valueField])
-							};
-						});
-					}
-					return (props.modelValue || []).map(val => {
-						return props.options.find(opt => opt[props.valueField] === val) || { [props.labelField]: val };
+					const model = props.modelValue || [];
+					return model.map(item => {
+						const val = typeof item === 'object' ? item[props.valueField] : item;
+						const opt = props.options.find(o => o[props.valueField] === val);
+						return {
+							...item,
+							[props.valueField]: val,
+							[props.labelField]: opt ? opt[props.labelField] : (item[props.labelField] || val),
+							qty: item.qty || (item.hours !== undefined ? item.hours : null)
+						};
 					});
 				});
 
 				const toggle = () => {
+					if (props.disabled) return;
 					isOpen.value = !isOpen.value;
 					if (isOpen.value) {
 						searchQuery.value = '';
@@ -462,91 +881,119 @@ class BulkDPREntry {
 				});
 
 				const select = (opt) => {
-					const current = [...(props.modelValue || [])];
+					const current = [...(props.modelValue || [])].map(i => typeof i === 'object' ? i : { [props.valueField]: i });
 
-					if (props.withQuantity) {
-						// Check if already selected?
-						if (current.some(i => i[props.valueField] === opt[props.valueField])) {
-							frappe.msgprint("Item already added. Please remove to edit.");
-							return;
-						}
+					if (current.some(i => i[props.valueField] === opt[props.valueField])) {
+						frappe.msgprint("Already added.");
+						return;
+					}
 
-						// Close dropdown immediately
-						isOpen.value = false;
+					isOpen.value = false;
 
-						const label = props.promptLabel || 'Quantity';
+					if (props.withQuantity || opt.rate_per_day !== undefined) {
+						const isEmployee = opt.rate_per_day !== undefined;
+						const label = isEmployee ? 'Hours' : (props.promptLabel || 'Quantity');
+						const defaultValue = isEmployee ? 8 : 1;
 
-						frappe.prompt({
-							label: label,
-							fieldname: 'qty',
-							fieldtype: 'Float',
-							reqd: 1,
-							default: 1
-						}, (values) => {
-							const parsedQty = parseFloat(values.qty);
-							if (isNaN(parsedQty) || parsedQty <= 0) {
+						const fields = [
+							{
+								label: label,
+								fieldname: 'val',
+								fieldtype: 'Float',
+								reqd: 1,
+								default: defaultValue
+							},
+							{
+								label: 'Remarks/Description',
+								fieldname: 'remark',
+								fieldtype: 'Small Text'
+							}
+						];
+
+						frappe.prompt(fields, (values) => {
+							const parsedVal = parseFloat(values.val);
+							if (isNaN(parsedVal) || parsedVal <= 0) {
 								frappe.msgprint("Invalid value");
 								return;
 							}
 
-							current.push({
-								[props.valueField]: opt[props.valueField],
-								[props.labelField]: opt[props.labelField],
-								qty: parsedQty, // We keep 'qty' as internal key for simplicity, or we could make it dynamic but mapping is easier
-								amount: parsedQty // Duplicate to amount if it's overhead
-							});
+							const newItem = {
+								[props.valueField]: opt[props.valueField]
+							};
+
+							if (isEmployee) {
+								newItem.employee = opt[props.valueField];
+								newItem.name = opt[props.valueField]; // for multiselect
+								newItem.hours = parsedVal;
+								newItem.rate_per_day = opt.rate_per_day;
+								newItem.amount = opt.rate_per_day * (parsedVal / 8);
+								newItem.remarks = values.remark || "";
+							} else if (opt.valuation_rate !== undefined) {
+								// Material
+								newItem.item_code = opt[props.valueField];
+								newItem.name = opt[props.valueField]; // for multiselect
+								newItem.qty = parsedVal;
+								newItem.rate = opt.valuation_rate || 0;
+								newItem.amount = newItem.rate * parsedVal;
+								newItem.description = values.remark || "";
+							} else {
+								// Overhead
+								newItem.account = opt[props.valueField];
+								newItem.name = opt[props.valueField]; // for multiselect
+								newItem.amount = parsedVal;
+								newItem.description = values.remark || "";
+							}
+
+							current.push(newItem);
 							emit('update:modelValue', current);
-						}, `Enter ${label} for ${opt[props.labelField]}`, 'Add');
+						}, `Enter Details for ${opt[props.labelField]}`, 'Add');
 
 						return;
 					}
 
-					const val = opt[props.valueField];
-					if (!current.includes(val)) {
-						current.push(val);
-					}
+					current.push({ [props.valueField]: opt[props.valueField] });
 					emit('update:modelValue', current);
-					isOpen.value = false;
 				};
 
 				const remove = (val) => {
-					if (props.withQuantity) {
-						const current = (props.modelValue || []).filter(v => v[props.valueField] !== val);
-						emit('update:modelValue', current);
-					} else {
-						const current = (props.modelValue || []).filter(v => v !== val);
-						emit('update:modelValue', current);
-					}
+					const current = (props.modelValue || []).filter(v => {
+						const vVal = typeof v === 'object' ? v[props.valueField] : v;
+						return vVal !== val;
+					});
+					emit('update:modelValue', current);
 				};
 
 				return { isOpen, selectedItems, toggle, select, remove, searchQuery, filteredOptions, searchInput, rootEl };
 			},
 			template: `
 				<div class="simple-multiselect position-relative" ref="rootEl">
-					<div class="multiselect-input form-control input-sm" @click="toggle" style="height: auto; min-height: 30px; cursor: pointer;">
+					<div class="multiselect-input form-control input-sm" @click="toggle" :class="{'bg-light': disabled}" style="height: auto; min-height: 30px; cursor: pointer;">
                         <span v-if="!selectedItems.length" class="text-muted">{{ placeholder }}</span>
                         <div v-else class="selected-tags d-flex flex-wrap gap-1">
-                            <span v-for="item in selectedItems" :key="item[valueField]" class="badge badge-primary" style="white-space: normal; text-align: left;">
+                            <span v-for="item in selectedItems" :key="item[valueField]" class="badge badge-primary p-1" style="white-space: normal; text-align: left; font-weight: normal;">
                                 {{ item[labelField] }}
-                                <span v-if="item.qty" class="ml-1 font-weight-bold">({{ item.qty }})</span>
-                                <span class="ml-1 cursor-pointer" @click.stop="remove(item[valueField] || item)">&times;</span>
+                                <span v-if="item.qty !== null" class="ml-1 font-weight-bold">({{ item.qty }})</span>
+                                <span v-if="!disabled" class="ml-1 cursor-pointer font-weight-bold" @click.stop="remove(item[valueField])">&times;</span>
                             </span>
                         </div>
                     </div>
-			<div v-if="isOpen" class="multiselect-dropdown position-absolute bg-white border shadow-sm" style="z-index: 1000; width: 100%; max-height: 300px; overflow-y: auto;">
-                <div class="p-2 border-bottom sticky-top bg-white">
-                    <input type="text" class="form-control input-sm" v-model="searchQuery" placeholder="Search..." ref="searchInput" @click.stop>
-                </div>
-				<div v-for="opt in filteredOptions" :key="opt[valueField]"
-				class="dropdown-item p-2 cursor-pointer hover-bg-light border-bottom" style="white-space: normal; word-break: break-word;"
-                            @click="select(opt)">
-				{{ opt[labelField] }}
-                <span v-if="opt.balance !== undefined" class="text-muted small ml-1">
-                    (Avail: {{ opt.balance }} {{ opt.stock_uom }})
-                </span>
-			</div>
-                <div v-if="filteredOptions.length === 0" class="p-2 text-muted text-center small">No matches found</div>
-                    </div>
+					<div v-if="isOpen" class="multiselect-dropdown position-absolute bg-white border shadow-sm" style="z-index: 1000; width: 100%; max-height: 300px; overflow-y: auto;">
+						<div class="p-2 border-bottom sticky-top bg-white">
+							<input type="text" class="form-control input-sm" v-model="searchQuery" placeholder="Search..." ref="searchInput" @click.stop>
+						</div>
+						<div v-for="opt in filteredOptions" :key="opt[valueField]"
+						class="dropdown-item p-2 cursor-pointer hover-bg-light border-bottom" style="white-space: normal; word-break: break-word;"
+									@click="select(opt)">
+							{{ opt[labelField] }}
+							<span v-if="opt.balance !== undefined" class="text-muted small ml-1">
+								(Avail: {{ opt.balance }} {{ opt.stock_uom }})
+							</span>
+							<span v-if="opt.rate_per_day" class="text-muted small ml-1">
+								(Rate: {{ opt.rate_per_day.toFixed(2) }})
+							</span>
+						</div>
+						<div v-if="filteredOptions.length === 0" class="p-2 text-muted text-center small">No matches found</div>
+					</div>
                 </div>
 			`
 		};

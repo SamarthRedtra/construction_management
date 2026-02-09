@@ -432,6 +432,7 @@ def _create_dpr_internal(
 	
 	# Create DPR
 	dpr = frappe.new_doc("Daily Progress Record")
+	dpr.naming_series = "DPR-.YYYY.-"
 	dpr.project = project
 	dpr.boq_item = boq_item
 	dpr.bill_no = bill_no or frappe.db.get_value("BOQ Item", boq_item, "parent_bill")
@@ -450,10 +451,12 @@ def _create_dpr_internal(
 	dpr.overhead_cost = overhead_cost
 	dpr.remarks = remarks
 	
-	# Additional fields for enhanced tracking
-	if area_covered: dpr.area_covered = flt(area_covered)
-	if consumed_qty: dpr.consumed_qty = flt(consumed_qty)
-	if balance_qty: dpr.balance_qty = flt(balance_qty)
+	# Additional fields for enhanced tracking (if they exist)
+	for field in ["area_covered", "consumed_qty", "balance_qty"]:
+		if hasattr(dpr, field):
+			val = locals().get(field)
+			if val:
+				setattr(dpr, field, flt(val))
 	
 	# Add employees
 	for emp in employees:
