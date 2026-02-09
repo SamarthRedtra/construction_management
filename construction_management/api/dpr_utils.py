@@ -309,6 +309,9 @@ def get_project_dprs(project: str = None, from_date: str = None, to_date: str = 
 		conditions.append("dpr.date <= %(to_date)s")
 		values["to_date"] = to_date
 		
+	# Exclude cancelled DPRs
+	conditions.append("dpr.docstatus != 2")
+
 	where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
 	
 	dprs = frappe.db.sql(f"""
