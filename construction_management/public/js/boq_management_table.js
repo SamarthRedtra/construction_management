@@ -28,7 +28,7 @@ function render_boq_management_table(container, frm, bills) {
 	let html = '<div class="boq-management-table-container">';
 	html += `
 		<div class="boq-management-topbar">
-			<a class="variance-report-link" href="#" onclick="frappe.set_route('query-report', 'Sales Order Analysis'); return false;">
+			<a class="variance-report-link" href="#" onclick="frappe.set_route('query-report', 'Project Sales Order Analysis'); return false;">
 				View Variance Balance Report
 				<svg class="variance-report-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
 					<path d="M14 3h7v7"></path>
