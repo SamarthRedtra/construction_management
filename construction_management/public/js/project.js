@@ -4615,7 +4615,7 @@ window.show_dpr_dialog_enhanced = function (project, is_bulk = false) {
 };
 
 window.create_dpr_bulk = function (project) {
-	frappe.set_route('page', 'bulk-dpr-entry', { project: project });
+	frappe.set_route('desk', 'bulk-dpr-entry', { project: project });
 };
 
 
