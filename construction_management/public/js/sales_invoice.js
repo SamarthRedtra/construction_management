@@ -54,6 +54,28 @@ frappe.ui.form.on('Sales Invoice', {
 	}
 });
 
+frappe.ui.form.on('Sales Invoice Item', {
+	items_add: function (frm, cdt, cdn) {
+		recalculate_deductions(frm);
+	},
+
+	items_remove: function (frm, cdt, cdn) {
+		recalculate_deductions(frm);
+	},
+
+	qty: function (frm, cdt, cdn) {
+		recalculate_deductions(frm);
+	},
+
+	rate: function (frm, cdt, cdn) {
+		recalculate_deductions(frm);
+	},
+
+	amount: function (frm, cdt, cdn) {
+		recalculate_deductions(frm);
+	}
+});
+
 function pull_retention(frm) {
 	if (!frm.doc.project) {
 		frappe.msgprint(__('Please select a Project first'));
@@ -207,4 +229,92 @@ function calculate_advance_amount(frm) {
 					});
 			}
 		});
+}
+
+function recalculate_deductions(frm) {
+	// Only recalculate if we have a project and the document is in draft
+	// Skip if this is an advance invoice or from payment certificate/proforma
+	if (!frm.doc.project || frm.doc.docstatus !== 0 ||
+		frm.doc.custom_is_advanced || frm.doc.custom_payment_certificate ||
+		frm.doc.custom_proforma_invoice || frm.doc.custom_is_proforma) {
+		return;
+	}
+
+	// Call server API to get deduction details
+	frappe.call({
+		method: 'construction_management.construction_management.api.boq_invoice.get_deduction_details',
+		args: {
+			project: frm.doc.project,
+			items: frm.doc.items,
+			invoice_name: frm.doc.name
+		},
+		callback: function (r) {
+			if (!r.message || !r.message.enable_progressive_boq) {
+				return; // Progressive BOQ not enabled
+			}
+
+			const retention_percentage = flt(r.message.retention_percentage);
+			const suggested_retention = flt(r.message.suggested_retention);
+			const suggested_advance = flt(r.message.suggested_advance);
+
+			// Update or create retention deduction
+			if (suggested_retention > 0) {
+				let retention_row = (frm.doc.items || []).find(i => i.item_code === 'RETENTION-DEDUCTION');
+
+				if (retention_row) {
+					// Update existing row
+					frappe.model.set_value(retention_row.doctype, retention_row.name, 'rate', -suggested_retention);
+					frappe.model.set_value(retention_row.doctype, retention_row.name, 'amount', -suggested_retention);
+					frappe.model.set_value(retention_row.doctype, retention_row.name, 'description', `Retention deduction (${retention_percentage}%)`);
+				} else {
+					// Create new row
+					const new_row = frm.add_child('items');
+					frappe.model.set_value(new_row.doctype, new_row.name, {
+						'item_code': 'RETENTION-DEDUCTION',
+						'qty': 1,
+						'rate': -suggested_retention,
+						'amount': -suggested_retention,
+						'description': `Retention deduction (${retention_percentage}%)`,
+						'project': frm.doc.project
+					});
+				}
+			} else {
+				// Remove retention item if amount is 0
+				const retention_row = (frm.doc.items || []).find(i => i.item_code === 'RETENTION-DEDUCTION');
+				if (retention_row) {
+					frappe.model.clear_doc(retention_row.doctype, retention_row.name);
+				}
+			}
+
+			// Update or create advance deduction
+			if (suggested_advance > 0) {
+				let advance_row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
+
+				if (advance_row) {
+					// Update existing row
+					frappe.model.set_value(advance_row.doctype, advance_row.name, 'rate', -suggested_advance);
+					frappe.model.set_value(advance_row.doctype, advance_row.name, 'amount', -suggested_advance);
+				} else {
+					// Create new row
+					const new_row = frm.add_child('items');
+					frappe.model.set_value(new_row.doctype, new_row.name, {
+						'item_code': 'ADVANCE-DEDUCTION',
+						'qty': 1,
+						'rate': -suggested_advance,
+						'amount': -suggested_advance,
+						'description': __('Deduction from advance payment'),
+						'project': frm.doc.project
+					});
+				}
+			} else {
+				// Remove advance item if amount is 0
+				const advance_row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
+				if (advance_row) {
+					frappe.model.clear_doc(advance_row.doctype, advance_row.name);
+				}
+			}
+
+			frm.refresh_field('items');
+		}
+	});
 }
