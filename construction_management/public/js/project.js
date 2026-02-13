@@ -388,6 +388,7 @@ function render_kpi_grid(container, kpi, progress, collectionRate) {
 	const margin = (kpi.total_billed || 0) - totalCost;
 	const advanceCollected = kpi.advance_collected || 0;
 	const invoiceCollected = kpi.invoice_collected || 0;
+	const retentionPending = kpi.retention_balance || 0;
 
 	container.html(`
 		<div class="kpi-card kpi-primary">
@@ -425,6 +426,14 @@ function render_kpi_grid(container, kpi, progress, collectionRate) {
 				<span class="kpi-label">Total Expenses</span>
 				<span class="kpi-value">${format_currency(totalCost)}</span>
 				<span class="kpi-sub">Margin: ${format_currency(margin)}</span>
+			</div>
+		</div>
+		<div class="kpi-card kpi-secondary" data-retention="${retentionPending}" title="${__('Retention pending to bill / release')}">
+			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
+			<div class="kpi-content">
+				<span class="kpi-label">Retention Pending</span>
+				<span class="kpi-value">${format_currency(retentionPending)}</span>
+				<span class="kpi-sub">${__('To bill / release')}</span>
 			</div>
 		</div>
 	`);
@@ -487,6 +496,10 @@ function render_action_bar(container, frm) {
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
 				Record Advance
 			</button>
+			<button class="btn-modern btn-outline" onclick="release_retention_payment('${frm.doc.name}')" title="${__('Raise retention release Sales Invoice')}">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+				Release Retention
+			</button>
 			` : ''}
 			<button class="btn-modern btn-outline" onclick="view_payment_certificates('${frm.doc.name}')">
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
@@ -522,6 +535,10 @@ function render_action_bar(container, frm) {
 				Upload Template
 			</button>
 			` : ''}
+			<button class="btn-modern btn-outline" style="background: linear-gradient(135deg, #059669 0%, #047857 100%); color: white; border: none;" onclick="create_project_closure('${frm.doc.name}')">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+				Project Closure
+			</button>
 		</div>
 	`);
 }
@@ -819,6 +836,10 @@ function format_number(value) {
 }
 
 // Global functions
+window.create_project_closure = function (project) {
+	frappe.new_doc('Project Closure', { project: project });
+};
+
 window.create_project_boq = function (project) {
 	const d = new frappe.ui.Dialog({
 		title: 'Create Project BOQ',
@@ -3032,79 +3053,36 @@ window.print_monthly_invoice = function (project) {
 };
 
 window.record_advance_payment = function (project) {
-	const d = new frappe.ui.Dialog({
-		title: 'Record Advance Payment',
-		fields: [
-			{
-				fieldname: 'bill_no',
-				label: 'Bill No',
-				fieldtype: 'Link',
-				options: 'BOQ Bill',
-				get_query: function () {
-					return {
-						filters: {
-							project: project
-						}
-					};
-				},
-				description: 'Optional: Link advance to a specific bill'
-			},
-			{
-				fieldname: 'boq_item',
-				label: 'BOQ Item',
-				fieldtype: 'Link',
-				options: 'BOQ Item',
-				depends_on: 'bill_no',
-				get_query: function () {
-					return {
-						filters: {
-							parent_bill: d.get_value('bill_no')
-						}
-					};
-				},
-				description: 'Optional: Link advance to a specific BOQ item'
-			},
-			{ fieldtype: 'Section Break' },
-			{ fieldname: 'amount', label: 'Amount', fieldtype: 'Currency', reqd: 1 },
-			{ fieldname: 'date', label: 'Date', fieldtype: 'Date', default: frappe.datetime.get_today(), reqd: 1 },
-			{ fieldtype: 'Column Break' },
-			{ fieldname: 'reference', label: 'Reference', fieldtype: 'Data', description: 'Payment reference or receipt number' },
-			{ fieldname: 'remarks', label: 'Remarks', fieldtype: 'Small Text' }
-		],
-		primary_action_label: 'Record',
-		primary_action(values) {
-			frappe.call({
-				method: 'frappe.client.insert',
-				args: {
-					doc: {
-						doctype: 'BOQ Advance Payment',
-						project: project,
-						bill_no: values.bill_no || null,
-						boq_item: values.boq_item || null,
-						amount: values.amount,
-						date: values.date,
-						reference: values.reference,
-						remarks: values.remarks
-					}
-				},
-				callback: function (r) {
-					if (r.message) {
-						d.hide();
-						frappe.show_alert({ message: __('Advance payment recorded'), indicator: 'green' });
-						// Submit the advance payment
-						frappe.call({
-							method: 'frappe.client.submit',
-							args: { doc: r.message },
-							callback: function () {
-								cur_frm.reload_doc();
-							}
-						});
-					}
-				}
-			});
+	// Redirect to Sales Invoice with is_advance ticked, project and advance item populated
+	frappe.call({
+		method: 'construction_management.api.project_closure_api.prepare_advance_sales_invoice',
+		args: { project: project },
+		callback: function (r) {
+			if (r.message && r.message.invoice_name) {
+				frappe.set_route('Form', 'Sales Invoice', r.message.invoice_name);
+			} else if (r.message && r.message.error) {
+				frappe.msgprint(r.message.error);
+			}
 		}
 	});
-	d.show();
+};
+
+window.release_retention_payment = function (project) {
+	// Create retention release Sales Invoice and redirect
+	frappe.call({
+		method: 'construction_management.api.boq_invoice.release_retention',
+		args: { project: project },
+		callback: function (r) {
+			if (r.message && r.message.invoice) {
+				frappe.set_route('Form', 'Sales Invoice', r.message.invoice);
+				if (cur_frm) cur_frm.reload_doc();
+			} else if (r.message && r.message.error) {
+				frappe.msgprint(r.message.error);
+			} else if (r.exc) {
+				frappe.msgprint(__('Failed to create retention release invoice'));
+			}
+		}
+	});
 };
 
 // ============================================
@@ -3449,6 +3427,7 @@ function get_modern_styles() {
 		.kpi-info .kpi-icon { background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); color: #2563eb; }
 		.kpi-success .kpi-icon { background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%); color: #059669; }
 		.kpi-warning .kpi-icon { background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); color: #d97706; }
+		.kpi-secondary .kpi-icon { background: linear-gradient(135deg, #e5e7eb 0%, #d1d5db 100%); color: #4b5563; }
 		.kpi-content { flex: 1; min-width: 0; }
 		.kpi-label { display: block; font-size: 12px; color: #6b7280; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
 		.kpi-value { display: block; font-size: 22px; font-weight: 700; color: #1f2937; line-height: 1.2; }

@@ -1,0 +1,233 @@
+{% set d = doc %}
+<style>
+	.pcr-report {
+		font-family: Arial, sans-serif;
+		font-size: 12px;
+		color: #333;
+		max-width: 800px;
+		margin: 0 auto;
+	}
+	.pcr-title {
+		text-align: center;
+		font-size: 18px;
+		font-weight: bold;
+		margin-bottom: 20px;
+		text-transform: uppercase;
+		border-bottom: 2px solid #333;
+		padding-bottom: 10px;
+	}
+	.pcr-header-table {
+		width: 100%;
+		border-collapse: collapse;
+		margin-bottom: 20px;
+	}
+	.pcr-header-table td {
+		padding: 6px 10px;
+		border: 1px solid #999;
+		vertical-align: top;
+	}
+	.pcr-header-table .label-cell {
+		font-weight: bold;
+		background-color: #f5f5f5;
+		width: 30%;
+	}
+	.pcr-services-table {
+		width: 100%;
+		border-collapse: collapse;
+		margin-bottom: 15px;
+	}
+	.pcr-services-table th {
+		background-color: #e8e8e8;
+		font-weight: bold;
+		padding: 8px 10px;
+		border: 1px solid #999;
+		text-align: center;
+	}
+	.pcr-services-table td {
+		padding: 6px 10px;
+		border: 1px solid #999;
+	}
+	.pcr-services-table .num {
+		text-align: right;
+	}
+	.pcr-services-table .center {
+		text-align: center;
+	}
+	.pcr-subtotal-row td {
+		font-weight: bold;
+		background-color: #f0f0f0;
+	}
+	.pcr-financial-table {
+		width: 100%;
+		border-collapse: collapse;
+		margin-bottom: 20px;
+	}
+	.pcr-financial-table td {
+		padding: 8px 10px;
+		border: 1px solid #999;
+	}
+	.pcr-financial-table .label-cell {
+		font-weight: bold;
+		background-color: #f5f5f5;
+		width: 50%;
+	}
+	.pcr-financial-table .amount-cell {
+		text-align: right;
+		width: 50%;
+	}
+	.pcr-financial-table .total-row td {
+		font-weight: bold;
+		font-size: 13px;
+		background-color: #e0e0e0;
+	}
+	.pcr-signatures {
+		width: 100%;
+		margin-top: 40px;
+		border-collapse: collapse;
+	}
+	.pcr-signatures td {
+		padding: 8px 10px;
+		width: 50%;
+		vertical-align: top;
+	}
+	.pcr-sig-line {
+		border-bottom: 1px solid #333;
+		height: 50px;
+		margin-bottom: 5px;
+	}
+	.pcr-sig-label {
+		font-weight: bold;
+		font-size: 11px;
+		color: #666;
+	}
+	.pcr-comments {
+		margin-top: 15px;
+		padding: 10px;
+		border: 1px solid #999;
+		min-height: 40px;
+	}
+	.pcr-comments-label {
+		font-weight: bold;
+		margin-bottom: 5px;
+	}
+</style>
+
+<div class="pcr-report">
+	<!-- Title -->
+	<div class="pcr-title">Project Completion Report</div>
+
+	<!-- Header Info -->
+	<table class="pcr-header-table">
+		<tr>
+			<td class="label-cell">Project No.</td>
+			<td>{{ d.project or '' }}</td>
+			<td class="label-cell">Closure Date</td>
+			<td>{{ frappe.format(d.closure_date, {'fieldtype': 'Date'}) if d.closure_date else '' }}</td>
+		</tr>
+		<tr>
+			<td class="label-cell">Project Name</td>
+			<td>{{ d.project_name or '' }}</td>
+			<td class="label-cell">Company</td>
+			<td>{{ d.company or '' }}</td>
+		</tr>
+		<tr>
+			<td class="label-cell">Contractor Name</td>
+			<td>{{ d.contractor_name or '' }}</td>
+			<td class="label-cell">Engg. Name</td>
+			<td>{{ d.engineer_name or '' }}</td>
+		</tr>
+	</table>
+
+	<!-- Services Table -->
+	<table class="pcr-services-table">
+		<thead>
+			<tr>
+				<th style="width: 8%;">Sr. No.</th>
+				<th style="width: 37%;">Services</th>
+				<th style="width: 15%;">Area / Qty</th>
+				<th style="width: 10%;">Unit</th>
+				<th style="width: 15%;">Unit Price</th>
+				<th style="width: 15%;">Total</th>
+			</tr>
+		</thead>
+		<tbody>
+			{% for item in d.items %}
+			<tr>
+				<td class="center">{{ item.sr_no }}</td>
+				<td>{{ item.service_description or '' }}</td>
+				<td class="num">{{ frappe.format(item.area_qty, {'fieldtype': 'Float', 'precision': 3}) }}</td>
+				<td class="center">{{ item.uom or '' }}</td>
+				<td class="num">{{ frappe.format(item.unit_price, {'fieldtype': 'Currency'}) }}</td>
+				<td class="num">{{ frappe.format(item.total_amount, {'fieldtype': 'Currency'}) }}</td>
+			</tr>
+			{% endfor %}
+			<!-- Subtotal Row -->
+			<tr class="pcr-subtotal-row">
+				<td colspan="5" style="text-align: right;">Sub-Total</td>
+				<td class="num">{{ frappe.format(d.services_subtotal, {'fieldtype': 'Currency'}) }}</td>
+			</tr>
+		</tbody>
+	</table>
+
+	<!-- Financial Summary -->
+	<table class="pcr-financial-table">
+		<tr>
+			<td class="label-cell">Labour Cost</td>
+			<td class="amount-cell">{{ frappe.format(d.labour_cost, {'fieldtype': 'Currency'}) }}</td>
+		</tr>
+		<tr>
+			<td class="label-cell">Material Cost</td>
+			<td class="amount-cell">{{ frappe.format(d.material_cost, {'fieldtype': 'Currency'}) }}</td>
+		</tr>
+		<tr>
+			<td class="label-cell">Other Cost</td>
+			<td class="amount-cell">{{ frappe.format(d.other_cost, {'fieldtype': 'Currency'}) }}</td>
+		</tr>
+		<tr class="total-row">
+			<td class="label-cell">Total Project Cost</td>
+			<td class="amount-cell">{{ frappe.format(d.total_project_cost, {'fieldtype': 'Currency'}) }}</td>
+		</tr>
+	</table>
+
+	<!-- Revenue Summary -->
+	<table class="pcr-financial-table">
+		<tr>
+			<td class="label-cell">Total BOQ Value</td>
+			<td class="amount-cell">{{ frappe.format(d.total_boq_value, {'fieldtype': 'Currency'}) }}</td>
+		</tr>
+		<tr>
+			<td class="label-cell">Total Revenue (Billed)</td>
+			<td class="amount-cell">{{ frappe.format(d.total_revenue, {'fieldtype': 'Currency'}) }}</td>
+		</tr>
+		<tr>
+			<td class="label-cell">Gross Profit</td>
+			<td class="amount-cell">{{ frappe.format(d.gross_profit, {'fieldtype': 'Currency'}) }}</td>
+		</tr>
+		<tr class="total-row">
+			<td class="label-cell">Gross Profit %</td>
+			<td class="amount-cell">{{ frappe.format(d.gross_profit_percent, {'fieldtype': 'Percent'}) }}</td>
+		</tr>
+	</table>
+
+	<!-- Comments -->
+	{% if d.comments %}
+	<div class="pcr-comments">
+		<div class="pcr-comments-label">Comments:</div>
+		{{ d.comments }}
+	</div>
+	{% endif %}
+
+	<!-- Signatures -->
+	<table class="pcr-signatures">
+		<tr>
+			<td>
+				<div class="pcr-sig-line"></div>
+				<div class="pcr-sig-label">Project Engineer{% if d.project_engineer %}: {{ d.project_engineer }}{% endif %}</div>
+			</td>
+			<td>
+				<div class="pcr-sig-line"></div>
+				<div class="pcr-sig-label">Purchase & Accounts{% if d.purchase_accounts %}: {{ d.purchase_accounts }}{% endif %}</div>
+			</td>
+		</tr>
+	</table>
+</div>

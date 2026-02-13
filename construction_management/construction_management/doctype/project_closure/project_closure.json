@@ -1,0 +1,337 @@
+{
+    "actions": [],
+    "autoname": "naming_series:",
+    "creation": "2026-02-13 18:00:00",
+    "doctype": "DocType",
+    "engine": "InnoDB",
+    "field_order": [
+        "naming_series",
+        "project",
+        "project_name",
+        "column_break_1",
+        "closure_date",
+        "status",
+        "company",
+        "section_project_info",
+        "contractor_name",
+        "engineer_name",
+        "column_break_2",
+        "project_boq",
+        "section_services",
+        "items",
+        "services_subtotal",
+        "section_financials",
+        "labour_cost",
+        "material_cost",
+        "column_break_3",
+        "other_cost",
+        "total_project_cost",
+        "section_revenue",
+        "total_boq_value",
+        "total_revenue",
+        "column_break_4",
+        "gross_profit",
+        "gross_profit_percent",
+        "section_advance_retention",
+        "retention_pending",
+        "advance_balance",
+        "column_break_ar",
+        "section_signatures",
+        "project_engineer",
+        "column_break_5",
+        "purchase_accounts",
+        "section_remarks",
+        "comments",
+        "amended_from"
+    ],
+    "fields": [
+        {
+            "fieldname": "naming_series",
+            "fieldtype": "Select",
+            "label": "Naming Series",
+            "options": "PCR-.YYYY.-",
+            "reqd": 1
+        },
+        {
+            "fieldname": "project",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "label": "Project",
+            "options": "Project",
+            "reqd": 1
+        },
+        {
+            "fetch_from": "project.project_name",
+            "fieldname": "project_name",
+            "fieldtype": "Data",
+            "label": "Project Name",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_1",
+            "fieldtype": "Column Break"
+        },
+        {
+            "default": "Today",
+            "fieldname": "closure_date",
+            "fieldtype": "Date",
+            "in_list_view": 1,
+            "label": "Closure Date",
+            "reqd": 1
+        },
+        {
+            "default": "Draft",
+            "fieldname": "status",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "label": "Status",
+            "options": "Draft\nSubmitted\nCancelled"
+        },
+        {
+            "fetch_from": "project.company",
+            "fieldname": "company",
+            "fieldtype": "Link",
+            "label": "Company",
+            "options": "Company",
+            "read_only": 1
+        },
+        {
+            "fieldname": "section_project_info",
+            "fieldtype": "Section Break",
+            "label": "Project Information"
+        },
+        {
+            "fieldname": "contractor_name",
+            "fieldtype": "Data",
+            "label": "Contractor Name"
+        },
+        {
+            "fieldname": "engineer_name",
+            "fieldtype": "Data",
+            "label": "Engineer Name"
+        },
+        {
+            "fieldname": "column_break_2",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "project_boq",
+            "fieldtype": "Link",
+            "label": "Project BOQ",
+            "options": "Project BOQ",
+            "read_only": 1
+        },
+        {
+            "fieldname": "section_services",
+            "fieldtype": "Section Break",
+            "label": "Services / Work Breakdown"
+        },
+        {
+            "fieldname": "items",
+            "fieldtype": "Table",
+            "label": "Services",
+            "options": "Project Closure Item"
+        },
+        {
+            "fieldname": "services_subtotal",
+            "fieldtype": "Currency",
+            "label": "Services Sub-Total",
+            "read_only": 1
+        },
+        {
+            "fieldname": "section_financials",
+            "fieldtype": "Section Break",
+            "label": "Cost Summary"
+        },
+        {
+            "fieldname": "labour_cost",
+            "fieldtype": "Currency",
+            "label": "Labour Cost",
+            "read_only": 1
+        },
+        {
+            "fieldname": "material_cost",
+            "fieldtype": "Currency",
+            "label": "Material Cost",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_3",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "other_cost",
+            "fieldtype": "Currency",
+            "label": "Other Cost",
+            "read_only": 1
+        },
+        {
+            "fieldname": "total_project_cost",
+            "fieldtype": "Currency",
+            "in_list_view": 1,
+            "label": "Total Project Cost",
+            "read_only": 1
+        },
+        {
+            "fieldname": "section_revenue",
+            "fieldtype": "Section Break",
+            "label": "Revenue Summary"
+        },
+        {
+            "fieldname": "total_boq_value",
+            "fieldtype": "Currency",
+            "label": "Total BOQ Value",
+            "read_only": 1
+        },
+        {
+            "fieldname": "total_revenue",
+            "fieldtype": "Currency",
+            "label": "Total Revenue (Billed)",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_4",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "gross_profit",
+            "fieldtype": "Currency",
+            "label": "Gross Profit",
+            "read_only": 1
+        },
+        {
+            "fieldname": "gross_profit_percent",
+            "fieldtype": "Percent",
+            "label": "Gross Profit %",
+            "read_only": 1
+        },
+        {
+            "fieldname": "section_advance_retention",
+            "fieldtype": "Section Break",
+            "label": "Advance & Retention"
+        },
+        {
+            "fieldname": "retention_pending",
+            "fieldtype": "Currency",
+            "label": "Retention Pending to Bill",
+            "read_only": 1
+        },
+        {
+            "fieldname": "advance_balance",
+            "fieldtype": "Currency",
+            "label": "Advance Balance",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_ar",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "section_signatures",
+            "fieldtype": "Section Break",
+            "label": "Signatures"
+        },
+        {
+            "fieldname": "project_engineer",
+            "fieldtype": "Data",
+            "label": "Project Engineer"
+        },
+        {
+            "fieldname": "column_break_5",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "purchase_accounts",
+            "fieldtype": "Data",
+            "label": "Purchase & Accounts"
+        },
+        {
+            "fieldname": "section_remarks",
+            "fieldtype": "Section Break",
+            "label": "Comments",
+            "collapsible": 1
+        },
+        {
+            "fieldname": "comments",
+            "fieldtype": "Small Text",
+            "label": "Comments"
+        },
+        {
+            "fieldname": "amended_from",
+            "fieldtype": "Link",
+            "label": "Amended From",
+            "no_copy": 1,
+            "options": "Project Closure",
+            "print_hide": 1,
+            "read_only": 1,
+            "search_index": 1
+        }
+    ],
+    "index_web_pages_for_search": 1,
+    "is_submittable": 1,
+    "links": [],
+    "modified": "2026-02-13 18:00:00",
+    "modified_by": "Administrator",
+    "module": "Construction Management",
+    "name": "Project Closure",
+    "naming_rule": "By \"Naming Series\" field",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "cancel": 1,
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "System Manager",
+            "share": 1,
+            "submit": 1,
+            "write": 1
+        },
+        {
+            "cancel": 1,
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "Project Manager",
+            "share": 1,
+            "submit": 1,
+            "write": 1
+        },
+        {
+            "create": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "Quantity Surveyor",
+            "share": 1,
+            "submit": 1,
+            "write": 1
+        },
+        {
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "Construction Manager",
+            "share": 1
+        }
+    ],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "states": [],
+    "title_field": "project_name",
+    "track_changes": 1
+}
