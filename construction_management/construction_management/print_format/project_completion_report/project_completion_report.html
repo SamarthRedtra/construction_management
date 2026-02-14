@@ -169,23 +169,65 @@
 		</tbody>
 	</table>
 
-	<!-- Financial Summary -->
+	<!-- Estimated Cost (Consolidated) -->
 	<table class="pcr-financial-table">
+		<tr><td colspan="2" class="label-cell">Estimated Cost</td></tr>
 		<tr>
-			<td class="label-cell">Labour Cost</td>
-			<td class="amount-cell">{{ frappe.format(d.labour_cost, {'fieldtype': 'Currency'}) }}</td>
+			<td class="label-cell">Est. Material</td>
+			<td class="amount-cell">{{ frappe.format(d.estimated_material_cost, {'fieldtype': 'Currency'}) }}</td>
 		</tr>
 		<tr>
-			<td class="label-cell">Material Cost</td>
-			<td class="amount-cell">{{ frappe.format(d.material_cost, {'fieldtype': 'Currency'}) }}</td>
+			<td class="label-cell">Est. Labour</td>
+			<td class="amount-cell">{{ frappe.format(d.estimated_labour_cost, {'fieldtype': 'Currency'}) }}</td>
 		</tr>
 		<tr>
-			<td class="label-cell">Other Cost</td>
-			<td class="amount-cell">{{ frappe.format(d.other_cost, {'fieldtype': 'Currency'}) }}</td>
+			<td class="label-cell">Est. Asset</td>
+			<td class="amount-cell">{{ frappe.format(d.estimated_asset_cost, {'fieldtype': 'Currency'}) }}</td>
+		</tr>
+		<tr>
+			<td class="label-cell">Est. Subcontract</td>
+			<td class="amount-cell">{{ frappe.format(d.estimated_subcontract_cost, {'fieldtype': 'Currency'}) }}</td>
+		</tr>
+		<tr>
+			<td class="label-cell">Est. Other</td>
+			<td class="amount-cell">{{ frappe.format(d.estimated_other_cost, {'fieldtype': 'Currency'}) }}</td>
 		</tr>
 		<tr class="total-row">
-			<td class="label-cell">Total Project Cost</td>
-			<td class="amount-cell">{{ frappe.format(d.total_project_cost, {'fieldtype': 'Currency'}) }}</td>
+			<td class="label-cell">Est. Total</td>
+			<td class="amount-cell">{{ frappe.format(d.total_estimated_cost, {'fieldtype': 'Currency'}) }}</td>
+		</tr>
+	</table>
+
+	<!-- Actual Cost (Consolidated) -->
+	<table class="pcr-financial-table">
+		<tr><td colspan="2" class="label-cell">Actual Cost</td></tr>
+		<tr>
+			<td class="label-cell">Material</td>
+			<td class="amount-cell">{{ frappe.format(d.actual_material_cost, {'fieldtype': 'Currency'}) }}</td>
+		</tr>
+		<tr>
+			<td class="label-cell">Labour</td>
+			<td class="amount-cell">{{ frappe.format(d.actual_labour_cost, {'fieldtype': 'Currency'}) }}</td>
+		</tr>
+		<tr>
+			<td class="label-cell">Asset</td>
+			<td class="amount-cell">{{ frappe.format(d.actual_asset_cost, {'fieldtype': 'Currency'}) }}</td>
+		</tr>
+		<tr>
+			<td class="label-cell">Subcontract</td>
+			<td class="amount-cell">{{ frappe.format(d.actual_subcontract_cost, {'fieldtype': 'Currency'}) }}</td>
+		</tr>
+		<tr>
+			<td class="label-cell">Other</td>
+			<td class="amount-cell">{{ frappe.format(d.actual_overhead_cost, {'fieldtype': 'Currency'}) }}</td>
+		</tr>
+		<tr>
+			<td class="label-cell">Expense</td>
+			<td class="amount-cell">{{ frappe.format(d.actual_expense_cost, {'fieldtype': 'Currency'}) }}</td>
+		</tr>
+		<tr class="total-row">
+			<td class="label-cell">Total Actual Cost</td>
+			<td class="amount-cell">{{ frappe.format(d.total_actual_cost, {'fieldtype': 'Currency'}) }}</td>
 		</tr>
 	</table>
 

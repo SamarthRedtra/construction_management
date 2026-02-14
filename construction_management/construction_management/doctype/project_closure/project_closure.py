@@ -26,15 +26,18 @@ class ProjectClosure(Document):
 		# Services subtotal
 		self.services_subtotal = sum(flt(item.total_amount) for item in self.items)
 
-		# Total project cost
-		self.total_project_cost = (
-			flt(self.labour_cost)
-			+ flt(self.material_cost)
-			+ flt(self.other_cost)
+		# Total actual cost (consolidated)
+		self.total_actual_cost = (
+			flt(self.actual_material_cost)
+			+ flt(self.actual_labour_cost)
+			+ flt(self.actual_asset_cost)
+			+ flt(self.actual_subcontract_cost)
+			+ flt(self.actual_overhead_cost)
+			+ flt(self.actual_expense_cost)
 		)
 
 		# Gross profit
-		self.gross_profit = flt(self.total_revenue) - flt(self.total_project_cost)
+		self.gross_profit = flt(self.total_revenue) - flt(self.total_actual_cost)
 		if flt(self.total_revenue):
 			self.gross_profit_percent = (
 				flt(self.gross_profit) / flt(self.total_revenue) * 100
@@ -77,6 +80,12 @@ def fetch_project_data(project):
 			"unit",
 			"rate",
 			"total_amount",
+			"estimated_material_cost",
+			"estimated_labour_cost",
+			"estimated_asset_cost",
+			"estimated_subcontract_cost",
+			"estimated_other_cost",
+			"total_estimated_cost",
 			"cost_to_date",
 			"labour_cost",
 			"material_cost",
@@ -93,11 +102,21 @@ def fetch_project_data(project):
 		order_by="parent_bill asc, idx asc",
 	)
 
+	# Aggregate estimated costs from BOQ items
+	total_est_material = total_est_labour = total_est_asset = total_est_subcontract = total_est_other = total_est = 0.0
+
 	items = []
 	for idx, item in enumerate(boq_items, 1):
 		bill_no = ""
 		if item.parent_bill:
 			bill_no = frappe.db.get_value("BOQ Bill", item.parent_bill, "bill_no") or ""
+
+		total_est_material += flt(item.estimated_material_cost)
+		total_est_labour += flt(item.estimated_labour_cost)
+		total_est_asset += flt(item.estimated_asset_cost)
+		total_est_subcontract += flt(item.estimated_subcontract_cost)
+		total_est_other += flt(item.estimated_other_cost)
+		total_est += flt(item.total_estimated_cost)
 
 		items.append(
 			{
@@ -110,6 +129,12 @@ def fetch_project_data(project):
 				"uom": item.unit or "",
 				"unit_price": flt(item.rate),
 				"total_amount": flt(item.total_amount),
+				"estimated_material_cost": flt(item.estimated_material_cost),
+				"estimated_labour_cost": flt(item.estimated_labour_cost),
+				"estimated_asset_cost": flt(item.estimated_asset_cost),
+				"estimated_subcontract_cost": flt(item.estimated_subcontract_cost),
+				"estimated_other_cost": flt(item.estimated_other_cost),
+				"total_estimated_cost": flt(item.total_estimated_cost),
 				"cost_to_date": flt(item.cost_to_date),
 				"labour_cost": flt(item.labour_cost),
 				"material_cost": flt(item.material_cost),
@@ -142,14 +167,6 @@ def fetch_project_data(project):
 		as_dict=True,
 	)[0]
 
-	# Other cost = asset + subcontract + expense + overhead
-	other_cost = (
-		flt(cost_data.asset_cost)
-		+ flt(cost_data.subcontract_cost)
-		+ flt(cost_data.expense_cost)
-		+ flt(cost_data.overhead_cost)
-	)
-
 	# Get revenue from BOQ Progress Ledger
 	total_revenue = (
 		frappe.db.sql(
@@ -173,10 +190,21 @@ def fetch_project_data(project):
 		"project_boq": project_boq.name if project_boq else None,
 		"total_boq_value": flt(project_boq.total_boq_value) if project_boq else 0,
 		"items": items,
-		"labour_cost": flt(cost_data.labour_cost),
-		"material_cost": flt(cost_data.material_cost),
-		"other_cost": flt(other_cost),
-		"total_project_cost": flt(cost_data.total_cost),
+		# Estimated cost (consolidated from BOQ items)
+		"estimated_material_cost": total_est_material,
+		"estimated_labour_cost": total_est_labour,
+		"estimated_asset_cost": total_est_asset,
+		"estimated_subcontract_cost": total_est_subcontract,
+		"estimated_other_cost": total_est_other,
+		"total_estimated_cost": total_est,
+		# Actual cost (from DPR)
+		"actual_material_cost": flt(cost_data.material_cost),
+		"actual_labour_cost": flt(cost_data.labour_cost),
+		"actual_asset_cost": flt(cost_data.asset_cost),
+		"actual_subcontract_cost": flt(cost_data.subcontract_cost),
+		"actual_overhead_cost": flt(cost_data.overhead_cost),
+		"actual_expense_cost": flt(cost_data.expense_cost),
+		"total_actual_cost": flt(cost_data.total_cost),
 		"total_revenue": flt(total_revenue),
 		"retention_pending": flt(retention_summary.get("retention_balance", 0)),
 		"advance_balance": flt(advance_summary.get("balance", 0)),

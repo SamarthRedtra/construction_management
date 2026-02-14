@@ -7,20 +7,6 @@ frappe.ui.form.on('Project Closure', {
             // Auto-fetch data if project is set but no items loaded yet
             frm.trigger('project');
         }
-
-        if (frm.doc.project && frm.doc.docstatus === 0) {
-            frm.add_custom_button(__('Record Advance'), () => {
-                record_advance_from_closure(frm.doc.project);
-            }, __('Actions'));
-
-            const retention_pending = flt(frm.doc.retention_pending);
-            if (retention_pending > 0) {
-                const fmt = frappe.format(retention_pending, { fieldtype: 'Currency' }, { only_value: true });
-                frm.add_custom_button(__('Release Retention ({0})', [fmt]), () => {
-                    release_retention_from_closure(frm.doc.project);
-                }, __('Actions'));
-            }
-        }
     },
 
     project(frm) {
@@ -40,11 +26,22 @@ frappe.ui.form.on('Project Closure', {
                 frm.set_value('project_boq', data.project_boq);
                 frm.set_value('total_boq_value', data.total_boq_value);
 
-                // Set cost fields
-                frm.set_value('labour_cost', data.labour_cost);
-                frm.set_value('material_cost', data.material_cost);
-                frm.set_value('other_cost', data.other_cost);
-                frm.set_value('total_project_cost', data.total_project_cost);
+                // Set estimated cost (consolidated)
+                frm.set_value('estimated_material_cost', data.estimated_material_cost || 0);
+                frm.set_value('estimated_labour_cost', data.estimated_labour_cost || 0);
+                frm.set_value('estimated_asset_cost', data.estimated_asset_cost || 0);
+                frm.set_value('estimated_subcontract_cost', data.estimated_subcontract_cost || 0);
+                frm.set_value('estimated_other_cost', data.estimated_other_cost || 0);
+                frm.set_value('total_estimated_cost', data.total_estimated_cost || 0);
+
+                // Set actual cost (consolidated)
+                frm.set_value('actual_material_cost', data.actual_material_cost || 0);
+                frm.set_value('actual_labour_cost', data.actual_labour_cost || 0);
+                frm.set_value('actual_asset_cost', data.actual_asset_cost || 0);
+                frm.set_value('actual_subcontract_cost', data.actual_subcontract_cost || 0);
+                frm.set_value('actual_overhead_cost', data.actual_overhead_cost || 0);
+                frm.set_value('actual_expense_cost', data.actual_expense_cost || 0);
+                frm.set_value('total_actual_cost', data.total_actual_cost || 0);
 
                 // Set revenue fields
                 frm.set_value('total_revenue', data.total_revenue);
@@ -66,6 +63,12 @@ frappe.ui.form.on('Project Closure', {
                     row.uom = item.uom;
                     row.unit_price = item.unit_price;
                     row.total_amount = item.total_amount;
+                    row.estimated_material_cost = item.estimated_material_cost;
+                    row.estimated_labour_cost = item.estimated_labour_cost;
+                    row.estimated_asset_cost = item.estimated_asset_cost;
+                    row.estimated_subcontract_cost = item.estimated_subcontract_cost;
+                    row.estimated_other_cost = item.estimated_other_cost;
+                    row.total_estimated_cost = item.total_estimated_cost;
                     row.cost_to_date = item.cost_to_date;
                     row.labour_cost = item.labour_cost;
                     row.material_cost = item.material_cost;
@@ -110,33 +113,4 @@ function calculate_item_total(frm, cdt, cdn) {
         subtotal += flt(item.total_amount);
     });
     frm.set_value('services_subtotal', subtotal);
-}
-
-function record_advance_from_closure(project) {
-    frappe.call({
-        method: 'construction_management.api.project_closure_api.prepare_advance_sales_invoice',
-        args: { project: project },
-        callback: function (r) {
-            if (r.message && r.message.invoice_name) {
-                frappe.set_route('Form', 'Sales Invoice', r.message.invoice_name);
-            } else if (r.message && r.message.error) {
-                frappe.msgprint(r.message.error);
-            }
-        }
-    });
-}
-
-function release_retention_from_closure(project) {
-    frappe.call({
-        method: 'construction_management.api.boq_invoice.release_retention',
-        args: { project: project },
-        callback: function (r) {
-            if (r.message && r.message.invoice) {
-                frappe.set_route('Form', 'Sales Invoice', r.message.invoice);
-                cur_frm.reload_doc();
-            } else if (r.exc) {
-                frappe.msgprint(r.exc);
-            }
-        }
-    });
 }

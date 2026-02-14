@@ -20,12 +20,23 @@
         "section_services",
         "items",
         "services_subtotal",
-        "section_financials",
-        "labour_cost",
-        "material_cost",
-        "column_break_3",
-        "other_cost",
-        "total_project_cost",
+        "section_estimated_cost_parent",
+        "estimated_material_cost",
+        "estimated_labour_cost",
+        "estimated_asset_cost",
+        "estimated_subcontract_cost",
+        "estimated_other_cost",
+        "total_estimated_cost",
+        "column_break_est",
+        "section_actual_cost_parent",
+        "actual_material_cost",
+        "actual_labour_cost",
+        "actual_asset_cost",
+        "actual_subcontract_cost",
+        "actual_overhead_cost",
+        "actual_expense_cost",
+        "total_actual_cost",
+        "column_break_act",
         "section_revenue",
         "total_boq_value",
         "total_revenue",
@@ -141,38 +152,101 @@
             "read_only": 1
         },
         {
-            "fieldname": "section_financials",
+            "fieldname": "section_estimated_cost_parent",
             "fieldtype": "Section Break",
-            "label": "Cost Summary"
+            "label": "Estimated Cost (Consolidated)"
         },
         {
-            "fieldname": "labour_cost",
+            "fieldname": "estimated_material_cost",
             "fieldtype": "Currency",
-            "label": "Labour Cost",
+            "label": "Est. Material",
             "read_only": 1
         },
         {
-            "fieldname": "material_cost",
+            "fieldname": "estimated_labour_cost",
             "fieldtype": "Currency",
-            "label": "Material Cost",
+            "label": "Est. Labour",
             "read_only": 1
         },
         {
-            "fieldname": "column_break_3",
+            "fieldname": "estimated_asset_cost",
+            "fieldtype": "Currency",
+            "label": "Est. Asset",
+            "read_only": 1
+        },
+        {
+            "fieldname": "estimated_subcontract_cost",
+            "fieldtype": "Currency",
+            "label": "Est. Subcontract",
+            "read_only": 1
+        },
+        {
+            "fieldname": "estimated_other_cost",
+            "fieldtype": "Currency",
+            "label": "Est. Other",
+            "read_only": 1
+        },
+        {
+            "fieldname": "total_estimated_cost",
+            "fieldtype": "Currency",
+            "label": "Est. Total",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_est",
             "fieldtype": "Column Break"
         },
         {
-            "fieldname": "other_cost",
+            "fieldname": "section_actual_cost_parent",
+            "fieldtype": "Section Break",
+            "label": "Actual Cost (Consolidated)"
+        },
+        {
+            "fieldname": "actual_material_cost",
             "fieldtype": "Currency",
-            "label": "Other Cost",
+            "label": "Material",
             "read_only": 1
         },
         {
-            "fieldname": "total_project_cost",
+            "fieldname": "actual_labour_cost",
+            "fieldtype": "Currency",
+            "label": "Labour",
+            "read_only": 1
+        },
+        {
+            "fieldname": "actual_asset_cost",
+            "fieldtype": "Currency",
+            "label": "Asset",
+            "read_only": 1
+        },
+        {
+            "fieldname": "actual_subcontract_cost",
+            "fieldtype": "Currency",
+            "label": "Subcontract",
+            "read_only": 1
+        },
+        {
+            "fieldname": "actual_overhead_cost",
+            "fieldtype": "Currency",
+            "label": "Other",
+            "read_only": 1
+        },
+        {
+            "fieldname": "actual_expense_cost",
+            "fieldtype": "Currency",
+            "label": "Expense",
+            "read_only": 1
+        },
+        {
+            "fieldname": "total_actual_cost",
             "fieldtype": "Currency",
             "in_list_view": 1,
-            "label": "Total Project Cost",
+            "label": "Total Actual Cost",
             "read_only": 1
+        },
+        {
+            "fieldname": "column_break_act",
+            "fieldtype": "Column Break"
         },
         {
             "fieldname": "section_revenue",
