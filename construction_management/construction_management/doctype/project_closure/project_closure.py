@@ -105,18 +105,30 @@ def fetch_project_data(project):
 	# Aggregate estimated costs from BOQ items
 	total_est_material = total_est_labour = total_est_asset = total_est_subcontract = total_est_other = total_est = 0.0
 
+	# Initialize actual cost accumulators
+	total_act_material = total_act_labour = total_act_asset = total_act_subcontract = total_act_overhead = total_act_expense = 0.0
+
 	items = []
 	for idx, item in enumerate(boq_items, 1):
 		bill_no = ""
 		if item.parent_bill:
 			bill_no = frappe.db.get_value("BOQ Bill", item.parent_bill, "bill_no") or ""
 
+		# Aggregate estimated costs
 		total_est_material += flt(item.estimated_material_cost)
 		total_est_labour += flt(item.estimated_labour_cost)
 		total_est_asset += flt(item.estimated_asset_cost)
 		total_est_subcontract += flt(item.estimated_subcontract_cost)
 		total_est_other += flt(item.estimated_other_cost)
 		total_est += flt(item.total_estimated_cost)
+
+		# Aggregate actual costs
+		total_act_material += flt(item.material_cost)
+		total_act_labour += flt(item.labour_cost)
+		total_act_asset += flt(item.asset_cost)
+		total_act_subcontract += flt(item.subcontract_cost)
+		total_act_overhead += flt(item.overhead_cost)
+		total_act_expense += flt(item.expense_cost)
 
 		items.append(
 			{
@@ -149,23 +161,15 @@ def fetch_project_data(project):
 			}
 		)
 
-	# Get cost breakdown from Daily Progress Records
-	cost_data = frappe.db.sql(
-		"""
-		SELECT
-			COALESCE(SUM(labour_cost), 0) as labour_cost,
-			COALESCE(SUM(material_cost), 0) as material_cost,
-			COALESCE(SUM(asset_cost), 0) as asset_cost,
-			COALESCE(SUM(subcontract_cost), 0) as subcontract_cost,
-			COALESCE(SUM(expense_cost), 0) as expense_cost,
-			COALESCE(SUM(overhead_cost), 0) as overhead_cost,
-			COALESCE(SUM(total_cost), 0) as total_cost
-		FROM `tabDaily Progress Record`
-		WHERE project = %s AND docstatus = 1
-	""",
-		project,
-		as_dict=True,
-	)[0]
+	# Calculate total actual cost from components
+	total_act = (
+		total_act_material
+		+ total_act_labour
+		+ total_act_asset
+		+ total_act_subcontract
+		+ total_act_overhead
+		+ total_act_expense
+	)
 
 	# Get revenue from BOQ Progress Ledger
 	total_revenue = (
@@ -197,14 +201,14 @@ def fetch_project_data(project):
 		"estimated_subcontract_cost": total_est_subcontract,
 		"estimated_other_cost": total_est_other,
 		"total_estimated_cost": total_est,
-		# Actual cost (from DPR)
-		"actual_material_cost": flt(cost_data.material_cost),
-		"actual_labour_cost": flt(cost_data.labour_cost),
-		"actual_asset_cost": flt(cost_data.asset_cost),
-		"actual_subcontract_cost": flt(cost_data.subcontract_cost),
-		"actual_overhead_cost": flt(cost_data.overhead_cost),
-		"actual_expense_cost": flt(cost_data.expense_cost),
-		"total_actual_cost": flt(cost_data.total_cost),
+		# Actual cost (from BOQ Items aggregation)
+		"actual_material_cost": total_act_material,
+		"actual_labour_cost": total_act_labour,
+		"actual_asset_cost": total_act_asset,
+		"actual_subcontract_cost": total_act_subcontract,
+		"actual_overhead_cost": total_act_overhead,
+		"actual_expense_cost": total_act_expense,
+		"total_actual_cost": total_act,
 		"total_revenue": flt(total_revenue),
 		"retention_pending": flt(retention_summary.get("retention_balance", 0)),
 		"advance_balance": flt(advance_summary.get("balance", 0)),

@@ -7,7 +7,7 @@ from frappe.utils import flt
 
 
 @frappe.whitelist()
-def get_boq_tree_data(project: str) -> dict:
+def get_boq_tree_data(project: str, start: int = 0, page_length: int = 20) -> dict:
 	"""
 	Get complete BOQ tree structure with calculated values for a project.
 	
@@ -35,14 +35,20 @@ def get_boq_tree_data(project: str) -> dict:
 	# Get KPI data
 	kpi = get_boq_kpi(project)
 	
-	# Get bills with items
-	bills = get_bills_with_items(project_boq.name)
+	# Get total bills count for pagination
+	total_bills = frappe.db.count("BOQ Bill", {"project_boq": project_boq.name})
+
+	# Get bills with items (paginated)
+	bills = get_bills_with_items(project_boq.name, start, page_length)
 	
 	return {
 		"project_boq": project_boq,
 		"kpi": kpi,
 		"bills": bills,
-		"has_boq": True
+		"has_boq": True,
+		"total_bills": total_bills,
+		"page_length": int(page_length),
+		"start": int(start)
 	}
 
 
@@ -196,13 +202,15 @@ def get_retention_summary(project: str) -> dict:
 	}
 
 
-def get_bills_with_items(project_boq: str) -> list:
-	"""Get all bills with their items for a Project BOQ"""
+def get_bills_with_items(project_boq: str, start: int = 0, page_length: int = 20) -> list:
+	"""Get paginated bills with their items for a Project BOQ"""
 	bills = frappe.get_all(
 		"BOQ Bill",
 		filters={"project_boq": project_boq},
 		fields=["name", "bill_no", "sequence", "description", "total_qty", "total_amount"],
-		order_by="sequence, bill_no"
+		order_by="sequence, bill_no",
+		limit_start=start,
+		limit_page_length=page_length
 	)
 	
 	for bill in bills:

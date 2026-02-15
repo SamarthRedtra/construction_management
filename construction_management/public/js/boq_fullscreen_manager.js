@@ -19,7 +19,13 @@ class BOQFullScreenManager {
 		// Bind methods to maintain context
 		this.handleKeydown = this.handleKeydown.bind(this);
 		this.handleResize = this.handleResize.bind(this);
+		this.handleResize = this.handleResize.bind(this);
 		this.handleModalClick = this.handleModalClick.bind(this);
+
+		// Pagination state
+		this.currentPage = 1;
+		this.pageSize = 20;
+		this.totalBills = 0;
 	}
 
 	/**
@@ -37,6 +43,9 @@ class BOQFullScreenManager {
 			this.renderingInProgress = true;
 			this.currentProject = project;
 			this.originalScrollPosition = window.pageYOffset;
+
+			// Reset pagination on new initialization
+			this.currentPage = 1;
 
 			// Fetch BOQ data
 			const data = await this.fetchBOQData(project);
@@ -73,9 +82,17 @@ class BOQFullScreenManager {
 		return new Promise((resolve, reject) => {
 			frappe.call({
 				method: 'construction_management.api.boq_tree.get_boq_tree_data',
-				args: { project: project },
+				args: {
+					project: project,
+					start: (this.currentPage - 1) * this.pageSize,
+					page_length: this.pageSize
+				},
 				callback: function (r) {
 					if (r.message) {
+						// Update total count if provided
+						if (r.message.total_bills !== undefined) {
+							this.totalBills = r.message.total_bills;
+						}
 						resolve(r.message);
 					} else {
 						reject(new Error('No data received'));
@@ -108,7 +125,9 @@ class BOQFullScreenManager {
 		this.applyFullScreenStyles();
 
 		// Show modal with animation
-		this.modalElement.hide().fadeIn(300);
+		this.modalElement.hide().fadeIn(300, function () {
+			$(this).css('display', 'flex');
+		});
 
 		// Render BOQ content after modal is visible
 		setTimeout(() => {
@@ -140,11 +159,13 @@ class BOQFullScreenManager {
 					</div>
 				</div>
 				<div class="fullscreen-content">
+					<div class="pagination-controls-top"></div>
 					<div class="loading-container">
 						<div class="loading-spinner"></div>
 						<div class="loading-text">Loading BOQ data...</div>
 					</div>
 					<div id="fullscreen-bills-container" style="display: none;"></div>
+					<div class="pagination-controls-bottom"></div>
 				</div>
 			</div>
 		`;
@@ -174,6 +195,9 @@ class BOQFullScreenManager {
 				console.error('render_boq_management_table function not found');
 				contentContainer.html('<div class="error-message">Failed to load BOQ table</div>');
 			}
+
+			// Render Pagination
+			this.renderPaginationControls();
 
 			// Hide loading, show content
 			loadingContainer.stop(true, true).fadeOut(200, () => {
@@ -418,6 +442,62 @@ class BOQFullScreenManager {
 	}
 
 	/**
+	 * Render pagination controls
+	 */
+	renderPaginationControls() {
+		if (!this.modalElement) return;
+
+		const totalPages = Math.ceil(this.totalBills / this.pageSize);
+		if (totalPages <= 1) {
+			this.modalElement.find('.pagination-controls-top, .pagination-controls-bottom').empty().hide();
+			return;
+		}
+
+		const controlsHtml = `
+			<div class="boq-pagination">
+				<div class="pagination-info">
+					Page ${this.currentPage} of ${totalPages} (${this.totalBills} Bills)
+				</div>
+				<div class="pagination-actions">
+					<button class="btn btn-default btn-sm prev-page" ${this.currentPage === 1 ? 'disabled' : ''}>
+						<i class="fa fa-chevron-left"></i> Previous
+					</button>
+					<button class="btn btn-default btn-sm next-page" ${this.currentPage === totalPages ? 'disabled' : ''}>
+						Next <i class="fa fa-chevron-right"></i>
+					</button>
+				</div>
+			</div>
+		`;
+
+		const topContainer = this.modalElement.find('.pagination-controls-top');
+		const bottomContainer = this.modalElement.find('.pagination-controls-bottom');
+
+		topContainer.html(controlsHtml).show();
+		bottomContainer.html(controlsHtml).show();
+
+		// Bind events
+		topContainer.add(bottomContainer).find('.prev-page').off('click').on('click', () => this.changePage(-1));
+		topContainer.add(bottomContainer).find('.next-page').off('click').on('click', () => this.changePage(1));
+	}
+
+	/**
+	 * Change page
+	 * @param {number} direction - -1 for previous, 1 for next
+	 */
+	async changePage(direction) {
+		const newPage = this.currentPage + direction;
+		const totalPages = Math.ceil(this.totalBills / this.pageSize);
+
+		if (newPage < 1 || newPage > totalPages) return;
+
+		this.currentPage = newPage;
+		await this.refreshContent();
+
+		// Scroll to top of content
+		this.modalElement.find('.fullscreen-content').scrollTop(0);
+	}
+
+	/**
 	 * Apply full-screen specific styles
 	 */
 	applyFullScreenStyles() {
@@ -566,6 +646,35 @@ class BOQFullScreenManager {
 					.project-name {
 						display: none;
 					}
+					.project-name {
+						display: none;
+					}
+				}
+				
+				/* Pagination Styles */
+				.boq-pagination {
+					display: flex;
+					justify-content: space-between;
+					align-items: center;
+					padding: 10px 20px;
+					background: #f8fafc;
+					border-bottom: 1px solid #e5e7eb;
+				}
+				
+				.pagination-controls-bottom .boq-pagination {
+					border-bottom: none;
+					border-top: 1px solid #e5e7eb;
+				}
+				
+				.pagination-info {
+					font-size: 13px;
+					color: #64748b;
+					font-weight: 500;
+				}
+				
+				.pagination-actions {
+					display: flex;
+					gap: 8px;
 				}
 			</style>
 		`;

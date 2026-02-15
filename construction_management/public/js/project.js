@@ -837,7 +837,9 @@ function format_number(value) {
 
 // Global functions
 window.create_project_closure = function (project) {
-	frappe.new_doc('Project Closure', { project: project });
+	// Open in new tab
+	const route = `/app/project-closure/new-project-closure?project=${encodeURIComponent(project)}`;
+	window.open(route, '_blank');
 };
 
 window.create_project_boq = function (project) {
@@ -1282,7 +1284,9 @@ window.create_item_invoice = function (boq_item) {
 						d.hide();
 						const invoiceType = values.is_proforma ? 'Proforma Invoice' : 'Invoice';
 						frappe.show_alert({ message: __(`${invoiceType} {0} created`, [r.message.invoice]), indicator: 'green' });
-						frappe.set_route('Form', 'Sales Invoice', r.message.invoice);
+						// Open in new tab
+						const route = `/app/sales-invoice/${r.message.invoice}`;
+						window.open(route, '_blank');
 					}
 				}
 			});
@@ -5803,7 +5807,9 @@ function showFullScreenBOQModal(project, data, isLoading = false) {
 
 	// Add to body and show
 	$('body').append(modal);
-	modal.fadeIn(300);
+	modal.fadeIn(300, function () {
+		$(this).css('display', 'flex');
+	});
 
 	// Enable browser full-screen if supported
 	if (document.documentElement.requestFullscreen) {
