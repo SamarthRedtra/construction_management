@@ -263,8 +263,37 @@
   {
    "hidden": 0,
    "is_query_report": 0,
+   "label": "Settings",
+   "link_count": 2,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Projects Settings",
+   "link_count": 0,
+   "link_to": "Projects Settings",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "BOQ Settings",
+   "link_count": 0,
+   "link_to": "BOQ Settings",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
    "label": "Reports",
-   "link_count": 6,
+   "link_count": 7,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -335,35 +364,16 @@
   },
   {
    "hidden": 0,
-   "is_query_report": 0,
-   "label": "Settings",
-   "link_count": 2,
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Projects Settings",
+   "is_query_report": 1,
+   "label": "Statement of Accounts",
    "link_count": 0,
-   "link_to": "Projects Settings",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "BOQ Settings",
-   "link_count": 0,
-   "link_to": "BOQ Settings",
-   "link_type": "DocType",
+   "link_to": "Advanced General Ledger",
+   "link_type": "Report",
    "onboard": 0,
    "type": "Link"
   }
  ],
- "modified": "2026-01-23 15:09:14.019143",
+ "modified": "2026-02-15 22:39:07.604181",
  "modified_by": "Administrator",
  "module": "Construction Management",
  "name": "Projects",

@@ -26,6 +26,13 @@ def after_install():
 	create_dpr_quantity_fields()
 	create_payment_certificate_fields()
 	setup_accounting_dimensions()
+	setup_advanced_general_ledger()
+	frappe.db.commit()
+
+
+def after_migrate():
+	"""Run after bench migrate to ensure property setters are in place"""
+	setup_advanced_general_ledger()
 	frappe.db.commit()
 
 
@@ -445,3 +452,149 @@ def create_payment_certificate_fields():
 			frappe.logger().error(f"Error creating custom field {field_def.get('fieldname')}: {str(e)}")
 	
 	frappe.logger().info("Payment Certificate workflow fields created successfully")
+
+
+def setup_advanced_general_ledger():
+	try:
+		doctype = "Process Statement Of Accounts"
+
+		# Check if doctype exists (erpnext must be installed)
+		if not frappe.db.exists("DocType", doctype):
+			print("doctype not found", doctype)
+			frappe.logger().info(
+				f"Skipping Advanced General Ledger setup: {doctype} not found"
+			)
+			return
+		# ── 1. Add 'Advanced General Ledger' to the report Select options ──
+		_ensure_report_option(doctype)
+
+		# ── 2. Update depends_on / mandatory_depends_on for GL-specific fields ──
+		# These fields check doc.report == 'General Ledger' and must also accept
+		# 'Advanced General Ledger' so they remain visible on the form.
+		gl_includes = "['General Ledger','Advanced General Ledger'].includes(doc.report)"
+
+		field_property_map = [
+			# from_date
+			{
+				"fieldname": "from_date",
+				"property": "depends_on",
+				"value": f"eval:(!doc.enable_auto_email && {gl_includes})",
+			},
+			{
+				"fieldname": "from_date",
+				"property": "mandatory_depends_on",
+				"value": f"eval:(!doc.enable_auto_email && {gl_includes})",
+			},
+			# to_date
+			{
+				"fieldname": "to_date",
+				"property": "depends_on",
+				"value": f"eval:(!doc.enable_auto_email && {gl_includes})",
+			},
+			{
+				"fieldname": "to_date",
+				"property": "mandatory_depends_on",
+				"value": f"eval:(!doc.enable_auto_email && {gl_includes})",
+			},
+			# project
+			{
+				"fieldname": "project",
+				"property": "depends_on",
+				"value": f"eval: {gl_includes}",
+			},
+			# currency
+			{
+				"fieldname": "currency",
+				"property": "depends_on",
+				"value": f"eval: {gl_includes}",
+			},
+			# categorize_by
+			{
+				"fieldname": "categorize_by",
+				"property": "depends_on",
+				"value": f"eval:{gl_includes}",
+			},
+			# show_net_values_in_party_account
+			{
+				"fieldname": "show_net_values_in_party_account",
+				"property": "depends_on",
+				"value": f"eval: {gl_includes}",
+			},
+		]
+
+		for entry in field_property_map:
+			_upsert_property_setter(
+				doctype,
+				entry["fieldname"],
+				entry["property"],
+				entry["value"],
+			)
+
+		frappe.logger().info(
+			"Advanced General Ledger: PSOA property setters configured successfully"
+		)
+
+	except Exception as e:
+		frappe.logger().error(f"Error setting up Advanced General Ledger: {str(e)}")
+
+
+def _ensure_report_option(doctype):
+	"""Ensure 'Advanced General Ledger' exists in the report Select field options."""
+	fieldname = "report"
+
+	# Use frappe.get_meta to read field options (DocType Field is not directly queryable)
+	meta = frappe.get_meta(doctype)
+	report_field = meta.get_field(fieldname)
+	current_options = report_field.options if report_field else ""
+
+	if not current_options:
+		current_options = "General Ledger\nAccounts Receivable"
+
+	# Check existing property setter for options
+	existing_ps = frappe.db.exists(
+		"Property Setter",
+		{"doc_type": doctype, "field_name": fieldname, "property": "options"},
+	)
+	print("existing_ps", existing_ps)
+
+	if existing_ps:
+		ps = frappe.get_doc("Property Setter", existing_ps)
+		if "Advanced General Ledger" not in (ps.value or ""):
+			ps.value = (ps.value or current_options) + "\nAdvanced General Ledger"
+			ps.save(ignore_permissions=True)
+	else:
+		print("current_options", current_options)
+		if "Advanced General Ledger" not in current_options:
+			frappe.make_property_setter(
+				{
+					"doctype": doctype,
+					"fieldname": fieldname,
+					"property": "options",
+					"value": current_options + "\nAdvanced General Ledger",
+				},
+				validate_fields_for_doctype=False,
+			)
+
+
+def _upsert_property_setter(doctype, fieldname, prop, value):
+	"""Create or update a single Property Setter."""
+	existing = frappe.db.exists(
+		"Property Setter",
+		{"doc_type": doctype, "field_name": fieldname, "property": prop},
+	)
+
+	if existing:
+		ps = frappe.get_doc("Property Setter", existing)
+		if ps.value != value:
+			ps.value = value
+			ps.save(ignore_permissions=True)
+	else:
+		frappe.make_property_setter(
+			{
+				"doctype": doctype,
+				"fieldname": fieldname,
+				"property": prop,
+				"value": value,
+			},
+			validate_fields_for_doctype=False,
+		)

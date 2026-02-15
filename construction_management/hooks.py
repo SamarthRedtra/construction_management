@@ -99,6 +99,7 @@ doctype_js = {
 
 before_install = "construction_management.setup.install.before_install"
 after_install = "construction_management.setup.install.after_install"
+after_migrate = "construction_management.setup.install.after_migrate"
 
 # Uninstallation
 # ------------
@@ -135,7 +136,8 @@ after_install = "construction_management.setup.install.after_install"
 # Override standard doctype classes
 
 override_doctype_class = {
-	"Sales Invoice": "construction_management.overrides.sales_invoice.SalesInvoiceOverride"
+	"Sales Invoice": "construction_management.overrides.sales_invoice.SalesInvoiceOverride",
+	"Process Statement Of Accounts": "construction_management.overrides.process_statement_of_accounts.ProcessStatementOfAccountsOverride"
 }
 
 # Document Events
@@ -203,7 +205,15 @@ scheduler_events = {
 #
 override_whitelisted_methods = {
 	"frappe.desk.form.load.getdoctype": "construction_management.overrides.form_load.getdoctype",
+	"erpnext.accounts.doctype.process_statement_of_accounts.process_statement_of_accounts.download_statements": "construction_management.overrides.process_statement_of_accounts.download_statements",
+	"erpnext.accounts.doctype.process_statement_of_accounts.process_statement_of_accounts.send_emails": "construction_management.overrides.process_statement_of_accounts.send_emails",
 }
+
+# Custom SOA HTML template for Advanced General Ledger
+process_soa_html = {
+	"Advanced General Ledger": "construction_management/construction_management/report/advanced_general_ledger/advanced_general_ledger_soa.html"
+}
+
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
@@ -296,5 +306,9 @@ fixtures = [
 			"Project-budget_mode",
 			"Project-budget_threshold_percent"
 		]]]
+	},
+	{
+		"dt": "Property Setter",
+		"filters": [["doc_type", "=", "Process Statement Of Accounts"]]
 	}
 ]
