@@ -102,21 +102,6 @@ function create_payment_certificate_from_pr(frm) {
 			}
 		},
 		{
-			fieldname: 'boq_item',
-			fieldtype: 'Link',
-			label: __('BOQ Item'),
-			options: 'BOQ Item',
-			depends_on: 'eval:doc.bill_no',
-			get_query: function () {
-				const bill_no = cur_dialog.get_value('bill_no');
-				return {
-					filters: {
-						parent_bill: bill_no
-					}
-				};
-			}
-		},
-		{
 			fieldname: 'remarks',
 			fieldtype: 'Small Text',
 			label: __('Remarks')
@@ -128,7 +113,6 @@ function create_payment_certificate_from_pr(frm) {
 				purchase_receipt: frm.doc.name,
 				accepted_amount: values.accepted_amount,
 				bill_no: values.bill_no,
-				boq_item: values.boq_item,
 				remarks: values.remarks
 			},
 			freeze: true,
