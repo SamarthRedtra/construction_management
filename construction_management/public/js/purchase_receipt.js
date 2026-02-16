@@ -107,10 +107,11 @@ function create_payment_certificate_from_pr(frm) {
 			label: __('BOQ Item'),
 			options: 'BOQ Item',
 			depends_on: 'eval:doc.bill_no',
-			get_query: function (doc) {
+			get_query: function () {
+				const bill_no = cur_dialog.get_value('bill_no');
 				return {
 					filters: {
-						parent_bill: doc.bill_no
+						parent_bill: bill_no
 					}
 				};
 			}

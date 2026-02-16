@@ -140,6 +140,11 @@ override_doctype_class = {
 	"Process Statement Of Accounts": "construction_management.overrides.process_statement_of_accounts.ProcessStatementOfAccountsOverride"
 }
 
+# Monkey Patches
+# --------------
+# - Financial Statements SQL Fix: construction_management.overrides.financial_statements_fix
+#   (Imported in __init__.py to apply on app load)
+
 # Document Events
 # ---------------
 # Hook on document methods and events

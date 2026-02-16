@@ -2643,6 +2643,45 @@ def create_pc_from_purchase_receipt(
 	elif hasattr(pr, 'custom_boq_item') and pr.custom_boq_item:
 		pc.boq_item = pr.custom_boq_item
 	
+	# Populate Items table
+	total_amount = 0
+	for item in pr.items:
+		# Filter by bill_no/boq_item if they were specified in the creation dialog
+		# Note: We check if the PR item has these custom fields or if we should include all
+		item_bill_no = item.get("custom_bill_no") or item.get("bill_no")
+		item_boq_item = item.get("custom_boq_item") or item.get("boq_item")
+
+		include = True
+		if pc.bill_no and item_bill_no and item_bill_no != pc.bill_no:
+			include = False
+		if pc.boq_item and item_boq_item and item_boq_item != pc.boq_item:
+			include = False
+
+		if include:
+			pc.append("items", {
+				"boq_item": item_boq_item,
+				"bill_no": item_bill_no,
+				"description": item.description,
+				"unit": item.uom,
+				"qty": item.qty,
+				"rate": item.rate,
+				"amount": item.amount,
+				"accepted_amount": item.amount # Default to full
+			})
+			total_amount += flt(item.amount)
+
+	# If we have items, update pr_amount and accepted_amount to sum of items
+	if pc.get("items"):
+		pc.pr_amount = total_amount
+		# If accepted_amount was passed as grand_total (default), pro-rate it or use items
+		if flt(accepted_amount) == flt(pr.grand_total):
+			pc.accepted_amount = total_amount
+		else:
+			# If user entered a custom accepted amount, we keep it but it might need to be 
+			# distributed to items if we wanted item-level precision. 
+			# For now, let's stick to user input if it's different from grand_total.
+			pc.accepted_amount = flt(accepted_amount)
+
 	# Try to get Purchase Order from PR items
 	if pr.items:
 		for item in pr.items:

@@ -519,33 +519,62 @@ class PaymentCertificate(Document):
 		if self.purchase_order:
 			pi.purchase_order = self.purchase_order
 		
-		# Get item description
-		item_desc = "Purchase Payment Certificate"
-		if self.boq_item:
-			item_desc = frappe.db.get_value("BOQ Item", self.boq_item, "description") or item_desc
-		elif self.bill_no:
-			item_desc = frappe.db.get_value("BOQ Bill", self.bill_no, "description") or f"Bill: {self.bill_no}"
-		
-		# Add main item with PR amount
-		pi.append("items", {
-			"item_name": item_desc[:140],
-			"description": item_desc,
-			"qty": 1,
-			"rate": flt(self.pr_amount),
-			"expense_account": expense_account,
-			"project": self.project
-		})
-		
-		# Add variance discount if applicable
-		if flt(self.variance) > 0:
+		# Add items from PC items table
+		if self.get("items"):
+			for pc_item in self.items:
+				pi.append("items", {
+					"item_code": frappe.db.get_value("BOQ Item", pc_item.boq_item, "item_code") or "Service",
+					"description": pc_item.description,
+					"qty": pc_item.qty,
+					"rate": pc_item.rate,
+					"amount": pc_item.amount,
+					"expense_account": expense_account,
+					"project": self.project,
+					"boq_item": pc_item.boq_item,
+					"bill_no": pc_item.bill_no
+				})
+				
+				# Handle per-item variance if any
+				item_variance = flt(pc_item.amount) - flt(pc_item.accepted_amount)
+				if item_variance > 0:
+					pi.append("items", {
+						"item_name": "Variance Discount",
+						"description": f"Variance adjustment for: {pc_item.description or pc_item.boq_item}",
+						"qty": 1,
+						"rate": -item_variance,
+						"amount": -item_variance,
+						"expense_account": expense_account,
+						"project": self.project,
+						"boq_item": pc_item.boq_item,
+						"bill_no": pc_item.bill_no
+					})
+		else:
+			# Fallback to main item if no items table (backward compatibility)
+			item_desc = "Purchase Payment Certificate"
+			if self.boq_item:
+				item_desc = frappe.db.get_value("BOQ Item", self.boq_item, "description") or item_desc
+			elif self.bill_no:
+				item_desc = frappe.db.get_value("BOQ Bill", self.bill_no, "description") or f"Bill: {self.bill_no}"
+			
 			pi.append("items", {
-				"item_name": "Variance Discount",
-				"description": f"Variance adjustment (PC: {self.name})",
+				"item_name": item_desc[:140],
+				"description": item_desc,
 				"qty": 1,
-				"rate": -flt(self.variance),
+				"rate": flt(self.pr_amount),
 				"expense_account": expense_account,
 				"project": self.project
 			})
+			
+			# Add variance discount if applicable
+			if flt(self.variance) > 0:
+				pi.append("items", {
+					"item_name": "Variance Discount",
+					"description": f"Variance adjustment (PC: {self.name})",
+					"qty": 1,
+					"rate": -flt(self.variance),
+					"expense_account": expense_account,
+					"project": self.project
+				})
 		
 		# Populate taxes from Payment Certificate or Defaults
 		if self.get("taxes_and_charges"):
