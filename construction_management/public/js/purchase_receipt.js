@@ -3,9 +3,9 @@
 // Purchase Receipt client script for Payment Certificate integration
 
 frappe.ui.form.on('Purchase Receipt', {
-	refresh: function(frm) {
+	refresh: function (frm) {
 		// Add "Create Payment Certificate" button for submitted PRs with project
-		if (frm.doc.docstatus === 1 &&  frm.doc.custom_suppliersubcontractor == "Subcontractor") {
+		if (frm.doc.docstatus === 1 && frm.doc.custom_suppliersubcontractor == "Subcontractor") {
 			// Check if PC already exists for this PR
 			frappe.call({
 				method: 'frappe.client.get_count',
@@ -16,9 +16,9 @@ frappe.ui.form.on('Purchase Receipt', {
 						docstatus: ['!=', 2]
 					}
 				},
-				callback: function(r) {
+				callback: function (r) {
 					if (r.message === 0) {
-						frm.add_custom_button(__('Create Payment Certificate'), function() {
+						frm.add_custom_button(__('Create Payment Certificate'), function () {
 							create_payment_certificate_from_pr(frm);
 						}, __('Actions'));
 					}
@@ -27,6 +27,27 @@ frappe.ui.form.on('Purchase Receipt', {
 		}
 	}
 });
+
+
+
+frappe.ui.form.on('Purchase Receipt', {
+	onload: function (frm) {
+		// Setup cascading dimension filters for child table
+		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
+			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
+			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'items');
+		}
+	},
+
+	refresh: function (frm) {
+		// Re-setup on refresh to ensure filters are applied after form loads
+		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
+			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
+			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'items');
+		}
+	}
+});
+
 
 // Auto-set Project on item rows when Accepted Warehouse is chosen
 frappe.ui.form.on('Purchase Receipt Item', {
@@ -45,7 +66,7 @@ frappe.ui.form.on('Purchase Receipt Item', {
 				warehouse,
 				company: frm.doc.company
 			},
-			callback: function(r) {
+			callback: function (r) {
 				if (!r.message) return;
 
 				frappe.model.set_value(cdt, cdn, 'project', r.message);
@@ -72,7 +93,7 @@ function create_payment_certificate_from_pr(frm) {
 			fieldtype: 'Link',
 			label: __('Bill No'),
 			options: 'BOQ Bill',
-			get_query: function() {
+			get_query: function () {
 				return {
 					filters: {
 						project: frm.doc.project
@@ -86,7 +107,7 @@ function create_payment_certificate_from_pr(frm) {
 			label: __('BOQ Item'),
 			options: 'BOQ Item',
 			depends_on: 'eval:doc.bill_no',
-			get_query: function(doc) {
+			get_query: function (doc) {
 				return {
 					filters: {
 						parent_bill: doc.bill_no
@@ -99,7 +120,7 @@ function create_payment_certificate_from_pr(frm) {
 			fieldtype: 'Small Text',
 			label: __('Remarks')
 		}
-	], function(values) {
+	], function (values) {
 		frappe.call({
 			method: 'construction_management.api.boq_invoice.create_pc_from_purchase_receipt',
 			args: {
@@ -111,7 +132,7 @@ function create_payment_certificate_from_pr(frm) {
 			},
 			freeze: true,
 			freeze_message: __('Creating Payment Certificate...'),
-			callback: function(r) {
+			callback: function (r) {
 				if (r.message) {
 					frappe.show_alert({
 						message: __('Payment Certificate {0} created', [r.message.name]),
