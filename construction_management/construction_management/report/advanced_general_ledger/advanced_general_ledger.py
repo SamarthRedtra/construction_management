@@ -71,6 +71,7 @@ def get_sales_orders(filters):
 	so_filters = {}
 
 	conditions.append("so.docstatus = 1")
+	conditions.append("IFNULL(so.per_billed, 0) < 100")
 
 	if filters.get("company"):
 		conditions.append("so.company = %(company)s")

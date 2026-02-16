@@ -55,6 +55,15 @@
 				<td>{{ frappe.format(row.posting_date, 'Date') }}</td>
 				<td>{{ row.voucher_type }}
 					<br>{{ row.voucher_no }}
+					{% if row.mode_of_payment %}
+						<br>{{ _("Mode of Payment") }}: {{ row.mode_of_payment }}
+					{% endif %}
+					{% if row.reference_no %}
+						<br>{{ _("Reference No") }}: {{ row.reference_no }}
+					{% endif %}
+					{% if row.reference_date %}
+						<br>{{ _("Reference Date") }}: {{ frappe.format(row.reference_date, 'Date') }}
+					{% endif %}
 					{% if not (filters.party or filters.account) %}
 						{{ row.party or row.account }}
 						<br>

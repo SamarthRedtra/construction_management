@@ -58,6 +58,47 @@ class ProcessStatementOfAccountsOverride(ProcessStatementOfAccounts):
 		self.report = original_report
 
 
+def enrich_reference_details(rows):
+	"""
+	Add payment reference details to report rows used for SOA rendering.
+	This keeps template rendering stable even when some rows don't carry
+	reference fields, and enriches Payment Entry rows in batch.
+	"""
+	if not rows:
+		return
+
+	payment_entry_names = list(
+		{
+			row.get("voucher_no")
+			for row in rows
+			if row.get("posting_date")
+			and row.get("voucher_type") == "Payment Entry"
+			and row.get("voucher_no")
+		}
+	)
+
+	payment_entry_map = {}
+	if payment_entry_names:
+		payment_entries = frappe.get_all(
+			"Payment Entry",
+			filters={"name": ["in", payment_entry_names]},
+			fields=["name", "reference_no", "reference_date", "mode_of_payment"],
+		)
+		payment_entry_map = {pe.name: pe for pe in payment_entries}
+
+	for row in rows:
+		row["reference_no"] = row.get("reference_no") or ""
+		row["reference_date"] = row.get("reference_date")
+		row["mode_of_payment"] = row.get("mode_of_payment") or ""
+
+		if row.get("voucher_type") == "Payment Entry" and row.get("voucher_no"):
+			payment_entry = payment_entry_map.get(row.get("voucher_no"))
+			if payment_entry:
+				row["reference_no"] = row.get("reference_no") or payment_entry.reference_no or ""
+				row["reference_date"] = row.get("reference_date") or payment_entry.reference_date
+				row["mode_of_payment"] = row.get("mode_of_payment") or payment_entry.mode_of_payment or ""
+
+
 def get_advanced_statement_dict(doc, get_dict=False):
 	"""
 	Custom statement dict builder for Advanced General Ledger.
@@ -90,6 +131,7 @@ def get_advanced_statement_dict(doc, get_dict=False):
 		filters["include_proforma"] = 1
 
 		col, res = get_advanced_soa(filters)
+		enrich_reference_details(res)
 
 		# Clean quote marks from opening/total/closing account labels
 		for x in [0, -2, -1]:

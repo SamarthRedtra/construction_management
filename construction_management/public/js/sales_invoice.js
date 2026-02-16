@@ -83,7 +83,7 @@ function pull_retention(frm) {
 	}
 
 	frappe.call({
-		method: 'construction_management.construction_management.api.boq_invoice.get_deduction_details',
+		method: 'construction_management.api.boq_invoice.get_deduction_details',
 		args: {
 			project: frm.doc.project,
 			items: frm.doc.items,
@@ -120,7 +120,7 @@ function pull_advance_deduction(frm) {
 	}
 
 	frappe.call({
-		method: 'construction_management.construction_management.api.boq_invoice.get_deduction_details',
+		method: 'construction_management.api.boq_invoice.get_deduction_details',
 		args: {
 			project: frm.doc.project,
 			items: frm.doc.items,
@@ -242,7 +242,7 @@ function recalculate_deductions(frm) {
 
 	// Call server API to get deduction details
 	frappe.call({
-		method: 'construction_management.construction_management.api.boq_invoice.get_deduction_details',
+		method: 'construction_management.api.boq_invoice.get_deduction_details',
 		args: {
 			project: frm.doc.project,
 			items: frm.doc.items,
