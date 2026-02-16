@@ -2579,7 +2579,7 @@ def create_invoice_from_selected_items(project: str, items: str | list,
 @frappe.whitelist()
 def create_pc_from_purchase_receipt(
 	purchase_receipt: str,
-	accepted_amount: float,
+	accepted_amount: float = None,
 	bill_no: str = None,
 	remarks: str = None
 ) -> dict:
@@ -2590,7 +2590,7 @@ def create_pc_from_purchase_receipt(
 	
 	Args:
 		purchase_receipt: Purchase Receipt name
-		accepted_amount: Accepted amount
+		accepted_amount: Optional accepted amount (defaults to PR grand_total)
 		bill_no: Optional Bill No
 		remarks: Optional remarks
 		
@@ -2605,6 +2605,9 @@ def create_pc_from_purchase_receipt(
 	
 	if not pr.project:
 		frappe.throw(_("Purchase Receipt must have a Project assigned"))
+
+	if accepted_amount is None:
+		accepted_amount = pr.grand_total
 	
 	# Check if PC already exists for this PR
 	existing = frappe.db.exists(

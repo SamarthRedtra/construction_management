@@ -80,52 +80,21 @@ frappe.ui.form.on('Purchase Receipt Item', {
 });
 
 function create_payment_certificate_from_pr(frm) {
-	frappe.prompt([
-		{
-			fieldname: 'accepted_amount',
-			fieldtype: 'Currency',
-			label: __('Accepted Amount'),
-			default: frm.doc.grand_total,
-			reqd: 1
+	frappe.call({
+		method: 'construction_management.api.boq_invoice.create_pc_from_purchase_receipt',
+		args: {
+			purchase_receipt: frm.doc.name
 		},
-		{
-			fieldname: 'bill_no',
-			fieldtype: 'Link',
-			label: __('Bill No'),
-			options: 'BOQ Bill',
-			get_query: function () {
-				return {
-					filters: {
-						project: frm.doc.project
-					}
-				};
+		freeze: true,
+		freeze_message: __('Creating Payment Certificate...'),
+		callback: function (r) {
+			if (r.message) {
+				frappe.show_alert({
+					message: __('Payment Certificate {0} created', [r.message.name]),
+					indicator: 'green'
+				});
+				frappe.set_route('Form', 'Payment Certificate', r.message.name);
 			}
-		},
-		{
-			fieldname: 'remarks',
-			fieldtype: 'Small Text',
-			label: __('Remarks')
 		}
-	], function (values) {
-		frappe.call({
-			method: 'construction_management.api.boq_invoice.create_pc_from_purchase_receipt',
-			args: {
-				purchase_receipt: frm.doc.name,
-				accepted_amount: values.accepted_amount,
-				bill_no: values.bill_no,
-				remarks: values.remarks
-			},
-			freeze: true,
-			freeze_message: __('Creating Payment Certificate...'),
-			callback: function (r) {
-				if (r.message) {
-					frappe.show_alert({
-						message: __('Payment Certificate {0} created', [r.message.name]),
-						indicator: 'green'
-					});
-					frappe.set_route('Form', 'Payment Certificate', r.message.name);
-				}
-			}
-		});
-	}, __('Create Payment Certificate'), __('Create'));
+	});
 }
