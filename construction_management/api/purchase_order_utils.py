@@ -94,6 +94,28 @@ def get_purchase_history(purchase_order):
 	expected_retention = flt(po_grand_total * retention_pct / 100, 2) if retention_pct else 0
 	retention_balance = expected_retention - total_retention_deducted
 
+	# Override allocated/unallocated on advance records using actual deductions
+	# since the doctype fields are not auto-updated
+	remaining_deducted = advance_deducted_pi
+	for adv in advances:
+		adv_amount = flt(adv.amount)
+		if remaining_deducted >= adv_amount:
+			adv.allocated_amount = adv_amount
+			adv.unallocated_amount = 0
+			adv.status = "Fully Utilized"
+			remaining_deducted -= adv_amount
+		elif remaining_deducted > 0:
+			adv.allocated_amount = remaining_deducted
+			adv.unallocated_amount = adv_amount - remaining_deducted
+			adv.status = "Partially Utilized"
+			remaining_deducted = 0
+		else:
+			adv.allocated_amount = 0
+			adv.unallocated_amount = adv_amount
+
+	total_advance_allocated = sum(flt(a.allocated_amount) for a in advances)
+	total_advance_unallocated = sum(flt(a.unallocated_amount) for a in advances)
+
 	return {
 		"po_grand_total": po_grand_total,
 		"retention_pct": retention_pct,
