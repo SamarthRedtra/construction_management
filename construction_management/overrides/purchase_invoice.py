@@ -25,6 +25,11 @@ def on_submit(doc, method):
 			update_boq_item_cost(item)
 
 
+def before_cancel(doc, method):
+	"""Cancel linked Purchase Advance Payment before Frappe's link check"""
+	_cancel_linked_advance_payment(doc)
+
+
 def on_cancel(doc, method):
 	"""Reverse cost tracking for BOQ items on Purchase Invoice cancel"""
 	for item in doc.items:
@@ -243,3 +248,31 @@ def create_purchase_advance_payment(doc):
 	adv.submit()
 	frappe.msgprint(_("Purchase Advance Payment {0} created automatically.").format(adv.name))
 	frappe.db.commit()
+
+
+def _cancel_linked_advance_payment(doc):
+	"""Cancel and delete linked Purchase Advance Payment if not utilized"""
+	advance_payments = frappe.get_all(
+		"Purchase Advance Payment",
+		filters={"linked_purchase_invoice": doc.name, "docstatus": 1},
+		fields=["name", "allocated_amount"]
+	)
+
+	for adv in advance_payments:
+		if flt(adv.allocated_amount) > 0:
+			frappe.throw(
+				_("Cannot cancel Purchase Invoice {0} because the linked Purchase Advance Payment {1} "
+				  "has been partially or fully utilized (Allocated: {2}). "
+				  "Please reverse the advance allocation first.").format(
+					doc.name, adv.name, adv.allocated_amount
+				)
+			)
+
+		# Cancel and delete the advance payment
+		adv_doc = frappe.get_doc("Purchase Advance Payment", adv.name)
+		adv_doc.flags.ignore_permissions = True
+		adv_doc.flags.ignore_links = True
+		adv_doc.cancel()
+		frappe.delete_doc("Purchase Advance Payment", adv.name, force=True, ignore_permissions=True)
+		frappe.msgprint(_("Purchase Advance Payment {0} cancelled and deleted.").format(adv.name))
+

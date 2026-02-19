@@ -20,7 +20,12 @@ frappe.ui.form.on('Purchase Order', {
 			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'items');
 		}
 
-		// Render purchase history dashboard for Subcontractor POs
+		// Always clear the purchase history HTML first to avoid stale data from SPA navigation
+		if (frm.fields_dict.custom_purchase_history) {
+			frm.fields_dict.custom_purchase_history.$wrapper.html('');
+		}
+
+		// Render purchase history dashboard only for submitted Subcontractor POs
 		if (frm.doc.docstatus === 1 && frm.doc.custom_suppliersubcontractor === 'Subcontractor') {
 			render_purchase_history(frm);
 		}
@@ -34,6 +39,9 @@ function render_purchase_history(frm) {
 		args: { purchase_order: frm.doc.name },
 		callback: function (r) {
 			if (!r.message) return;
+
+			// Double-check we're still on the same PO (user may have navigated away)
+			if (cur_frm && cur_frm.doc.name !== frm.doc.name) return;
 
 			const d = r.message;
 			const fmt = (val) => format_currency(val, frm.doc.currency);
@@ -159,7 +167,10 @@ function render_purchase_history(frm) {
 
 			html += `</div>`;
 
-			frm.fields_dict.custom_purchase_history.$wrapper.html(html);
+			// Final safety check before rendering
+			if (frm.fields_dict.custom_purchase_history) {
+				frm.fields_dict.custom_purchase_history.$wrapper.html(html);
+			}
 		}
 	});
 }

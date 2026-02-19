@@ -47,13 +47,18 @@ def get_purchase_history(purchase_order):
 	total_regular_invoices = total_invoice_amount - total_advance_invoices
 
 	# --- Retention from Invoices ---
+	# Deduction items don't have purchase_order set on the row itself,
+	# so find invoices linked to this PO via other items, then sum deductions
 	retention_deducted_pi = abs(flt(frappe.db.sql("""
 		SELECT COALESCE(SUM(pii.amount), 0)
 		FROM `tabPurchase Invoice Item` pii
 		INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
-		WHERE pii.purchase_order = %s
-		AND pii.item_code = 'RETENTION-DEDUCTION'
+		WHERE pii.item_code = 'RETENTION-DEDUCTION'
 		AND pi.docstatus = 1
+		AND pi.name IN (
+			SELECT DISTINCT parent FROM `tabPurchase Invoice Item`
+			WHERE purchase_order = %s
+		)
 	""", purchase_order)[0][0]))
 
 	# --- Retention from Purchase Receipts ---
@@ -61,9 +66,12 @@ def get_purchase_history(purchase_order):
 		SELECT COALESCE(SUM(pri.amount), 0)
 		FROM `tabPurchase Receipt Item` pri
 		INNER JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
-		WHERE pri.purchase_order = %s
-		AND pri.item_code = 'RETENTION-DEDUCTION'
+		WHERE pri.item_code = 'RETENTION-DEDUCTION'
 		AND pr.docstatus = 1
+		AND pr.name IN (
+			SELECT DISTINCT parent FROM `tabPurchase Receipt Item`
+			WHERE purchase_order = %s
+		)
 	""", purchase_order)[0][0]))
 
 	total_retention_deducted = retention_deducted_pi + retention_deducted_pr
@@ -73,9 +81,12 @@ def get_purchase_history(purchase_order):
 		SELECT COALESCE(SUM(pii.amount), 0)
 		FROM `tabPurchase Invoice Item` pii
 		INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
-		WHERE pii.purchase_order = %s
-		AND pii.item_code = 'ADVANCE-DEDUCTION'
+		WHERE pii.item_code = 'ADVANCE-DEDUCTION'
 		AND pi.docstatus = 1
+		AND pi.name IN (
+			SELECT DISTINCT parent FROM `tabPurchase Invoice Item`
+			WHERE purchase_order = %s
+		)
 	""", purchase_order)[0][0]))
 
 	# --- PO totals ---

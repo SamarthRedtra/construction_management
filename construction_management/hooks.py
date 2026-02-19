@@ -155,6 +155,7 @@ doc_events = {
 	},
 	"Purchase Invoice": {
 		"validate": "construction_management.overrides.purchase_invoice.validate",
+		"before_cancel": "construction_management.overrides.purchase_invoice.before_cancel",
 		"on_submit": "construction_management.overrides.purchase_invoice.on_submit",
 		"on_cancel": "construction_management.overrides.purchase_invoice.on_cancel"
 	},
