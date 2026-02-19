@@ -162,15 +162,20 @@ def update_advance_and_retention(data):
 			advance_data[po_name] = advances[0]
 
 	# Get retention deducted per PO (from invoices)
+	# Deduction items don't have purchase_order set on the row,
+	# so find invoices linked to this PO via other items
 	retention_data = {}
 	for po_name in po_names:
 		ret = frappe.db.sql("""
 			SELECT COALESCE(SUM(ABS(pii.amount)), 0) as retention_deducted
 			FROM `tabPurchase Invoice Item` pii
 			INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
-			WHERE pii.purchase_order = %s
-			AND pii.item_code = 'RETENTION-DEDUCTION'
+			WHERE pii.item_code = 'RETENTION-DEDUCTION'
 			AND pi.docstatus = 1
+			AND pi.name IN (
+				SELECT DISTINCT parent FROM `tabPurchase Invoice Item`
+				WHERE purchase_order = %s
+			)
 		""", po_name, as_dict=True)
 
 		if ret:
@@ -183,9 +188,12 @@ def update_advance_and_retention(data):
 			SELECT COALESCE(SUM(ABS(pii.amount)), 0) as advance_deducted
 			FROM `tabPurchase Invoice Item` pii
 			INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
-			WHERE pii.purchase_order = %s
-			AND pii.item_code = 'ADVANCE-DEDUCTION'
+			WHERE pii.item_code = 'ADVANCE-DEDUCTION'
 			AND pi.docstatus = 1
+			AND pi.name IN (
+				SELECT DISTINCT parent FROM `tabPurchase Invoice Item`
+				WHERE purchase_order = %s
+			)
 		""", po_name, as_dict=True)
 
 		if adv:
