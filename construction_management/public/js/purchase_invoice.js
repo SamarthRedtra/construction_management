@@ -40,17 +40,17 @@ frappe.ui.form.on('Purchase Invoice', {
 						if (advance_amount <= 0) return;
 
 						// Check if already exists
-						let existing = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
+						let existing = (frm.doc.items || []).find(i => i.item_code === 'PURCHASE-ADVANCE');
 						if (!existing) {
 							const new_row = frm.add_child('items');
 							frappe.model.set_value(new_row.doctype, new_row.name, {
-								'item_code': 'ADVANCE-DEDUCTION',
-								'item_name': 'Advance Deduction',
+								'item_code': 'PURCHASE-ADVANCE',
+								'item_name': 'Purchase Advance',
 								'uom': 'Nos',
 								'qty': 1,
 								'rate': advance_amount,
 								'amount': advance_amount,
-								'description': `Advance payment (${advance_pct}% of PO)`
+								'description': `Advance payment (${advance_pct}% of PO ${purchase_order})`
 							});
 							frm.refresh_field('items');
 							frappe.show_alert({
@@ -63,7 +63,7 @@ frappe.ui.form.on('Purchase Invoice', {
 		} else {
 			frm.set_df_property("project", "reqd", 0);
 			// Remove advance item if unticked
-			let advance_row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
+			let advance_row = (frm.doc.items || []).find(i => i.item_code === 'PURCHASE-ADVANCE');
 			if (advance_row) {
 				frappe.model.clear_doc(advance_row.doctype, advance_row.name);
 				frm.refresh_field('items');

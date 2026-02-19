@@ -70,6 +70,7 @@ def get_data(filters):
 			),
 			po.set_warehouse.as_("warehouse"),
 			po.company,
+			po.net_total.as_("net_total"),
 			po.grand_total.as_("po_grand_total"),
 			po.custom_retention_.as_("retention_pct"),
 			po.custom_advance_.as_("advance_pct"),
@@ -203,6 +204,7 @@ def update_advance_and_retention(data):
 	for row in data:
 		po_name = row.purchase_order
 		po_total = flt(row.po_grand_total)
+		po_net = flt(row.net_total)
 		ret_pct = flt(row.retention_pct)
 		adv_pct = flt(row.advance_pct)
 
@@ -214,7 +216,7 @@ def update_advance_and_retention(data):
 		row["advance_balance"] = row["advance_paid"] - row["advance_deducted"]
 
 		# Retention
-		row["expected_retention"] = flt(po_total * ret_pct / 100, 2) if ret_pct else 0
+		row["expected_retention"] = flt(po_net * ret_pct / 100, 2) if ret_pct else 0
 		ret_info = retention_data.get(po_name, {})
 		row["retention_deducted"] = flt(ret_info.get("retention_deducted", 0))
 		row["retention_balance"] = row["expected_retention"] - row["retention_deducted"]

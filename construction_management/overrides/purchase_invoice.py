@@ -204,10 +204,11 @@ def _check_pr_deductions(doc):
 
 
 def _ensure_purchase_deduction_items():
-	"""Ensure RETENTION-DEDUCTION and ADVANCE-DEDUCTION items exist and are purchase-enabled"""
+	"""Ensure deduction and advance items exist and are purchase-enabled"""
 	for item_code, item_name, description in [
 		("RETENTION-DEDUCTION", "Retention Deduction", "Retention amount deducted from purchase invoices"),
 		("ADVANCE-DEDUCTION", "Advance Deduction", "Advance payment deducted from purchase invoices"),
+		("PURCHASE-ADVANCE", "Purchase Advance", "Advance payment to supplier/subcontractor"),
 	]:
 		if not frappe.db.exists("Item", item_code):
 			item = frappe.new_doc("Item")
