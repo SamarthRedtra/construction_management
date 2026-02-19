@@ -18,8 +18,56 @@ frappe.ui.form.on('Purchase Invoice', {
 	custom_is_advance: function (frm) {
 		if (frm.doc.custom_is_advance) {
 			frm.set_df_property("project", "reqd", 1);
+
+			// Auto-add advance item based on PO advance percentage
+			let purchase_order = null;
+			for (let item of (frm.doc.items || [])) {
+				if (item.purchase_order) {
+					purchase_order = item.purchase_order;
+					break;
+				}
+			}
+
+			if (purchase_order) {
+				frappe.db.get_value('Purchase Order', purchase_order,
+					['custom_advance_', 'grand_total']).then(r => {
+						if (!r.message) return;
+						const advance_pct = flt(r.message.custom_advance_);
+						const po_total = flt(r.message.grand_total);
+						if (advance_pct <= 0) return;
+
+						const advance_amount = flt(po_total * advance_pct / 100, 2);
+						if (advance_amount <= 0) return;
+
+						// Check if already exists
+						let existing = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
+						if (!existing) {
+							const new_row = frm.add_child('items');
+							frappe.model.set_value(new_row.doctype, new_row.name, {
+								'item_code': 'ADVANCE-DEDUCTION',
+								'item_name': 'Advance Deduction',
+								'uom': 'Nos',
+								'qty': 1,
+								'rate': advance_amount,
+								'amount': advance_amount,
+								'description': `Advance payment (${advance_pct}% of PO)`
+							});
+							frm.refresh_field('items');
+							frappe.show_alert({
+								message: __('Advance item added: {0}', [format_currency(advance_amount, frm.doc.currency)]),
+								indicator: 'green'
+							}, 5);
+						}
+					});
+			}
 		} else {
 			frm.set_df_property("project", "reqd", 0);
+			// Remove advance item if unticked
+			let advance_row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
+			if (advance_row) {
+				frappe.model.clear_doc(advance_row.doctype, advance_row.name);
+				frm.refresh_field('items');
+			}
 		}
 	},
 

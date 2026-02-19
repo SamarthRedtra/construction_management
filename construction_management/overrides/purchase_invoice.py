@@ -8,6 +8,9 @@ from frappe.utils import flt
 
 def validate(doc, method):
 	"""Auto-add retention and advance deduction items based on linked Purchase Order percentages"""
+	# Always ensure deduction items exist and are purchase-enabled
+	_ensure_purchase_deduction_items()
+
 	if doc.docstatus != 0 or doc.get("custom_is_advance"):
 		return
 

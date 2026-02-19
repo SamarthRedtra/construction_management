@@ -74,6 +74,14 @@ function render_purchase_history(frm) {
 							<strong>${fmt(d.total_invoice_amount)}</strong>
 						</div>
 						<div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+							<span style="color: var(--text-muted);">Total Tax</span>
+							<strong>${fmt(d.total_tax)}</strong>
+						</div>
+						<div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+							<span style="color: var(--text-muted);">Net Billed</span>
+							<strong style="color: var(--green-600);">${fmt(d.net_billed)}</strong>
+						</div>
+						<div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
 							<span style="color: var(--text-muted);">Advance Invoices</span>
 							<strong>${fmt(d.total_advance_invoices)}</strong>
 						</div>

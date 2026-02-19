@@ -219,6 +219,10 @@ def update_advance_and_retention(data):
 		row["retention_deducted"] = flt(ret_info.get("retention_deducted", 0))
 		row["retention_balance"] = row["expected_retention"] - row["retention_deducted"]
 
+		# Net billed = billed_amount minus deductions (retention + advance are negative on invoice)
+		row["net_billed_amount"] = flt(row.get("billed_amount", 0)) - row["retention_deducted"] - row["advance_deducted"]
+		row["net_pending_amount"] = flt(row.get("amount", 0)) - row["net_billed_amount"]
+
 
 def prepare_data(data, filters):
 	completed, pending = 0, 0
@@ -250,6 +254,7 @@ def prepare_data(data, filters):
 				sum_fields = [
 					"qty", "received_qty", "pending_qty", "billed_qty", "qty_to_bill",
 					"amount", "received_qty_amount", "billed_amount", "pending_amount",
+					"net_billed_amount", "net_pending_amount",
 				]
 				for field in sum_fields:
 					po_row[field] = flt(row.get(field, 0)) + flt(po_row.get(field, 0))
@@ -318,9 +323,13 @@ def get_columns(filters):
 		{"label": _("Amount"), "fieldname": "amount", "fieldtype": "Currency", "width": 110,
 			"options": "Company:company:default_currency"},
 		{"label": _("Billed Amount"), "fieldname": "billed_amount", "fieldtype": "Currency", "width": 110,
+			"options": "Company:company:default_currency", "hidden": 1},
+		{"label": _("Net Billed"), "fieldname": "net_billed_amount", "fieldtype": "Currency", "width": 110,
+			"options": "Company:company:default_currency"},
+		{"label": _("Net Pending"), "fieldname": "net_pending_amount", "fieldtype": "Currency", "width": 110,
 			"options": "Company:company:default_currency"},
 		{"label": _("Pending Amount"), "fieldname": "pending_amount", "fieldtype": "Currency", "width": 110,
-			"options": "Company:company:default_currency"},
+			"options": "Company:company:default_currency", "hidden": 1},
 		# Retention columns
 		{"label": _("Retention %"), "fieldname": "retention_pct", "fieldtype": "Percent", "width": 80},
 		{"label": _("Expected Retention"), "fieldname": "expected_retention", "fieldtype": "Currency", "width": 120,

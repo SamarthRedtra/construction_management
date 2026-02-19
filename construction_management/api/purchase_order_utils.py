@@ -34,7 +34,7 @@ def get_purchase_history(purchase_order):
 	pi_items = frappe.db.sql("""
 		SELECT
 			pi.name, pi.posting_date, pi.status, pi.net_total, pi.grand_total,
-			pi.custom_is_advance
+			pi.custom_is_advance, pi.total_taxes_and_charges
 		FROM `tabPurchase Invoice` pi
 		INNER JOIN `tabPurchase Invoice Item` pii ON pii.parent = pi.name
 		WHERE pii.purchase_order = %s AND pi.docstatus = 1
@@ -45,6 +45,8 @@ def get_purchase_history(purchase_order):
 	total_invoice_amount = sum(flt(pi.grand_total) for pi in pi_items)
 	total_advance_invoices = sum(flt(pi.grand_total) for pi in pi_items if pi.custom_is_advance)
 	total_regular_invoices = total_invoice_amount - total_advance_invoices
+	total_tax = sum(flt(pi.total_taxes_and_charges) for pi in pi_items)
+	total_net = sum(flt(pi.net_total) for pi in pi_items)
 
 	# --- Retention from Invoices ---
 	# Deduction items don't have purchase_order set on the row itself,
@@ -74,7 +76,7 @@ def get_purchase_history(purchase_order):
 		)
 	""", purchase_order)[0][0]))
 
-	total_retention_deducted = retention_deducted_pi + retention_deducted_pr
+	total_retention_deducted = retention_deducted_pi 
 
 	# --- Advance deducted from Invoices ---
 	advance_deducted_pi = abs(flt(frappe.db.sql("""
@@ -132,6 +134,9 @@ def get_purchase_history(purchase_order):
 		"total_invoice_amount": total_invoice_amount,
 		"total_advance_invoices": total_advance_invoices,
 		"total_regular_invoices": total_regular_invoices,
+		"total_tax": total_tax,
+		"total_net": total_net,
+		"net_billed": total_invoice_amount - advance_deducted_pi - total_retention_deducted,
 
 		# Retention summary
 		"expected_retention": expected_retention,
