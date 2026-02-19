@@ -14,25 +14,27 @@
 		{% endif %}
 	</div>
 	<h2 class="text-center">{{ _("STATEMENT OF ACCOUNT") }}</h2>
-	{% set party_id = filters.party[0] if filters.party is iterable and filters.party|length > 0 else (filters.party or "") %}
-	{% set party_name = filters.party_name[0] if filters.party_name is iterable and filters.party_name|length > 0 else (filters.party_name or party_id) %}
+	{% set party_id = filters.party[0] if filters.party is iterable and filters.party|length > 0 else (filters.party or
+	"") %}
+	{% set party_name = filters.party_name[0] if filters.party_name is iterable and filters.party_name|length > 0 else
+	(filters.party_name or party_id) %}
 	<div>
 		{% if party_id == party_name %}
-			<h5 style="float: left;">{{ _("Customer: ") }} <b>{{ party_name }}</b></h5>
+		<h5 style="float: left;">{{ _("Customer: ") }} <b>{{ party_name }}</b></h5>
 		{% else %}
-			<h5 style="float: left;">{{ _("Customer: ") }} <b>{{ party_id }}</b></h5>
-			<h5 style="float: left; margin-left:15px">{{ _("Customer Name: ") }} <b>{{ party_name }}</b></h5>
+		<h5 style="float: left;">{{ _("Customer: ") }} <b>{{ party_id }}</b></h5>
+		<h5 style="float: left; margin-left:15px">{{ _("Customer Name: ") }} <b>{{ party_name }}</b></h5>
 		{% endif %}
 		<h5 style="float: right;">
 			{{ _("Date: {0} to {1}").format(
-				frappe.format(filters.from_date, "Date"),
-				frappe.format(filters.to_date, 'Date')
+			frappe.format(filters.from_date, "Date"),
+			frappe.format(filters.to_date, 'Date')
 			) }}
 		</h5>
 	</div>
 	<br>
 
-	{# ── GL Entries Table ── #}
+	{# ── GL Entries Table (includes Proforma / Sales Order rows inline) ── #}
 	<h4>{{ _("General Ledger Transactions") }}</h4>
 	<table class="table table-bordered" style="font-size: 10px">
 		<thead>
@@ -48,28 +50,33 @@
 			</tr>
 		</thead>
 		<tbody>
-		{% for row in data %}
-			{% if not row.get("is_proforma") %}
-			<tr>
-			{% if(row.posting_date) %}
+			{% for row in data %}
+			<tr{% if row.get("is_proforma") %} style="background-color: #f0f7ff;" {% endif %}>
+				{% if(row.posting_date) %}
 				<td>{{ frappe.format(row.posting_date, 'Date') }}</td>
 				<td>{{ row.voucher_type }}
 					<br>{{ row.voucher_no }}
+					{% if row.get("is_proforma") and row.get("so_status") %}
+					<br>{{ _("Status") }}: {{ row.so_status }}
+					{% endif %}
+					{% if row.get("is_proforma") and row.get("project") %}
+					<br>{{ _("Project") }}: {{ row.project }}
+					{% endif %}
 					{% if row.mode_of_payment %}
-						<br>{{ _("Mode of Payment") }}: {{ row.mode_of_payment }}
+					<br>{{ _("Mode of Payment") }}: {{ row.mode_of_payment }}
 					{% endif %}
 					{% if row.reference_no %}
-						<br>{{ _("Reference No") }}: {{ row.reference_no }}
+					<br>{{ _("Reference No") }}: {{ row.reference_no }}
 					{% endif %}
 					{% if row.reference_date %}
-						<br>{{ _("Reference Date") }}: {{ frappe.format(row.reference_date, 'Date') }}
+					<br>{{ _("Reference Date") }}: {{ frappe.format(row.reference_date, 'Date') }}
 					{% endif %}
 					{% if not (filters.party or filters.account) %}
-						{{ row.party or row.account }}
-						<br>
+					{{ row.party or row.account }}
+					<br>
 					{% endif %}
 					{% if row.bill_no %}
-						{{ _("Supplier Invoice No") }}: {{ row.bill_no }}
+					{{ _("Supplier Invoice No") }}: {{ row.bill_no }}
 					{% endif %}
 				</td>
 				<td style="text-align: right">
@@ -77,90 +84,47 @@
 				<td style="text-align: right">
 					{{ frappe.utils.fmt_money(row.get('credit', 0), currency=filters.presentation_currency) }}</td>
 				<td style="text-align: right">
-					{{ row.get('account', '') and frappe.utils.fmt_money(row.get('balance', 0), currency=filters.presentation_currency) }}
+					{{ row.get('account', '') and frappe.utils.fmt_money(row.get('balance', 0),
+					currency=filters.presentation_currency) }}
 				</td>
 				{% if filters.show_remarks %}
 				<td>
 					{% if row.remarks %}
-						{{ _("Remarks:") }} {{ row.remarks }}
+					{{ _("Remarks:") }} {{ row.remarks }}
 					{% endif %}
 				</td>
 				{% endif %}
-			{% else %}
+				{% else %}
 				<td></td>
 				<td>
 					<b>{{ frappe.format(row.account, {fieldtype: "Link"}) or "&nbsp;" }}</b>
 				</td>
 				<td style="text-align: right">
-					{{ row.get('account', '') and frappe.utils.fmt_money(row.get('debit', 0), currency=filters.presentation_currency) }}
+					{{ row.get('account', '') and frappe.utils.fmt_money(row.get('debit', 0),
+					currency=filters.presentation_currency) }}
 				</td>
 				<td style="text-align: right">
-					{{ row.get('account', '') and frappe.utils.fmt_money(row.get('credit', 0), currency=filters.presentation_currency) }}
+					{{ row.get('account', '') and frappe.utils.fmt_money(row.get('credit', 0),
+					currency=filters.presentation_currency) }}
 				</td>
 				<td style="text-align: right">
-					{{ row.get('account', '') and frappe.utils.fmt_money(row.get('balance', 0), currency=filters.presentation_currency) }}
+					{{ row.get('account', '') and frappe.utils.fmt_money(row.get('balance', 0),
+					currency=filters.presentation_currency) }}
 				</td>
 				{% if filters.show_remarks %}
 				<td>
 					{% if row.remarks %}
-						{{ _("Remarks:") }} {{ row.remarks }}
+					{{ _("Remarks:") }} {{ row.remarks }}
 					{% endif %}
 				</td>
 				{% endif %}
-			{% endif %}
-			</tr>
-			{% endif %}
-		{% endfor %}
+				{% endif %}
+				</tr>
+				{% endfor %}
 		</tbody>
 	</table>
 
-	{# ── Proforma (Sales Order) Table ── #}
-	{% set proforma_rows = [] %}
-	{% for row in data %}
-		{% if row.get("is_proforma") %}
-			{% if proforma_rows.append(row) %}{% endif %}
-		{% endif %}
-	{% endfor %}
-
-	{% if proforma_rows %}
-	<br>
-	<h4>{{ _("Proforma (Sales Orders)") }}</h4>
-	<table class="table table-bordered" style="font-size: 10px">
-		<thead>
-			<tr>
-				<th style="width: 12%">{{ _("Date") }}</th>
-				<th style="width: 20%">{{ _("Proforma No") }}</th>
-				<th style="width: 15%">{{ _("Status") }}</th>
-				<th style="width: 15%">{{ _("Amount") }}</th>
-				<th style="width: 18%">{{ _("Project") }}</th>
-			</tr>
-		</thead>
-		<tbody>
-		{% set proforma_total = {"amount": 0} %}
-		{% for row in proforma_rows %}
-			{% if proforma_total.update({"amount": proforma_total.amount + (row.debit or 0)}) %}{% endif %}
-			<tr style="background-color: #f0f7ff;">
-				<td>{{ frappe.format(row.posting_date, 'Date') }}</td>
-				<td>{{ row.voucher_no }}</td>
-				<td>{{ row.get("so_status", "") }}</td>
-				<td style="text-align: right">
-					{{ frappe.utils.fmt_money(row.get('debit', 0), currency=filters.presentation_currency) }}
-				</td>
-				<td>{{ row.get("project", "") }}</td>
-			</tr>
-		{% endfor %}
-			<tr style="font-weight: bold; background-color: #e0edff;">
-				<td colspan="3" style="text-align: right">{{ _("Total Proforma") }}</td>
-				<td style="text-align: right">
-					{{ frappe.utils.fmt_money(proforma_total.amount, currency=filters.presentation_currency) }}
-				</td>
-				<td></td>
-			</tr>
-		</tbody>
-	</table>
-	{% endif %}
-
-	{# ── Combined Summary ── #}
+	{# ── Summary ── #}
 	<br>
 	<h4>{{ _("Summary") }}</h4>
 	<table class="table table-bordered" style="font-size: 11px">
@@ -168,33 +132,26 @@
 			{% set gl_debit = {"val": 0} %}
 			{% set gl_credit = {"val": 0} %}
 			{% for row in data %}
-				{% if row.get("posting_date") and not row.get("is_proforma") %}
-					{% if gl_debit.update({"val": gl_debit.val + (row.debit or 0)}) %}{% endif %}
-					{% if gl_credit.update({"val": gl_credit.val + (row.credit or 0)}) %}{% endif %}
-				{% endif %}
+			{% if row.get("posting_date") %}
+			{% if gl_debit.update({"val": gl_debit.val + (row.debit or 0)}) %}{% endif %}
+			{% if gl_credit.update({"val": gl_credit.val + (row.credit or 0)}) %}{% endif %}
+			{% endif %}
 			{% endfor %}
 			<tr>
-				<td style="width: 50%"><b>{{ _("Total GL Debit") }}</b></td>
-				<td style="text-align: right">{{ frappe.utils.fmt_money(gl_debit.val, currency=filters.presentation_currency) }}</td>
+				<td style="width: 50%"><b>{{ _("Total Debit") }}</b></td>
+				<td style="text-align: right">{{ frappe.utils.fmt_money(gl_debit.val,
+					currency=filters.presentation_currency) }}</td>
 			</tr>
 			<tr>
-				<td><b>{{ _("Total GL Credit") }}</b></td>
-				<td style="text-align: right">{{ frappe.utils.fmt_money(gl_credit.val, currency=filters.presentation_currency) }}</td>
+				<td><b>{{ _("Total Credit") }}</b></td>
+				<td style="text-align: right">{{ frappe.utils.fmt_money(gl_credit.val,
+					currency=filters.presentation_currency) }}</td>
 			</tr>
 			<tr>
-				<td><b>{{ _("GL Balance (Dr - Cr)") }}</b></td>
-				<td style="text-align: right">{{ frappe.utils.fmt_money(gl_debit.val - gl_credit.val, currency=filters.presentation_currency) }}</td>
+				<td><b>{{ _("Balance (Dr - Cr)") }}</b></td>
+				<td style="text-align: right">{{ frappe.utils.fmt_money(gl_debit.val - gl_credit.val,
+					currency=filters.presentation_currency) }}</td>
 			</tr>
-			{% if proforma_rows %}
-			<tr style="background-color: #f0f7ff;">
-				<td><b>{{ _("Total Proforma Amount") }}</b></td>
-				<td style="text-align: right">{{ frappe.utils.fmt_money(proforma_total.amount, currency=filters.presentation_currency) }}</td>
-			</tr>
-			<tr style="font-weight: bold; background-color: #e8f4e8;">
-				<td><b>{{ _("Combined Total (GL + Proforma)") }}</b></td>
-				<td style="text-align: right">{{ frappe.utils.fmt_money(gl_debit.val - gl_credit.val + proforma_total.amount, currency=filters.presentation_currency) }}</td>
-			</tr>
-			{% endif %}
 		</tbody>
 	</table>
 
@@ -202,8 +159,8 @@
 	{% if ageing %}
 	<h4 class="text-center">
 		{{ _("Ageing Report based on {0} up to {1}").format(
-			ageing.ageing_based_on,
-			frappe.format(filters.to_date, "Date")
+		ageing.ageing_based_on,
+		frappe.format(filters.to_date, "Date")
 		) }}
 	</h4>
 	<table class="table table-bordered">

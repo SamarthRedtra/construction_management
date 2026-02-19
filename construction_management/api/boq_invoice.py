@@ -1104,6 +1104,7 @@ def get_or_create_retention_item():
 		item.stock_uom = "Nos"
 		item.is_stock_item = 0
 		item.is_sales_item = 1
+		item.is_purchase_item = 1
 		item.description = "Retention amount deducted from progressive billing invoices"
 		item.insert(ignore_permissions=True)
 	
@@ -1122,6 +1123,7 @@ def get_or_create_advance_item():
 		item.stock_uom = "Nos"
 		item.is_stock_item = 0
 		item.is_sales_item = 1
+		item.is_purchase_item = 1
 		item.description = "Advance payment deducted from progressive billing invoices"
 		item.insert(ignore_permissions=True)
 	

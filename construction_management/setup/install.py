@@ -25,6 +25,7 @@ def after_install():
 	create_warehouse_custom_fields()
 	create_dpr_quantity_fields()
 	create_payment_certificate_fields()
+	create_purchase_order_deduction_fields()
 	setup_accounting_dimensions()
 	setup_advanced_general_ledger()
 	frappe.db.commit()
@@ -598,3 +599,37 @@ def _upsert_property_setter(doctype, fieldname, prop, value):
 			},
 			validate_fields_for_doctype=False,
 		)
+
+
+def create_purchase_order_deduction_fields():
+	"""Create custom fields for retention and advance percentage on Purchase Order"""
+
+	fields_to_create = [
+		{
+			"dt": "Purchase Order",
+			"fieldname": "custom_retention_",
+			"label": "Retention %",
+			"fieldtype": "Percent",
+			"insert_after": "grand_total",
+			"default": "0",
+			"description": "Retention percentage to deduct from Purchase Invoices and Receipts"
+		},
+		{
+			"dt": "Purchase Order",
+			"fieldname": "custom_advance_",
+			"label": "Advance %",
+			"fieldtype": "Percent",
+			"insert_after": "custom_retention_",
+			"default": "0",
+			"description": "Advance percentage to deduct from Purchase Invoices and Receipts"
+		}
+	]
+
+	for field_def in fields_to_create:
+		try:
+			create_custom_field_if_not_exists(field_def)
+		except Exception as e:
+			frappe.logger().error(f"Error creating custom field {field_def.get('fieldname')}: {str(e)}")
+
+	frappe.logger().info("Purchase Order deduction fields created successfully")
+

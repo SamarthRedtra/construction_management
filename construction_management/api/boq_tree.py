@@ -1451,3 +1451,28 @@ def bulk_delete_items(item_names: list or str):
 		
 	return {"status": "success"}
 
+
+@frappe.whitelist()
+def update_boq_item_base(boq_item: str, total_qty: float = None, rate: float = None) -> dict:
+	"""
+	Update base fields (total_qty, rate) for a BOQ item.
+	
+	Args:
+		boq_item: BOQ Item name
+		total_qty: New total quantity
+		rate: New rate
+		
+	Returns:
+		dict with updated values
+	"""
+	item = frappe.get_doc("BOQ Item", boq_item)
+	
+	if total_qty is not None:
+		item.total_qty = flt(total_qty)
+		
+	if rate is not None:
+		item.rate = flt(rate)
+		
+	item.save()
+	
+	return get_item_ledger_values(boq_item)

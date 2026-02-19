@@ -19,5 +19,147 @@ frappe.ui.form.on('Purchase Order', {
 			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
 			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'items');
 		}
+
+		// Render purchase history dashboard for Subcontractor POs
+		if (frm.doc.docstatus === 1 && frm.doc.custom_suppliersubcontractor === 'Subcontractor') {
+			render_purchase_history(frm);
+		}
 	}
 });
+
+
+function render_purchase_history(frm) {
+	frappe.call({
+		method: 'construction_management.api.purchase_order_utils.get_purchase_history',
+		args: { purchase_order: frm.doc.name },
+		callback: function (r) {
+			if (!r.message) return;
+
+			const d = r.message;
+			const fmt = (val) => format_currency(val, frm.doc.currency);
+
+			let html = `
+			<div style="padding: 15px 0;">
+				<div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px;">
+					<!-- Advance Card -->
+					<div style="flex: 1; min-width: 200px; border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; background: var(--card-bg);">
+						<h6 style="color: var(--text-muted); margin-bottom: 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Advance Payments</h6>
+						<div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+							<span style="color: var(--text-muted);">Total Advance</span>
+							<strong>${fmt(d.total_advance)}</strong>
+						</div>
+						<div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+							<span style="color: var(--text-muted);">Utilized</span>
+							<strong style="color: var(--orange-500);">${fmt(d.advance_deducted)}</strong>
+						</div>
+						<div style="display: flex; justify-content: space-between;">
+							<span style="color: var(--text-muted);">Balance</span>
+							<strong style="color: ${d.advance_balance > 0 ? 'var(--green-600)' : 'var(--text-color)'};">${fmt(d.advance_balance)}</strong>
+						</div>
+					</div>
+
+					<!-- Invoice Card -->
+					<div style="flex: 1; min-width: 200px; border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; background: var(--card-bg);">
+						<h6 style="color: var(--text-muted); margin-bottom: 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Purchase Invoices</h6>
+						<div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+							<span style="color: var(--text-muted);">Total Invoiced</span>
+							<strong>${fmt(d.total_invoice_amount)}</strong>
+						</div>
+						<div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+							<span style="color: var(--text-muted);">Advance Invoices</span>
+							<strong>${fmt(d.total_advance_invoices)}</strong>
+						</div>
+						<div style="display: flex; justify-content: space-between;">
+							<span style="color: var(--text-muted);">Regular Invoices</span>
+							<strong>${fmt(d.total_regular_invoices)}</strong>
+						</div>
+					</div>
+
+					<!-- Retention Card -->
+					<div style="flex: 1; min-width: 200px; border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; background: var(--card-bg);">
+						<h6 style="color: var(--text-muted); margin-bottom: 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Retention (${d.retention_pct}%)</h6>
+						<div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+							<span style="color: var(--text-muted);">Expected Total</span>
+							<strong>${fmt(d.expected_retention)}</strong>
+						</div>
+						<div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+							<span style="color: var(--text-muted);">Deducted</span>
+							<strong style="color: var(--orange-500);">${fmt(d.total_retention_deducted)}</strong>
+						</div>
+						<div style="display: flex; justify-content: space-between;">
+							<span style="color: var(--text-muted);">Balance</span>
+							<strong style="color: ${d.retention_balance > 0 ? 'var(--red-500)' : 'var(--green-600)'};">${fmt(d.retention_balance)}</strong>
+						</div>
+					</div>
+				</div>`;
+
+			// Advance Payments Table
+			if (d.advances && d.advances.length > 0) {
+				html += `
+				<h6 style="margin-bottom: 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Advance Payment Records</h6>
+				<table class="table table-bordered table-sm" style="font-size: 12px;">
+					<thead>
+						<tr style="background: var(--subtle-fg);">
+							<th>ID</th>
+							<th>Date</th>
+							<th>Amount</th>
+							<th>Allocated</th>
+							<th>Unallocated</th>
+							<th>Status</th>
+						</tr>
+					</thead>
+					<tbody>`;
+
+				for (let adv of d.advances) {
+					const status_color = adv.status === 'Active' ? 'green' :
+						adv.status === 'Fully Utilized' ? 'blue' : 'orange';
+					html += `
+						<tr>
+							<td><a href="/app/purchase-advance-payment/${adv.name}">${adv.name}</a></td>
+							<td>${frappe.datetime.str_to_user(adv.date)}</td>
+							<td>${fmt(adv.amount)}</td>
+							<td>${fmt(adv.allocated_amount)}</td>
+							<td>${fmt(adv.unallocated_amount)}</td>
+							<td><span class="indicator-pill ${status_color}">${adv.status}</span></td>
+						</tr>`;
+				}
+
+				html += `</tbody></table>`;
+			}
+
+			// Invoices Table
+			if (d.invoices && d.invoices.length > 0) {
+				html += `
+				<h6 style="margin-top: 15px; margin-bottom: 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Purchase Invoices</h6>
+				<table class="table table-bordered table-sm" style="font-size: 12px;">
+					<thead>
+						<tr style="background: var(--subtle-fg);">
+							<th>Invoice</th>
+							<th>Date</th>
+							<th>Grand Total</th>
+							<th>Status</th>
+							<th>Advance?</th>
+						</tr>
+					</thead>
+					<tbody>`;
+
+				for (let pi of d.invoices) {
+					html += `
+						<tr>
+							<td><a href="/app/purchase-invoice/${pi.name}">${pi.name}</a></td>
+							<td>${frappe.datetime.str_to_user(pi.posting_date)}</td>
+							<td>${fmt(pi.grand_total)}</td>
+							<td>${pi.status}</td>
+							<td>${pi.custom_is_advance ? '✓' : ''}</td>
+						</tr>`;
+				}
+
+				html += `</tbody></table>`;
+			}
+
+			html += `</div>`;
+
+			frm.fields_dict.custom_purchase_history.$wrapper.html(html);
+		}
+	});
+}

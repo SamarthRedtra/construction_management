@@ -1,34 +1,6 @@
 // Copyright (c) 2024, Construction Management
 // License: MIT
-// Purchase Receipt client script for Payment Certificate integration
-
-frappe.ui.form.on('Purchase Receipt', {
-	refresh: function (frm) {
-		// Add "Create Payment Certificate" button for submitted PRs with project
-		if (frm.doc.docstatus === 1 && frm.doc.custom_suppliersubcontractor == "Subcontractor") {
-			// Check if PC already exists for this PR
-			frappe.call({
-				method: 'frappe.client.get_count',
-				args: {
-					doctype: 'Payment Certificate',
-					filters: {
-						purchase_receipt: frm.doc.name,
-						docstatus: ['!=', 2]
-					}
-				},
-				callback: function (r) {
-					if (r.message === 0) {
-						frm.add_custom_button(__('Create Payment Certificate'), function () {
-							create_payment_certificate_from_pr(frm);
-						}, __('Actions'));
-					}
-				}
-			});
-		}
-	}
-});
-
-
+// Purchase Receipt client script for Payment Certificate integration and deduction recalculation
 
 frappe.ui.form.on('Purchase Receipt', {
 	onload: function (frm) {
@@ -40,7 +12,7 @@ frappe.ui.form.on('Purchase Receipt', {
 	},
 
 	refresh: function (frm) {
-		// Re-setup on refresh to ensure filters are applied after form loads
+		// Re-setup dimension filters on refresh
 		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
 			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
 			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'items');
@@ -68,6 +40,27 @@ frappe.ui.form.on('Purchase Receipt', {
 			}
 			return {};
 		});
+
+		// Add "Create Payment Certificate" button for submitted PRs with Subcontractor type
+		if (frm.doc.docstatus === 1 && frm.doc.custom_suppliersubcontractor == "Subcontractor") {
+			frappe.call({
+				method: 'frappe.client.get_count',
+				args: {
+					doctype: 'Payment Certificate',
+					filters: {
+						purchase_receipt: frm.doc.name,
+						docstatus: ['!=', 2]
+					}
+				},
+				callback: function (r) {
+					if (r.message === 0) {
+						frm.add_custom_button(__('Create Payment Certificate'), function () {
+							create_payment_certificate_from_pr(frm);
+						}, __('Actions'));
+					}
+				}
+			});
+		}
 	}
 });
 
@@ -99,8 +92,141 @@ frappe.ui.form.on('Purchase Receipt Item', {
 				}, 3);
 			}
 		});
+	},
+
+	items_add: function (frm, cdt, cdn) {
+		recalculate_pr_deductions(frm);
+	},
+
+	items_remove: function (frm, cdt, cdn) {
+		recalculate_pr_deductions(frm);
+	},
+
+	qty: function (frm, cdt, cdn) {
+		recalculate_pr_deductions(frm);
+	},
+
+	rate: function (frm, cdt, cdn) {
+		recalculate_pr_deductions(frm);
+	},
+
+	amount: function (frm, cdt, cdn) {
+		recalculate_pr_deductions(frm);
 	}
 });
+
+
+function recalculate_pr_deductions(frm) {
+	// Only recalculate if the document is in draft
+	if (frm.doc.docstatus !== 0) {
+		return;
+	}
+
+	// Find linked Purchase Order
+	let purchase_order = frm.doc.custom_purchase_order;
+	if (!purchase_order) {
+		for (let item of (frm.doc.items || [])) {
+			if (item.purchase_order) {
+				purchase_order = item.purchase_order;
+				break;
+			}
+		}
+	}
+
+	if (!purchase_order) return;
+
+	// Fetch PO retention/advance percentages and supplier/subcontractor type
+	frappe.db.get_value('Purchase Order', purchase_order,
+		['custom_retention_', 'custom_advance_', 'custom_suppliersubcontractor'])
+		.then(r => {
+			if (!r.message) return;
+
+			// Only apply for Subcontractor type
+			if (r.message.custom_suppliersubcontractor !== 'Subcontractor') return;
+
+			const retention_pct = flt(r.message.custom_retention_);
+			const advance_pct = flt(r.message.custom_advance_);
+
+			if (retention_pct <= 0 && advance_pct <= 0) return;
+
+			// Calculate total billable (exclude deduction items)
+			let total_billable = 0;
+			for (let item of (frm.doc.items || [])) {
+				if (item.item_code !== 'RETENTION-DEDUCTION' && item.item_code !== 'ADVANCE-DEDUCTION') {
+					total_billable += flt(item.amount);
+				}
+			}
+
+			// Update or create retention deduction
+			if (retention_pct > 0) {
+				const retention_amount = flt(total_billable * retention_pct / 100, 2);
+
+				if (retention_amount > 0) {
+					let retention_row = (frm.doc.items || []).find(i => i.item_code === 'RETENTION-DEDUCTION');
+
+					if (retention_row) {
+						frappe.model.set_value(retention_row.doctype, retention_row.name, 'rate', -retention_amount);
+						frappe.model.set_value(retention_row.doctype, retention_row.name, 'amount', -retention_amount);
+						frappe.model.set_value(retention_row.doctype, retention_row.name, 'description',
+							`Retention deduction (${retention_pct}%)`);
+					} else {
+						const new_row = frm.add_child('items');
+						frappe.model.set_value(new_row.doctype, new_row.name, {
+							'item_code': 'RETENTION-DEDUCTION',
+							'item_name': 'Retention Deduction',
+							'uom': 'Nos',
+							'qty': 1,
+							'rate': -retention_amount,
+							'amount': -retention_amount,
+							'description': `Retention deduction (${retention_pct}%)`,
+							'project': frm.doc.project
+						});
+					}
+				} else {
+					const retention_row = (frm.doc.items || []).find(i => i.item_code === 'RETENTION-DEDUCTION');
+					if (retention_row) {
+						frappe.model.clear_doc(retention_row.doctype, retention_row.name);
+					}
+				}
+			}
+
+			// Update or create advance deduction
+			if (advance_pct > 0) {
+				const advance_amount = flt(total_billable * advance_pct / 100, 2);
+
+				if (advance_amount > 0) {
+					let advance_row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
+
+					if (advance_row) {
+						frappe.model.set_value(advance_row.doctype, advance_row.name, 'rate', -advance_amount);
+						frappe.model.set_value(advance_row.doctype, advance_row.name, 'amount', -advance_amount);
+						frappe.model.set_value(advance_row.doctype, advance_row.name, 'description',
+							`Advance deduction (${advance_pct}%)`);
+					} else {
+						const new_row = frm.add_child('items');
+						frappe.model.set_value(new_row.doctype, new_row.name, {
+							'item_code': 'ADVANCE-DEDUCTION',
+							'item_name': 'Advance Deduction',
+							'uom': 'Nos',
+							'qty': 1,
+							'rate': -advance_amount,
+							'amount': -advance_amount,
+							'description': `Advance deduction (${advance_pct}%)`,
+							'project': frm.doc.project
+						});
+					}
+				} else {
+					const advance_row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
+					if (advance_row) {
+						frappe.model.clear_doc(advance_row.doctype, advance_row.name);
+					}
+				}
+			}
+
+			frm.refresh_field('items');
+		});
+}
+
 
 function create_payment_certificate_from_pr(frm) {
 	frappe.call({

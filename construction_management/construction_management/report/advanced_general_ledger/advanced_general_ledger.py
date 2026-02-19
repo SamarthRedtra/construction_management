@@ -71,7 +71,7 @@ def get_sales_orders(filters):
 	so_filters = {}
 
 	conditions.append("so.docstatus = 1")
-	conditions.append("IFNULL(so.per_billed, 0) < 100")
+	conditions.append("IFNULL(so.per_billed, 0) = 0")
 
 	if filters.get("company"):
 		conditions.append("so.company = %(company)s")
@@ -274,6 +274,10 @@ def get_soa_pdf(filters):
 	filters["include_proforma"] = 1
 
 	columns, data = execute(filters)
+
+	# Enrich Payment Entry rows with reference details (lazy import to avoid circular dependency)
+	from construction_management.overrides.process_statement_of_accounts import enrich_reference_details
+	enrich_reference_details(data)
 
 	# Resolve letter head
 	letter_head = None

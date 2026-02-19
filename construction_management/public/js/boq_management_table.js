@@ -28,6 +28,12 @@ function render_boq_management_table(container, frm, bills) {
 	let html = '<div class="boq-management-table-container">';
 	html += `
 		<div class="boq-management-topbar">
+			<div class="boq-search-container">
+				<input type="text" class="form-control boq-search-input" placeholder="Search items or bills..." aria-label="Search BOQ items">
+				<svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+				</svg>
+			</div>
 			<a class="variance-report-link" href="#" onclick="frappe.set_route('query-report', 'Project Sales Order Analysis'); return false;">
 				View Variance Balance Report
 				<svg class="variance-report-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -263,8 +269,16 @@ function render_item_row(item, frm) {
 				<div class="profit-indicator-container" data-item-id="${item.name}"></div>
 			</td>
 			<td class="col-unit sticky-col">${item.unit || '-'}</td>
-			<td class="col-total-qty sticky-col">${format_number(totalQty)}</td>
-			<td class="col-rate sticky-col">${format_currency(ledgerAmount.rate || 0)}</td>
+			<td class="col-total-qty sticky-col">
+				<input type="number" class="boq-qty-input" value="${totalQty}" 
+					data-item="${item.name}" step="0.001" min="0" 
+					aria-label="Total quantity" tabindex="0">
+			</td>
+			<td class="col-rate sticky-col">
+				<input type="number" class="boq-rate-input" value="${ledgerAmount.rate || 0}" 
+					data-item="${item.name}" step="0.01" min="0" 
+					aria-label="Rate" tabindex="0">
+			</td>
 			<td class="col-amount sticky-col sticky-col-last">${format_currency(ledgerAmount.total || 0)}</td>
 			
 			<!-- Qty Breakdown (moved before Value) -->
@@ -501,13 +515,104 @@ function attach_table_events(container, frm) {
 	// Handle select all checkbox
 	container.find('.select-all-items').on('change', function () {
 		const isChecked = $(this).prop('checked');
-		container.find('.item-checkbox:not(:disabled)').prop('checked', isChecked);
+		container.find('.item-checkbox:visible:not(:disabled)').prop('checked', isChecked);
 		updateSelectionToolbar(container);
 	});
 
 	// Handle individual item checkbox
 	container.find('.item-checkbox').on('change', function () {
 		updateSelectionToolbar(container);
+	});
+
+	// Handle BOQ Qty input change
+	container.find('.boq-qty-input').on('change', function () {
+		const input = $(this);
+		const itemName = input.data('item');
+		const newQty = flt(input.val());
+
+		frappe.call({
+			method: 'construction_management.api.boq_tree.update_boq_item_base',
+			args: {
+				boq_item: itemName,
+				total_qty: newQty
+			},
+			callback: function (r) {
+				if (r.message) {
+					frappe.show_alert({ message: __('Total Quantity updated'), indicator: 'green' });
+					// We might need to refresh the UI here, but for now just update the Amount cell
+					const row = input.closest('tr');
+					const rate = flt(row.find('.boq-rate-input').val());
+					row.find('.col-amount').text(format_currency(newQty * rate));
+				}
+			}
+		});
+	});
+
+	// Handle BOQ Rate input change
+	container.find('.boq-rate-input').on('change', function () {
+		const input = $(this);
+		const itemName = input.data('item');
+		const newRate = flt(input.val());
+
+		frappe.call({
+			method: 'construction_management.api.boq_tree.update_boq_item_base',
+			args: {
+				boq_item: itemName,
+				rate: newRate
+			},
+			callback: function (r) {
+				if (r.message) {
+					frappe.show_alert({ message: __('Rate updated'), indicator: 'green' });
+					const row = input.closest('tr');
+					const qty = flt(row.find('.boq-qty-input').val());
+					row.find('.col-amount').text(format_currency(qty * newRate));
+
+					// Update rate data on current billing inputs
+					row.find('.current-qty-input, .current-value-input').data('rate', newRate);
+				}
+			}
+		});
+	});
+
+	// Handle Search Input
+	container.find('.boq-search-input').on('keyup', function () {
+		const searchTerm = $(this).val().toLowerCase();
+
+		if (!searchTerm) {
+			container.find('.bill-section, .item-row').show();
+			return;
+		}
+
+		container.find('.bill-section').each(function () {
+			const billSection = $(this);
+			const billTitle = billSection.find('.bill-title').text().toLowerCase();
+			const billDesc = billSection.find('.bill-desc').text().toLowerCase();
+
+			let billMatches = billTitle.includes(searchTerm) || billDesc.includes(searchTerm);
+			let anyItemMatches = false;
+
+			billSection.find('.item-row').each(function () {
+				const itemRow = $(this);
+				const itemDesc = itemRow.find('.item-desc').text().toLowerCase();
+				const itemCode = itemRow.find('.item-code').text().toLowerCase();
+
+				if (itemDesc.includes(searchTerm) || itemCode.includes(searchTerm)) {
+					itemRow.show();
+					anyItemMatches = true;
+				} else {
+					itemRow.hide();
+				}
+			});
+
+			if (billMatches || anyItemMatches) {
+				billSection.show();
+				if (anyItemMatches && !billSection.hasClass('expanded')) {
+					// Optionally expand if items match?
+				}
+			} else {
+				billSection.hide();
+			}
+		});
 	});
 }
 
@@ -2927,7 +3032,29 @@ function get_table_styles() {
 		}
 		
 		.boq-management-table-container { display: flex; flex-direction: column; gap: 12px; }
-		.boq-management-topbar { display: flex; justify-content: flex-end; }
+		.boq-management-topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+		
+		.boq-search-container {
+			position: relative;
+			display: flex;
+			align-items: center;
+			width: 300px;
+		}
+		
+		.boq-search-input {
+			padding-left: 32px !important;
+			height: 32px !important;
+			border-radius: 6px !important;
+			font-size: 13px !important;
+			border: 1px solid var(--boq-border) !important;
+		}
+		
+		.search-icon {
+			position: absolute;
+			left: 10px;
+			color: var(--boq-text-muted);
+			pointer-events: none;
+		}
 		.variance-report-link {
 			display: inline-flex;
 			align-items: center;
@@ -3006,6 +3133,42 @@ function get_table_styles() {
 		
 		/* Frappe-style button - Requirements: 1.2 */
 		.btn-frappe { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 12px; font-weight: 500; color: var(--boq-text-primary); background: var(--boq-bg-primary); border: 1px solid var(--boq-border); border-radius: var(--boq-radius-sm); cursor: pointer; transition: all var(--boq-transition); }
+		.btn-frappe:hover svg { stroke: var(--boq-primary); }
+		
+		/* Inline Inputs */
+		.boq-qty-input, .boq-rate-input {
+			width: 100% !important;
+			height: 28px !important;
+			padding: 2px 6px !important;
+			border: 1px solid transparent !important;
+			border-radius: 4px !important;
+			background: transparent !important;
+			text-align: right !important;
+			font-size: 12px !important;
+			transition: all 0.2s !important;
+		}
+		
+		.boq-qty-input:hover, .boq-rate-input:hover {
+			border-color: var(--boq-border) !important;
+			background: #fff !important;
+		}
+		
+		.boq-qty-input:focus, .boq-rate-input:focus {
+			border-color: var(--boq-primary) !important;
+			background: #fff !important;
+			outline: none !important;
+			box-shadow: 0 0 0 2px rgba(36, 144, 239, 0.1) !important;
+		}
+		
+		/* Remove arrows from number inputs */
+		input::-webkit-outer-spin-button,
+		input::-webkit-inner-spin-button {
+			-webkit-appearance: none;
+			margin: 0;
+		}
+		input[type=number] {
+			-moz-appearance: textfield;
+		}
 		.btn-frappe:hover { background: var(--boq-bg-secondary); border-color: #b8c2cc; }
 		
 		/* Table - Requirements: 4.1, 4.4 */
