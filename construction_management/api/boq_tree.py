@@ -1393,3 +1393,61 @@ def get_boq_item_transactions_with_ledger(boq_item: str) -> list:
 	final_transactions.reverse()
 	
 	return final_transactions
+
+
+@frappe.whitelist()
+def delete_bill(bill_name: str):
+	"""
+	Delete a BOQ Bill and all its associated BOQ Items.
+	"""
+	# Check if bill exists
+	if not frappe.db.exists("BOQ Bill", bill_name):
+		frappe.throw(_("Bill {0} does not exist").format(bill_name))
+	
+	# Get all items for this bill
+	items = frappe.get_all("BOQ Item", filters={"parent_bill": bill_name}, fields=["name", "billing_status"])
+	
+	# Check if any item is billed
+	for item in items:
+		if item.billing_status == "Fully Billed":
+			frappe.throw(_("Cannot delete Bill because item {0} is already fully billed").format(item.name))
+		
+		# Check if there are any ledger entries (meaning it was partially billed or has transactions)
+		if frappe.db.exists("BOQ Progress Ledger", {"boq_item": item.name}):
+			frappe.throw(_("Cannot delete Bill because item {0} has transaction history").format(item.name))
+
+	# Delete items first
+	for item in items:
+		frappe.delete_doc("BOQ Item", item.name)
+	
+	# Delete the bill
+	frappe.delete_doc("BOQ Bill", bill_name)
+	
+	return {"status": "success"}
+
+
+@frappe.whitelist()
+def bulk_delete_items(item_names: list or str):
+	"""
+	Delete multiple BOQ Items.
+	"""
+	if isinstance(item_names, str):
+		import json
+		item_names = json.loads(item_names)
+		
+	for name in item_names:
+		if not frappe.db.exists("BOQ Item", name):
+			continue
+			
+		# Check if billed
+		status = frappe.db.get_value("BOQ Item", name, "billing_status")
+		if status == "Fully Billed":
+			frappe.throw(_("Cannot delete BOQ Item {0} because it is fully billed").format(name))
+			
+		if frappe.db.exists("BOQ Progress Ledger", {"boq_item": name}):
+			frappe.throw(_("Cannot delete BOQ Item {0} because it has transaction history").format(name))
+			
+		frappe.delete_doc("BOQ Item", name)
+		
+	return {"status": "success"}
+

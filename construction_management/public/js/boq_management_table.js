@@ -97,6 +97,13 @@ function render_bill_section(bill, frm, isExpanded) {
 						</svg>
 						Add Item
 					</button>
+					<button class="btn-frappe btn-sm btn-delete-bill" onclick="delete_boq_bill('${bill.name}'); event.stopPropagation();">
+						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<polyline points="3 6 5 6 21 6"></polyline>
+							<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+						</svg>
+						Delete Bill
+					</button>
 				</div>
 				${render_comprehensive_items_table(bill.items || [], frm)}
 			</div>
@@ -534,6 +541,13 @@ function updateSelectionToolbar(container) {
 								<polyline points="14 2 14 8 20 8"></polyline>
 							</svg>
 							Generate Sales Invoice
+						</button>
+						<button class="btn-toolbar btn-danger-toolbar" onclick="deleteSelectedBOQItems()">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<polyline points="3 6 5 6 21 6"></polyline>
+								<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+							</svg>
+							Delete Selected
 						</button>
 						<button class="btn-toolbar btn-clear-toolbar" onclick="clearSelection()">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -3202,6 +3216,11 @@ function get_table_styles() {
 		.btn-secondary-toolbar:hover { background: var(--boq-bg-secondary, #f7f7f7); }
 		.btn-clear-toolbar { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,0.3); }
 		.btn-clear-toolbar:hover { background: rgba(255,255,255,0.1); }
+		.btn-danger-toolbar { background: #ff5630; color: #fff; }
+		.btn-danger-toolbar:hover { background: #de350b; }
+		
+		.btn-delete-bill { border-color: #ff5630 !important; color: #ff5630 !important; }
+		.btn-delete-bill:hover { background: #ffebee !important; }
 		
 		/* Transaction History */
 		.transaction-history-row { background: #fafbfc; }

@@ -1245,6 +1245,61 @@ window.delete_boq_item = function (item_name) {
 	);
 };
 
+window.delete_boq_bill = function (bill_name) {
+	frappe.confirm(
+		__('Are you sure you want to delete this Bill? All associated BOQ Items will also be deleted. This action cannot be undone.'),
+		function () {
+			frappe.call({
+				method: 'construction_management.api.boq_tree.delete_bill',
+				args: { bill_name: bill_name },
+				callback: function (r) {
+					if (!r.exc) {
+						frappe.show_alert({ message: __('Bill deleted successfully'), indicator: 'green' });
+						if (cur_frm && cur_frm.reload_doc) {
+							cur_frm.reload_doc();
+						}
+					}
+				}
+			});
+		}
+	);
+};
+
+window.deleteSelectedBOQItems = function () {
+	const selectedItems = $('.item-checkbox:checked');
+	if (selectedItems.length === 0) {
+		frappe.show_alert({ message: __('Please select items first'), indicator: 'orange' });
+		return;
+	}
+
+	const itemNames = [];
+	selectedItems.each(function () {
+		itemNames.push($(this).data('item'));
+	});
+
+	frappe.confirm(
+		__('Are you sure you want to delete {0} selected BOQ Items? This action cannot be undone.', [itemNames.length]),
+		function () {
+			frappe.call({
+				method: 'construction_management.api.boq_tree.bulk_delete_items',
+				args: { item_names: JSON.stringify(itemNames) },
+				callback: function (r) {
+					if (!r.exc) {
+						frappe.show_alert({ message: __('Selected BOQ Items deleted successfully'), indicator: 'green' });
+						if (typeof clearSelection === 'function') {
+							clearSelection();
+						}
+						if (cur_frm && cur_frm.reload_doc) {
+							cur_frm.reload_doc();
+						}
+					}
+				}
+			});
+		}
+	);
+};
+
+
 window.create_item_invoice = function (boq_item) {
 	const input = $(`.current-qty-input[data-item="${boq_item}"]`);
 	const currentQty = parseFloat(input.val()) || 0;
