@@ -186,6 +186,7 @@ def make_advance_purchase_invoice(purchase_order):
 	pi.plc_conversion_rate = po.plc_conversion_rate
 	pi.cost_center = po.cost_center
 	pi.custom_is_advance = 1
+	pi.update_billed_amount_in_purchase_order = 0
 	pi.custom_suppliersubcontractor = po.get("custom_suppliersubcontractor") or ""
 
 	# Copy BOQ dimension fields if present
