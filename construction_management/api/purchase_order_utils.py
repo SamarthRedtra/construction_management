@@ -147,3 +147,77 @@ def get_purchase_history(purchase_order):
 		"advance_deducted": advance_deducted_pi,
 		"advance_balance": total_advance - advance_deducted_pi,
 	}
+
+
+@frappe.whitelist()
+def make_advance_purchase_invoice(purchase_order):
+	"""
+	Create a draft Purchase Invoice from a Purchase Order with advance settings pre-configured.
+	- custom_is_advance is ticked
+	- Items from PO are mapped
+	- PURCHASE-ADVANCE item is auto-added based on PO advance %
+	Returns the new Purchase Invoice name.
+	"""
+	if not purchase_order:
+		frappe.throw(_("Purchase Order is required"))
+
+	po = frappe.get_doc("Purchase Order", purchase_order)
+
+	if po.docstatus != 1:
+		frappe.throw(_("Purchase Order must be submitted"))
+
+	advance_pct = flt(po.get("custom_advance_"))
+	if advance_pct <= 0:
+		frappe.throw(_("Purchase Order does not have an Advance % configured"))
+
+	# Ensure deduction items exist
+	from construction_management.overrides.purchase_invoice import _ensure_purchase_deduction_items
+	_ensure_purchase_deduction_items()
+
+	# Create Purchase Invoice
+	pi = frappe.new_doc("Purchase Invoice")
+	pi.supplier = po.supplier
+	pi.company = po.company
+	pi.project = po.project
+	pi.currency = po.currency
+	pi.conversion_rate = po.conversion_rate
+	pi.buying_price_list = po.buying_price_list
+	pi.price_list_currency = po.price_list_currency
+	pi.plc_conversion_rate = po.plc_conversion_rate
+	pi.cost_center = po.cost_center
+	pi.custom_is_advance = 1
+	pi.custom_suppliersubcontractor = po.get("custom_suppliersubcontractor") or ""
+
+	# Copy BOQ dimension fields if present
+	if po.get("bill_no"):
+		pi.bill_no = po.bill_no
+	if po.get("boq_item"):
+		pi.boq_item = po.boq_item
+
+	# Add PURCHASE-ADVANCE item only (no PO line items for advance invoices)
+	advance_amount = flt(po.grand_total * advance_pct / 100, 2)
+	if advance_amount > 0:
+		default_expense_account = frappe.db.get_value("Company", po.company, "default_expense_account")
+		default_cost_center = po.cost_center or frappe.db.get_value("Company", po.company, "cost_center")
+
+		pi.append("items", {
+			"item_code": "PURCHASE-ADVANCE",
+			"item_name": "Purchase Advance",
+			"qty": 1,
+			"rate": advance_amount,
+			"amount": advance_amount,
+			"uom": "Nos",
+			"conversion_factor": 1.0,
+			"description": f"Advance payment ({advance_pct}% of PO {po.name})",
+			"expense_account": default_expense_account,
+			"cost_center": default_cost_center,
+			"project": po.project,
+		})
+
+	pi.flags.ignore_permissions = True
+	pi.set_missing_values()
+	pi.save()
+
+	frappe.msgprint(_("Advance Purchase Invoice {0} created").format(pi.name))
+
+	return pi.name

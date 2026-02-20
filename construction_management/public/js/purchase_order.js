@@ -28,6 +28,23 @@ frappe.ui.form.on('Purchase Order', {
 		// Render purchase history dashboard only for submitted Subcontractor POs
 		if (frm.doc.docstatus === 1 && frm.doc.custom_suppliersubcontractor === 'Subcontractor') {
 			render_purchase_history(frm);
+
+			// Add "Record Advance" button if advance % is configured
+			if (flt(frm.doc.custom_advance_) > 0) {
+				frm.add_custom_button(__('Record Advance'), function () {
+					frappe.call({
+						method: 'construction_management.api.purchase_order_utils.make_advance_purchase_invoice',
+						args: { purchase_order: frm.doc.name },
+						freeze: true,
+						freeze_message: __('Creating Advance Purchase Invoice...'),
+						callback: function (r) {
+							if (r.message) {
+								frappe.set_route('Form', 'Purchase Invoice', r.message);
+							}
+						}
+					});
+				}, __('Create'));
+			}
 		}
 	}
 });
