@@ -66,6 +66,7 @@ frappe.ui.form.on('Purchase Order', {
 							row.description = `Advance payment (${advance_pct}% of PO ${frm.doc.name})`;
 							row.project = frm.doc.project;
 							row.cost_center = frm.doc.cost_center;
+							row.purchase_order = frm.doc.name
 						}
 
 						frappe.set_route('Form', 'Purchase Invoice', pi.name);
