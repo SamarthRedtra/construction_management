@@ -32,16 +32,43 @@ frappe.ui.form.on('Purchase Order', {
 			// Add "Record Advance" button if advance % is configured
 			if (flt(frm.doc.custom_advance_) > 0) {
 				frm.add_custom_button(__('Record Advance'), function () {
-					frappe.call({
-						method: 'construction_management.api.purchase_order_utils.make_advance_purchase_invoice',
-						args: { purchase_order: frm.doc.name },
-						freeze: true,
-						freeze_message: __('Creating Advance Purchase Invoice...'),
-						callback: function (r) {
-							if (r.message) {
-								frappe.set_route('Form', 'Purchase Invoice', r.message);
-							}
+					frappe.model.with_doctype('Purchase Invoice', function () {
+						var pi = frappe.model.get_new_doc('Purchase Invoice');
+						pi.supplier = frm.doc.supplier;
+						pi.company = frm.doc.company;
+						pi.project = frm.doc.project;
+						pi.currency = frm.doc.currency;
+						pi.conversion_rate = frm.doc.conversion_rate;
+						pi.buying_price_list = frm.doc.buying_price_list;
+						pi.price_list_currency = frm.doc.price_list_currency;
+						pi.plc_conversion_rate = frm.doc.plc_conversion_rate;
+						pi.cost_center = frm.doc.cost_center;
+						pi.custom_is_advance = 1;
+						pi.update_billed_amount_in_purchase_order = 0;
+						pi.custom_suppliersubcontractor = frm.doc.custom_suppliersubcontractor || '';
+
+						if (frm.doc.bill_no) pi.bill_no = frm.doc.bill_no;
+						if (frm.doc.boq_item) pi.boq_item = frm.doc.boq_item;
+
+						// Calculate advance amount
+						var advance_pct = flt(frm.doc.custom_advance_);
+						var advance_amount = flt(frm.doc.grand_total * advance_pct / 100, 2);
+
+						if (advance_amount > 0) {
+							var row = frappe.model.add_child(pi, 'items');
+							row.item_code = 'PURCHASE-ADVANCE';
+							row.item_name = 'Purchase Advance';
+							row.qty = 1;
+							row.rate = advance_amount;
+							row.amount = advance_amount;
+							row.uom = 'Nos';
+							row.conversion_factor = 1.0;
+							row.description = `Advance payment (${advance_pct}% of PO ${frm.doc.name})`;
+							row.project = frm.doc.project;
+							row.cost_center = frm.doc.cost_center;
 						}
+
+						frappe.set_route('Form', 'Purchase Invoice', pi.name);
 					});
 				}, __('Create'));
 			}
