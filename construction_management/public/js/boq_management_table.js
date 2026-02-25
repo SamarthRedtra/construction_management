@@ -376,6 +376,13 @@ function render_item_row(item, frm) {
 							<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
 						</svg>
 					</button>
+					<button class="action-btn action-btn-reload" onclick="reload_boq_item('${item.name}'); event.stopPropagation();" title="Reload Values" aria-label="Reload financial values for this item" tabindex="0">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+							<polyline points="23 4 23 10 17 10"></polyline>
+							<polyline points="1 20 1 14 7 14"></polyline>
+							<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+						</svg>
+					</button>
 					<button class="action-btn action-btn-delete" onclick="delete_boq_item('${item.name}'); event.stopPropagation();" title="Delete Item" aria-label="Delete this item" tabindex="0" ${isFullyBilled ? 'disabled aria-disabled="true"' : ''}>
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
 							<polyline points="3 6 5 6 21 6"></polyline>
@@ -615,6 +622,35 @@ function attach_table_events(container, frm) {
 		});
 	});
 }
+
+/**
+ * Reload BOQ Item values to recalculate progressive billing
+ */
+window.reload_boq_item = function (item_name) {
+	frappe.confirm(
+		__('Are you sure you want to recalculate progressive billing for this item? This will fix accumulated values from the ledger.'),
+		function () {
+			frappe.call({
+				method: 'construction_management.construction_management.doctype.boq_item.boq_item.recalculate_progressive_billing',
+				args: {
+					boq_item_name: item_name
+				},
+				freeze: true,
+				freeze_message: __('Recalculating values...'),
+				callback: function (r) {
+					if (r.message && r.message.success) {
+						frappe.show_alert({ message: __('BOQ Item {0} values recalculated successfully', [item_name]), indicator: 'green' });
+						if (cur_frm) {
+							cur_frm.reload_doc();
+						}
+					} else {
+						frappe.show_alert({ message: r.message?.error || __('Failed to recalculate values'), indicator: 'red' });
+					}
+				}
+			});
+		}
+	);
+};
 
 
 /**

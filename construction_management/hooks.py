@@ -56,7 +56,8 @@ doctype_js = {
 	"Purchase Order": ["public/js/accounting_dimension_filters.js", "public/js/purchase_order.js"],
 	"Sales Order": ["public/js/accounting_dimension_filters.js", "public/js/sales_order.js"],
 	"Stock Entry": ["public/js/accounting_dimension_filters.js", "public/js/stock_entry.js"],
-	"Journal Entry": ["public/js/accounting_dimension_filters.js", "public/js/journal_entry.js"]
+	"Journal Entry": ["public/js/accounting_dimension_filters.js", "public/js/journal_entry.js"],
+	"Material Request": ["public/js/accounting_dimension_filters.js", "public/js/material_request.js"]
 }
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
