@@ -408,6 +408,7 @@ def _create_dpr_internal(
 	remarks: str = None,
 	subcontract_cost: float = 0,
 	employees: list = None,
+	absent_employees: list = None,
 	assets: list = None,
 	materials: list = None,
 	expenses: list = None,
@@ -469,7 +470,14 @@ def _create_dpr_internal(
 			"rate_per_day": flt(emp.get("rate_per_day", 0)),
 			"amount": flt(emp.get("amount", 0))
 		})
-	
+
+	# Add absent employees (reference only, no cost)
+	if hasattr(dpr, "absent_employees"):
+		for ae in (absent_employees or []):
+			emp_id = ae.get("employee") or ae.get("name")
+			if emp_id:
+				dpr.append("absent_employees", {"employee": emp_id})
+
 	# Add assets
 	for asset in assets:
 		dpr.append("assets", {

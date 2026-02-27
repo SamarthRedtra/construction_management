@@ -45,7 +45,7 @@ def get_initial_data(project: str, date: str = None, start: int = 0, page_length
 			"employees": get_employees_with_rates(),
 			"materials": [],
 			"assets": [],
-	"overhead_accounts": get_overhead_accounts(company),
+			"overhead_accounts": get_overhead_accounts(company),
 			"existing_dprs": [],
 			"total_dprs": 0,
 			"day_totals": {"labour_cost": 0, "material_cost": 0, "asset_cost": 0, "overhead_cost": 0, "total_cost": 0}
@@ -240,6 +240,14 @@ def get_existing_dprs(project: str, date: str, start: int = 0, page_length: int 
 				"amount": ovh.amount
 			})
 
+		processed_absent = []
+		for ae in getattr(doc, "absent_employees", []):
+			processed_absent.append({
+				"name": ae.employee,
+				"employee": ae.employee,
+				"employee_name": frappe.db.get_value("Employee", ae.employee, "employee_name")
+			})
+
 		processed_dprs.append({
 			"name": doc.name,
 			"docstatus": doc.docstatus,
@@ -248,6 +256,7 @@ def get_existing_dprs(project: str, date: str, start: int = 0, page_length: int 
 			"area_covered": doc.area_covered if hasattr(doc, 'area_covered') else 0,
 			"remarks": doc.remarks,
 			"employees": processed_employees,
+			"absent_employees": processed_absent,
 			"materials": processed_materials,
 			"overheads": processed_overheads,
 			"labour_cost": doc.labour_cost,
@@ -259,6 +268,45 @@ def get_existing_dprs(project: str, date: str, start: int = 0, page_length: int 
 		})
         
 	return {"dprs": processed_dprs, "total": total}
+
+@frappe.whitelist()
+def get_workers_from_daily_roster(project: str, date: str) -> list:
+	"""
+	Fetch all workers from Daily Roster where project and date match.
+	Returns list of {employee, employee_name, rate_per_day} for use in DPR labour section.
+	"""
+	if not project or not date:
+		return []
+
+	rosters = frappe.get_all(
+		"Daily Roster",
+		filters={"project": project, "date": date, "docstatus": ["<", 2]},
+		fields=["name"]
+	)
+
+	employee_ids = set()
+	for r in rosters:
+		doc = frappe.get_doc("Daily Roster", r.name)
+		for row in getattr(doc, "workers", []):
+			if row.employee:
+				employee_ids.add(row.employee)
+
+	if not employee_ids:
+		return []
+
+	# Enrich with rate_per_day from get_employees_with_rates
+	rates_map = {e["name"]: e.get("rate_per_day", 0) for e in get_employees_with_rates() if e["name"] in employee_ids}
+
+	result = []
+	for emp_id in employee_ids:
+		emp_name = frappe.db.get_value("Employee", emp_id, "employee_name")
+		result.append({
+			"employee": emp_id,
+			"employee_name": emp_name or emp_id,
+			"rate_per_day": rates_map.get(emp_id, 0)
+		})
+	return result
+
 
 @frappe.whitelist()
 def cancel_bulk_dpr(names: list | str):
@@ -335,6 +383,7 @@ def save_bulk_dpr(project: str, date: str, rows: list | str, submit: bool = Fals
 			"remarks": main_remarks,
 			"area_covered": row.get("area_covered"),
 			"employees": row.get("employees", []),
+			"absent_employees": row.get("absent_employees", []),
 			"materials": row.get("materials", []),
 			"overheads": row.get("overheads", []),
 			"submit": submit
@@ -393,7 +442,13 @@ def save_bulk_dpr(project: str, date: str, rows: list | str, submit: bool = Fals
 					"description": ovh.get("description", ""),
 					"amount": amount
 				})
-				
+
+			doc.absent_employees = []
+			for ae in dpr_data.get("absent_employees", []):
+				emp_id = ae.get("employee") or ae.get("name")
+				if emp_id:
+					doc.append("absent_employees", {"employee": emp_id})
+
 			doc.save()
 			if submit:
 				try:
@@ -427,6 +482,7 @@ def save_bulk_dpr(project: str, date: str, rows: list | str, submit: bool = Fals
 				remarks=dpr_data["remarks"],
 				area_covered=dpr_data["area_covered"],
 				employees=dpr_data["employees"],
+				absent_employees=dpr_data.get("absent_employees", []),
 				materials=normalized_materials,
 				overheads=dpr_data["overheads"],
 				submit=submit

@@ -100,6 +100,9 @@ class BulkDPREntry {
 					return map;
 				});
 
+				// Options for absent employees (reference only, no hours/cost) - strip rate to skip prompt
+				const absentEmployeeOptions = computed(() => (masterData.value.employees || []).map(e => ({ name: e.name, employee_name: e.employee_name })));
+
 				const assetRatesMap = computed(() => {
 					const map = {};
 					masterData.value.assets.forEach(asset => {
@@ -119,6 +122,9 @@ class BulkDPREntry {
 				const hasSelection = computed(() => rows.value.some(r => r.selected));
 				const hasDraftSelection = computed(() => rows.value.some(r => r.selected && r.docstatus === 0));
 				const hasSubmittedSelection = computed(() => rows.value.some(r => r.selected && r.docstatus === 1));
+
+				// Role-based cost visibility: only Purchase Manager, Accounts Manager, Accounts User see costs
+				const showCosts = ref((frappe.user_roles || []).some(r => ['Purchase Manager', 'Accounts Manager', 'Accounts User'].includes(r)));
 
 				// Calculate costs for a row
 				const calculateRowCosts = (row) => {
@@ -250,6 +256,7 @@ class BulkDPREntry {
 									remarks: dpr.remarks || '',
 									// ensure multiselects are arrays and standardized
 									employees: dpr.employees || [],
+									absent_employees: dpr.absent_employees || [],
 									materials: (dpr.materials || []).map(m => ({
 										...m,
 										name: m.item_code,
@@ -283,6 +290,7 @@ class BulkDPREntry {
 						site: '',
 						area_covered: 0,
 						employees: [],
+						absent_employees: [],
 						materials: [],
 						overheads: [],
 						labour_cost: 0,
@@ -408,6 +416,50 @@ class BulkDPREntry {
 					frappe.confirm('Are you sure you want to Submit selected DPRs?', () => {
 						save(true);
 					});
+				};
+
+				const fetchFromRoster = async (idx) => {
+					if (!project.value || !date.value) {
+						frappe.msgprint(__('Please select project and date first.'));
+						return;
+					}
+					const row = rows.value[idx];
+					if (row.docstatus > 0) {
+						frappe.msgprint(__('Cannot modify submitted or cancelled DPR.'));
+						return;
+					}
+					loading.value = true;
+					try {
+						const r = await frappe.call({
+							method: 'construction_management.construction_management.page.bulk_dpr_entry.bulk_dpr_entry.get_workers_from_daily_roster',
+							args: { project: project.value, date: date.value }
+						});
+						const workers = r.message || [];
+						if (workers.length === 0) {
+							frappe.msgprint(__('No workers found in Daily Roster for this project and date.'));
+							return;
+						}
+						const existingIds = new Set((row.employees || []).map(e => (typeof e === 'object' ? e.employee : e) || e));
+						const toAdd = workers.filter(w => !existingIds.has(w.employee));
+						toAdd.forEach(w => {
+							row.employees = row.employees || [];
+							row.employees.push({
+								employee: w.employee,
+								name: w.employee,
+								employee_name: w.employee_name,
+								hours: 8,
+								rate_per_day: w.rate_per_day || 0,
+								amount: (w.rate_per_day || 0) * 1
+							});
+						});
+						calculateRowCosts(row);
+						frappe.show_alert({ message: __('{0} employees fetched from roster', [toAdd.length]), indicator: 'green' });
+					} catch (e) {
+						console.error(e);
+						frappe.msgprint(__('Error fetching workers from roster'));
+					} finally {
+						loading.value = false;
+					}
 				};
 
 				const cancelSelected = async () => {
@@ -552,16 +604,19 @@ class BulkDPREntry {
 					summaryTotals,
 					masterData,
 					boqItemsMap,
+					absentEmployeeOptions,
 					computedMaterialOptions,
 					getAvailableBalance,
 					allSelected,
 					hasSelection,
 					hasDraftSelection,
 					hasSubmittedSelection,
+					showCosts,
 					addRow,
 					removeRow,
 					save,
 					fetchData,
+					fetchFromRoster,
 					submitSelected,
 					cancelSelected,
 					changePageSize
@@ -708,13 +763,29 @@ class BulkDPREntry {
 									<td>
 										<div class="row">
 											<div class="col-md-12 mb-2">
-												<label class="small text-muted mb-1">Employees</label>
+												<div class="d-flex align-items-center gap-2 mb-1">
+													<label class="small text-muted mb-0">Employees</label>
+													<button class="btn btn-outline-secondary btn-xs px-2 py-0" @click="fetchFromRoster(idx)" :disabled="!project || !date || row.docstatus > 0" title="Fetch from Daily Roster">
+														<i class="fa fa-download"></i> Fetch from Roster
+													</button>
+												</div>
 												<SimpleMultiselect 
 													:options="masterData.employees" 
 													v-model="row.employees"
 													label-field="employee_name"
 													value-field="name"
 													placeholder="Add Employees"
+													:disabled="row.docstatus > 0"
+												/>
+											</div>
+											<div class="col-md-12 mb-2">
+												<label class="small text-muted mb-1">Absent (Reference)</label>
+												<SimpleMultiselect 
+													:options="absentEmployeeOptions"
+													v-model="row.absent_employees"
+													label-field="employee_name"
+													value-field="name"
+													placeholder="Add Absent Employees"
 													:disabled="row.docstatus > 0"
 												/>
 											</div>
@@ -750,11 +821,11 @@ class BulkDPREntry {
 										<div class="small mb-1" style="visibility: hidden;">&nbsp;</div>
 										<div class="cost-remarks-stack" style="display: flex; flex-direction: column; gap: 8px;">
 											<div class="cost-card border">
-												<div v-if="row.labour_cost"><span class="cost-label">Labour:</span><span class="cost-value">{{ row.labour_cost.toFixed(2) }}</span></div>
-												<div v-if="row.material_cost"><span class="cost-label">Material:</span><span class="cost-value">{{ row.material_cost.toFixed(2) }}</span></div>
-												<div v-if="row.asset_cost"><span class="cost-label">Asset:</span><span class="cost-value">{{ row.asset_cost.toFixed(2) }}</span></div>
-												<div v-if="row.overhead_cost"><span class="cost-label">Overhead:</span><span class="cost-value">{{ row.overhead_cost.toFixed(2) }}</span></div>
-												<div class="cost-total" v-if="row.total_cost">Total: {{ row.total_cost.toFixed(2) }}</div>
+												<div v-if="row.labour_cost"><span class="cost-label">Labour:</span><span class="cost-value">{{ showCosts ? row.labour_cost.toFixed(2) : 'XX' }}</span></div>
+												<div v-if="row.material_cost"><span class="cost-label">Material:</span><span class="cost-value">{{ showCosts ? row.material_cost.toFixed(2) : 'XX' }}</span></div>
+												<div v-if="row.asset_cost"><span class="cost-label">Asset:</span><span class="cost-value">{{ showCosts ? row.asset_cost.toFixed(2) : 'XX' }}</span></div>
+												<div v-if="row.overhead_cost"><span class="cost-label">Overhead:</span><span class="cost-value">{{ showCosts ? row.overhead_cost.toFixed(2) : 'XX' }}</span></div>
+												<div class="cost-total" v-if="row.total_cost">Total: {{ showCosts ? row.total_cost.toFixed(2) : 'XX' }}</div>
 											</div>
 											<div>
 											<label>Remarks: </label>
@@ -780,13 +851,13 @@ class BulkDPREntry {
 										<div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
 											<div class="font-weight-bold">Day Totals (All Pages):</div>
 											<div class="text-muted small">
-												L: <span class="cost-value">{{ (masterData.day_totals?.labour_cost || 0).toFixed(2) }}</span>
-												| M: <span class="cost-value">{{ (masterData.day_totals?.material_cost || 0).toFixed(2) }}</span>
-												| O: <span class="cost-value">{{ (masterData.day_totals?.overhead_cost || 0).toFixed(2) }}</span>
-												| Total: <span class="cost-total">{{ (masterData.day_totals?.total_cost || 0).toFixed(2) }}</span>
+												L: <span class="cost-value">{{ showCosts ? (masterData.day_totals?.labour_cost || 0).toFixed(2) : 'XX' }}</span>
+												| M: <span class="cost-value">{{ showCosts ? (masterData.day_totals?.material_cost || 0).toFixed(2) : 'XX' }}</span>
+												| O: <span class="cost-value">{{ showCosts ? (masterData.day_totals?.overhead_cost || 0).toFixed(2) : 'XX' }}</span>
+												| Total: <span class="cost-total">{{ showCosts ? (masterData.day_totals?.total_cost || 0).toFixed(2) : 'XX' }}</span>
 											</div>
 											<div class="text-muted small">
-												Page Totals: L {{ summaryTotals.labour.toFixed(2) }} | M {{ summaryTotals.material.toFixed(2) }} | O {{ summaryTotals.overhead.toFixed(2) }} | Total {{ summaryTotals.total.toFixed(2) }}
+												Page Totals: L {{ showCosts ? summaryTotals.labour.toFixed(2) : 'XX' }} | M {{ showCosts ? summaryTotals.material.toFixed(2) : 'XX' }} | O {{ showCosts ? summaryTotals.overhead.toFixed(2) : 'XX' }} | Total {{ showCosts ? summaryTotals.total.toFixed(2) : 'XX' }}
 											</div>
 										</div>
 									</td>

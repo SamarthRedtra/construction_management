@@ -25,6 +25,7 @@
         "section_employees",
         "employees",
         "labour_cost",
+        "absent_employees",
         "section_materials",
         "materials",
         "material_cost",
@@ -152,6 +153,13 @@
             "fieldtype": "Currency",
             "label": "Total Labour Cost",
             "read_only": 1
+        },
+        {
+            "collapsible": 1,
+            "fieldname": "absent_employees",
+            "fieldtype": "Table",
+            "label": "Absent (Reference)",
+            "options": "DPR Absent Employee"
         },
         {
             "fieldname": "section_materials",
