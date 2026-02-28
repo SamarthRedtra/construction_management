@@ -371,6 +371,13 @@ class BulkDPREntry {
 						}
 					}
 
+					// Mandatory: BOQ Item and Site must be filled for each row
+					const invalidRows = rowsToProcess.filter(r => !r.boq_item || !r.site);
+					if (invalidRows.length > 0) {
+						frappe.msgprint(__('BOQ Item and Site are mandatory. Please fill both for all rows before saving.'));
+						return;
+					}
+
 					loading.value = true;
 					try {
 						const res = await frappe.call({
@@ -728,7 +735,8 @@ class BulkDPREntry {
                                     </td>
 									<td>
 										<div class="boq-select-wrapper mb-2">
-                                        	<select class="form-control" v-model="row.boq_item" :disabled="row.docstatus > 0">
+											<label class="small text-muted mb-1">BOQ Item <span class="text-danger font-weight-bold">*</span></label>
+                                        	<select class="form-control" v-model="row.boq_item" :disabled="row.docstatus > 0" :class="{'border-danger': !row.boq_item && row.docstatus === 0}">
                                             	<option value="">Select BOQ Item</option>
                                             	<option v-for="item in masterData.boq_items" :key="item.name" :value="item.name">
                                                 	{{ item.item_code }} - {{ item.description }}
@@ -746,9 +754,9 @@ class BulkDPREntry {
 										</div>
                                     </td>
 									<td>
-										<div class="small mb-1" style="visibility: hidden;">&nbsp;</div>
+										<label class="small text-muted mb-1">Site <span class="text-danger font-weight-bold">*</span></label>
 										<div class="site-area-scroll" style="display: flex;gap: 10px; flex-direction: column;">
-											 <select class="form-control" v-model="row.site" :disabled="row.docstatus > 0">
+											 <select class="form-control" v-model="row.site" :disabled="row.docstatus > 0" :class="{'border-danger': !row.site && row.docstatus === 0}">
 												<option value="">Select Site</option>
 												<option v-for="site in masterData.sites" :key="site.name" :value="site.name">
 													{{ site.site_name }}
