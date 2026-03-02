@@ -632,8 +632,11 @@ function render_items_table(items, frm) {
 	items.forEach(item => {
 		const qty = item.qty || {};
 		const amount = item.amount || {};
+		const revenue = item.revenue || {};
 		const statusClass = get_status_class(item.billing_status);
-		const isFullyBilled = item.billing_status === 'Fully Billed';
+		// Only disable when Sales Order (Proforma) exists AND fully billed
+		const hasProforma = flt(revenue.proforma || 0) > 0;
+		const isFullyBilled = item.billing_status === 'Fully Billed' && hasProforma;
 
 		html += `
 			<tr class="item-row ${isFullyBilled ? 'fully-billed' : ''}" data-item="${item.name}">

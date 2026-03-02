@@ -222,13 +222,15 @@ function render_item_row(item, frm) {
 	const estimated = item.estimated_costs || {};
 	const actual = item.actual_costs || {};
 	const profitability = item.profitability || {};
-	const isFullyBilled = item.billing_status === 'Fully Billed';
+	// Only disable inputs when Sales Order (Proforma) exists AND item is fully billed.
+	// Avoid disabling when user has entered qty/value that makes balance 0 but hasn't created SO yet.
+	const hasProforma = flt(revenue.proforma || 0) > 0;
+	const isFullyBilled = item.billing_status === 'Fully Billed' && hasProforma;
 	const totalQty = item.total_qty ?? ledgerQty.total ?? 0;
 
 	const varianceClass = revenue.variance > 0 ? 'text-danger' : '';
 
 	// Determine row status for highlighting (Issue #3)
-	const hasProforma = flt(revenue.proforma || 0) > 0;
 	const hasPC = flt(revenue.pc || 0) > 0;
 	const hasTaxInvoice = flt(revenue.tax_invoice || 0) > 0;
 
@@ -291,27 +293,39 @@ function render_item_row(item, frm) {
 	<td class="col-num curr-value-cell" data-item="${item.name}">${format_currency(ledgerAmount.current || 0)}</td>
 	<td class="col-num font-bold accum-value-cell" data-item="${item.name}">${format_currency(ledgerAmount.to_date || 0)}</td>
 			
-			<!-- Current Billing Inputs -->
+			<!-- Current Billing Inputs: pre-populate with ledger current when no SO, allow override -->
+			<!-- When no Proforma: max = balance + current so user can edit/override saved value -->
+			${(function () {
+				const currQty = flt(ledgerQty.current || 0);
+				const currAmount = flt(ledgerAmount.current || 0);
+				const balQty = flt(ledgerQty.balance || 0);
+				const balAmount = flt(ledgerAmount.balance || 0);
+				const maxQty = hasProforma ? balQty : (balQty + currQty);
+				const maxAmount = hasProforma ? balAmount : (balAmount + currAmount);
+				const pct = (ledgerAmount.total || 0) > 0 ? (currAmount / (ledgerAmount.total || 1) * 100) : 0;
+				return `
 			<td class="col-num">
-				<input type="number" class="current-percentage-input" value="0"
+				<input type="number" class="current-percentage-input" value="${pct.toFixed(2)}"
 					data-item="${item.name}" data-max="100"
 					data-total-qty="${totalQty}" data-total-amount="${ledgerAmount.total || 0}"
 					step="0.01" min="0" max="100" ${isFullyBilled ? 'disabled' : ''} aria-label="Current billing percentage" tabindex="0">
 			</td>
 			<td class="col-num">
-				<input type="number" class="current-qty-input" value="0"
-					data-item="${item.name}" data-max="${ledgerQty.balance || 0}" data-rate="${ledgerAmount.rate || 0}"
+				<input type="number" class="current-qty-input" value="${currQty}"
+					data-item="${item.name}" data-max="${maxQty}" data-rate="${ledgerAmount.rate || 0}"
 					data-total-qty="${totalQty}" data-total-amount="${ledgerAmount.total || 0}"
 					data-prev-amount="${ledgerAmount.prev || 0}" data-prev-qty="${ledgerQty.prev || 0}"
 					step="0.001" min="0" ${isFullyBilled ? 'disabled' : ''} aria-label="Current billing quantity" tabindex="0">
 			</td>
 			<td class="col-num">
-				<input type="number" class="current-value-input" value="0"
-					data-item="${item.name}" data-max="${ledgerAmount.balance || 0}" data-rate="${ledgerAmount.rate || 0}"
+				<input type="number" class="current-value-input" value="${currAmount.toFixed(2)}"
+					data-item="${item.name}" data-max="${maxAmount}" data-rate="${ledgerAmount.rate || 0}"
 					data-total-qty="${totalQty}" data-total-amount="${ledgerAmount.total || 0}"
 					data-prev-amount="${ledgerAmount.prev || 0}" data-prev-qty="${ledgerQty.prev || 0}"
 					step="0.01" min="0" ${isFullyBilled ? 'disabled' : ''} aria-label="Current billing value" tabindex="0">
 			</td>
+				`;
+			})()}
 			
 			<!-- Revenue columns -->
 			<td class="col-num">${format_currency(revenue.proforma || 0)}</td>
@@ -405,6 +419,42 @@ function render_item_row(item, frm) {
 
 
 /**
+ * Sync row's current billing inputs with ledger values from server.
+ * Called after update_boq_item_base so data-max reflects new balance (e.g. after total qty increase).
+ */
+function sync_row_ledger_from_server(row, ledger) {
+	if (!ledger || !ledger.qty || !ledger.amount) return;
+	const qty = ledger.qty;
+	const amt = ledger.amount;
+	const currQty = flt(qty.current || 0);
+	const currAmt = flt(amt.current || 0);
+	const balQty = flt(qty.balance || 0);
+	const balAmt = flt(amt.balance || 0);
+	const maxQty = balQty + currQty;
+	const maxAmt = balAmt + currAmt;
+
+	const qtyInput = row.find('.current-qty-input');
+	const valInput = row.find('.current-value-input');
+	const pctInput = row.find('.current-percentage-input');
+	qtyInput.data('max', maxQty);
+	valInput.data('max', maxAmt);
+	qtyInput.data('total-qty', qty.total || 0);
+	valInput.data('total-qty', qty.total || 0);
+	qtyInput.data('total-amount', amt.total || 0);
+	valInput.data('total-amount', amt.total || 0);
+	qtyInput.data('prev-amount', amt.prev || 0);
+	qtyInput.data('prev-qty', qty.prev || 0);
+	valInput.data('prev-amount', amt.prev || 0);
+	valInput.data('prev-qty', qty.prev || 0);
+
+	const pct = (amt.total || 0) > 0 ? (currAmt / (amt.total || 1) * 100) : 0;
+	pctInput.data('total-qty', qty.total || 0);
+	pctInput.data('total-amount', amt.total || 0);
+	pctInput.val(pct.toFixed(2));
+}
+
+
+/**
  * Attach event handlers for the table
  */
 function attach_table_events(container, frm) {
@@ -454,7 +504,7 @@ function attach_table_events(container, frm) {
 
 		if (newQty < 0) { newQty = 0; input.val(0); }
 		if (newQty > maxQty) {
-			frappe.show_alert({ message: __('Quantity cannot exceed balance ({0})', [maxQty]), indicator: 'orange' });
+			frappe.show_alert({ message: __('Quantity cannot exceed available ({0})', [maxQty]), indicator: 'orange' });
 			newQty = maxQty;
 			input.val(maxQty);
 		}
@@ -493,7 +543,7 @@ function attach_table_events(container, frm) {
 
 		if (newValue < 0) { newValue = 0; input.val(0); }
 		if (newValue > maxValue) {
-			frappe.show_alert({ message: __('Value cannot exceed balance'), indicator: 'orange' });
+			frappe.show_alert({ message: __('Value cannot exceed available ({0})', [maxValue]), indicator: 'orange' });
 			newValue = maxValue;
 			input.val(maxValue.toFixed(2));
 		}
@@ -546,10 +596,10 @@ function attach_table_events(container, frm) {
 			callback: function (r) {
 				if (r.message) {
 					frappe.show_alert({ message: __('Total Quantity updated'), indicator: 'green' });
-					// We might need to refresh the UI here, but for now just update the Amount cell
 					const row = input.closest('tr');
 					const rate = flt(row.find('.boq-rate-input').val());
 					row.find('.col-amount').text(format_currency(newQty * rate));
+					sync_row_ledger_from_server(row, r.message);
 				}
 			}
 		});
@@ -573,9 +623,8 @@ function attach_table_events(container, frm) {
 					const row = input.closest('tr');
 					const qty = flt(row.find('.boq-qty-input').val());
 					row.find('.col-amount').text(format_currency(qty * newRate));
-
-					// Update rate data on current billing inputs
 					row.find('.current-qty-input, .current-value-input').data('rate', newRate);
+					sync_row_ledger_from_server(row, r.message);
 				}
 			}
 		});
