@@ -66,6 +66,7 @@ def get_initial_data(project: str, date: str = None, start: int = 0, page_length
 		as_dict=True
 	)
 
+	project_company = project_company or frappe.db.get_value("Project", project, "company")  # for overhead filter
 	return {
 		"project": frappe.get_doc("Project", project).as_dict(),
 		"boq_items": get_boq_items_with_balance(project),
@@ -73,7 +74,7 @@ def get_initial_data(project: str, date: str = None, start: int = 0, page_length
 		"employees": get_employees_with_rates(),
 		"materials": get_materials(project),
 		"assets": get_assets_with_rates(project, date),
-		"overhead_accounts": get_overhead_accounts(),
+		"overhead_accounts": get_overhead_accounts(project_company),
 		"existing_dprs": existing_dprs_data["dprs"],
 		"total_dprs": existing_dprs_data["total"],
 		"day_totals": total_costs
@@ -123,11 +124,14 @@ def get_overhead_accounts(company: str = None) -> list:
 	}
 	if company:
 		filters["company"] = company
-	return frappe.get_all(
+	accounts = frappe.get_all(
 		"Account",
 		filters=filters,
 		fields=["name", "account_name"]
 	)
+	for acc in accounts:
+		acc["display_label"] = f"{acc.get('name', '')} - {acc.get('account_name', '')}"
+	return accounts
 
 def get_materials(project: str = None) -> list:
 	"""

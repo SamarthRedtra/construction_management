@@ -815,7 +815,7 @@ class BulkDPREntry {
 												<SimpleMultiselect 
 													:options="masterData.overhead_accounts" 
 													v-model="row.overheads"
-													label-field="account_name"
+													label-field="display_label"
 													value-field="name"
 													:with-quantity="true"
 													prompt-label="Amount"
