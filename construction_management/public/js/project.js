@@ -842,9 +842,17 @@ function format_number(value) {
 
 // Global functions
 window.create_project_closure = function (project) {
-	// Open in new tab
-	const route = `/app/project-closure/new-project-closure?project=${encodeURIComponent(project)}`;
-	window.open(route, '_blank');
+	frappe.call({
+		method: 'construction_management.api.project_closure_api.get_existing_project_closure',
+		args: { project: project },
+		callback: function (r) {
+			if (r.message && r.message.name) {
+				window.open(`/app/project-closure/${r.message.name}`, '_blank');
+			} else {
+				window.open(`/app/project-closure/new-project-closure?project=${encodeURIComponent(project)}`, '_blank');
+			}
+		}
+	});
 };
 
 window.create_project_boq = function (project) {

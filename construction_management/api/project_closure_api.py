@@ -11,6 +11,28 @@ from frappe.utils import flt
 
 
 @frappe.whitelist()
+def get_existing_project_closure(project: str) -> dict:
+	"""
+	Get existing Project Closure for a project that is not cancelled.
+
+	Args:
+		project: Project name
+
+	Returns:
+		dict with name if found, else empty
+	"""
+	if not project:
+		return {}
+	name = frappe.db.get_value(
+		"Project Closure",
+		{"project": project, "docstatus": ["<", 2]},
+		"name",
+		order_by="creation desc"
+	)
+	return {"name": name} if name else {}
+
+
+@frappe.whitelist()
 def prepare_advance_sales_invoice(project: str) -> dict:
 	"""
 	Create a new Sales Invoice with is_advance ticked, project populated,
