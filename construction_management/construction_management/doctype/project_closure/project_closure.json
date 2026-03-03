@@ -48,6 +48,8 @@
   "column_break_ar",
   "advance_balance",
   "section_signatures",
+  "qs_sign",
+  "column_break_udab",
   "project_engineer",
   "column_break_5",
   "purchase",
@@ -352,12 +354,21 @@
    "fieldname": "accounts",
    "fieldtype": "Signature",
    "label": "Accounts"
+  },
+  {
+   "fieldname": "qs_sign",
+   "fieldtype": "Signature",
+   "label": "QS Sign"
+  },
+  {
+   "fieldname": "column_break_udab",
+   "fieldtype": "Column Break"
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-02-15 18:59:52.818744",
+ "modified": "2026-03-03 15:14:56.022233",
  "modified_by": "Administrator",
  "module": "Construction Management",
  "name": "Project Closure",

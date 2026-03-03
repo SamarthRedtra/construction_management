@@ -384,7 +384,9 @@ function render_modern_dashboard(wrapper, frm, data) {
 }
 
 function render_kpi_grid(container, kpi, progress, collectionRate) {
-	const totalCost = (kpi.total_labour_cost || 0) + (kpi.total_material_cost || 0) + (kpi.total_asset_cost || 0) + (kpi.total_subcontract_cost || 0) + (kpi.total_expense_cost || 0);
+	// Use total_cost from API (DPR SUM) when available; fallback to sum of breakdown (incl. overhead)
+	const breakdownSum = (kpi.total_labour_cost || 0) + (kpi.total_material_cost || 0) + (kpi.total_asset_cost || 0) + (kpi.total_subcontract_cost || 0) + (kpi.total_expense_cost || 0) + (kpi.total_overhead_cost || 0);
+	const totalCost = (kpi.total_cost != null && kpi.total_cost !== '') ? (parseFloat(kpi.total_cost) || 0) : breakdownSum;
 	const margin = (kpi.total_billed || 0) - totalCost;
 	const advanceCollected = kpi.advance_collected || 0;
 	const invoiceCollected = kpi.invoice_collected || 0;
@@ -423,7 +425,7 @@ function render_kpi_grid(container, kpi, progress, collectionRate) {
 		<div class="kpi-card kpi-warning">
 			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></div>
 			<div class="kpi-content">
-				<span class="kpi-label">Total Expenses</span>
+				<span class="kpi-label">Total Actual Cost</span>
 				<span class="kpi-value">${format_currency(totalCost)}</span>
 				<span class="kpi-sub">Margin: ${format_currency(margin)}</span>
 			</div>
