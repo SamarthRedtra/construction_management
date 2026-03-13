@@ -26,6 +26,8 @@ def after_install():
 	create_dpr_quantity_fields()
 	create_payment_certificate_fields()
 	create_purchase_order_deduction_fields()
+	create_security_payment_entry_fields()
+	create_security_number_cards()
 	setup_accounting_dimensions()
 	setup_advanced_general_ledger()
 	frappe.db.commit()
@@ -33,6 +35,8 @@ def after_install():
 
 def after_migrate():
 	"""Run after bench migrate to ensure property setters are in place"""
+	create_security_payment_entry_fields()
+	create_security_number_cards()
 	setup_advanced_general_ledger()
 	frappe.db.commit()
 
@@ -632,4 +636,108 @@ def create_purchase_order_deduction_fields():
 			frappe.logger().error(f"Error creating custom field {field_def.get('fieldname')}: {str(e)}")
 
 	frappe.logger().info("Purchase Order deduction fields created successfully")
+
+
+def create_security_payment_entry_fields():
+	"""Create Payment Entry fields required for security cheque and deposit tracking."""
+	fields_to_create = [
+		{
+			"dt": "Payment Entry",
+			"fieldname": "custom_security_section",
+			"label": "Security Instrument",
+			"fieldtype": "Section Break",
+			"insert_after": "project",
+			"collapsible": 1,
+		},
+		{
+			"dt": "Payment Entry",
+			"fieldname": "custom_is_security_cheque",
+			"label": "Security Cheque",
+			"fieldtype": "Check",
+			"insert_after": "custom_security_section",
+			"default": "0",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+		},
+		{
+			"dt": "Payment Entry",
+			"fieldname": "custom_is_security_deposit",
+			"label": "Security Deposit",
+			"fieldtype": "Check",
+			"insert_after": "custom_is_security_cheque",
+			"default": "0",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+		},
+		{
+			"dt": "Payment Entry",
+			"fieldname": "custom_security_redeemed",
+			"label": "Redeemed",
+			"fieldtype": "Check",
+			"insert_after": "custom_is_security_deposit",
+			"default": "0",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+			"read_only": 1,
+		},
+		{
+			"dt": "Payment Entry",
+			"fieldname": "custom_security_redeemed_on",
+			"label": "Redeemed On",
+			"fieldtype": "Date",
+			"insert_after": "custom_security_redeemed",
+			"read_only": 1,
+		},
+		{
+			"dt": "Payment Entry",
+			"fieldname": "custom_security_instrument",
+			"label": "Security Instrument",
+			"fieldtype": "Link",
+			"options": "Security Instrument",
+			"insert_after": "custom_security_redeemed_on",
+			"read_only": 1,
+			"in_standard_filter": 1,
+		},
+	]
+
+	for field_def in fields_to_create:
+		try:
+			create_custom_field_if_not_exists(field_def)
+		except Exception as e:
+			frappe.logger().error(f"Error creating custom field {field_def.get('fieldname')}: {str(e)}")
+
+	frappe.logger().info("Security payment entry fields created successfully")
+
+
+def create_security_number_cards():
+	"""Create workspace number cards for outstanding security instruments."""
+	number_cards = [
+		{
+			"label": "Security Cheques",
+			"method": "construction_management.api.security_instrument.get_security_cheque_number_card",
+		},
+		{
+			"label": "Security Deposits",
+			"method": "construction_management.api.security_instrument.get_security_deposit_number_card",
+		},
+	]
+
+	for card_def in number_cards:
+		name = frappe.db.exists("Number Card", card_def["label"])
+		if name:
+			card = frappe.get_doc("Number Card", name)
+		else:
+			card = frappe.new_doc("Number Card")
+			card.label = card_def["label"]
+
+		card.type = "Custom"
+		card.method = card_def["method"]
+		card.document_type = "Security Instrument"
+		card.is_public = 1
+		card.module = "Construction Management"
+		card.show_percentage_stats = 0
+		card.show_full_number = 1
+		card.save(ignore_permissions=True)
+
+	frappe.logger().info("Security number cards created successfully")
 

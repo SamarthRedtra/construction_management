@@ -369,7 +369,7 @@ function render_modern_dashboard(wrapper, frm, data) {
 		</div>
 	`);
 
-	render_kpi_grid(wrapper.find('#kpi-grid'), kpi, progress, collectionRate);
+	render_kpi_grid(wrapper.find('#kpi-grid'), kpi, progress, collectionRate, frm);
 	render_action_bar(wrapper.find('#action-bar'), frm);
 	render_boq_management_table(wrapper.find('#bills-container'), frm, data.bills);
 
@@ -383,7 +383,7 @@ function render_modern_dashboard(wrapper, frm, data) {
 	}, 100);
 }
 
-function render_kpi_grid(container, kpi, progress, collectionRate) {
+function render_kpi_grid(container, kpi, progress, collectionRate, frm) {
 	// Use total_cost from API (DPR SUM) when available; fallback to sum of breakdown (incl. overhead)
 	const breakdownSum = (kpi.total_labour_cost || 0) + (kpi.total_material_cost || 0) + (kpi.total_asset_cost || 0) + (kpi.total_subcontract_cost || 0) + (kpi.total_expense_cost || 0) + (kpi.total_overhead_cost || 0);
 	const totalCost = (kpi.total_cost != null && kpi.total_cost !== '') ? (parseFloat(kpi.total_cost) || 0) : breakdownSum;
@@ -391,6 +391,10 @@ function render_kpi_grid(container, kpi, progress, collectionRate) {
 	const advanceCollected = kpi.advance_collected || 0;
 	const invoiceCollected = kpi.invoice_collected || 0;
 	const retentionPending = kpi.retention_balance || 0;
+	const securityChequeTotal = kpi.security_cheque_total || 0;
+	const securityDepositTotal = kpi.security_deposit_total || 0;
+	const securityChequeCount = kpi.security_cheque_count || 0;
+	const securityDepositCount = kpi.security_deposit_count || 0;
 
 	container.html(`
 		<div class="kpi-card kpi-primary">
@@ -436,6 +440,22 @@ function render_kpi_grid(container, kpi, progress, collectionRate) {
 				<span class="kpi-label">Retention Pending</span>
 				<span class="kpi-value">${format_currency(retentionPending)}</span>
 				<span class="kpi-sub">${__('To bill / release')}</span>
+			</div>
+		</div>
+		<div class="kpi-card kpi-info" style="cursor: pointer;" title="${__('View security cheques')}" onclick="view_security_payment_entries('${frm.doc.name}', 'Security Cheque')">
+			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M7 3v4m10-4v4M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z"></path></svg></div>
+			<div class="kpi-content">
+				<span class="kpi-label">Security Cheques</span>
+				<span class="kpi-value">${format_currency(securityChequeTotal)}</span>
+				<span class="kpi-sub">${securityChequeCount} open instrument(s)</span>
+			</div>
+		</div>
+		<div class="kpi-card kpi-primary" style="cursor: pointer;" title="${__('View security deposits')}" onclick="view_security_payment_entries('${frm.doc.name}', 'Security Deposit')">
+			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M7 3v4m10-4v4M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z"></path></svg></div>
+			<div class="kpi-content">
+				<span class="kpi-label">Security Deposits</span>
+				<span class="kpi-value">${format_currency(securityDepositTotal)}</span>
+				<span class="kpi-sub">${securityDepositCount} open instrument(s)</span>
 			</div>
 		</div>
 	`);
@@ -497,6 +517,10 @@ function render_action_bar(container, frm) {
 			<button class="btn-modern btn-outline" onclick="record_advance_payment('${frm.doc.name}')">
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
 				Record Advance
+			</button>
+			<button class="btn-modern btn-outline" onclick="create_security_instrument('${frm.doc.name}')">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M7 3v4m10-4v4M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z"></path></svg>
+				Security Instrument
 			</button>
 			<button class="btn-modern btn-outline" onclick="release_retention_payment('${frm.doc.name}')" title="${__('Raise retention release Sales Invoice')}">
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
@@ -3137,6 +3161,146 @@ window.record_advance_payment = function (project) {
 			}
 		}
 	});
+};
+
+window.create_security_instrument = function (project) {
+	const projectDoc = cur_frm && cur_frm.doc && cur_frm.doc.name === project ? cur_frm.doc : {};
+	const dialog = new frappe.ui.Dialog({
+		title: __('Create Security Instrument'),
+		fields: [
+			{
+				fieldname: 'instrument_type',
+				fieldtype: 'Select',
+				label: __('Instrument Type'),
+				options: 'Security Cheque\nSecurity Deposit',
+				default: 'Security Cheque',
+				reqd: 1
+			},
+			{
+				fieldname: 'amount',
+				fieldtype: 'Currency',
+				label: __('Amount'),
+				reqd: 1
+			},
+			{
+				fieldname: 'posting_date',
+				fieldtype: 'Date',
+				label: __('Posting Date'),
+				default: frappe.datetime.get_today(),
+				reqd: 1
+			},
+			{
+				fieldname: 'payment_type',
+				fieldtype: 'Select',
+				label: __('Payment Type'),
+				options: 'Receive\nPay',
+				default: projectDoc.customer ? 'Receive' : 'Pay',
+				reqd: 1
+			},
+			{
+				fieldname: 'party_type',
+				fieldtype: 'Select',
+				label: __('Party Type'),
+				options: 'Customer\nSupplier',
+				default: projectDoc.customer ? 'Customer' : 'Supplier',
+				reqd: 1
+			},
+			{
+				fieldname: 'party',
+				fieldtype: 'Dynamic Link',
+				label: __('Party'),
+				options: 'party_type',
+				default: projectDoc.customer || '',
+				reqd: 1
+			},
+			{
+				fieldname: 'bank_account',
+				fieldtype: 'Link',
+				label: __('Bank / Cash Account'),
+				options: 'Account',
+				get_query: () => {
+					const filters = {
+						account_type: ['in', ['Bank', 'Cash']],
+						is_group: 0
+					};
+					if (projectDoc.company) {
+						filters.company = projectDoc.company;
+					}
+					return { filters };
+				},
+				reqd: 1
+			},
+			{
+				fieldname: 'mode_of_payment',
+				fieldtype: 'Link',
+				label: __('Mode of Payment'),
+				options: 'Mode of Payment'
+			},
+			{
+				fieldname: 'reference_no',
+				fieldtype: 'Data',
+				label: __('Cheque / Reference No'),
+				depends_on: "eval:doc.instrument_type=='Security Cheque'"
+			},
+			{
+				fieldname: 'bill_no',
+				fieldtype: 'Link',
+				label: __('BOQ Bill'),
+				options: 'BOQ Bill',
+				get_query: () => ({
+					filters: { project }
+				})
+			},
+			{
+				fieldname: 'boq_item',
+				fieldtype: 'Link',
+				label: __('BOQ Item'),
+				options: 'BOQ Item',
+				get_query: () => {
+					const values = dialog.get_values() || {};
+					const filters = { project };
+					if (values.bill_no) {
+						filters.parent_bill = values.bill_no;
+					}
+					return { filters };
+				}
+			},
+			{
+				fieldname: 'remarks',
+				fieldtype: 'Small Text',
+				label: __('Remarks')
+			}
+		],
+		primary_action_label: __('Create Payment Entry'),
+		primary_action(values) {
+			frappe.call({
+				method: 'construction_management.api.security_instrument.create_security_payment_entry',
+				args: { project, ...values },
+				freeze: true,
+				freeze_message: __('Creating security payment entry...'),
+				callback: function(r) {
+					if (r.message && r.message.payment_entry) {
+						dialog.hide();
+						frappe.set_route('Form', 'Payment Entry', r.message.payment_entry);
+					}
+				}
+			});
+		}
+	});
+
+	dialog.show();
+	dialog.onhide = function () {
+		cleanup_modal_and_restore_dashboard();
+	};
+	ensure_dashboard_visible();
+};
+
+window.view_security_payment_entries = function (project, instrumentType) {
+	const routeOptions = {
+		project,
+		instrument_type: instrumentType
+	};
+	frappe.set_route('List', 'Security Instrument', routeOptions);
 };
 
 window.release_retention_payment = function (project) {

@@ -111,6 +111,10 @@ def get_boq_kpi(project: str) -> dict:
 	
 	# Get retention summary
 	retention_summary = get_retention_summary(project)
+
+	# Get outstanding security instrument summary
+	from construction_management.api.security_instrument import get_project_security_summary
+	security_summary = get_project_security_summary(project)
 	
 	# Total Collected = Advance Collected + Invoice Collected
 	total_collected = flt(advance_collected) + flt(invoice_collected)
@@ -137,7 +141,11 @@ def get_boq_kpi(project: str) -> dict:
 		# Retention tracking
 		"retention_held": flt(retention_summary.get("total_retained", 0)),
 		"retention_released": flt(retention_summary.get("total_released", 0)),
-		"retention_balance": flt(retention_summary.get("retention_balance", 0))
+		"retention_balance": flt(retention_summary.get("retention_balance", 0)),
+		"security_cheque_total": flt(security_summary.get("security_cheque_total", 0)),
+		"security_cheque_count": security_summary.get("security_cheque_count", 0),
+		"security_deposit_total": flt(security_summary.get("security_deposit_total", 0)),
+		"security_deposit_count": security_summary.get("security_deposit_count", 0),
 	}
 
 

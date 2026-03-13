@@ -4,6 +4,7 @@
 import frappe
 from construction_management.overrides.sales_invoice import create_boq_advance_payment_from_invoice
 
+
 def on_submit(doc, method):
 	"""Handle Payment Entry submission to check for linked advance invoices"""
 	for ref in doc.get("references"):
@@ -29,3 +30,21 @@ def on_submit(doc, method):
 				)
 				if _is_subcontractor_purchase(pi):
 					create_purchase_advance_payment(pi)
+
+	sync_security_instrument_status(doc, "Issued")
+
+
+def on_cancel(doc, method):
+	sync_security_instrument_status(doc, "Cancelled")
+
+
+def sync_security_instrument_status(doc, status):
+	security_instrument = doc.get("custom_security_instrument")
+	if not security_instrument or not frappe.db.exists("Security Instrument", security_instrument):
+		return
+
+	instrument = frappe.get_doc("Security Instrument", security_instrument)
+	if status == "Issued":
+		instrument.mark_issued()
+	elif status == "Cancelled":
+		instrument.mark_cancelled()

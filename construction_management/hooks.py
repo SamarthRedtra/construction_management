@@ -182,7 +182,8 @@ doc_events = {
 		"on_update": "construction_management.api.gl_hook.update_cost_from_gl"
 	},
 	"Payment Entry": {
-		"on_submit": "construction_management.overrides.payment_entry.on_submit"
+		"on_submit": "construction_management.overrides.payment_entry.on_submit",
+		"on_cancel": "construction_management.overrides.payment_entry.on_cancel"
 	},
 	"BOQ Item": {
 		"after_delete": "construction_management.construction_management.doctype.boq_item.boq_item.update_parent_totals"
