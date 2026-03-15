@@ -23,8 +23,10 @@
   "amount",
   "mode_of_payment",
   "reference_no",
+  "reference_date",
   "section_break_links",
   "payment_entry",
+  "reclaim_payment_entry",
   "redeemed_on",
   "remarks"
  ],
@@ -44,6 +46,7 @@
    "in_standard_filter": 1,
    "label": "Instrument Type",
    "options": "Security Cheque\nSecurity Deposit",
+   "read_only_depends_on": "eval:doc.status !=\"Draft\"",
    "reqd": 1
   },
   {
@@ -53,7 +56,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Draft\nIssued\nRedeemed\nCancelled",
+   "options": "Draft\nIssued\nReclaimed\nCancelled",
    "read_only": 1
   },
   {
@@ -152,6 +155,12 @@
    "label": "Cheque / Reference No"
   },
   {
+   "depends_on": "eval:doc.instrument_type==='Security Cheque'",
+   "fieldname": "reference_date",
+   "fieldtype": "Date",
+   "label": "Reference Date"
+  },
+  {
    "fieldname": "section_break_links",
    "fieldtype": "Section Break"
   },
@@ -159,14 +168,21 @@
    "fieldname": "payment_entry",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Payment Entry",
+   "label": "Issue Payment Entry",
+   "options": "Payment Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reclaim_payment_entry",
+   "fieldtype": "Link",
+   "label": "Reclaim Payment Entry",
    "options": "Payment Entry",
    "read_only": 1
   },
   {
    "fieldname": "redeemed_on",
    "fieldtype": "Date",
-   "label": "Redeemed On",
+   "label": "Reclaimed On",
    "read_only": 1
   },
   {
@@ -177,7 +193,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-03-13 00:00:00",
+ "modified": "2026-03-13 22:00:23.210550",
  "modified_by": "Administrator",
  "module": "Construction Management",
  "name": "Security Instrument",
@@ -246,6 +262,7 @@
    "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

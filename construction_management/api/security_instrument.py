@@ -20,6 +20,7 @@ def create_security_payment_entry(
 	bill_no=None,
 	boq_item=None,
 	reference_no=None,
+	reference_date=None,
 	remarks=None,
 ):
 	project_doc = frappe.get_doc("Project", project)
@@ -38,6 +39,7 @@ def create_security_payment_entry(
 		frappe.throw(_("Amount must be greater than zero"))
 
 	posting_date = posting_date or today()
+	reference_date = reference_date or posting_date
 
 	instrument = frappe.get_doc(
 		{
@@ -54,6 +56,7 @@ def create_security_payment_entry(
 			"amount": amount,
 			"mode_of_payment": mode_of_payment,
 			"reference_no": reference_no,
+			"reference_date": reference_date,
 			"remarks": remarks,
 		}
 	)
@@ -68,9 +71,10 @@ def create_security_payment_entry(
 	payment_entry.posting_date = posting_date
 	payment_entry.mode_of_payment = mode_of_payment
 	payment_entry.reference_no = reference_no
-	payment_entry.reference_date = posting_date if reference_no else None
+	payment_entry.reference_date = reference_date if reference_no else None
 	payment_entry.remarks = remarks
 	payment_entry.custom_security_instrument = instrument.name
+	payment_entry.custom_security_entry_role = "Issue"
 	payment_entry.custom_is_security_cheque = 1 if instrument_type == "Security Cheque" else 0
 	payment_entry.custom_is_security_deposit = 1 if instrument_type == "Security Deposit" else 0
 	payment_entry.custom_security_redeemed = 0
@@ -96,15 +100,35 @@ def create_security_payment_entry(
 
 
 @frappe.whitelist()
-def mark_security_instrument_redeemed(name):
+def reclaim_security_instrument(name):
 	instrument = frappe.get_doc("Security Instrument", name)
 	if instrument.status == "Cancelled":
-		frappe.throw(_("Cancelled security instruments cannot be redeemed"))
+		frappe.throw(_("Cancelled security instruments cannot be reclaimed"))
 
-	if instrument.status != "Redeemed":
-		instrument.mark_redeemed()
+	if not instrument.payment_entry:
+		frappe.throw(_("Issue Payment Entry is required before reclaim"))
 
-	return {"name": instrument.name, "status": "Redeemed"}
+	if instrument.reclaim_payment_entry and frappe.db.exists("Payment Entry", instrument.reclaim_payment_entry):
+		existing_reclaim_entry = frappe.get_doc("Payment Entry", instrument.reclaim_payment_entry)
+		if existing_reclaim_entry.docstatus != 2:
+			frappe.throw(_("A reclaim Payment Entry already exists for this security instrument"))
+
+	issue_payment_entry = frappe.get_doc("Payment Entry", instrument.payment_entry)
+	reclaim_values = build_reclaim_payment_entry_values(instrument, issue_payment_entry)
+
+	reclaim_payment_entry = frappe.new_doc("Payment Entry")
+	reclaim_payment_entry.update(reclaim_values)
+	reclaim_payment_entry.insert()
+
+	instrument.db_set("reclaim_payment_entry", reclaim_payment_entry.name, update_modified=False)
+	instrument.reclaim_payment_entry = reclaim_payment_entry.name
+	instrument.mark_reclaimed(reclaim_payment_entry.posting_date)
+
+	return {
+		"name": instrument.name,
+		"status": "Reclaimed",
+		"payment_entry": reclaim_payment_entry.name,
+	}
 
 
 @frappe.whitelist()
@@ -150,6 +174,48 @@ def get_security_cheque_number_card():
 @frappe.whitelist()
 def get_security_deposit_number_card():
 	return _get_security_number_card_response("Security Deposit")
+
+
+def build_reclaim_payment_entry_values(instrument, issue_payment_entry):
+	issue_payment_type = issue_payment_entry.payment_type
+	if issue_payment_type == "Pay":
+		reclaim_payment_type = "Receive"
+		bank_account = issue_payment_entry.paid_from
+		account_field = "paid_to"
+	else:
+		reclaim_payment_type = "Pay"
+		bank_account = issue_payment_entry.paid_to
+		account_field = "paid_from"
+
+	if not bank_account:
+		frappe.throw(_("Bank / Cash account is missing on the issue Payment Entry"))
+
+	values = {
+		"payment_type": reclaim_payment_type,
+		"party_type": issue_payment_entry.party_type,
+		"party": issue_payment_entry.party,
+		"company": issue_payment_entry.company,
+		"project": issue_payment_entry.project,
+		"posting_date": today(),
+		"mode_of_payment": issue_payment_entry.mode_of_payment,
+		"reference_no": issue_payment_entry.reference_no,
+		"reference_date": issue_payment_entry.reference_date,
+		"remarks": _("{0} against Security Instrument {1}").format(
+			"Reclaim entry",
+			instrument.name,
+		),
+		"custom_security_instrument": instrument.name,
+		"custom_security_entry_role": "Reclaim",
+		"custom_is_security_cheque": 1 if instrument.instrument_type == "Security Cheque" else 0,
+		"custom_is_security_deposit": 1 if instrument.instrument_type == "Security Deposit" else 0,
+		"custom_security_redeemed": 1,
+		"custom_security_redeemed_on": today(),
+		"paid_amount": flt(instrument.amount),
+		"received_amount": flt(instrument.amount),
+		account_field: bank_account,
+	}
+
+	return values
 
 
 def _get_security_number_card_response(instrument_type):

@@ -672,7 +672,7 @@ def create_security_payment_entry_fields():
 		{
 			"dt": "Payment Entry",
 			"fieldname": "custom_security_redeemed",
-			"label": "Redeemed",
+			"label": "Reclaimed",
 			"fieldtype": "Check",
 			"insert_after": "custom_is_security_deposit",
 			"default": "0",
@@ -683,7 +683,7 @@ def create_security_payment_entry_fields():
 		{
 			"dt": "Payment Entry",
 			"fieldname": "custom_security_redeemed_on",
-			"label": "Redeemed On",
+			"label": "Reclaimed On",
 			"fieldtype": "Date",
 			"insert_after": "custom_security_redeemed",
 			"read_only": 1,
@@ -698,6 +698,16 @@ def create_security_payment_entry_fields():
 			"read_only": 1,
 			"in_standard_filter": 1,
 		},
+		{
+			"dt": "Payment Entry",
+			"fieldname": "custom_security_entry_role",
+			"label": "Security Entry Role",
+			"fieldtype": "Select",
+			"options": "Issue\nReclaim",
+			"insert_after": "custom_security_instrument",
+			"read_only": 1,
+			"in_standard_filter": 1,
+		},
 	]
 
 	for field_def in fields_to_create:
@@ -706,6 +716,7 @@ def create_security_payment_entry_fields():
 		except Exception as e:
 			frappe.logger().error(f"Error creating custom field {field_def.get('fieldname')}: {str(e)}")
 
+	update_security_payment_entry_field_metadata()
 	frappe.logger().info("Security payment entry fields created successfully")
 
 
@@ -740,4 +751,32 @@ def create_security_number_cards():
 		card.save(ignore_permissions=True)
 
 	frappe.logger().info("Security number cards created successfully")
+
+
+def update_security_payment_entry_field_metadata():
+	"""Keep field labels and options aligned after the first migration."""
+	field_updates = {
+		"custom_security_redeemed": {"label": "Reclaimed"},
+		"custom_security_redeemed_on": {"label": "Reclaimed On"},
+		"custom_security_entry_role": {"options": "Issue\nReclaim"},
+	}
+
+	for fieldname, updates in field_updates.items():
+		custom_field_name = frappe.db.get_value(
+			"Custom Field",
+			{"dt": "Payment Entry", "fieldname": fieldname},
+			"name",
+		)
+		if not custom_field_name:
+			continue
+
+		custom_field = frappe.get_doc("Custom Field", custom_field_name)
+		needs_save = False
+		for key, value in updates.items():
+			if getattr(custom_field, key, None) != value:
+				setattr(custom_field, key, value)
+				needs_save = True
+
+		if needs_save:
+			custom_field.save(ignore_permissions=True)
 

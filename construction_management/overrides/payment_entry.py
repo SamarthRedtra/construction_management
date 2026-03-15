@@ -44,6 +44,20 @@ def sync_security_instrument_status(doc, status):
 		return
 
 	instrument = frappe.get_doc("Security Instrument", security_instrument)
+	role = doc.get("custom_security_entry_role") or "Issue"
+
+	if role == "Reclaim":
+		if status == "Issued":
+			instrument.mark_reclaimed(doc.posting_date)
+		elif status == "Cancelled":
+			if instrument.payment_entry and frappe.db.exists("Payment Entry", instrument.payment_entry):
+				issue_entry = frappe.get_doc("Payment Entry", instrument.payment_entry)
+				if issue_entry.docstatus != 2:
+					instrument.revert_to_issued()
+					return
+			instrument.mark_cancelled()
+		return
+
 	if status == "Issued":
 		instrument.mark_issued()
 	elif status == "Cancelled":

@@ -3239,8 +3239,13 @@ window.create_security_instrument = function (project) {
 			{
 				fieldname: 'reference_no',
 				fieldtype: 'Data',
-				label: __('Cheque / Reference No'),
-				depends_on: "eval:doc.instrument_type=='Security Cheque'"
+				label: __('Cheque / Reference No')
+			},
+			{
+				fieldname: 'reference_date',
+				fieldtype: 'Date',
+				label: __('Reference Date'),
+				default: frappe.datetime.get_today()
 			},
 			{
 				fieldname: 'bill_no',
