@@ -194,6 +194,11 @@ doc_events = {
 # ---------------
 
 scheduler_events = {
+	"cron": {
+		"* * * * *": [
+			"construction_management.tasks.delete_special_item_prices"
+		]
+	},
 	"daily": [
 		"construction_management.tasks.send_task_reminders",
 		"construction_management.tasks.check_overdue_tasks",
