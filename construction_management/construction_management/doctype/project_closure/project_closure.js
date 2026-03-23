@@ -23,6 +23,15 @@ frappe.ui.form.on('Project Closure', {
                 const data = r.message;
 
                 // Set header fields
+                if (data.project_name) {
+                    frm.set_value('project_name', data.project_name);
+                }
+                if (data.contractor_name) {
+                    frm.set_value('contractor_name', data.contractor_name);
+                }
+                if (data.engineer_name) {
+                    frm.set_value('engineer_name', data.engineer_name);
+                }
                 frm.set_value('project_boq', data.project_boq);
                 frm.set_value('total_boq_value', data.total_boq_value);
 

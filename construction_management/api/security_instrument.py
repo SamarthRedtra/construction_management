@@ -6,6 +6,15 @@ from frappe import _
 from frappe.utils import flt, today
 
 
+def _payment_entry_security_type_flags(instrument_type: str) -> dict:
+	"""Exactly one Payment Entry security-type flag is set; others cleared."""
+	return {
+		"custom_is_security_cheque": 1 if instrument_type == "Security Cheque" else 0,
+		"custom_is_security_deposit": 1 if instrument_type == "Security Deposit" else 0,
+		"custom_is_authorization_fees": 1 if instrument_type == "Authorization Fees" else 0,
+	}
+
+
 @frappe.whitelist()
 def create_security_payment_entry(
 	project,
@@ -75,8 +84,8 @@ def create_security_payment_entry(
 	payment_entry.remarks = remarks
 	payment_entry.custom_security_instrument = instrument.name
 	payment_entry.custom_security_entry_role = "Issue"
-	payment_entry.custom_is_security_cheque = 1 if instrument_type == "Security Cheque" else 0
-	payment_entry.custom_is_security_deposit = 1 if instrument_type == "Security Deposit" else 0
+	for _key, _val in _payment_entry_security_type_flags(instrument_type).items():
+		setattr(payment_entry, _key, _val)
 	payment_entry.custom_security_redeemed = 0
 
 	if payment_type == "Receive":
@@ -122,26 +131,52 @@ def reclaim_security_instrument(name):
 
 	instrument.db_set("reclaim_payment_entry", reclaim_payment_entry.name, update_modified=False)
 	instrument.reclaim_payment_entry = reclaim_payment_entry.name
-	instrument.mark_reclaimed(reclaim_payment_entry.posting_date)
+	# Status stays Issued until reclaim Payment Entry is submitted (see payment_entry.on_submit)
 
 	return {
 		"name": instrument.name,
-		"status": "Reclaimed",
+		"status": frappe.db.get_value("Security Instrument", instrument.name, "status"),
 		"payment_entry": reclaim_payment_entry.name,
 	}
+
+
+def _security_outstanding_subquery():
+	"""
+	Outstanding = Security Instrument amount minus submitted reclaim Payment Entry amount.
+	Partial reclaim (e.g. issue 300, reclaim PE 200) leaves 100 on the KPI.
+	Draft reclaim PE (docstatus 0) does not reduce outstanding.
+	"""
+	return """
+		SELECT
+			si.instrument_type,
+			GREATEST(
+				0,
+				si.amount - COALESCE(
+					CASE
+						WHEN rpe.docstatus = 1 THEN
+							GREATEST(ABS(rpe.paid_amount), ABS(rpe.received_amount))
+					END,
+					0
+				)
+			) AS outstanding
+		FROM `tabSecurity Instrument` si
+		LEFT JOIN `tabPayment Entry` rpe ON rpe.name = si.reclaim_payment_entry
+		WHERE si.status != 'Cancelled'
+	"""
 
 
 @frappe.whitelist()
 def get_project_security_summary(project):
 	rows = frappe.db.sql(
-		"""
+		f"""
 		SELECT
 			instrument_type,
-			COUNT(*) AS instrument_count,
-			COALESCE(SUM(amount), 0) AS total_amount
-		FROM `tabSecurity Instrument`
-		WHERE project = %s
-		  AND status IN ('Draft', 'Issued')
+			COALESCE(SUM(outstanding), 0) AS total_amount,
+			COALESCE(SUM(CASE WHEN outstanding > 0.000001 THEN 1 ELSE 0 END), 0) AS instrument_count
+		FROM (
+			{_security_outstanding_subquery()}
+			  AND si.project = %s
+		) AS balances
 		GROUP BY instrument_type
 		""",
 		project,
@@ -153,6 +188,8 @@ def get_project_security_summary(project):
 		"security_cheque_count": 0,
 		"security_deposit_total": 0,
 		"security_deposit_count": 0,
+		"authorization_fees_total": 0,
+		"authorization_fees_count": 0,
 	}
 
 	for row in rows:
@@ -162,6 +199,9 @@ def get_project_security_summary(project):
 		elif row.instrument_type == "Security Deposit":
 			summary["security_deposit_total"] = flt(row.total_amount)
 			summary["security_deposit_count"] = row.instrument_count or 0
+		elif row.instrument_type == "Authorization Fees":
+			summary["authorization_fees_total"] = flt(row.total_amount)
+			summary["authorization_fees_count"] = row.instrument_count or 0
 
 	return summary
 
@@ -174,6 +214,11 @@ def get_security_cheque_number_card():
 @frappe.whitelist()
 def get_security_deposit_number_card():
 	return _get_security_number_card_response("Security Deposit")
+
+
+@frappe.whitelist()
+def get_authorization_fees_number_card():
+	return _get_security_number_card_response("Authorization Fees")
 
 
 def build_reclaim_payment_entry_values(instrument, issue_payment_entry):
@@ -190,6 +235,7 @@ def build_reclaim_payment_entry_values(instrument, issue_payment_entry):
 	if not bank_account:
 		frappe.throw(_("Bank / Cash account is missing on the issue Payment Entry"))
 
+	type_flags = _payment_entry_security_type_flags(getattr(instrument, "instrument_type", "") or "")
 	values = {
 		"payment_type": reclaim_payment_type,
 		"party_type": issue_payment_entry.party_type,
@@ -206,25 +252,25 @@ def build_reclaim_payment_entry_values(instrument, issue_payment_entry):
 		),
 		"custom_security_instrument": instrument.name,
 		"custom_security_entry_role": "Reclaim",
-		"custom_is_security_cheque": 1 if instrument.instrument_type == "Security Cheque" else 0,
-		"custom_is_security_deposit": 1 if instrument.instrument_type == "Security Deposit" else 0,
-		"custom_security_redeemed": 1,
-		"custom_security_redeemed_on": today(),
+		"custom_security_redeemed": 0,
+		"custom_security_redeemed_on": None,
 		"paid_amount": flt(instrument.amount),
 		"received_amount": flt(instrument.amount),
 		account_field: bank_account,
 	}
+	values.update(type_flags)
 
 	return values
 
 
 def _get_security_number_card_response(instrument_type):
 	value = frappe.db.sql(
-		"""
-		SELECT COALESCE(SUM(amount), 0) AS total_amount
-		FROM `tabSecurity Instrument`
-		WHERE instrument_type = %s
-		  AND status IN ('Draft', 'Issued')
+		f"""
+		SELECT COALESCE(SUM(outstanding), 0) AS total_amount
+		FROM (
+			{_security_outstanding_subquery()}
+			  AND si.instrument_type = %s
+		) AS balances
 		""",
 		instrument_type,
 	)[0][0]

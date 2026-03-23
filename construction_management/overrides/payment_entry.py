@@ -32,10 +32,23 @@ def on_submit(doc, method):
 					create_purchase_advance_payment(pi)
 
 	sync_security_instrument_status(doc, "Issued")
+	_sync_security_instrument_outstanding(doc)
 
 
 def on_cancel(doc, method):
 	sync_security_instrument_status(doc, "Cancelled")
+	_sync_security_instrument_outstanding(doc)
+
+
+def _sync_security_instrument_outstanding(doc):
+	security_instrument = doc.get("custom_security_instrument")
+	if not security_instrument:
+		return
+	from construction_management.construction_management.doctype.security_instrument.security_instrument import (
+		persist_security_instrument_outstanding_balance,
+	)
+
+	persist_security_instrument_outstanding_balance(security_instrument)
 
 
 def sync_security_instrument_status(doc, status):

@@ -671,10 +671,20 @@ def create_security_payment_entry_fields():
 		},
 		{
 			"dt": "Payment Entry",
+			"fieldname": "custom_is_authorization_fees",
+			"label": "Authorization Fees",
+			"fieldtype": "Check",
+			"insert_after": "custom_is_security_deposit",
+			"default": "0",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+		},
+		{
+			"dt": "Payment Entry",
 			"fieldname": "custom_security_redeemed",
 			"label": "Reclaimed",
 			"fieldtype": "Check",
-			"insert_after": "custom_is_security_deposit",
+			"insert_after": "custom_is_authorization_fees",
 			"default": "0",
 			"in_list_view": 1,
 			"in_standard_filter": 1,
@@ -730,6 +740,10 @@ def create_security_number_cards():
 		{
 			"label": "Security Deposits",
 			"method": "construction_management.api.security_instrument.get_security_deposit_number_card",
+		},
+		{
+			"label": "Authorization Fees",
+			"method": "construction_management.api.security_instrument.get_authorization_fees_number_card",
 		},
 	]
 

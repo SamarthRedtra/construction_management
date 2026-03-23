@@ -7,11 +7,59 @@ from frappe.model.document import Document
 from frappe.utils import flt, today
 
 
+def compute_security_outstanding_balance(amount, status, reclaim_payment_entry) -> float:
+	"""Issue amount minus submitted reclaim PE; draft reclaim does not reduce."""
+	if status == "Cancelled":
+		return 0.0
+	base = flt(amount)
+	if not reclaim_payment_entry:
+		return base
+	rpe = frappe.db.get_value(
+		"Payment Entry",
+		reclaim_payment_entry,
+		["docstatus", "paid_amount", "received_amount"],
+		as_dict=True,
+	)
+	if not rpe or rpe.docstatus != 1:
+		return base
+	reclaimed = max(abs(flt(rpe.paid_amount)), abs(flt(rpe.received_amount)))
+	return max(0.0, base - reclaimed)
+
+
+def persist_security_instrument_outstanding_balance(name: str) -> None:
+	"""Keep DB field in sync when Payment Entries change without saving Security Instrument."""
+	if not name or not frappe.db.exists("Security Instrument", name):
+		return
+	row = frappe.db.get_value(
+		"Security Instrument",
+		name,
+		["amount", "status", "reclaim_payment_entry"],
+		as_dict=True,
+	)
+	bal = compute_security_outstanding_balance(
+		row.get("amount"),
+		row.get("status"),
+		row.get("reclaim_payment_entry"),
+	)
+	frappe.db.set_value("Security Instrument", name, "outstanding_balance", bal, update_modified=False)
+
+
 class SecurityInstrument(Document):
+	ALLOWED_INSTRUMENT_TYPES = ("Security Cheque", "Security Deposit", "Authorization Fees")
+
 	def validate(self):
+		if self.instrument_type and self.instrument_type not in self.ALLOWED_INSTRUMENT_TYPES:
+			frappe.throw(
+				_("Instrument Type must be one of: {0}").format(", ".join(self.ALLOWED_INSTRUMENT_TYPES))
+			)
 		self.validate_amount()
 		self.validate_project_context()
 		self.validate_reference_details()
+		self.outstanding_balance = compute_security_outstanding_balance(
+			self.amount,
+			self.status,
+			self.reclaim_payment_entry,
+		)
 
 	def validate_amount(self):
 		if flt(self.amount) <= 0:
@@ -70,11 +118,13 @@ class SecurityInstrument(Document):
 			{
 				"status": "Issued",
 				"redeemed_on": None,
+				"reclaim_payment_entry": None,
 			},
 			update_modified=False,
 		)
 		self.status = "Issued"
 		self.redeemed_on = None
+		self.reclaim_payment_entry = None
 		self._update_payment_entry_reclaim_flags(False, None)
 
 	def mark_cancelled(self):

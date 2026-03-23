@@ -21,6 +21,7 @@
   "party",
   "column_break_party",
   "amount",
+  "outstanding_balance",
   "mode_of_payment",
   "reference_no",
   "reference_date",
@@ -45,7 +46,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Instrument Type",
-   "options": "Security Cheque\nSecurity Deposit",
+   "options": "Security Cheque\nSecurity Deposit\nAuthorization Fees",
    "read_only_depends_on": "eval:doc.status !=\"Draft\"",
    "reqd": 1
   },
@@ -141,6 +142,14 @@
    "in_list_view": 1,
    "label": "Amount",
    "reqd": 1
+  },
+  {
+   "description": "Original instrument amount minus submitted reclaim Payment Entry amount (draft reclaim does not reduce this).",
+   "fieldname": "outstanding_balance",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Outstanding Balance",
+   "read_only": 1
   },
   {
    "fieldname": "mode_of_payment",

@@ -12,6 +12,13 @@ bench get-app $URL_OF_THIS_REPO --branch main
 bench install-app construction_management
 ```
 
+After pulling updates (custom fields, workspace number cards, client assets):
+
+```bash
+bench migrate
+bench build --app construction_management
+```
+
 ### Contributing
 
 This app uses `pre-commit` for code formatting and linting. Please [install pre-commit](https://pre-commit.com/#installation) and enable it for this repository:

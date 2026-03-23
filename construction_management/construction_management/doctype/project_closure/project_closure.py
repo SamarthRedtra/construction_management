@@ -60,6 +60,16 @@ def fetch_project_data(project):
 	if not project:
 		frappe.throw(_("Project is required"))
 
+	project_doc = frappe.get_doc("Project", project)
+	contractor_name = ""
+	if getattr(project_doc, "contractor", None):
+		contractor_name = frappe.db.get_value("Supplier", project_doc.contractor, "supplier_name") or ""
+	engineer_name = ""
+	if getattr(project_doc, "custom_project_engineer", None):
+		engineer_name = (
+			frappe.db.get_value("Employee", project_doc.custom_project_engineer, "employee_name") or ""
+		)
+
 	# Get Project BOQ
 	project_boq = frappe.db.get_value(
 		"Project BOQ",
@@ -191,6 +201,9 @@ def fetch_project_data(project):
 	advance_summary = get_advance_summary(project)
 
 	return {
+		"project_name": project_doc.project_name or "",
+		"contractor_name": contractor_name,
+		"engineer_name": engineer_name,
 		"project_boq": project_boq.name if project_boq else None,
 		"total_boq_value": flt(project_boq.total_boq_value) if project_boq else 0,
 		"items": items,

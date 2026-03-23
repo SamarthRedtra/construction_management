@@ -395,6 +395,14 @@ function render_kpi_grid(container, kpi, progress, collectionRate, frm) {
 	const securityDepositTotal = kpi.security_deposit_total || 0;
 	const securityChequeCount = kpi.security_cheque_count || 0;
 	const securityDepositCount = kpi.security_deposit_count || 0;
+	const authorizationFeesTotal = kpi.authorization_fees_total || 0;
+	const authorizationFeesCount = kpi.authorization_fees_count || 0;
+	const siAdditionalDiscount = kpi.si_additional_discount_total || 0;
+	const siVatTotal = kpi.si_vat_total || 0;
+	const salesPersonCommissionTotal = kpi.sales_person_commission_total || 0;
+	const salesPartnerCommissionTotal = kpi.sales_partner_commission_total || 0;
+	const projectName = (frm && frm.doc && frm.doc.name) ? frm.doc.name : '';
+	const projectCompany = (frm && frm.doc && frm.doc.company) ? frm.doc.company : '';
 
 	container.html(`
 		<div class="kpi-card kpi-primary">
@@ -407,16 +415,48 @@ function render_kpi_grid(container, kpi, progress, collectionRate, frm) {
 		<div class="kpi-card kpi-info">
 			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></div>
 			<div class="kpi-content">
-				<span class="kpi-label">Total Revenue</span>
+				<span class="kpi-label">${__('Total Revenue')}</span>
 				<span class="kpi-value">${format_currency(kpi.total_billed || 0)}</span>
 				<div class="kpi-progress"><div class="kpi-progress-bar" style="width: ${progress}%"></div></div>
-				<span class="kpi-sub">${progress}% of BOQ</span>
+				<span class="kpi-sub">${progress}% ${__('of BOQ')} · ${__('ex. VAT')}</span>
 			</div>
 		</div>
-		<div class="kpi-card kpi-success">
+		<div class="kpi-card kpi-warning" style="cursor: pointer;" title="${__('Submitted Sales Invoices for this project')}" onclick="frappe.set_route('List', 'Sales Invoice', { project: ${JSON.stringify(projectName)} })">
+			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5M2 12l10 5 10-5"></path></svg></div>
+			<div class="kpi-content">
+				<span class="kpi-label">${__('VAT collected (SI)')}</span>
+				<span class="kpi-value">${format_currency(siVatTotal)}</span>
+				<span class="kpi-sub">${__('Company currency · tap for invoice list')}</span>
+			</div>
+		</div>
+		<div class="kpi-card kpi-danger" title="${__('Sum of Additional Discount on submitted Sales Invoices for this project')}">
+			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path><circle cx="12" cy="12" r="3"></circle></svg></div>
+			<div class="kpi-content">
+				<span class="kpi-label">${__('SI additional discount (deduction)')}</span>
+				<span class="kpi-value">${format_currency(-Math.abs(siAdditionalDiscount))}</span>
+				<span class="kpi-sub">${__('Submitted Sales Invoices')}${projectName ? ' · ' + projectName : ''}</span>
+			</div>
+		</div>
+		<div class="kpi-card kpi-info kpi-commission-nav" style="cursor: pointer;" title="${__('Sales Person Commission Payment Summary (Sales Invoice, fiscal YTD)')}" data-commission-report="Sales Person Commission Payment Summary">
+			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div>
+			<div class="kpi-content">
+				<span class="kpi-label">${__('Sales Person Commission')}</span>
+				<span class="kpi-value">${format_currency(salesPersonCommissionTotal)}</span>
+				<span class="kpi-sub">${__('SI · fiscal YTD · tap for report')}</span>
+			</div>
+		</div>
+		<div class="kpi-card kpi-primary kpi-commission-nav" style="cursor: pointer;" title="${__('Sales Partner Commission Payment Summary (Sales Invoice, fiscal YTD)')}" data-commission-report="Sales Partner Commission Payment Summary">
+			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg></div>
+			<div class="kpi-content">
+				<span class="kpi-label">${__('Sales Partner Commission')}</span>
+				<span class="kpi-value">${format_currency(salesPartnerCommissionTotal)}</span>
+				<span class="kpi-sub">${__('SI · fiscal YTD · tap for report')}</span>
+			</div>
+		</div>
+		<div class="kpi-card kpi-success" title="${__('Advance + paid invoice amounts (ex. VAT, company currency)')}">
 			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg></div>
 			<div class="kpi-content">
-				<span class="kpi-label">Collected</span>
+				<span class="kpi-label">${__('Collected')}</span>
 				<span class="kpi-value">${format_currency(kpi.total_collected || 0)}</span>
 				<div class="kpi-progress"><div class="kpi-progress-bar" style="width: ${collectionRate}%"></div></div>
 				<span class="kpi-sub kpi-breakdown">
@@ -442,23 +482,37 @@ function render_kpi_grid(container, kpi, progress, collectionRate, frm) {
 				<span class="kpi-sub">${__('To bill / release')}</span>
 			</div>
 		</div>
-		<div class="kpi-card kpi-info" style="cursor: pointer;" title="${__('View security cheques')}" onclick="view_security_payment_entries('${frm.doc.name}', 'Security Cheque')">
+		<div class="kpi-card kpi-info" style="cursor: pointer;" title="${__('View security cheques')}" onclick="view_security_payment_entries('${projectName}', 'Security Cheque')">
 			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M7 3v4m10-4v4M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z"></path></svg></div>
 			<div class="kpi-content">
 				<span class="kpi-label">Security Cheques</span>
 				<span class="kpi-value">${format_currency(securityChequeTotal)}</span>
-				<span class="kpi-sub">${securityChequeCount} open instrument(s)</span>
+				<span class="kpi-sub">${securityChequeCount} ${__('with outstanding balance')}</span>
 			</div>
 		</div>
-		<div class="kpi-card kpi-primary" style="cursor: pointer;" title="${__('View security deposits')}" onclick="view_security_payment_entries('${frm.doc.name}', 'Security Deposit')">
+		<div class="kpi-card kpi-primary" style="cursor: pointer;" title="${__('View security deposits')}" onclick="view_security_payment_entries('${projectName}', 'Security Deposit')">
 			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M7 3v4m10-4v4M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z"></path></svg></div>
 			<div class="kpi-content">
 				<span class="kpi-label">Security Deposits</span>
 				<span class="kpi-value">${format_currency(securityDepositTotal)}</span>
-				<span class="kpi-sub">${securityDepositCount} open instrument(s)</span>
+				<span class="kpi-sub">${securityDepositCount} ${__('with outstanding balance')}</span>
+			</div>
+		</div>
+		<div class="kpi-card kpi-secondary" style="cursor: pointer;" title="${__('View authorization fees')}" onclick="view_security_payment_entries('${projectName}', 'Authorization Fees')">
+			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></div>
+			<div class="kpi-content">
+				<span class="kpi-label">${__('Authorization Fees')}</span>
+				<span class="kpi-value">${format_currency(authorizationFeesTotal)}</span>
+				<span class="kpi-sub">${authorizationFeesCount} ${__('with outstanding balance')}</span>
 			</div>
 		</div>
 	`);
+	container.find('.kpi-commission-nav').off('click.cm').on('click.cm', function (e) {
+		e.preventDefault();
+		e.stopPropagation();
+		const reportName = $(this).attr('data-commission-report');
+		cm_navigate_project_commission_report(projectName, reportName, projectCompany);
+	});
 }
 
 function render_action_bar(container, frm) {
@@ -813,7 +867,7 @@ function update_boq_item_current(itemName, newQty, frm) {
 							const kpi = kpiRes.message;
 							const progress = kpi.total_boq_value > 0 ? ((kpi.total_billed / kpi.total_boq_value) * 100).toFixed(1) : 0;
 							const collectionRate = kpi.total_billed > 0 ? ((kpi.total_collected / kpi.total_billed) * 100).toFixed(1) : 0;
-							render_kpi_grid($('#kpi-grid'), kpi, progress, collectionRate);
+							render_kpi_grid($('#kpi-grid'), kpi, progress, collectionRate, frm);
 						}
 					}
 				});
@@ -3172,7 +3226,7 @@ window.create_security_instrument = function (project) {
 				fieldname: 'instrument_type',
 				fieldtype: 'Select',
 				label: __('Instrument Type'),
-				options: 'Security Cheque\nSecurity Deposit',
+				options: 'Security Cheque\nSecurity Deposit\nAuthorization Fees',
 				default: 'Security Cheque',
 				reqd: 1
 			},
@@ -3307,6 +3361,41 @@ window.view_security_payment_entries = function (project, instrumentType) {
 	};
 	frappe.set_route('List', 'Security Instrument', routeOptions);
 };
+
+function cm_navigate_project_commission_report(project, reportName, company) {
+	if (!reportName) {
+		return;
+	}
+	if (!project) {
+		frappe.show_alert({ message: __('Open a saved Project to view commission reports.'), indicator: 'orange' });
+		return;
+	}
+	const today = frappe.datetime.get_today();
+	let from_date = today;
+	if (window.erpnext && erpnext.utils && typeof erpnext.utils.get_fiscal_year === 'function') {
+		const fy = erpnext.utils.get_fiscal_year(today, true);
+		if (fy && fy.length > 1) {
+			from_date = fy[1];
+		}
+	}
+	const co = company || (frappe.boot && frappe.boot.sysdefaults && frappe.boot.sysdefaults.company) ||
+		frappe.defaults.get_user_default('company');
+	const filters = {
+		project: project,
+		company: co,
+		from_date: from_date,
+		to_date: today
+	};
+	if (reportName === 'Sales Person Commission Payment Summary') {
+		filters.doc_type = 'Sales Invoice';
+	} else {
+		filters.doctype = 'Sales Invoice';
+	}
+	frappe.route_options = filters;
+	frappe.set_route('query-report', reportName);
+}
+
+window.open_project_commission_report = cm_navigate_project_commission_report;
 
 window.release_retention_payment = function (project) {
 	// Create retention release Sales Invoice and redirect
@@ -3669,6 +3758,7 @@ function get_modern_styles() {
 		.kpi-success .kpi-icon { background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%); color: #059669; }
 		.kpi-warning .kpi-icon { background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); color: #d97706; }
 		.kpi-secondary .kpi-icon { background: linear-gradient(135deg, #e5e7eb 0%, #d1d5db 100%); color: #4b5563; }
+		.kpi-danger .kpi-icon { background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%); color: #dc2626; }
 		.kpi-content { flex: 1; min-width: 0; }
 		.kpi-label { display: block; font-size: 12px; color: #6b7280; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
 		.kpi-value { display: block; font-size: 22px; font-weight: 700; color: #1f2937; line-height: 1.2; }
@@ -6566,6 +6656,25 @@ function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
 				margin-bottom: 8px;
 				padding-bottom: 6px;
 				border-bottom: 1px solid #f3f4f6;
+				cursor: pointer;
+				user-select: none;
+			}
+			.payment-terms-header:hover .payment-terms-title {
+				color: #2563eb;
+			}
+			.payment-terms-container.collapsed .payment-terms-content {
+				display: none;
+			}
+			.payment-terms-container.collapsed .payment-terms-header {
+				margin-bottom: 0;
+				border-bottom: none;
+			}
+			.payment-terms-container .main-chevron-icon {
+				transition: transform 0.3s ease;
+				color: #6b7280;
+			}
+			.payment-terms-container.collapsed .main-chevron-icon {
+				transform: rotate(-90deg);
 			}
 			.payment-terms-title {
 				font-size: 13px;
@@ -6574,7 +6683,8 @@ function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
 				margin: 0;
 				display: flex;
 				align-items: center;
-				gap: 6px;
+				gap: 8px;
+				transition: color 0.2s;
 			}
 			.payment-terms-title::before {
 				content: '';
@@ -6817,8 +6927,13 @@ function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
 			}
 		</style>
 		<div class="payment-terms-container" id="payment-terms-container">
-			<div class="payment-terms-header">
-				<h3 class="payment-terms-title">BOQ Payment Terms</h3>
+			<div class="payment-terms-header" id="payment-terms-main-header">
+				<h3 class="payment-terms-title">
+					<svg class="main-chevron-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<polyline points="6 9 12 15 18 9"></polyline>
+					</svg>
+					BOQ Payment Terms
+				</h3>
 				<button class="add-boq-btn" id="add-boq-term-btn">
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<line x1="12" y1="5" x2="12" y2="19"></line>
@@ -6827,7 +6942,9 @@ function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
 					Add Payment Terms
 				</button>
 			</div>
-			<div class="boq-terms-list" id="boq-terms-list"></div>
+			<div class="payment-terms-content">
+				<div class="boq-terms-list" id="boq-terms-list"></div>
+			</div>
 		</div>
 	`;
 
@@ -6837,9 +6954,23 @@ function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
 	renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData);
 
 	// Attach event listeners
-	wrapper.find('#add-boq-term-btn').on('click', function () {
+	wrapper.find('#add-boq-term-btn').on('click', function (e) {
+		e.stopPropagation();
 		showAddBoqTermDialog(wrapper, frm, boqItems, paymentTermsData);
 	});
+
+	wrapper.find('#payment-terms-main-header').on('click', function () {
+		const container = wrapper.find('#payment-terms-container');
+		container.toggleClass('collapsed');
+		
+		// Optional: Persist state in frm or session
+		frm._payment_terms_collapsed = container.hasClass('collapsed');
+	});
+
+	// Restore collapse state if exists
+	if (frm._payment_terms_collapsed) {
+		wrapper.find('#payment-terms-container').addClass('collapsed');
+	}
 }
 
 function renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData) {

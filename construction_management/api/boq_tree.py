@@ -63,6 +63,11 @@ def get_boq_kpi(project: str) -> dict:
 	Returns:
 		dict with total_boq_value, total_billed, total_collected (combined), 
 		invoice_collected, advance_collected, pending, cost breakdown, and retention
+		
+	Note:
+		total_billed and invoice_collected are ex-VAT (company currency), summed from
+		BOQ-linked Sales Invoice item rows. Ledger ``amount`` includes VAT by design
+		(see SalesInvoiceOverride.on_submit) and is not used for this KPI.
 	"""
 	# Get Project BOQ total
 	total_boq_value = frappe.db.get_value(
@@ -70,26 +75,42 @@ def get_boq_kpi(project: str) -> dict:
 		{"project": project},
 		"total_boq_value"
 	) or 0
-	
-	# Get total billed from ledger
-	total_billed = frappe.db.sql("""
-		SELECT COALESCE(SUM(amount), 0) as total
-		FROM `tabBOQ Progress Ledger`
-		WHERE project = %s AND source = 'Invoice'
-	""", project)[0][0] or 0
-	
-	# Get total collected from paid invoices (Invoice Collected)
-	invoice_collected = frappe.db.sql("""
-		SELECT COALESCE(SUM(si.grand_total), 0) as total
-		FROM `tabSales Invoice` si
-		WHERE si.project = %s 
-		AND si.docstatus = 1
-		AND si.status = 'Paid'
-		AND EXISTS (
-			SELECT 1 FROM `tabSales Invoice Item` sii 
-			WHERE sii.parent = si.name AND sii.boq_item IS NOT NULL
-		)
-	""", project)[0][0] or 0
+
+	# Exclude advance-billing invoices when column exists (same intent as SI override)
+	_si_adv_clause = ""
+	if frappe.db.has_column("Sales Invoice", "custom_is_advanced"):
+		_si_adv_clause = " AND IFNULL(si.custom_is_advanced, 0) = 0 "
+
+	# Total billed (ex-VAT): BOQ lines on submitted SIs — not ledger (ledger books base+tax)
+	total_billed = frappe.db.sql(
+		f"""
+		SELECT COALESCE(SUM(sii.base_net_amount), 0) AS total
+		FROM `tabSales Invoice Item` sii
+		INNER JOIN `tabSales Invoice` si ON si.name = sii.parent
+		WHERE si.project = %s
+			AND si.docstatus = 1
+			{_si_adv_clause}
+			AND IFNULL(sii.boq_item, '') != ''
+			AND IFNULL(sii.item_code, '') NOT IN ('RETENTION-DEDUCTION', 'ADVANCE-DEDUCTION')
+		""",
+		project,
+	)[0][0] or 0
+
+	# Invoice collected (ex-VAT): same line basis, paid invoices only
+	invoice_collected = frappe.db.sql(
+		f"""
+		SELECT COALESCE(SUM(sii.base_net_amount), 0) AS total
+		FROM `tabSales Invoice Item` sii
+		INNER JOIN `tabSales Invoice` si ON si.name = sii.parent
+		WHERE si.project = %s
+			AND si.docstatus = 1
+			AND si.status = 'Paid'
+			{_si_adv_clause}
+			AND IFNULL(sii.boq_item, '') != ''
+			AND IFNULL(sii.item_code, '') NOT IN ('RETENTION-DEDUCTION', 'ADVANCE-DEDUCTION')
+		""",
+		project,
+	)[0][0] or 0
 	
 	# Get cost breakdown from Daily Progress Records (exclude cancelled)
 	cost_breakdown = frappe.db.sql("""
@@ -115,6 +136,61 @@ def get_boq_kpi(project: str) -> dict:
 	# Get outstanding security instrument summary
 	from construction_management.api.security_instrument import get_project_security_summary
 	security_summary = get_project_security_summary(project)
+
+	# Document-level additional discount (ERPNext v14+ uses discount_amount / base_discount_amount;
+	# older docs referenced additional_discount_amount which is not a DB column in current ERPNext).
+	si_discount_col = None
+	if frappe.db.has_column("Sales Invoice", "base_discount_amount"):
+		si_discount_col = "si.base_discount_amount"
+	elif frappe.db.has_column("Sales Invoice", "discount_amount"):
+		si_discount_col = "si.discount_amount"
+	elif frappe.db.has_column("Sales Invoice", "additional_discount_amount"):
+		si_discount_col = "si.additional_discount_amount"
+
+	if si_discount_col:
+		si_additional_discount_total = frappe.db.sql(
+			f"""
+			SELECT COALESCE(SUM(ABS({si_discount_col})), 0) AS total
+			FROM `tabSales Invoice` si
+			WHERE si.project = %s AND si.docstatus = 1
+			""",
+			project,
+		)[0][0] or 0
+	else:
+		si_additional_discount_total = 0
+
+	# VAT / taxes on submitted Sales Invoices (company currency; one row per invoice)
+	si_vat_col = None
+	if frappe.db.has_column("Sales Invoice", "base_total_taxes_and_charges"):
+		si_vat_col = "si.base_total_taxes_and_charges"
+	elif frappe.db.has_column("Sales Invoice", "total_taxes_and_charges"):
+		si_vat_col = "si.total_taxes_and_charges"
+
+	if si_vat_col:
+		si_vat_total = frappe.db.sql(
+			f"""
+			SELECT COALESCE(SUM({si_vat_col}), 0) AS total
+			FROM `tabSales Invoice` si
+			WHERE si.project = %s
+				AND si.docstatus = 1
+				{_si_adv_clause}
+			""",
+			project,
+		)[0][0] or 0
+	else:
+		si_vat_total = 0
+
+	# Redtra commission summaries (optional app)
+	commission_kpi = {
+		"sales_person_commission_total": 0.0,
+		"sales_partner_commission_total": 0.0,
+	}
+	try:
+		from redtra_customisation.api.project_commission_kpi import get_project_commission_totals
+
+		commission_kpi = get_project_commission_totals(project) or commission_kpi
+	except Exception:
+		pass
 	
 	# Total Collected = Advance Collected + Invoice Collected
 	total_collected = flt(advance_collected) + flt(invoice_collected)
@@ -146,6 +222,15 @@ def get_boq_kpi(project: str) -> dict:
 		"security_cheque_count": security_summary.get("security_cheque_count", 0),
 		"security_deposit_total": flt(security_summary.get("security_deposit_total", 0)),
 		"security_deposit_count": security_summary.get("security_deposit_count", 0),
+		"authorization_fees_total": flt(security_summary.get("authorization_fees_total", 0)),
+		"authorization_fees_count": security_summary.get("authorization_fees_count", 0),
+		# Sales Invoice — additional discount (treated as revenue deduction)
+		"si_additional_discount_total": flt(si_additional_discount_total),
+		# Sales Invoice — taxes/VAT (document total, company currency when available)
+		"si_vat_total": flt(si_vat_total),
+		# Commission (redtra_customisation reports; SI, fiscal YTD)
+		"sales_person_commission_total": flt(commission_kpi.get("sales_person_commission_total", 0)),
+		"sales_partner_commission_total": flt(commission_kpi.get("sales_partner_commission_total", 0)),
 	}
 
 

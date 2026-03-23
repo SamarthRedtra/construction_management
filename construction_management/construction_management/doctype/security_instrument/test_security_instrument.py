@@ -44,6 +44,8 @@ class IntegrationTestSecurityInstrument(IntegrationTestCase):
 		self.assertEqual(values["custom_security_entry_role"], "Reclaim")
 		self.assertEqual(values["custom_is_security_deposit"], 1)
 		self.assertEqual(values["custom_is_security_cheque"], 0)
+		self.assertEqual(values.get("custom_is_authorization_fees", 0), 0)
+		self.assertEqual(values["custom_security_redeemed"], 0)
 
 	def test_build_reclaim_payment_entry_values_inverts_receive_to_pay(self):
 		instrument = frappe._dict({
@@ -69,6 +71,35 @@ class IntegrationTestSecurityInstrument(IntegrationTestCase):
 		self.assertEqual(values["paid_from"], "Bank - TEST")
 		self.assertEqual(values["custom_is_security_cheque"], 1)
 		self.assertEqual(values["custom_is_security_deposit"], 0)
+		self.assertEqual(values.get("custom_is_authorization_fees", 0), 0)
+		self.assertEqual(values["custom_security_redeemed"], 0)
+
+	def test_build_reclaim_payment_entry_values_authorization_fees(self):
+		instrument = frappe._dict({
+			"name": "SEC-0003",
+			"instrument_type": "Authorization Fees",
+			"amount": 500,
+		})
+		issue_payment_entry = frappe._dict({
+			"payment_type": "Receive",
+			"paid_to": "Bank - TEST",
+			"party_type": "Customer",
+			"party": "Cust-1",
+			"company": "Test Company",
+			"project": "PROJ-3",
+			"mode_of_payment": "Bank",
+			"reference_no": "AUTH-1",
+			"reference_date": "2026-03-20",
+		})
+
+		values = build_reclaim_payment_entry_values(instrument, issue_payment_entry)
+
+		self.assertEqual(values["payment_type"], "Pay")
+		self.assertEqual(values["paid_from"], "Bank - TEST")
+		self.assertEqual(values.get("custom_is_authorization_fees", 0), 1)
+		self.assertEqual(values["custom_is_security_cheque"], 0)
+		self.assertEqual(values["custom_is_security_deposit"], 0)
+		self.assertEqual(values["custom_security_redeemed"], 0)
 
 	def test_sync_security_instrument_status_marks_issue_entries_as_issued(self):
 		instrument = MagicMock()

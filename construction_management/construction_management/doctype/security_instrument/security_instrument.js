@@ -12,7 +12,12 @@ frappe.ui.form.on('Security Instrument', {
 			});
 		}
 
-		if (frm.doc.name && frm.doc.payment_entry && !['Reclaimed', 'Cancelled'].includes(frm.doc.status || '')) {
+		if (
+			frm.doc.name &&
+			frm.doc.payment_entry &&
+			!frm.doc.reclaim_payment_entry &&
+			!['Reclaimed', 'Cancelled'].includes(frm.doc.status || '')
+		) {
 			frm.add_custom_button(__('Reclaim'), () => {
 				frappe.confirm(
 					__('Create a reclaim Payment Entry for this security instrument?'),
