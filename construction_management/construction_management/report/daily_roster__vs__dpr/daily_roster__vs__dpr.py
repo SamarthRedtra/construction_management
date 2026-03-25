@@ -29,10 +29,16 @@ def get_columns():
 		},
 		{
 			"fieldname": "project",
-			"label": _("Project"),
+			"label": _("Project No"),
 			"fieldtype": "Link",
 			"options": "Project",
-			"width": 180,
+			"width": 130,
+		},
+		{
+			"fieldname": "project_name",
+			"label": _("Project Name"),
+			"fieldtype": "Data",
+			"width": 200,
 		},
 		{
 			"fieldname": "engineer",
@@ -94,11 +100,23 @@ def get_columns():
 	]
 
 
+def get_dpr_docstatus_label_sql(dpr_alias: str) -> str:
+	"""Use docstatus (authoritative) — DPR `status` select often stays Draft after submit."""
+	return f"""CASE
+		WHEN {dpr_alias}.name IS NULL THEN NULL
+		WHEN {dpr_alias}.docstatus = 1 THEN 'Submitted'
+		WHEN {dpr_alias}.docstatus = 2 THEN 'Cancelled'
+		ELSE 'Draft'
+	END"""
+
+
 def get_data(filters):
 	conditions = get_conditions(filters)
 	roster_engineer_name_expr = get_roster_engineer_name_expression()
 	roster_foreman_expr = get_roster_foreman_expression()
 	roster_total_workers_expr = get_roster_total_workers_expression()
+
+	dpr_docstatus_label = get_dpr_docstatus_label_sql("dpr")
 
 	return frappe.db.sql(
 		f"""
@@ -106,19 +124,22 @@ def get_data(filters):
 			dr.name AS roster_id,
 			dr.date,
 			dr.project,
+			COALESCE(proj.project_name, '') AS project_name,
 			dr.engineer,
 			{roster_engineer_name_expr},
 			{roster_foreman_expr},
 			{roster_total_workers_expr},
 			dpr.project_sites AS site,
 			dpr.name AS dpr_id,
-			dpr.status AS dpr_status,
+			{dpr_docstatus_label} AS dpr_status,
 			'Yes' AS roster_created,
 			CASE
 				WHEN dpr.name IS NULL THEN 'No'
 				ELSE 'Yes'
 			END AS dpr_created
 		FROM `tabDaily Roster` dr
+		LEFT JOIN `tabProject` proj
+			ON proj.name = dr.project
 		LEFT JOIN `tabDaily Progress Record` dpr
 			ON dpr.date = dr.date
 			AND dpr.project = dr.project
@@ -133,16 +154,19 @@ def get_data(filters):
 			NULL AS roster_id,
 			dpr.date,
 			dpr.project,
+			COALESCE(proj_dpr.project_name, '') AS project_name,
 			NULL AS engineer,
 			'' AS custom_engineer_name,
 			'' AS custom_foreman,
 			0 AS custom_total_workers,
 			dpr.project_sites AS site,
 			dpr.name AS dpr_id,
-			dpr.status AS dpr_status,
+			{dpr_docstatus_label} AS dpr_status,
 			'No' AS roster_created,
 			'Yes' AS dpr_created
 		FROM `tabDaily Progress Record` dpr
+		LEFT JOIN `tabProject` proj_dpr
+			ON proj_dpr.name = dpr.project
 		LEFT JOIN `tabDaily Roster` dr
 			ON dr.date = dpr.date
 			AND dr.project = dpr.project

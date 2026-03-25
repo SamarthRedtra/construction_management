@@ -322,6 +322,8 @@ class DailyProgressRecord(Document):
 		self._assert_required_entries_created()
 		self.update_boq_item_costs()
 		self.update_project_costs()
+		# Keep Select `status` aligned with docstate (report/list used to show Draft while submitted).
+		self.db_set("status", "Submitted", update_modified=False)
 	
 	def on_cancel(self):
 		"""Cancel linked accounting entries"""
@@ -329,6 +331,7 @@ class DailyProgressRecord(Document):
 		self.cancel_journal_entries()
 		self.update_boq_item_costs()
 		self.update_project_costs()
+		self.db_set("status", "Cancelled", update_modified=False)
 	
 	def get_company(self):
 		"""Get company from project or default"""

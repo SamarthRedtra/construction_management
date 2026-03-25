@@ -44,6 +44,13 @@ frappe.query_reports["Daily Roster  vs  DPR"] = {
 			return `<span class="indicator-pill ${color}">${value}</span>`;
 		}
 
+		if (column.fieldname === "dpr_status" && data.dpr_status) {
+			const s = data.dpr_status;
+			const color =
+				s === "Submitted" ? "green" : s === "Cancelled" ? "red" : "orange";
+			return `<span class="indicator-pill ${color}">${frappe.utils.escape_html(s)}</span>`;
+		}
+
 		return value;
 	}
 };
