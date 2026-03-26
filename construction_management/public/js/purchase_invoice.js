@@ -6,8 +6,24 @@
  * BOQ dimension fields (bill_no, boq_item) are on the child table (items).
  */
 
+const PO_LINE_PROGRESS_FIELDS = [
+	'custom_prev_qty',
+	'custom_prev_amount',
+	'custom_current_qty',
+	'custom_current_amount',
+	'custom_accumulated_qty',
+	'custom_accumulated_amount'
+];
+
+function setup_po_line_progress_columns(frm) {
+	for (const fieldname of PO_LINE_PROGRESS_FIELDS) {
+		frm.set_df_property('items', fieldname, 'read_only', 1);
+	}
+}
+
 frappe.ui.form.on('Purchase Invoice', {
 	onload: function (frm) {
+		setup_po_line_progress_columns(frm);
 		// Setup cascading dimension filters for child table
 		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
 			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
@@ -72,6 +88,7 @@ frappe.ui.form.on('Purchase Invoice', {
 	},
 
 	refresh: function (frm) {
+		setup_po_line_progress_columns(frm);
 		// Re-setup on refresh to ensure filters are applied after form loads
 		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
 			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);

@@ -1,9 +1,152 @@
 # Copyright (c) 2024, Construction Management
 # License: MIT
 
+from collections import defaultdict
+
 import frappe
 from frappe import _
 from frappe.utils import flt
+
+_PO_PROGRESS_DEDUCTION_ITEMS = frozenset(
+	{"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION", "PURCHASE-ADVANCE"}
+)
+
+_PO_PROGRESS_FIELDS = (
+	"custom_prev_qty",
+	"custom_prev_amount",
+	"custom_current_qty",
+	"custom_current_amount",
+	"custom_accumulated_qty",
+	"custom_accumulated_amount",
+)
+
+
+def _po_progress_row_applicable(item) -> bool:
+	if not item.get("po_detail"):
+		return False
+	if item.get("item_code") in _PO_PROGRESS_DEDUCTION_ITEMS:
+		return False
+	return True
+
+
+def _get_prev_billed_by_po_detail(po_details: list, exclude_pi_name: str) -> dict:
+	"""Submitted non-advance PI items summed by po_detail, excluding exclude_pi_name."""
+	if not po_details:
+		return {}
+	ex_name = exclude_pi_name or ""
+	placeholders = ", ".join(["%s"] * len(po_details))
+	rows = frappe.db.sql(
+		f"""
+		SELECT pii.po_detail AS po_detail,
+			COALESCE(SUM(pii.qty), 0) AS qty,
+			COALESCE(SUM(pii.amount), 0) AS amount
+		FROM `tabPurchase Invoice Item` pii
+		INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
+		WHERE pii.po_detail IN ({placeholders})
+			AND pi.docstatus = 1
+			AND IFNULL(pi.custom_is_advance, 0) = 0
+			AND pi.name != %s
+		GROUP BY pii.po_detail
+		""",
+		tuple(po_details) + (ex_name,),
+		as_dict=True,
+	)
+	return {r.po_detail: r for r in rows}
+
+
+def set_po_line_progress(doc, persist="memory"):
+	"""
+	Compute previous / current / accumulated qty & amount per PO line (po_detail).
+
+	persist:
+	- memory: set on row objects (saved with draft/submit via standard child update)
+	- db: frappe.db.set_value per child row (after submit — final snapshot)
+	"""
+	if doc.get("custom_is_advance"):
+		z = {f: 0 for f in _PO_PROGRESS_FIELDS}
+		for row in doc.get("items") or []:
+			_set_po_progress_on_row(row, z, persist)
+		return
+
+	values_by_row = _compute_po_line_progress_values(doc)
+	_apply_progress_map(doc, persist, values_by_row)
+
+
+def _compute_po_line_progress_values(doc) -> dict:
+	"""Return mapping child row name -> dict of six field values."""
+	applicable = [r for r in doc.get("items") or [] if _po_progress_row_applicable(r)]
+	po_details = list({r.po_detail for r in applicable})
+	prev_map = _get_prev_billed_by_po_detail(po_details, doc.name)
+	same_doc_prior = defaultdict(lambda: {"qty": 0.0, "amount": 0.0})
+	out = {}
+
+	for row in doc.get("items") or []:
+		if not row.name:
+			continue
+		if not _po_progress_row_applicable(row):
+			out[row.name] = None
+			continue
+
+		pd = row.po_detail
+		db_prev = prev_map.get(pd) or {}
+		db_qty = flt(db_prev.get("qty"))
+		db_amt = flt(db_prev.get("amount"))
+		s_prior = same_doc_prior[pd]
+		prev_qty = db_qty + flt(s_prior["qty"])
+		prev_amt = db_amt + flt(s_prior["amount"])
+
+		cur_qty = flt(row.qty)
+		cur_amt = flt(row.amount)
+
+		out[row.name] = {
+			"custom_prev_qty": prev_qty,
+			"custom_prev_amount": prev_amt,
+			"custom_current_qty": cur_qty,
+			"custom_current_amount": cur_amt,
+			"custom_accumulated_qty": prev_qty + cur_qty,
+			"custom_accumulated_amount": prev_amt + cur_amt,
+		}
+
+		s_prior["qty"] += cur_qty
+		s_prior["amount"] += cur_amt
+
+	return out
+
+
+def _apply_progress_map(doc, persist: str, values_by_row: dict):
+	for row in doc.get("items") or []:
+		vals = values_by_row.get(row.name) if row.name else None
+		if vals is None:
+			z = {f: 0 for f in _PO_PROGRESS_FIELDS}
+			_set_po_progress_on_row(row, z, persist)
+		else:
+			_set_po_progress_on_row(row, vals, persist)
+
+
+def _set_po_progress_on_row(row, vals: dict, persist: str):
+	if persist == "db":
+		if not row.name:
+			return
+		frappe.db.set_value(
+			"Purchase Invoice Item",
+			row.name,
+			vals,
+			update_modified=False,
+		)
+		for k, v in vals.items():
+			row.set(k, v)
+	else:
+		for k, v in vals.items():
+			row.set(k, v)
+
+
+def clear_po_line_progress(doc):
+	"""Zero stored PO line progress on all item rows (cancelled voucher)."""
+	z = {f: 0 for f in _PO_PROGRESS_FIELDS}
+	for row in doc.get("items") or []:
+		if not row.name:
+			continue
+		frappe.db.set_value("Purchase Invoice Item", row.name, z, update_modified=False)
 
 
 def validate(doc, method):
@@ -11,18 +154,23 @@ def validate(doc, method):
 	# Always ensure deduction items exist and are purchase-enabled
 	_ensure_purchase_deduction_items()
 
-	if doc.docstatus != 0 or doc.get("custom_is_advance"):
+	if doc.docstatus != 0:
 		return
 
-	# Only apply deductions for Subcontractor type purchases (checked on PO level)
-	if not _is_subcontractor_purchase(doc):
+	if doc.get("custom_is_advance"):
+		set_po_line_progress(doc, persist="memory")
 		return
 
-	apply_purchase_deductions(doc)
+	if _is_subcontractor_purchase(doc):
+		apply_purchase_deductions(doc)
+
+	# After deductions (if any) so new rows exist; ERPNext validate already ran (amounts final)
+	set_po_line_progress(doc, persist="memory")
 
 
 def on_submit(doc, method):
-	"""Update cost tracking for BOQ items from Purchase Invoice"""
+	"""Persist PO line progress snapshot; update cost tracking for BOQ items from Purchase Invoice"""
+	set_po_line_progress(doc, persist="db")
 	for item in doc.items:
 		if item.get("boq_item"):
 			update_boq_item_cost(item)
@@ -34,7 +182,8 @@ def before_cancel(doc, method):
 
 
 def on_cancel(doc, method):
-	"""Reverse cost tracking for BOQ items on Purchase Invoice cancel"""
+	"""Clear PO line progress on cancelled voucher; reverse cost tracking for BOQ items"""
+	clear_po_line_progress(doc)
 	for item in doc.items:
 		if item.get("boq_item"):
 			update_boq_item_cost(item)
