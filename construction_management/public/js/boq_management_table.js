@@ -15,6 +15,9 @@ function flt(value, precision = 5) {
 	return parseFloat(num.toFixed(precision));
 }
 
+const BOQ_QTY_PRECISION = 8;
+const BOQ_QTY_STEP = '0.00000001';
+
 /**
  * Render comprehensive BOQ management table
  * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6
@@ -273,7 +276,7 @@ function render_item_row(item, frm) {
 			<td class="col-unit sticky-col">${item.unit || '-'}</td>
 			<td class="col-total-qty sticky-col">
 				<input type="number" class="boq-qty-input" value="${totalQty}" 
-					data-item="${item.name}" step="0.001" min="0" 
+					data-item="${item.name}" step="${BOQ_QTY_STEP}" min="0" 
 					aria-label="Total quantity" tabindex="0">
 			</td>
 			<td class="col-rate sticky-col">
@@ -296,9 +299,9 @@ function render_item_row(item, frm) {
 			<!-- Current Billing Inputs: pre-populate with ledger current when no SO, allow override -->
 			<!-- When no Proforma: max = balance + current so user can edit/override saved value -->
 			${(function () {
-				const currQty = flt(ledgerQty.current || 0);
+				const currQty = flt(ledgerQty.current || 0, BOQ_QTY_PRECISION);
 				const currAmount = flt(ledgerAmount.current || 0);
-				const balQty = flt(ledgerQty.balance || 0);
+				const balQty = flt(ledgerQty.balance || 0, BOQ_QTY_PRECISION);
 				const balAmount = flt(ledgerAmount.balance || 0);
 				const maxQty = hasProforma ? balQty : (balQty + currQty);
 				const maxAmount = hasProforma ? balAmount : (balAmount + currAmount);
@@ -315,7 +318,7 @@ function render_item_row(item, frm) {
 					data-item="${item.name}" data-max="${maxQty}" data-rate="${ledgerAmount.rate || 0}"
 					data-total-qty="${totalQty}" data-total-amount="${ledgerAmount.total || 0}"
 					data-prev-amount="${ledgerAmount.prev || 0}" data-prev-qty="${ledgerQty.prev || 0}"
-					step="0.001" min="0" ${isFullyBilled ? 'disabled' : ''} aria-label="Current billing quantity" tabindex="0">
+					step="${BOQ_QTY_STEP}" min="0" ${isFullyBilled ? 'disabled' : ''} aria-label="Current billing quantity" tabindex="0">
 			</td>
 			<td class="col-num">
 				<input type="number" class="current-value-input" value="${currAmount.toFixed(2)}"
@@ -426,9 +429,9 @@ function sync_row_ledger_from_server(row, ledger) {
 	if (!ledger || !ledger.qty || !ledger.amount) return;
 	const qty = ledger.qty;
 	const amt = ledger.amount;
-	const currQty = flt(qty.current || 0);
+	const currQty = flt(qty.current || 0, BOQ_QTY_PRECISION);
 	const currAmt = flt(amt.current || 0);
-	const balQty = flt(qty.balance || 0);
+	const balQty = flt(qty.balance || 0, BOQ_QTY_PRECISION);
 	const balAmt = flt(amt.balance || 0);
 	const maxQty = balQty + currQty;
 	const maxAmt = balAmt + currAmt;
@@ -476,7 +479,7 @@ function attach_table_events(container, frm) {
 		const qtyInput = row.find('.current-qty-input');
 		const valueInput = row.find('.current-value-input');
 
-		qtyInput.val(newQty.toFixed(3));
+		qtyInput.val(newQty.toFixed(BOQ_QTY_PRECISION));
 		valueInput.val(newValue.toFixed(2));
 
 		// Update display cells
@@ -555,7 +558,7 @@ function attach_table_events(container, frm) {
 		const newQty = rate > 0 ? newValue / rate : 0;
 		const newPercentage = totalAmount > 0 ? (newValue / totalAmount) * 100 : 0;
 
-		qtyInput.val(newQty.toFixed(3));
+		qtyInput.val(newQty.toFixed(BOQ_QTY_PRECISION));
 		percentageInput.val(newPercentage.toFixed(2));
 
 		const accumValue = prevAmount + newValue;
@@ -585,7 +588,7 @@ function attach_table_events(container, frm) {
 	container.find('.boq-qty-input').on('change', function () {
 		const input = $(this);
 		const itemName = input.data('item');
-		const newQty = flt(input.val());
+		const newQty = flt(input.val(), BOQ_QTY_PRECISION);
 
 		frappe.call({
 			method: 'construction_management.api.boq_tree.update_boq_item_base',
@@ -621,7 +624,7 @@ function attach_table_events(container, frm) {
 				if (r.message) {
 					frappe.show_alert({ message: __('Rate updated'), indicator: 'green' });
 					const row = input.closest('tr');
-					const qty = flt(row.find('.boq-qty-input').val());
+					const qty = flt(row.find('.boq-qty-input').val(), BOQ_QTY_PRECISION);
 					row.find('.col-amount').text(format_currency(qty * newRate));
 					row.find('.current-qty-input, .current-value-input').data('rate', newRate);
 					sync_row_ledger_from_server(row, r.message);
@@ -990,9 +993,9 @@ function renderTransactionHistorySection(itemName, data, colSpan) {
 		})[0] || {};
 
 	const latestQty = {
-		prev: flt(latestEntry.prev_qty || 0),
-		curr: flt(latestEntry.current_qty || 0),
-		accum: flt(latestEntry.accumulated_qty || summary.accumulated_qty || 0)
+		prev: flt(latestEntry.prev_qty || 0, BOQ_QTY_PRECISION),
+		curr: flt(latestEntry.current_qty || 0, BOQ_QTY_PRECISION),
+		accum: flt(latestEntry.accumulated_qty || summary.accumulated_qty || 0, BOQ_QTY_PRECISION)
 	};
 
 	const latestAmount = {
@@ -3776,7 +3779,7 @@ function format_currency(value) {
 /**
  * Format number value
  */
-function format_number(value, precision = 3) {
+function format_number(value, precision = BOQ_QTY_PRECISION) {
 	if (typeof frappe !== 'undefined' && frappe.format) {
 		return frappe.format(value, { fieldtype: 'Float', precision: precision });
 	}

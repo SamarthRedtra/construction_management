@@ -214,7 +214,7 @@
             "fieldtype": "Float",
             "in_list_view": 1,
             "label": "Transaction Qty",
-            "precision": "3",
+            "precision": "8",
             "read_only": 1,
             "reqd": 1
         },
@@ -255,7 +255,7 @@
             "fieldname": "prev_qty",
             "fieldtype": "Float",
             "label": "Previous Qty",
-            "precision": "3",
+            "precision": "8",
             "read_only": 1
         },
         {
@@ -274,7 +274,7 @@
             "fieldname": "current_qty",
             "fieldtype": "Float",
             "label": "Current Qty",
-            "precision": "3",
+            "precision": "8",
             "read_only": 1
         },
         {
@@ -293,7 +293,7 @@
             "fieldname": "accumulated_qty",
             "fieldtype": "Float",
             "label": "Accumulated Qty",
-            "precision": "3",
+            "precision": "8",
             "read_only": 1
         },
         {

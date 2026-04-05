@@ -4,6 +4,7 @@
 
 // Load BOQ Management Table module
 frappe.provide('boq_management');
+// BOQ_QTY_PRECISION / BOQ_QTY_STEP are defined in boq_management_table.js (loads before this file on Project).
 
 frappe.ui.form.on('Project', {
 	refresh(frm) {
@@ -734,7 +735,7 @@ function render_items_table(items, frm) {
 					<input type="number" class="current-qty-input" value="${qty.current || 0}" 
 						data-item="${item.name}" data-max="${qty.balance + (qty.current || 0)}" data-rate="${amount.rate || 0}"
 						data-prev-amount="${amount.prev || 0}"
-						step="0.001" min="0" ${isFullyBilled ? 'disabled' : ''}>
+						step="${BOQ_QTY_STEP}" min="0" ${isFullyBilled ? 'disabled' : ''}>
 				</td>
 				<td class="col-num col-highlight-blue">
 					<input type="number" class="current-value-input" value="${amount.current || 0}" 
@@ -834,7 +835,7 @@ function attach_item_events(container, frm) {
 		const row = input.closest('tr');
 		const qtyInput = row.find('.current-qty-input');
 		const newQty = rate > 0 ? newValue / rate : 0;
-		qtyInput.val(newQty.toFixed(3));
+		qtyInput.val(newQty.toFixed(BOQ_QTY_PRECISION));
 
 		// Update display cells in real-time
 		const accumAmount = prevAmount + newValue;
@@ -915,7 +916,7 @@ function format_currency(value) {
 
 function format_number(value) {
 	if (value === null || value === undefined) return '-';
-	return frappe.format(value, { fieldtype: 'Float', precision: 3 }, { only_value: true });
+	return frappe.format(value, { fieldtype: 'Float', precision: BOQ_QTY_PRECISION }, { only_value: true });
 }
 
 // Global functions

@@ -178,7 +178,7 @@
    "fieldtype": "Float",
    "in_list_view": 1,
    "label": "Total Quantity",
-   "precision": "3",
+   "precision": "8",
    "reqd": 1
   },
   {
@@ -335,7 +335,7 @@
    "fieldname": "prev_qty",
    "fieldtype": "Float",
    "label": "Previous Qty",
-   "precision": "3",
+   "precision": "8",
    "read_only": 1
   },
   {
@@ -353,7 +353,7 @@
    "fieldname": "current_qty",
    "fieldtype": "Float",
    "label": "Current Qty",
-   "precision": "3"
+   "precision": "8"
   },
   {
    "fieldname": "current_amount",
@@ -369,7 +369,7 @@
    "fieldname": "to_date_qty",
    "fieldtype": "Float",
    "label": "To-Date Qty",
-   "precision": "3",
+   "precision": "8",
    "read_only": 1
   },
   {
@@ -386,7 +386,7 @@
    "fieldname": "balance_qty",
    "fieldtype": "Float",
    "label": "Balance Qty",
-   "precision": "3",
+   "precision": "8",
    "read_only": 1
   },
   {
