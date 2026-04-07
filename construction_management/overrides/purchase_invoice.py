@@ -205,6 +205,9 @@ def update_boq_item_cost(item):
 	# Recalculate cost fields
 	boq_item.calculate_amounts()
 	boq_item.db_update()
+	
+	# Also update parent Project BOQ / BOQ Bill so totals reflect the new cost
+	boq_item.update_parent_totals()
 
 	frappe.logger().info(f"Updated cost tracking for BOQ Item {item.boq_item}")
 

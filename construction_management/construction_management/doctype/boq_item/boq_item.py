@@ -272,7 +272,7 @@ class BOQItem(Document):
 		pi_totals = frappe.db.sql("""
 			SELECT 
 				COALESCE(SUM(CASE WHEN pii.expense_account IS NOT NULL THEN pii.amount ELSE 0 END), 0) as pi_expense,
-				pii.amount as pi_subcontract
+				COALESCE(SUM(pii.amount), 0) as pi_subcontract
 			FROM `tabPurchase Invoice Item` pii
 			JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
 			WHERE pii.boq_item = %s AND pi.docstatus = 1
