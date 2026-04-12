@@ -1,0 +1,249 @@
+{% set pc = doc.get_pc_payable_print_context() %}
+{% macro cur(v) -%}{{ frappe.format_value(v, {"fieldtype": "Currency", "options": doc.currency}) }}{%- endmacro %}
+
+<style>
+	.pc-wrap {
+		font-family: Arial, Helvetica, sans-serif;
+		font-size: 11px;
+		color: #111;
+		max-width: 900px;
+		margin: 0 auto;
+	}
+	.pc-title {
+		text-align: center;
+		font-size: 16px;
+		font-weight: bold;
+		text-transform: uppercase;
+		margin-bottom: 4px;
+	}
+	.pc-sub {
+		text-align: center;
+		font-size: 12px;
+		margin-bottom: 16px;
+	}
+	.pc-meta {
+		width: 100%;
+		border-collapse: collapse;
+		margin-bottom: 14px;
+	}
+	.pc-meta td {
+		border: 1px solid #333;
+		padding: 5px 8px;
+		vertical-align: top;
+	}
+	.pc-meta .lbl {
+		font-weight: bold;
+		background: #f0f0f0;
+		width: 22%;
+	}
+	.pc-table {
+		width: 100%;
+		border-collapse: collapse;
+		margin-bottom: 12px;
+	}
+	.pc-table th, .pc-table td {
+		border: 1px solid #333;
+		padding: 6px 8px;
+	}
+	.pc-table th {
+		background: #e8e8e8;
+		font-weight: bold;
+		text-align: center;
+	}
+	.pc-table .desc { text-align: left; }
+	.pc-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+	.pc-table .total-row td { font-weight: bold; background: #f5f5f5; }
+	.pc-table .highlight td { background: #fff9c4; }
+	.pc-words {
+		margin: 12px 0;
+		padding: 8px;
+		border: 1px solid #333;
+	}
+	.pc-ledger {
+		font-size: 10px;
+		color: #444;
+		margin-top: 8px;
+	}
+	.pc-sig {
+		width: 100%;
+		margin-top: 36px;
+		border-collapse: collapse;
+	}
+	.pc-sig td {
+		width: 50%;
+		padding: 8px;
+		vertical-align: bottom;
+	}
+	.pc-line {
+		border-bottom: 1px solid #333;
+		height: 40px;
+	}
+</style>
+
+<div class="pc-wrap">
+	{% if not pc.applicable %}
+		<p style="padding:16px;border:1px solid #c00;">{{ pc.reason }}</p>
+	{% else %}
+		<div class="pc-title">Payment Certificate &mdash; Payable</div>
+		<div class="pc-sub">PC &mdash; Progressive (Subcontractor)</div>
+
+		<table class="pc-meta">
+			<tr>
+				<td class="lbl">{{ _("Company") }}</td>
+				<td colspan="3">{{ pc.company_name }}</td>
+			</tr>
+			<tr>
+				<td class="lbl">{{ _("Project") }}</td>
+				<td>{{ pc.project_code or "—" }}</td>
+				<td class="lbl">{{ _("Sub Cont.") }}</td>
+				<td>{{ pc.supplier_name }}</td>
+			</tr>
+			<tr>
+				<td class="lbl">{{ _("Scope of Work") }}</td>
+				<td colspan="3">{{ pc.scope_of_work }}</td>
+			</tr>
+			<tr>
+				<td class="lbl">{{ _("TRN") }}</td>
+				<td>{{ pc.trn }}</td>
+				<td class="lbl">{{ _("Agreement #") }}</td>
+				<td>{{ pc.agreement_label }}</td>
+			</tr>
+			<tr>
+				<td class="lbl">{{ _("Contract Type") }}</td>
+				<td>{{ pc.contract_type }}</td>
+				<td class="lbl">{{ _("Purchase Order") }}</td>
+				<td>{{ pc.purchase_order }}</td>
+			</tr>
+			<tr>
+				<td class="lbl">{{ _("PC Serial No") }}</td>
+				<td>{{ "%02d"|format(pc.pc_serial) }}</td>
+				<td class="lbl">{{ _("PC Date") }}</td>
+				<td>{{ frappe.format_date(pc.pc_date) }}</td>
+			</tr>
+			<tr>
+				<td class="lbl">{{ _("Sub Cont. Inv #") }}</td>
+				<td>{{ pc.supplier_inv_no }}</td>
+				<td class="lbl">{{ _("Work Done Upto") }}</td>
+				<td>{{ frappe.format_date(pc.work_done_upto) }}</td>
+			</tr>
+		</table>
+
+		<table class="pc-table">
+			<thead>
+				<tr>
+					<th style="width:40%">{{ _("Description") }}</th>
+					<th>{{ _("Previous") }}</th>
+					<th>{{ _("This Certificate") }}</th>
+					<th>{{ _("Cumulative") }}</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td class="desc">{{ _("Work Done") }}</td>
+					<td class="num">{{ cur(pc.work_done.previous) }}</td>
+					<td class="num">{{ cur(pc.work_done.this) }}</td>
+					<td class="num">{{ cur(pc.work_done.cumulative) }}</td>
+				</tr>
+				<tr>
+					<td class="desc">{{ _("Material Deduction") }}</td>
+					<td class="num">{{ cur(pc.material_deduction.previous) }}</td>
+					<td class="num">{{ cur(pc.material_deduction.this) }}</td>
+					<td class="num">{{ cur(pc.material_deduction.cumulative) }}</td>
+				</tr>
+				<tr>
+					<td class="desc">{{ _("Total Due for Payment") }}</td>
+					<td class="num">{{ cur(pc.total_due_for_payment.previous) }}</td>
+					<td class="num">{{ cur(pc.total_due_for_payment.this) }}</td>
+					<td class="num">{{ cur(pc.total_due_for_payment.cumulative) }}</td>
+				</tr>
+				<tr>
+					<td class="desc">{{ _("Advance Deduction") }}</td>
+					<td class="num">{{ cur(pc.advance_deduction.previous) }}</td>
+					<td class="num">{{ cur(pc.advance_deduction.this) }}</td>
+					<td class="num">{{ cur(pc.advance_deduction.cumulative) }}</td>
+				</tr>
+				<tr>
+					<td class="desc">{{ _("Retention") }}</td>
+					<td class="num">{{ cur(pc.retention.previous) }}</td>
+					<td class="num">{{ cur(pc.retention.this) }}</td>
+					<td class="num">{{ cur(pc.retention.cumulative) }}</td>
+				</tr>
+				<tr>
+					<td class="desc">{{ _("Other Deduction") }}</td>
+					<td class="num">{{ cur(pc.other_deduction.previous) }}</td>
+					<td class="num">{{ cur(pc.other_deduction.this) }}</td>
+					<td class="num">{{ cur(pc.other_deduction.cumulative) }}</td>
+				</tr>
+				<tr>
+					<td class="desc">{{ _("Total Deduction") }}</td>
+					<td class="num">{{ cur(pc.total_deduction.previous) }}</td>
+					<td class="num">{{ cur(pc.total_deduction.this) }}</td>
+					<td class="num">{{ cur(pc.total_deduction.cumulative) }}</td>
+				</tr>
+				<tr class="total-row">
+					<td class="desc">{{ _("Sub Total") }}</td>
+					<td class="num">{{ cur(pc.sub_total.previous) }}</td>
+					<td class="num">{{ cur(pc.sub_total.this) }}</td>
+					<td class="num">{{ cur(pc.sub_total.cumulative) }}</td>
+				</tr>
+				<tr>
+					<td class="desc">{{ _("Advance") }}</td>
+					<td class="num">{{ cur(pc.advance_row.previous) }}</td>
+					<td class="num">{{ cur(pc.advance_row.this) }}</td>
+					<td class="num">{{ cur(pc.advance_row.cumulative) }}</td>
+				</tr>
+				<tr>
+					<td class="desc">{{ _("Addition") }}</td>
+					<td class="num">{{ cur(pc.addition.previous) }}</td>
+					<td class="num">{{ cur(pc.addition.this) }}</td>
+					<td class="num">{{ cur(pc.addition.cumulative) }}</td>
+				</tr>
+				<tr>
+					<td class="desc">{{ _("VAT Amount") }}</td>
+					<td class="num">{{ cur(pc.vat.previous) }}</td>
+					<td class="num">{{ cur(pc.vat.this) }}</td>
+					<td class="num">{{ cur(pc.vat.cumulative) }}</td>
+				</tr>
+				<tr>
+					<td class="desc">{{ _("Prev. Payment") }}</td>
+					<td class="num">{{ cur(pc.prev_payment.previous) }}</td>
+					<td class="num">{{ cur(pc.prev_payment.this) }}</td>
+					<td class="num">{{ cur(pc.prev_payment.cumulative) }}</td>
+				</tr>
+				<tr class="total-row highlight">
+					<td class="desc">{{ _("Total Amount") }}</td>
+					<td class="num">{{ cur(pc.total_amount.previous) }}</td>
+					<td class="num">{{ cur(pc.total_amount.this) }}</td>
+					<td class="num">{{ cur(pc.total_amount.cumulative) }}</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<div class="pc-words">
+			<strong>{{ _("Amount in words") }}:</strong>
+			{{ pc.amount_in_words or "—" }}
+		</div>
+
+		{% if pc.retention_ledger_balance is not none or pc.advance_ledger_balance is not none %}
+		<div class="pc-ledger">
+			<strong>{{ _("Ledger reference (BOQ purchase accounts, PO-scoped PIs)") }}:</strong>
+			{{ _("Retention") }}: {{ cur(pc.retention_ledger_balance or 0) }};
+			{{ _("Advance") }}: {{ cur(pc.advance_ledger_balance or 0) }}.
+			{{ pc.ledger_scope_note or "" }}
+		</div>
+		{% endif %}
+
+		<table class="pc-sig">
+			<tr>
+				<td>
+					<div class="pc-line"></div>
+					<small>{{ _("Prepared By") }}</small>
+				</td>
+				<td>
+					<div class="pc-line"></div>
+					<small>{{ _("Authorized Signatory") }}</small>
+				</td>
+			</tr>
+		</table>
+	{% endif %}
+</div>

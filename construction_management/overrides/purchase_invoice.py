@@ -196,6 +196,12 @@ class PurchaseInvoiceOverride(PurchaseInvoice):
 
 		return new_entries
 
+	def get_pc_payable_print_context(self):
+		"""Build dict for Payment Certificate (Payable) Jinja print format."""
+		from construction_management.pc_payable_print_context import build_pc_payable_print_context
+
+		return build_pc_payable_print_context(self)
+
 
 def _po_progress_row_applicable(item) -> bool:
 	if not item.get("po_detail"):
