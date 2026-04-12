@@ -84,6 +84,14 @@ def create_security_payment_entry(
 	payment_entry.remarks = remarks
 	payment_entry.custom_security_instrument = instrument.name
 	payment_entry.custom_security_entry_role = "Issue"
+
+	# Sync PDC fields if redtra_customisation app is installed (check for field existence)
+	pe_meta = frappe.get_meta("Payment Entry")
+	if pe_meta.has_field("pdc_cheque_number"):
+		payment_entry.pdc_cheque_number = reference_no
+	if pe_meta.has_field("pdc_cheque_date"):
+		payment_entry.pdc_cheque_date = reference_date or posting_date
+
 	for _key, _val in _payment_entry_security_type_flags(instrument_type).items():
 		setattr(payment_entry, _key, _val)
 	payment_entry.custom_security_redeemed = 0

@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+from construction_management.api.gl_hook import get_project_expense_total_from_gl
 
 @frappe.whitelist()
 def get_boq_tree_data(project: str, start: int = 0, page_length: int = 20) -> dict:
@@ -112,7 +113,7 @@ def get_boq_kpi(project: str) -> dict:
 		project,
 	)[0][0] or 0
 	
-	# Get cost breakdown from Daily Progress Records (exclude cancelled)
+	# Get actual cost breakdown aggregated from BOQ items
 	cost_breakdown = frappe.db.sql("""
 		SELECT 
 			COALESCE(SUM(labour_cost), 0) as labour,
@@ -121,10 +122,11 @@ def get_boq_kpi(project: str) -> dict:
 			COALESCE(SUM(subcontract_cost), 0) as subcontract,
 			COALESCE(SUM(expense_cost), 0) as expense,
 			COALESCE(SUM(overhead_cost), 0) as overhead,
-			COALESCE(SUM(total_cost), 0) as total
-		FROM `tabDaily Progress Record`
-		WHERE project = %s AND docstatus < 2
+			COALESCE(SUM(cost_to_date), 0) as total
+		FROM `tabBOQ Item`
+		WHERE project = %s
 	""", project, as_dict=True)[0]
+	total_cost_from_gl = get_project_expense_total_from_gl(project)
 	
 	# Get advance payment summary
 	advance_summary = get_advance_summary(project)
@@ -210,7 +212,7 @@ def get_boq_kpi(project: str) -> dict:
 		"total_subcontract_cost": flt(cost_breakdown.subcontract),
 		"total_expense_cost": flt(cost_breakdown.expense),
 		"total_overhead_cost": flt(cost_breakdown.overhead),
-		"total_cost": flt(cost_breakdown.total),
+		"total_cost": flt(total_cost_from_gl),
 		# Advance tracking (detailed)
 		"advance_utilized": flt(advance_summary.get("total_utilized", 0)),
 		"advance_balance": flt(advance_summary.get("balance", 0)),

@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, today
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
+from construction_management.overrides.unearned_revenue import reverse_so_unearned_revenue_for_invoice
 
 
 class SalesInvoiceOverride(SalesInvoice):
@@ -167,6 +168,8 @@ class SalesInvoiceOverride(SalesInvoice):
 				update_project_completion(self.project)
 			except Exception as e:
 				frappe.log_error(f"Error updating project completion: {str(e)}")
+
+		reverse_so_unearned_revenue_for_invoice(self)
 
 	def on_cancel(self):
 		super().on_cancel()

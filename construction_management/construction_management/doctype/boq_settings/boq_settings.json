@@ -22,6 +22,19 @@
   "varience_item",
   "advance_settings_section",
   "advance_account",
+  "section_break_so_unearned",
+  "enable_so_unearned_revenue_jv",
+  "so_unearned_revenue_debit_account",
+  "column_break_so_unearned",
+  "so_unearned_revenue_credit_account",
+  "section_break_purchase_posting",
+  "purchase_retention_account",
+  "column_break_purchase_posting",
+  "purchase_advance_account",
+  "section_break_commission_posting",
+  "sales_person_commission_account",
+  "column_break_commission_posting",
+  "sales_partner_commission_account",
   "advance_deduction_item",
   "column_break_hcla",
   "default_advance_item",
@@ -111,6 +124,29 @@
    "label": "Advance Settings"
   },
   {
+   "fieldname": "section_break_commission_posting",
+   "fieldtype": "Section Break",
+   "label": "Commission Posting Accounts"
+  },
+  {
+   "description": "Account used for Sales Person commission JV/GL postings",
+   "fieldname": "sales_person_commission_account",
+   "fieldtype": "Link",
+   "label": "Sales Person Commission Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "column_break_commission_posting",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Account used for Sales Partner commission JV/GL postings",
+   "fieldname": "sales_partner_commission_account",
+   "fieldtype": "Link",
+   "label": "Sales Partner Commission Account",
+   "options": "Account"
+  },
+  {
    "default": "ADVANCE-DEDUCTION",
    "description": "Service item for advance deductions in invoices",
    "fieldname": "advance_deduction_item",
@@ -187,6 +223,61 @@
    "label": "Advance Account",
    "options": "Account",
    "reqd": 0
+  },
+  {
+   "fieldname": "section_break_so_unearned",
+   "fieldtype": "Section Break",
+   "label": "Sales Order Unearned Revenue"
+  },
+  {
+   "default": "0",
+   "description": "Post unearned revenue JV on Sales Order submit and reverse on Sales Invoice submit",
+   "fieldname": "enable_so_unearned_revenue_jv",
+   "fieldtype": "Check",
+   "label": "Enable SO Unearned Revenue JV"
+  },
+  {
+   "depends_on": "eval:doc.enable_so_unearned_revenue_jv",
+   "description": "Debit account for Sales Order unearned revenue JV",
+   "fieldname": "so_unearned_revenue_debit_account",
+   "fieldtype": "Link",
+   "label": "SO Unearned Revenue Debit Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "column_break_so_unearned",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.enable_so_unearned_revenue_jv",
+   "description": "Credit account for Sales Order unearned revenue JV",
+   "fieldname": "so_unearned_revenue_credit_account",
+   "fieldtype": "Link",
+   "label": "SO Unearned Revenue Credit Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "section_break_purchase_posting",
+   "fieldtype": "Section Break",
+   "label": "Purchase Posting Accounts"
+  },
+  {
+   "description": "Target account for Purchase Invoice retention deduction postings",
+   "fieldname": "purchase_retention_account",
+   "fieldtype": "Link",
+   "label": "Purchase Retention Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "column_break_purchase_posting",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Target account for Purchase Invoice advance deduction postings",
+   "fieldname": "purchase_advance_account",
+   "fieldtype": "Link",
+   "label": "Purchase Advance Account",
+   "options": "Account"
   },
   {
    "fieldname": "varience_account_debit",

@@ -27,14 +27,22 @@ function set_account_queries(frm) {
 		"overhead_account",
 		"salary_labor_account",
 		"asset_cost_credit",
-		"varience_account_debit"
+		"varience_account_debit",
+		"purchase_retention_account",
+		"purchase_advance_account",
+		"sales_person_commission_account",
+		"so_unearned_revenue_credit_account",
+		"so_unearned_revenue_debit_account",
+		"sales_partner_commission_account"
+
 	];
 
 	account_fields.forEach((fieldname) => {
 		frm.set_query(fieldname, function () {
 			return {
 				filters: {
-					company: frm.doc.company
+					company: frm.doc.company,
+					is_group: 0
 				}
 			};
 		});

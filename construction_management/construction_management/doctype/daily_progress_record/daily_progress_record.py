@@ -876,18 +876,14 @@ class DailyProgressRecord(Document):
 			pass
 	
 	def update_project_costs(self):
-		"""Update the Project's estimated cost field with DPR totals"""
+		"""Update the Project's estimated cost field from canonical GL totals."""
 		if not self.project:
 			return
 		
 		try:
-			# Calculate total DPR costs for this project
-			total_dpr_cost = frappe.db.sql("""
-				SELECT COALESCE(SUM(total_cost), 0) as total
-				FROM `tabDaily Progress Record`
-				WHERE project = %s AND docstatus = 1
-			""", self.project)[0][0]
-			
+			from construction_management.api.gl_hook import get_project_expense_total_from_gl
+			total_dpr_cost = get_project_expense_total_from_gl(self.project)
+
 			# Update project's estimated_costing field
 			frappe.db.set_value("Project", self.project, "estimated_costing", flt(total_dpr_cost))
 			

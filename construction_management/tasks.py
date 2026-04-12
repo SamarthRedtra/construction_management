@@ -68,3 +68,20 @@ def delete_special_item_prices():
 		)
 
 	return deleted_count
+
+
+def delete_special_item_price_on_insert(doc, method=None):
+	"""Hook for Item Price after_insert. Immediately deletes the Item Price if it is for a special item."""
+	if getattr(doc, "item_code", None) in SPECIAL_ITEM_PRICE_CLEANUP_CODES:
+		try:
+			frappe.delete_doc("Item Price", doc.name, force=True, ignore_permissions=True)
+			frappe.logger().info(f"Automatically deleted Item Price {doc.name} for special item {doc.item_code}")
+		except Exception:
+			frappe.log_error(
+				title="Special item price deletion failed",
+				message=(
+					f"Failed to delete Item Price {doc.name} for item {doc.item_code} "
+					f"upon insert.\n\n{frappe.get_traceback()}"
+				),
+			)
+

@@ -6,6 +6,7 @@ from collections import defaultdict
 import frappe
 from frappe import _
 from frappe.utils import flt
+from erpnext.accounts.doctype.purchase_invoice.purchase_invoice import PurchaseInvoice
 
 _PO_PROGRESS_DEDUCTION_ITEMS = frozenset(
 	{"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION", "PURCHASE-ADVANCE"}
@@ -19,6 +20,181 @@ _PO_PROGRESS_FIELDS = (
 	"custom_accumulated_qty",
 	"custom_accumulated_amount",
 )
+
+
+class PurchaseInvoiceOverride(PurchaseInvoice):
+	def get_gl_entries(self, warehouse_account=None):
+		gl_entries = super().get_gl_entries(warehouse_account)
+
+		boq_settings = frappe.db.get_value(
+			"BOQ Settings",
+			self.company,
+			["purchase_retention_account", "purchase_advance_account"],
+			as_dict=True,
+		) or {}
+		retention_account = boq_settings.get("purchase_retention_account")
+		advance_account = boq_settings.get("purchase_advance_account")
+
+		if not (retention_account or advance_account):
+			return gl_entries
+
+		deductions = []
+		expense_accounts = set()
+		for item in self.items:
+			if item.expense_account:
+				expense_accounts.add(item.expense_account)
+
+			target_account = None
+			if item.item_code == "RETENTION-DEDUCTION": target_account = retention_account
+			elif item.item_code == "ADVANCE-DEDUCTION" and not self.get("custom_is_advance"): target_account = advance_account
+
+			if target_account:
+				deductions.append(
+					{
+						"amount": abs(flt(item.base_amount)),
+						"transaction_amount": abs(flt(item.amount)),
+						"account": target_account,
+						"boq_item": item.boq_item,
+						"bill_no": item.bill_no,
+						"cost_center": item.cost_center or self.cost_center,
+						"project": item.project or self.project,
+						"item_code": item.item_code,
+					}
+				)
+
+		if not deductions:
+			return gl_entries
+
+		new_entries = []
+		processed_deductions = []
+
+		def add_party_if_needed(gl_dict, account):
+			acc_type = frappe.db.get_value("Account", account, "account_type")
+			if acc_type in ["Receivable", "Payable"]:
+				gl_dict.update(
+					{
+						"party_type": "Supplier",
+						"party": self.supplier,
+					}
+				)
+			return gl_dict
+
+		for entry in gl_entries:
+			# Match expense entries (Debits to an account used in items)
+			if entry.get("account") in expense_accounts and flt(entry.get("debit")) > 0:
+				total_gross_up = 0
+				total_gross_up_transaction = 0
+				for idx, d in enumerate(deductions):
+					if idx in processed_deductions:
+						continue
+
+					match = (
+						d["project"] == entry.get("project")
+						and d["boq_item"] == entry.get("boq_item")
+					)
+					if not match and not entry.get("boq_item") and not d["boq_item"]:
+						match = (
+							d["project"] == entry.get("project")
+							and d["cost_center"] == entry.get("cost_center")
+						)
+
+					if match:
+						total_gross_up += d["amount"]
+						total_gross_up_transaction += d["transaction_amount"]
+						processed_deductions.append(idx)
+
+						acc_currency = frappe.get_cached_value("Account", d["account"], "account_currency") or self.company_currency
+						deduction_entry = self.get_gl_dict(
+							add_party_if_needed({
+								"account": d["account"],
+								"credit": d["amount"],
+								"credit_in_account_currency": (
+									d["amount"]
+									if entry.get("account_currency") == self.company_currency
+									else d["transaction_amount"]
+								),
+								"project": d["project"],
+								"boq_item": d["boq_item"],
+								"bill_no": d["bill_no"],
+								"cost_center": d["cost_center"],
+								"against": self.supplier,
+								"remarks": f"{d['item_code']} for {self.name}",
+							}, d["account"]),
+							account_currency=acc_currency
+						)
+						deduction_entry.update(
+							{
+								"transaction_currency": self.currency,
+								"transaction_exchange_rate": self.get("conversion_rate") or 1,
+								"credit_in_transaction_currency": d["transaction_amount"],
+							}
+						)
+						new_entries.append(deduction_entry)
+
+				if total_gross_up > 0:
+					entry["debit"] = flt(entry.get("debit", 0)) + total_gross_up
+					if "debit_in_account_currency" in entry:
+						if entry.get("account_currency") == self.currency:
+							entry["debit_in_account_currency"] = (
+								flt(entry.get("debit_in_account_currency", 0)) + total_gross_up_transaction
+							)
+						else:
+							entry["debit_in_account_currency"] = flt(entry.get("debit_in_account_currency", 0)) + total_gross_up
+					if "debit_in_transaction_currency" in entry:
+						entry["debit_in_transaction_currency"] = (
+							flt(entry.get("debit_in_transaction_currency", 0)) + total_gross_up_transaction
+						)
+					if "debit_in_reporting_currency" in entry:
+						entry["debit_in_reporting_currency"] = (
+							flt(entry.get("debit_in_reporting_currency", 0)) + total_gross_up
+						)
+
+			new_entries.append(entry)
+
+		# Add unmatched deductions as orphans
+		for idx, d in enumerate(deductions):
+			if idx not in processed_deductions:
+				for entry in new_entries:
+					if entry.get("account") in expense_accounts and flt(entry.get("debit")) > 0:
+						entry["debit"] = flt(entry.get("debit", 0)) + d["amount"]
+						if "debit_in_transaction_currency" in entry:
+							entry["debit_in_transaction_currency"] = (
+								flt(entry.get("debit_in_transaction_currency", 0)) + d["transaction_amount"]
+							)
+						if "debit_in_account_currency" in entry:
+							if entry.get("account_currency") == self.currency:
+								entry["debit_in_account_currency"] = (
+									flt(entry.get("debit_in_account_currency", 0)) + d["transaction_amount"]
+								)
+							else:
+								entry["debit_in_account_currency"] = flt(entry.get("debit_in_account_currency", 0)) + d["amount"]
+						break
+
+				unmatched_gl = {
+					"account": d["account"],
+					"credit": d["amount"],
+					"project": d["project"],
+					"boq_item": d["boq_item"],
+					"bill_no": d["bill_no"],
+					"cost_center": d["cost_center"],
+					"against": self.supplier,
+					"remarks": f"{d['item_code']} for {self.name}",
+				}
+				acc_currency = frappe.get_cached_value("Account", d["account"], "account_currency") or self.company_currency
+				deduction_entry = self.get_gl_dict(
+					add_party_if_needed(unmatched_gl, d["account"]),
+					account_currency=acc_currency
+				)
+				deduction_entry.update(
+					{
+						"transaction_currency": self.currency,
+						"transaction_exchange_rate": self.get("conversion_rate") or 1,
+						"credit_in_transaction_currency": d["transaction_amount"],
+					}
+				)
+				new_entries.append(deduction_entry)
+
+		return new_entries
 
 
 def _po_progress_row_applicable(item) -> bool:
@@ -154,18 +330,81 @@ def validate(doc, method):
 	# Always ensure deduction items exist and are purchase-enabled
 	_ensure_purchase_deduction_items()
 
+	# Auto-fill blank warehouse/expense-account fields before ERPNext validates them
+	_set_default_target_warehouse(doc)
+
 	if doc.docstatus != 0:
 		return
 
 	if doc.get("custom_is_advance"):
 		set_po_line_progress(doc, persist="memory")
+		# Assign correct advance account to the PURCHASE-ADVANCE item
+		boq_settings = frappe.db.get_value(
+			"BOQ Settings",
+			doc.company,
+			["purchase_advance_account"],
+			as_dict=True,
+		) or {}
+		advance_account = boq_settings.get("purchase_advance_account")
+		if advance_account:
+			for item in doc.items:
+				if item.item_code == "PURCHASE-ADVANCE":
+					item.expense_account = advance_account
 		return
 
 	if _is_subcontractor_purchase(doc):
 		apply_purchase_deductions(doc)
 
+	# Always sweep and enforce correct BOQ Setting accounts for deduction rows (fixes old drafts)
+	# Always sweep to ensure deduction rows use the default expense account so the override can neatly pick them up
+	default_expense_account = frappe.db.get_value("Company", doc.company, "default_expense_account")
+
+	for item in doc.items:
+		if item.item_code in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION") and not doc.get("custom_is_advance"):
+			item.expense_account = default_expense_account
+
 	# After deductions (if any) so new rows exist; ERPNext validate already ran (amounts final)
 	set_po_line_progress(doc, persist="memory")
+
+
+def _set_default_target_warehouse(doc):
+	"""
+	Auto-fill blank 'expense_account' (or warehouse) on each PI item row.
+
+	For Purchase Invoice, ERPNext does not require a warehouse (it's an accounting doc),
+	but some custom setups flag missing expense_account as problematic. This helper
+	also mirrors the same warehouse logic as the PR override so the two are in sync.
+
+	Priority:
+	  1. Project.site_location  (row-level project → doc-level project)
+	  2. BOQ Settings.default_warehouse for the company
+	"""
+	NO_STOCK_ITEMS = _PO_PROGRESS_DEDUCTION_ITEMS
+
+	boq_default_wh = frappe.db.get_value("BOQ Settings", doc.company, "default_warehouse")
+	project_wh_cache = {}
+
+	for row in doc.get("items", []):
+		if row.item_code in NO_STOCK_ITEMS:
+			continue
+		# For PI there is no 'warehouse' field on items (it's a service/accounting doc),
+		# but some ERPNext versions track it. Only fill if the attr exists and is empty.
+		if not hasattr(row, "warehouse") or row.get("warehouse"):
+			continue
+
+		project = row.get("project") or doc.get("project")
+		if project:
+			if project not in project_wh_cache:
+				project_wh_cache[project] = frappe.db.get_value("Project", project, "site_location")
+			warehouse = project_wh_cache[project]
+		else:
+			warehouse = None
+
+		if not warehouse:
+			warehouse = boq_default_wh
+
+		if warehouse:
+			row.warehouse = warehouse
 
 
 def on_submit(doc, method):
@@ -268,6 +507,15 @@ def apply_purchase_deductions(doc):
 	default_expense_account = frappe.db.get_value("Company", doc.company, "default_expense_account")
 	default_cost_center = doc.cost_center or frappe.db.get_value("Company", doc.company, "cost_center")
 
+	boq_settings = frappe.db.get_value(
+		"BOQ Settings",
+		doc.company,
+		["purchase_retention_account", "purchase_advance_account", "default_warehouse"],
+		as_dict=True
+	) or {}
+	retention_account = boq_settings.get("purchase_retention_account") or default_expense_account
+	advance_account = boq_settings.get("purchase_advance_account") or default_expense_account
+
 	# Add Retention Deduction
 	if retention_pct > 0 and not has_retention:
 		retention_amount = flt(total_billable * retention_pct / 100, 2)
@@ -286,23 +534,34 @@ def apply_purchase_deductions(doc):
 				"conversion_factor": 1.0,
 			})
 
-	# Add Advance Deduction
+	# Add Advance Deduction — capped to remaining un-deducted advance for this PO
 	if advance_pct > 0 and not has_advance:
-		advance_amount = flt(total_billable * advance_pct / 100, 2)
-		if advance_amount > 0:
-			doc.append("items", {
-				"item_code": "ADVANCE-DEDUCTION",
-				"item_name": "Advance Deduction",
-				"qty": 1,
-				"rate": -advance_amount,
-				"amount": -advance_amount,
-				"description": f"Advance deduction ({advance_pct}%)",
-				"project": doc.project,
-				"expense_account": default_expense_account,
-				"cost_center": default_cost_center,
-				"uom": "Nos",
-				"conversion_factor": 1.0,
-			})
+		# Total advance given (from advance PIs) for this PO
+		total_advance_given = _get_total_advance_given(purchase_order)
+		# Total advance already deducted on previous submitted PIs for this PO
+		already_deducted = _get_advance_already_deducted(purchase_order, exclude_pi=doc.name)
+		remaining_advance = flt(total_advance_given - already_deducted, 2)
+
+		if remaining_advance > 0:
+			# Advance deduction for this invoice — proportional to billable amount, capped at remaining
+			advance_amount = min(
+				flt(total_billable * advance_pct / 100, 2),
+				remaining_advance
+			)
+			if advance_amount > 0:
+				doc.append("items", {
+					"item_code": "ADVANCE-DEDUCTION",
+					"item_name": "Advance Deduction",
+					"qty": 1,
+					"rate": -advance_amount,
+					"amount": -advance_amount,
+					"description": f"Advance deduction ({advance_pct}%) — remaining: {remaining_advance}",
+					"project": doc.project,
+					"expense_account": default_expense_account,
+					"cost_center": default_cost_center,
+					"uom": "Nos",
+					"conversion_factor": 1.0,
+				})
 
 
 def _get_linked_purchase_order(doc):
@@ -311,6 +570,48 @@ def _get_linked_purchase_order(doc):
 		if item.get("purchase_order"):
 			return item.purchase_order
 	return None
+
+
+def _get_total_advance_given(purchase_order):
+	"""
+	Return the total advance amount paid to supplier for this PO.
+	Sums the grand_total of all submitted advance Purchase Invoices linked to the PO.
+	"""
+	if not purchase_order:
+		return 0.0
+	result = frappe.db.sql("""
+		SELECT COALESCE(SUM(pi.grand_total), 0)
+		FROM `tabPurchase Invoice` pi
+		INNER JOIN `tabPurchase Invoice Item` pii ON pii.parent = pi.name
+		WHERE pii.purchase_order = %s
+		  AND pi.docstatus = 1
+		  AND pi.custom_is_advance = 1
+	""", purchase_order)
+	return flt(result[0][0] if result else 0)
+
+
+def _get_advance_already_deducted(purchase_order, exclude_pi=None):
+	"""
+	Return the total ADVANCE-DEDUCTION already applied on submitted, non-advance PIs
+	for this PO (excluding the current PI being validated).
+	"""
+	if not purchase_order:
+		return 0.0
+	ex_name = exclude_pi or ""
+	result = frappe.db.sql("""
+		SELECT COALESCE(SUM(ABS(pii.amount)), 0)
+		FROM `tabPurchase Invoice Item` pii
+		INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
+		WHERE pii.item_code = 'ADVANCE-DEDUCTION'
+		  AND pi.docstatus = 1
+		  AND IFNULL(pi.custom_is_advance, 0) = 0
+		  AND pi.name != %s
+		  AND pi.name IN (
+		    SELECT DISTINCT parent FROM `tabPurchase Invoice Item`
+		    WHERE purchase_order = %s
+		  )
+	""", (ex_name, purchase_order))
+	return flt(result[0][0] if result else 0)
 
 
 def _is_subcontractor_purchase(doc):
@@ -394,7 +695,8 @@ def create_purchase_advance_payment(doc):
 	adv.project = doc.project
 	adv.supplier = doc.supplier
 	adv.purchase_order = _get_linked_purchase_order(doc)
-	adv.amount = doc.net_total
+	# Use grand_total (includes taxes) — this is what was actually paid to the supplier
+	adv.amount = doc.grand_total
 	adv.linked_purchase_invoice = doc.name
 	adv.date = doc.posting_date
 	adv.remarks = f"Automatically created from Advance Purchase Invoice {doc.name}"
