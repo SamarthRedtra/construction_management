@@ -14,6 +14,9 @@ frappe.ui.form.on('Purchase Order', {
 	},
 
 	refresh: function (frm) {
+		// Ensure additional discount controls are editable/visible in draft
+		ensure_additional_discount_fields(frm);
+
 		// Re-setup on refresh to ensure filters are applied after form loads
 		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
 			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
@@ -76,6 +79,19 @@ frappe.ui.form.on('Purchase Order', {
 		}
 	}
 });
+
+function ensure_additional_discount_fields(frm) {
+	// Some deployments hide/lock these fields via Property Setters or scripts.
+	// For Purchase Order drafts, keep ERPNext standard behavior: user can set additional discount.
+	if (!frm || frm.doc.docstatus !== 0) return;
+
+	const fields = ["apply_discount_on", "additional_discount_percentage", "discount_amount"];
+	for (const f of fields) {
+		if (!frm.fields_dict[f]) continue;
+		frm.set_df_property(f, "hidden", 0);
+		frm.set_df_property(f, "read_only", 0);
+	}
+}
 
 
 function render_purchase_history(frm) {

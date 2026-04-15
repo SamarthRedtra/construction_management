@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import re
+
 import frappe
 from frappe import _
 from frappe.utils import flt, money_in_words
@@ -113,9 +115,10 @@ def build_pc_payable_print_context(doc) -> dict:
 	)
 
 	po = frappe.get_cached_doc("Purchase Order", po_name)
-	scope = _project_scope_text(doc.project) if doc.project else ""
+	scope = _clean_scope_text(_project_scope_text(doc.project) if doc.project else "")
 	if not scope:
-		scope = po.get("title") or po.get("remarks") or ""
+		# Prefer explicit PO remarks first; titles are often short / templated
+		scope = _clean_scope_text(po.get("remarks") or "") or _clean_scope_text(po.get("title") or "")
 
 	agreement_parts = []
 	if po.get("order_confirmation_no"):
@@ -144,7 +147,7 @@ def build_pc_payable_print_context(doc) -> dict:
 		"company_name": company_name,
 		"company": doc.company,
 		"currency": doc.currency,
-		"supplier_name": doc.supplier_name or doc.supplier,
+		"supplier_name": _supplier_display(doc),
 		"supplier": doc.supplier,
 		"project": doc.project,
 		"project_code": project_row["name"] if project_row else "",
@@ -193,6 +196,24 @@ def _project_scope_text(project_name: str) -> str:
 		if val:
 			return str(val).strip()
 	return ""
+
+
+def _clean_scope_text(val: str) -> str:
+	"""Remove templated placeholders like '{supplier_name}' from scope fields."""
+	s = (val or "").strip()
+	if not s:
+		return ""
+	if re.search(r"\{[^}]+\}", s):
+		return ""
+	return s
+
+
+def _supplier_display(doc) -> str:
+	name = (getattr(doc, "supplier_name", None) or "").strip()
+	code = (getattr(doc, "supplier", None) or "").strip()
+	if name and code:
+		return f"{name} ({code})"
+	return name or code or ""
 
 
 def _na(reason: str) -> dict:

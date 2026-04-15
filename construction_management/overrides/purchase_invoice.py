@@ -26,6 +26,14 @@ class PurchaseInvoiceOverride(PurchaseInvoice):
 	def get_gl_entries(self, warehouse_account=None):
 		gl_entries = super().get_gl_entries(warehouse_account)
 
+		# If project is not set, keep default ERPNext posting
+		if not self.get("project"):
+			return gl_entries
+
+		# If BOQ Settings is missing for company, keep default posting
+		if not frappe.db.exists("BOQ Settings", self.company):
+			return gl_entries
+
 		boq_settings = frappe.db.get_value(
 			"BOQ Settings",
 			self.company,
