@@ -331,6 +331,9 @@ def get_soa_pdf(filters):
 	elif isinstance(filters.get("party_name"), str):
 		filters["party_name"] = [filters.get("party_name")]
 
+	# Fetch Pending PDCs for summary
+	pdcs = get_pending_pdcs(filters)
+
 	html = frappe.render_template(
 		template_path,
 		{
@@ -338,6 +341,7 @@ def get_soa_pdf(filters):
 			"data": data,
 			"report": {"report_name": "Advanced General Ledger", "columns": columns},
 			"ageing": None,
+			"pdcs": pdcs,
 			"letter_head": letter_head,
 			"terms_and_conditions": None,
 		},
@@ -380,7 +384,7 @@ def get_soa_pdf(filters):
 		f"_{party_label}" if party_label else ""
 	)
 	frappe.local.response.filecontent = pdf
-	frappe.local.response.type = "download"
+	frappe.local.response.type = "binary"
 
 
 def get_columns(filters):
@@ -405,3 +409,52 @@ def get_columns(filters):
 			break
 
 	return columns
+
+def get_pending_pdcs(filters):
+	"""Fetch pending Post Dated Cheques for the SOA summary."""
+	if not frappe.db.exists("DocType", "Post Dated Cheques"):
+		return []
+
+	conditions = ["status = 'Pending'", "docstatus = 1"]
+	values = {}
+
+	if filters.get("company"):
+		conditions.append("company = %(company)s")
+		values["company"] = filters.get("company")
+
+	if filters.get("party_type") and filters.get("party"):
+		conditions.append("party_type = %(party_type)s")
+		values["party_type"] = filters.get("party_type")
+		
+		party_list = filters.get("party")
+		if isinstance(party_list, str):
+			party_list = [party_list]
+		conditions.append("party IN %(party)s")
+		values["party"] = party_list
+
+	if filters.get("from_date"):
+		conditions.append("reference_date >= %(from_date)s")
+		values["from_date"] = filters.get("from_date")
+
+	if filters.get("to_date"):
+		conditions.append("reference_date <= %(to_date)s")
+		values["to_date"] = filters.get("to_date")
+
+	try:
+		return frappe.db.sql(
+			"""
+			SELECT
+				reference_date as chq_date,
+				name as voucher_no,
+				reference_no as chq_no,
+				amount as cheque_amount,
+				reference_date as date
+			FROM `tabPost Dated Cheques`
+			WHERE {0}
+			ORDER BY reference_date ASC
+			""".format(" AND ".join(conditions)),
+			values,
+			as_dict=1
+		)
+	except Exception:
+		return []
