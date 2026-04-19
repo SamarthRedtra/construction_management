@@ -5,7 +5,11 @@ import frappe
 from frappe import _
 from frappe.utils import flt, today
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
-from construction_management.overrides.unearned_revenue import reverse_so_unearned_revenue_for_invoice
+from construction_management.overrides.unearned_revenue import (
+	get_boq_unearned_settings,
+	find_journal_entry_by_so,
+	get_source_accounts_and_amount
+)
 
 
 class SalesInvoiceOverride(SalesInvoice):
@@ -169,8 +173,6 @@ class SalesInvoiceOverride(SalesInvoice):
 			except Exception as e:
 				frappe.log_error(f"Error updating project completion: {str(e)}")
 
-		reverse_so_unearned_revenue_for_invoice(self)
-
 	def on_cancel(self):
 		super().on_cancel()
 		"""Create reversing ledger entries on invoice cancel and cancel linked PC"""
@@ -309,7 +311,36 @@ class SalesInvoiceOverride(SalesInvoice):
 		variance_item_code = boq_settings.varience_item
 
 		if not (retention_account or advance_account or variance_account):
-			return gl_entries
+			# Still need to check if unearned revenue is enabled
+			if not boq_settings.enable_so_unearned_revenue_jv:
+				return gl_entries
+
+		# 4. Handle Unearned Revenue Reversal
+		unearned_reversals = {} # {(account, project, boq_item): amount}
+		unbilled_revenue_acc = boq_settings.so_unearned_revenue_debit_account
+		
+		if boq_settings.get("enable_so_unearned_revenue_jv") and unbilled_revenue_acc:
+			so_list = list(set(item.sales_order for item in self.items if item.sales_order))
+			for so_name in so_list:
+				source_jv = find_journal_entry_by_so(so_name)
+				if not source_jv: continue
+				
+				source_data = get_source_accounts_and_amount(source_jv)
+				if not source_data: continue
+				
+				# Get SO Total for pro-rating
+				so_doc = frappe.get_cached_doc("Sales Order", so_name)
+				so_total = flt(so_doc.get("base_net_total")  or so_doc.get("base_grand_total"))
+				if so_total <= 0: continue
+				
+				for item in self.items:
+					if item.sales_order == so_name:
+						share = flt(item.base_amount) / so_total
+						reversal_amount = flt(source_data["amount"] * share)
+						
+						key = (item.income_account, item.project, item.boq_item)
+						unearned_reversals[key] = unearned_reversals.get(key, 0) + reversal_amount
+
 
 		# 1. Map items to their dimensions and identify deduction items
 		deductions = []
@@ -335,7 +366,7 @@ class SalesInvoiceOverride(SalesInvoice):
 					"item_code": item.item_code
 				})
 
-		if not deductions:
+		if not deductions and not unearned_reversals:
 			return gl_entries
 
 		# 2. Reconstruct entries
@@ -397,26 +428,54 @@ class SalesInvoiceOverride(SalesInvoice):
 						
 						new_entries.append(deduction_entry)
 						processed_deduction_indices.append(i)
-				
 				if total_gross_up > 0:
 					# Update all currency-specific credit fields for the income entry
+					# User wants the Sales credit to include deductions (Gross Delta), 
+					# so we always gross up here.
 					entry["credit"] = flt(entry.get("credit", 0)) + total_gross_up
 					
 					if "credit_in_account_currency" in entry:
-						# If income account is in transaction currency (foreign) or base
-						acc_curr = entry.get("account_currency")
-						if acc_curr == self.currency:
-							entry["credit_in_account_currency"] = flt(entry.get("credit_in_account_currency", 0)) + total_gross_up_transaction
-						else:
-							# Default to grossing up by base amount (assuming base == account currency or conversion is handled)
+						if entry.get("account_currency") == self.currency:
 							entry["credit_in_account_currency"] = flt(entry.get("credit_in_account_currency", 0)) + total_gross_up
-							
+						else:
+							entry["credit_in_account_currency"] = flt(entry.get("credit_in_account_currency", 0)) + total_gross_up_transaction
+					
 					if "credit_in_transaction_currency" in entry:
 						entry["credit_in_transaction_currency"] = flt(entry.get("credit_in_transaction_currency", 0)) + total_gross_up_transaction
-						
+					
 					if "credit_in_reporting_currency" in entry:
-						# Usually reporting currency matches base currency if exchange rate is 1
 						entry["credit_in_reporting_currency"] = flt(entry.get("credit_in_reporting_currency", 0)) + total_gross_up
+
+				# 4b. Adjust for unearned revenue (Reduce Sales, Increase Unbilled Revenue)
+				key = (entry.get("account"), entry.get("project"), entry.get("boq_item"))
+				if key in unearned_reversals:
+					rev_amt = unearned_reversals[key]
+					# Reduce Sales Credit by the portion already recognized in Sales Order
+					entry["credit"] = flt(entry.get("credit", 0)) - rev_amt
+					
+					if "credit_in_account_currency" in entry:
+						entry["credit_in_account_currency"] = flt(entry.get("credit_in_account_currency", 0)) - rev_amt
+					if "credit_in_transaction_currency" in entry:
+						entry["credit_in_transaction_currency"] = flt(entry.get("credit_in_transaction_currency", 0)) - rev_amt
+						
+					# Add credit to Unbilled Revenue account (Clearing the SO Debit)
+					unearned_entry = self.get_gl_dict(add_party_if_needed({
+						"account": unbilled_revenue_acc,
+						"credit": rev_amt,
+						"project": entry.get("project"),
+						"boq_item": entry.get("boq_item"),
+						"bill_no": entry.get("bill_no"),
+						"cost_center": entry.get("cost_center"),
+						"against": self.customer,
+						"remarks": f"Unearned revenue reversal for {self.name}"
+					}, unbilled_revenue_acc))
+					
+					unearned_entry.update({
+						"transaction_currency": self.currency,
+						"transaction_exchange_rate": self.get("conversion_rate") or 1,
+						"credit_in_transaction_currency": rev_amt
+					})
+					new_entries.append(unearned_entry)
 			
 			new_entries.append(entry)
 
@@ -455,7 +514,7 @@ class SalesInvoiceOverride(SalesInvoice):
 				})
 				
 				new_entries.append(deduction_entry)
-
+		frappe.log_error(message=new_entries, title= "New Entries")
 		return new_entries
 
 

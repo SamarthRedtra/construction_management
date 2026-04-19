@@ -8,7 +8,7 @@ _DEDUCTION_CODES = {"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"}
 
 
 def create_so_unearned_revenue_jv(sales_order):
-	settings = _get_boq_unearned_settings(sales_order.company)
+	settings = get_boq_unearned_settings(sales_order.company)
 	if not settings.get("enable_so_unearned_revenue_jv"):
 		return
 
@@ -81,81 +81,11 @@ def create_so_unearned_revenue_jv(sales_order):
 
 
 def reverse_so_unearned_revenue_for_invoice(sales_invoice):
-	settings = _get_boq_unearned_settings(sales_invoice.company)
-	if not settings.get("enable_so_unearned_revenue_jv"):
-		return
-
-	so_amount_map = _get_sales_order_amounts_from_invoice(sales_invoice)
-	if not so_amount_map:
-		return
-
-	for sales_order, invoice_amount in so_amount_map.items():
-		# Find source JV by custom_sales_order field first, fallback to remark
-		source_jv = _find_journal_entry_by_so(sales_order) or _find_journal_entry_by_remark(_so_remark(sales_order))
-		if not source_jv:
-			continue
-
-		remark = _si_remark(sales_invoice.name, sales_order)
-		if _find_journal_entry_by_remark(remark):
-			continue
-
-		source = _get_source_accounts_and_amount(source_jv)
-		if not source:
-			continue
-
-		already_reversed = _get_already_reversed_amount(sales_order, source["credit_account"])
-		outstanding = max(0, source["amount"] - already_reversed)
-		if outstanding <= 0:
-			continue
-
-		reversal_amount = min(invoice_amount, outstanding)
-		if reversal_amount <= 0:
-			continue
-
-		reverse_je = frappe.new_doc("Journal Entry")
-		reverse_je.voucher_type = "Journal Entry"
-		reverse_je.posting_date = sales_invoice.posting_date
-		reverse_je.company = sales_invoice.company
-		reverse_je.user_remark = remark
-		reverse_je.custom_sales_order = sales_order
-		reverse_je.custom_sales_invoice = sales_invoice.name
-
-		cost_center = sales_invoice.cost_center or frappe.db.get_value("Company", sales_invoice.company, "cost_center")
-		common_dims = {
-			"project": sales_invoice.project,
-			"cost_center": cost_center,
-		}
-
-		for acc, field in [(source["credit_account"], "debit_in_account_currency"), (source["debit_account"], "credit_in_account_currency")]:
-			account_row = {
-				"account": acc,
-				field: reversal_amount,
-				**common_dims,
-			}
-
-			acc_type = frappe.get_cached_value("Account", acc, "account_type")
-			if acc_type in ["Receivable", "Payable"]:
-				ptype = "Supplier" if acc_type == "Payable" else "Customer"
-				party = (sales_invoice.customer or "").strip()
-
-				if ptype == "Supplier" and not frappe.db.exists("Supplier", party):
-					# Try to find by supplier_name if ID doesn't match
-					found = frappe.db.get_value("Supplier", {"supplier_name": (sales_invoice.customer_name or "").strip()}, "name")
-					if found:
-						party = found
-
-				account_row.update({
-					"party_type": ptype,
-					"party": party
-				})
-
-			reverse_je.append("accounts", account_row)
-
-		reverse_je.insert()
-		reverse_je.submit()
+	# This logic has been moved to integrated GL entries within Sales Invoice
+	return
 
 
-def _get_boq_unearned_settings(company):
+def get_boq_unearned_settings(company):
 	return frappe.db.get_value(
 		"BOQ Settings",
 		company,
@@ -169,7 +99,23 @@ def _get_boq_unearned_settings(company):
 
 
 def _get_so_unearned_amount(sales_order):
-	return flt(sales_order.get("custom_net_amount") or sales_order.get("base_net_total") or sales_order.get("base_grand_total"))
+	# Calculate gross amount by adding back deductions (Retention/Advance)
+	# These are usually stored as negative amounts in items or in custom fields
+	amount = flt(sales_order.get("base_net_total") or sales_order.get("base_grand_total"))
+	
+	deductions = 0
+	for item in sales_order.get("items", []):
+		if item.get("item_code") in ["RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"]:
+			deductions += abs(flt(item.base_amount))
+	
+	# Also check custom retention field if items aren't used for deductions yet
+	if not deductions:
+		deductions = flt(sales_order.get("custom_retention_amount"))
+
+	gross_amount = amount + deductions
+	percentage = flt(sales_order.get("custom_unbilled_revenue_percentage") or 100)
+	
+	return flt(gross_amount * (percentage / 100.0))
 
 
 def _get_sales_order_amounts_from_invoice(sales_invoice):
@@ -193,7 +139,7 @@ def _find_journal_entry_by_remark(remark):
 	return frappe.db.get_value("Journal Entry", {"docstatus": 1, "user_remark": remark}, "name")
 
 
-def _find_journal_entry_by_so(sales_order_name):
+def find_journal_entry_by_so(sales_order_name):
 	"""Find the original (non-reversal) submitted unearned revenue JV for a given Sales Order."""
 	jvs = frappe.db.get_all(
 		"Journal Entry",
@@ -207,7 +153,7 @@ def _find_journal_entry_by_so(sales_order_name):
 	return None
 
 
-def _get_source_accounts_and_amount(journal_entry):
+def get_source_accounts_and_amount(journal_entry):
 	rows = frappe.db.get_all(
 		"Journal Entry Account",
 		filters={"parent": journal_entry},
