@@ -161,6 +161,9 @@ doc_events = {
 		"on_submit": "construction_management.overrides.purchase_invoice.on_submit",
 		"on_cancel": "construction_management.overrides.purchase_invoice.on_cancel"
 	},
+	"Purchase Order": {
+		"validate": "construction_management.overrides.purchase_order.validate"
+	},
 	"Purchase Receipt": {
 		"validate": "construction_management.overrides.purchase_receipt.validate",
 		"before_submit": "construction_management.overrides.purchase_receipt.before_submit"

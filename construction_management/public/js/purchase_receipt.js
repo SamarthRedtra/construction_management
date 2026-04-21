@@ -61,6 +61,25 @@ frappe.ui.form.on('Purchase Receipt', {
 				}
 			});
 		}
+
+		// Auto-fill blank custom site fields to resolve mandatory dimension errors
+		(frm.doc.items || []).forEach(item => {
+			if (!item.site) {
+				frappe.model.set_value(item.doctype, item.name, 'site', 'Transit');
+			}
+		});
+	},
+
+	before_save: function (frm) {
+		// Auto-fill blank custom site fields to resolve mandatory dimension errors
+		(frm.doc.items || []).forEach(item => {
+			if (item.hasOwnProperty('site') && !item.site) {
+				frappe.model.set_value(item.doctype, item.name, 'site', 'Transit');
+			}
+			if (item.hasOwnProperty('rejected_site') && !item.rejected_site) {
+				frappe.model.set_value(item.doctype, item.name, 'rejected_site', 'Transit');
+			}
+		});
 	}
 });
 
@@ -95,6 +114,7 @@ frappe.ui.form.on('Purchase Receipt Item', {
 	},
 
 	items_add: function (frm, cdt, cdn) {
+		frappe.model.set_value(cdt, cdn, 'site', 'Transit');
 		recalculate_pr_deductions(frm);
 	},
 

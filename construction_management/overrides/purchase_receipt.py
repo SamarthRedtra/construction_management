@@ -70,6 +70,12 @@ def _set_default_target_warehouse(doc):
 		if warehouse:
 			row.warehouse = warehouse
 
+		# Auto-fill blank custom site fields to resolve mandatory dimension errors
+		if not row.get("site") and frappe.get_meta(row.doctype).has_field("site"):
+			row.site = "Transit"
+		if not row.get("rejected_site") and frappe.get_meta(row.doctype).has_field("rejected_site"):
+			row.rejected_site = "Transit"
+
 
 def validate_items_in_purchase_order(doc):
 	"""

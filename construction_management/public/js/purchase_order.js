@@ -11,6 +11,13 @@ frappe.ui.form.on('Purchase Order', {
 			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
 			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'items');
 		}
+
+		// Auto-fill blank custom site fields to resolve mandatory dimension errors
+		(frm.doc.items || []).forEach(item => {
+			if (!item.site) {
+				frappe.model.set_value(item.doctype, item.name, 'site', 'Transit');
+			}
+		});
 	},
 
 	refresh: function (frm) {
@@ -77,6 +84,18 @@ frappe.ui.form.on('Purchase Order', {
 				}, __('Create'));
 			}
 		}
+	},
+
+	before_save: function (frm) {
+		// Auto-fill blank custom site fields to resolve mandatory dimension errors
+		(frm.doc.items || []).forEach(item => {
+			if (!item.site) {
+				frappe.model.set_value(item.doctype, item.name, 'site', 'Transit');
+			}
+			if (!item.rejected_site && item.hasOwnProperty('rejected_site')) {
+				frappe.model.set_value(item.doctype, item.name, 'rejected_site', 'Transit');
+			}
+		});
 	}
 });
 
@@ -243,3 +262,9 @@ function render_purchase_history(frm) {
 		}
 	});
 }
+
+frappe.ui.form.on('Purchase Order Item', {
+	items_add: function (frm, cdt, cdn) {
+		frappe.model.set_value(cdt, cdn, 'site', 'Transit');
+	}
+});
