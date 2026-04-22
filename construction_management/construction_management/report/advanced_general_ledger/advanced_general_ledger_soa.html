@@ -175,14 +175,59 @@
 		</thead>
 		<tbody>
 			<tr>
-				<td>{{ frappe.utils.fmt_money(ageing.range1, currency=filters.presentation_currency) }}</td>
-				<td>{{ frappe.utils.fmt_money(ageing.range2, currency=filters.presentation_currency) }}</td>
-				<td>{{ frappe.utils.fmt_money(ageing.range3, currency=filters.presentation_currency) }}</td>
-				<td>{{ frappe.utils.fmt_money(ageing.range4, currency=filters.presentation_currency) }}</td>
-				<td>{{ frappe.utils.fmt_money(ageing.range5, currency=filters.presentation_currency) }}</td>
+				<td style="text-align: right">{{ frappe.utils.fmt_money(ageing.range1, currency=filters.presentation_currency) }}</td>
+				<td style="text-align: right">{{ frappe.utils.fmt_money(ageing.range2, currency=filters.presentation_currency) }}</td>
+				<td style="text-align: right">{{ frappe.utils.fmt_money(ageing.range3, currency=filters.presentation_currency) }}</td>
+				<td style="text-align: right">{{ frappe.utils.fmt_money(ageing.range4, currency=filters.presentation_currency) }}</td>
+				<td style="text-align: right">{{ frappe.utils.fmt_money(ageing.range5, currency=filters.presentation_currency) }}</td>
 			</tr>
 		</tbody>
 	</table>
+	{% endif %}
+
+	{% if pdcs %}
+	<br>
+	<div>
+		<h4>{{ _("PD cheques Summary") }}</h4>
+		<table class="table table-bordered" style="font-size: 10px;">
+			<thead>
+				<tr>
+					<th style="width: 15%">{{ _("Date") }}</th>
+					<th style="width: 25%">{{ _("Voucher No") }}</th>
+					<th style="width: 20%">{{ _("CHQ Date") }}</th>
+					<th style="width: 20%">{{ _("CHQ No") }}</th>
+					<th style="width: 20%; text-align: right">{{ _("Cheque Amount") }}</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% set total_pd_amount = {"val": 0} %}
+				{% for pd in pdcs %}
+				{% if total_pd_amount.update({"val": total_pd_amount.val + (pd.cheque_amount or 0)}) %}{% endif %}
+				<tr>
+					<td>{{ frappe.format(pd.date, "Date") }}</td>
+					<td>{{ pd.voucher_no }}</td>
+					<td>{{ frappe.format(pd.chq_date, "Date") }}</td>
+					<td>{{ pd.chq_no }}</td>
+					<td style="text-align: right">{{ frappe.utils.fmt_money(pd.cheque_amount, currency=filters.presentation_currency) }}</td>
+				</tr>
+				{% endfor %}
+			</tbody>
+			<tfoot>
+				<tr>
+					<td colspan="4"><b>{{ _("Total PDs") }}</b></td>
+					<td style="text-align: right"><b>{{ frappe.utils.fmt_money(total_pd_amount.val, currency=filters.presentation_currency) }}</b></td>
+				</tr>
+				<tr>
+					<td colspan="4"><b>{{ _("Due Amount") }}</b></td>
+					<td style="text-align: right"><b>{{ frappe.utils.fmt_money(gl_debit.val - gl_credit.val, currency=filters.presentation_currency) }}</b></td>
+				</tr>
+				<tr>
+					<td colspan="4"><b>{{ _("Due Amount After PDs") }}</b></td>
+					<td style="text-align: right"><b>{{ frappe.utils.fmt_money(gl_debit.val - gl_credit.val - total_pd_amount.val, currency=filters.presentation_currency) }}</b></td>
+				</tr>
+			</tfoot>
+		</table>
+	</div>
 	{% endif %}
 	{% if terms_and_conditions %}
 	<div>

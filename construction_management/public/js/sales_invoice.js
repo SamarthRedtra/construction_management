@@ -51,8 +51,76 @@ frappe.ui.form.on('Sales Invoice', {
 				pull_advance_deduction(frm);
 			}, __('Get Deductions'));
 		}
+
+		// Render reversal JV summary widget for submitted invoices
+		if (frm.doc.docstatus === 1) {
+			cm_render_si_jv_summary(frm);
+		}
 	}
 });
+
+/**
+ * Renders a summary card of all Unearned Revenue reversal JVs linked to this Sales Invoice
+ * in the form's Connections dashboard section.
+ */
+function cm_render_si_jv_summary(frm) {
+	frappe.db.get_list('Journal Entry', {
+		filters: { custom_sales_invoice: frm.doc.name, docstatus: 1 },
+		fields: ['name', 'posting_date', 'total_debit', 'custom_sales_order', 'user_remark'],
+		order_by: 'posting_date asc',
+		limit: 50
+	}).then(jvs => {
+		if (!jvs || jvs.length === 0) return;
+
+		const total_reversed = jvs.reduce((s, j) => s + flt(j.total_debit), 0);
+		const currency = frm.doc.currency || frappe.boot.sysdefaults.currency;
+		const fmt = (v) => format_currency(v, currency, 2);
+
+		let rows_html = jvs.map(jv => {
+			const so_link = jv.custom_sales_order
+				? `<a href="${frappe.utils.get_form_link('Sales Order', jv.custom_sales_order)}">${jv.custom_sales_order}</a>`
+				: '—';
+			const link = frappe.utils.get_form_link('Journal Entry', jv.name);
+			return `
+				<tr>
+					<td style="padding:5px 8px;"><a href="${link}">${jv.name}</a></td>
+					<td style="padding:5px 8px;">${frappe.datetime.str_to_user(jv.posting_date)}</td>
+					<td style="padding:5px 8px;text-align:right;">${fmt(jv.total_debit)}</td>
+					<td style="padding:5px 8px;">${so_link}</td>
+				</tr>`;
+		}).join('');
+
+		const html = `
+			<div class="cm-jv-summary" style="margin-bottom:12px;border:1px solid #e0e0e0;border-radius:6px;overflow:hidden;font-size:12px;">
+				<div style="background:#f0fff4;padding:8px 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e0e0e0;">
+					<strong>📗 Unearned Revenue Recognized</strong>
+					<span style="color:#555;">
+						${jvs.length} Reversal JV(s) &nbsp;|&nbsp;
+						Total Recognized: <b>${fmt(total_reversed)}</b>
+					</span>
+				</div>
+				<table style="width:100%;border-collapse:collapse;">
+					<thead style="background:#fafafa;border-bottom:1px solid #eee;">
+						<tr>
+							<th style="padding:5px 8px;text-align:left;font-weight:500;">Journal Entry</th>
+							<th style="padding:5px 8px;text-align:left;font-weight:500;">Date</th>
+							<th style="padding:5px 8px;text-align:right;font-weight:500;">Amount Recognized</th>
+							<th style="padding:5px 8px;text-align:left;font-weight:500;">Sales Order</th>
+						</tr>
+					</thead>
+					<tbody>${rows_html}</tbody>
+				</table>
+			</div>`;
+
+		// Remove old widget and inject at top of Connections section body
+		const $conn = frm.dashboard.links_area.body;
+		$conn.find('.cm-jv-summary').remove();
+		$conn.prepend(html);
+		frm.dashboard.links_area.show();
+		frm.dashboard.show();
+	});
+}
+
 
 frappe.ui.form.on('Sales Invoice Item', {
 	items_add: function (frm, cdt, cdn) {

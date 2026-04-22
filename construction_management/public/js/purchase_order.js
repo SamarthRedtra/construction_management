@@ -11,9 +11,19 @@ frappe.ui.form.on('Purchase Order', {
 			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
 			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'items');
 		}
+
+		// Auto-fill blank custom site fields to resolve mandatory dimension errors
+		(frm.doc.items || []).forEach(item => {
+			if (!item.site) {
+				frappe.model.set_value(item.doctype, item.name, 'site', 'Transit');
+			}
+		});
 	},
 
 	refresh: function (frm) {
+		// Ensure additional discount controls are editable/visible in draft
+		ensure_additional_discount_fields(frm);
+
 		// Re-setup on refresh to ensure filters are applied after form loads
 		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
 			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
@@ -74,8 +84,33 @@ frappe.ui.form.on('Purchase Order', {
 				}, __('Create'));
 			}
 		}
+	},
+
+	before_save: function (frm) {
+		// Auto-fill blank custom site fields to resolve mandatory dimension errors
+		(frm.doc.items || []).forEach(item => {
+			if (!item.site) {
+				frappe.model.set_value(item.doctype, item.name, 'site', 'Transit');
+			}
+			if (!item.rejected_site && item.hasOwnProperty('rejected_site')) {
+				frappe.model.set_value(item.doctype, item.name, 'rejected_site', 'Transit');
+			}
+		});
 	}
 });
+
+function ensure_additional_discount_fields(frm) {
+	// Some deployments hide/lock these fields via Property Setters or scripts.
+	// For Purchase Order drafts, keep ERPNext standard behavior: user can set additional discount.
+	if (!frm || frm.doc.docstatus !== 0) return;
+
+	const fields = ["apply_discount_on", "additional_discount_percentage", "discount_amount"];
+	for (const f of fields) {
+		if (!frm.fields_dict[f]) continue;
+		frm.set_df_property(f, "hidden", 0);
+		frm.set_df_property(f, "read_only", 0);
+	}
+}
 
 
 function render_purchase_history(frm) {
@@ -227,3 +262,9 @@ function render_purchase_history(frm) {
 		}
 	});
 }
+
+frappe.ui.form.on('Purchase Order Item', {
+	items_add: function (frm, cdt, cdn) {
+		frappe.model.set_value(cdt, cdn, 'site', 'Transit');
+	}
+});

@@ -138,6 +138,7 @@ after_migrate = "construction_management.setup.install.after_migrate"
 
 override_doctype_class = {
 	"Sales Invoice": "construction_management.overrides.sales_invoice.SalesInvoiceOverride",
+	"Purchase Invoice": "construction_management.overrides.purchase_invoice.PurchaseInvoiceOverride",
 	"Process Statement Of Accounts": "construction_management.overrides.process_statement_of_accounts.ProcessStatementOfAccountsOverride"
 }
 
@@ -159,6 +160,9 @@ doc_events = {
 		"before_cancel": "construction_management.overrides.purchase_invoice.before_cancel",
 		"on_submit": "construction_management.overrides.purchase_invoice.on_submit",
 		"on_cancel": "construction_management.overrides.purchase_invoice.on_cancel"
+	},
+	"Purchase Order": {
+		"validate": "construction_management.overrides.purchase_order.validate"
 	},
 	"Purchase Receipt": {
 		"validate": "construction_management.overrides.purchase_receipt.validate",
@@ -187,6 +191,9 @@ doc_events = {
 	},
 	"BOQ Item": {
 		"after_delete": "construction_management.construction_management.doctype.boq_item.boq_item.update_parent_totals"
+	},
+	"Item Price": {
+		"after_insert": "construction_management.tasks.delete_special_item_price_on_insert"
 	}
 }
 

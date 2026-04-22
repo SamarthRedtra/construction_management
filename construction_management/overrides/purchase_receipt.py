@@ -12,6 +12,7 @@ DEDUCTION_ITEM_CODES = {"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"}
 
 def validate(doc, method):
 	"""Validate Purchase Receipt before save"""
+	_set_default_target_warehouse(doc)
 	validate_items_in_purchase_order(doc)
 	ensure_item_projects(doc)
 	apply_purchase_deductions(doc)
@@ -19,8 +20,61 @@ def validate(doc, method):
 
 def before_submit(doc, method):
 	"""Validate Purchase Receipt before submit"""
+	_set_default_target_warehouse(doc)
 	validate_items_in_purchase_order(doc)
 	ensure_item_projects(doc, make_mandatory=True)
+
+
+def _set_default_target_warehouse(doc):
+	"""
+	Auto-fill 'warehouse' (target warehouse) on each item row when it is blank.
+
+	Priority:
+	  1. Project.site_location (the project-specific warehouse)
+	  2. BOQ Settings.default_warehouse for the company
+	  3. Company.default_inventory_account warehouse (skip — avoid wrong accounts)
+
+	Does nothing for deduction/advance items that have no stock movement.
+	"""
+	NO_STOCK_ITEMS = {"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION", "PURCHASE-ADVANCE"}
+
+	# Fetch BOQ Settings default warehouse once
+	boq_default_wh = frappe.db.get_value("BOQ Settings", doc.company, "default_warehouse")
+
+	# Cache project → site_location lookups within this call
+	project_wh_cache = {}
+
+	for row in doc.get("items", []):
+		# Skip deduction items — they have no warehouse requirement
+		if row.item_code in NO_STOCK_ITEMS:
+			continue
+
+		# Skip if already set
+		if row.get("warehouse"):
+			continue
+
+		# Determine project for this row (row-level → doc-level)
+		project = row.get("project") or doc.get("project")
+
+		if project:
+			if project not in project_wh_cache:
+				project_wh_cache[project] = frappe.db.get_value("Project", project, "site_location")
+			warehouse = project_wh_cache[project]
+		else:
+			warehouse = None
+
+		# Fall back to BOQ Settings default
+		if not warehouse:
+			warehouse = boq_default_wh
+
+		if warehouse:
+			row.warehouse = warehouse
+
+		# Auto-fill blank custom site fields to resolve mandatory dimension errors
+		if not row.get("site") and frappe.get_meta(row.doctype).has_field("site"):
+			row.site = "Transit"
+		if not row.get("rejected_site") and frappe.get_meta(row.doctype).has_field("rejected_site"):
+			row.rejected_site = "Transit"
 
 
 def validate_items_in_purchase_order(doc):
@@ -126,6 +180,15 @@ def apply_purchase_deductions(doc):
 	default_expense_account = frappe.db.get_value("Company", doc.company, "default_expense_account")
 	default_cost_center = doc.cost_center or frappe.db.get_value("Company", doc.company, "cost_center")
 
+	boq_settings = frappe.db.get_value(
+		"BOQ Settings",
+		doc.company,
+		["purchase_retention_account", "purchase_advance_account", "default_warehouse"],
+		as_dict=True
+	) or {}
+	retention_account = boq_settings.get("purchase_retention_account") or default_expense_account
+	advance_account = boq_settings.get("purchase_advance_account") or default_expense_account
+
 	# Add Retention Deduction
 	if retention_pct > 0 and not has_retention:
 		retention_amount = flt(total_billable * retention_pct / 100, 2)
@@ -161,6 +224,13 @@ def apply_purchase_deductions(doc):
 				"uom": "Nos",
 				"conversion_factor": 1.0,
 			})
+
+	# Always sweep to ensure deduction rows use the default expense account
+	default_expense_account = frappe.db.get_value("Company", doc.company, "default_expense_account")
+	
+	for item in doc.items:
+		if item.item_code in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"):
+			item.expense_account = default_expense_account
 
 
 def ensure_item_projects(doc, make_mandatory=False):

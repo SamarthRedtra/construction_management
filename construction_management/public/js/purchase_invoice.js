@@ -99,11 +99,32 @@ frappe.ui.form.on('Purchase Invoice', {
 		if (frm.doc.custom_is_advance) {
 			frm.set_df_property("project", "reqd", 1);
 		}
+
+		// Auto-fill blank custom site fields to resolve mandatory dimension errors
+		(frm.doc.items || []).forEach(item => {
+			if (!item.site) {
+				frappe.model.set_value(item.doctype, item.name, 'site', 'Transit');
+			}
+		});
+	},
+
+	before_save: function (frm) {
+		// Auto-fill blank custom site fields to resolve mandatory dimension errors
+		(frm.doc.items || []).forEach(item => {
+			if (!item.site) {
+				console.log(`Setting site to Transit for row ${item.idx}`);
+				frappe.model.set_value(item.doctype, item.name, 'site', 'Transit');
+			}
+			if (!item.rejected_site && item.hasOwnProperty('rejected_site')) {
+				frappe.model.set_value(item.doctype, item.name, 'rejected_site', 'Transit');
+			}
+		});
 	}
 });
 
 frappe.ui.form.on('Purchase Invoice Item', {
 	items_add: function (frm, cdt, cdn) {
+		frappe.model.set_value(cdt, cdn, 'site', 'Transit');
 		recalculate_purchase_deductions(frm);
 	},
 

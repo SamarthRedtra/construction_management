@@ -198,7 +198,10 @@ def make_advance_purchase_invoice(purchase_order):
 	# Add PURCHASE-ADVANCE item only (no PO line items for advance invoices)
 	advance_amount = flt(po.grand_total * advance_pct / 100, 2)
 	if advance_amount > 0:
-		default_expense_account = frappe.db.get_value("Company", po.company, "default_expense_account")
+		advance_account = frappe.db.get_value("BOQ Settings", po.company, "purchase_advance_account")
+		if not advance_account:
+			frappe.throw(_("Please configure the 'Purchase Advance Account' in BOQ Settings for company {0} before creating an advance invoice.").format(po.company))
+
 		default_cost_center = po.cost_center or frappe.db.get_value("Company", po.company, "cost_center")
 
 		pi.append("items", {
@@ -210,7 +213,7 @@ def make_advance_purchase_invoice(purchase_order):
 			"uom": "Nos",
 			"conversion_factor": 1.0,
 			"description": f"Advance payment ({advance_pct}% of PO {po.name})",
-			"expense_account": default_expense_account,
+			"expense_account": advance_account,
 			"cost_center": default_cost_center,
 			"project": po.project,
 		})

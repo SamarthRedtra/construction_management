@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, today
 from construction_management.api.boq_ledger import create_ledger_entry, recalculate_ledger_for_item
+from construction_management.overrides.unearned_revenue import create_so_unearned_revenue_jv
 
 
 def validate(doc, method=None):
@@ -19,6 +20,7 @@ def on_submit(doc, method=None):
 	When Sales Order is submitted, create BOQ Progress Ledger entries.
 	"""
 	create_ledger_entries(doc)
+	create_so_unearned_revenue_jv(doc)
 
 
 def on_cancel(doc, method=None):

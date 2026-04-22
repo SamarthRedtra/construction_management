@@ -20,6 +20,7 @@ class BOQSettings(Document):
 		self.validate_warehouse_settings()
 		self.validate_retention_settings()
 		self.validate_advance_settings()
+		self.validate_unearned_revenue_settings()
 		self.validate_cost_accounts()
 		self.ensure_selling_settings_allow_negative_rates()
 	
@@ -103,11 +104,35 @@ class BOQSettings(Document):
 			("expenses_account", _("Expenses & Overhead Account")),
 			("overhead_account", _("Overhead Account")),
 			("salary_labor_account", _("Salary Labour Account")),
+			("purchase_retention_account", _("Purchase Retention Account")),
+			("purchase_advance_account", _("Purchase Advance Account")),
+			("sales_person_commission_account", _("Sales Person Commission Account")),
+			("sales_partner_commission_account", _("Sales Partner Commission Account")),
 		]
 		for field, label in account_fields:
 			account = self.get(field)
 			if not account:
 				continue
+			account_company = frappe.db.get_value("Account", account, "company")
+			if account_company and account_company != self.company:
+				frappe.throw(_("{0} must belong to company {1}").format(label, self.company))
+
+	def validate_unearned_revenue_settings(self):
+		"""Validate Sales Order unearned revenue account mappings."""
+		if not self.enable_so_unearned_revenue_jv:
+			return
+
+		if not self.so_unearned_revenue_debit_account:
+			frappe.throw(_("SO Unearned Revenue Debit Account is required when SO unearned JV is enabled"))
+
+		if not self.so_unearned_revenue_credit_account:
+			frappe.throw(_("SO Unearned Revenue Credit Account is required when SO unearned JV is enabled"))
+
+		for field, label in (
+			("so_unearned_revenue_debit_account", _("SO Unearned Revenue Debit Account")),
+			("so_unearned_revenue_credit_account", _("SO Unearned Revenue Credit Account")),
+		):
+			account = self.get(field)
 			account_company = frappe.db.get_value("Account", account, "company")
 			if account_company and account_company != self.company:
 				frappe.throw(_("{0} must belong to company {1}").format(label, self.company))
@@ -280,6 +305,7 @@ def create_default_boq_settings(company):
 		"auto_create_warehouse": 0,
 		"warehouse_naming_series": "PROJ-WH-.####",
 		"default_retention_percentage": 5.0,
+		"enable_so_unearned_revenue_jv": 0,
 		"advance_deduction_item": "ADVANCE-DEDUCTION",
 		"default_warehouse": None
 	})

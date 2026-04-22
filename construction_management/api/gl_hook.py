@@ -94,20 +94,30 @@ def process_gl_entry_for_boq(doc):
 		frappe.log_error(f"GL hook cost recalc failed for BOQ Item {boq_item_name} from GL {doc.name}: {str(e)}")
 
 def update_project_cost(project_name):
-	# Calculate total project cost from GL (Expense + WIP)
-	total_cost = frappe.db.sql("""
-		SELECT SUM(debit - credit) FROM `tabGL Entry`
-		WHERE project = %s 
-		AND is_cancelled = 0
-		AND account IN (
-			SELECT name FROM `tabAccount` 
-			WHERE root_type = 'Expense' 
-			OR account_type = 'Work In Progress'
-		)
-	""", project_name)[0][0] or 0
-	
+	total_cost = get_project_expense_total_from_gl(project_name)
+
 	# Update the project cost field (reusing existing field used by DPR)
 	frappe.db.set_value("Project", project_name, "estimated_costing", flt(total_cost))
+
+
+def get_project_expense_total_from_gl(project_name):
+	"""Canonical project cost from GL Entry using Expense root accounts only."""
+	if not project_name:
+		return 0
+
+	return flt(
+		frappe.db.sql(
+			"""
+			SELECT COALESCE(SUM(gle.debit - gle.credit), 0)
+			FROM `tabGL Entry` gle
+			INNER JOIN `tabAccount` acc ON acc.name = gle.account
+			WHERE gle.project = %s
+				AND gle.is_cancelled = 0
+				AND acc.root_type = 'Expense'
+			""",
+			project_name,
+		)[0][0]
+	)
 
 def find_dpr_via_voucher(voucher_type, voucher_no):
 	# Find matching DPR via linked vouchers
