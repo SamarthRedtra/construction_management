@@ -9,6 +9,7 @@ frappe.ui.form.on('Purchase Receipt', {
 			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
 			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'items');
 		}
+		setup_extra_accounting_entry_queries(frm);
 	},
 
 	refresh: function (frm) {
@@ -17,6 +18,7 @@ frappe.ui.form.on('Purchase Receipt', {
 			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
 			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'items');
 		}
+		setup_extra_accounting_entry_queries(frm);
 
 		// Explicit queries for BOQ dimensions in child table
 		frm.set_query("bill_no", "items", function (doc, cdt, cdn) {
@@ -261,3 +263,34 @@ function create_payment_certificate_from_pr(frm) {
 		}
 	});
 }
+
+function setup_extra_accounting_entry_queries(frm) {
+	frm.set_query("account", "custom_extra_accounting_entries", function (doc) {
+		return {
+			filters: {
+				company: doc.company,
+				is_group: 0
+			}
+		};
+	});
+
+	frm.set_query("party", "custom_extra_accounting_entries", function (doc, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row.party_type) {
+			return { filters: { name: "__invalid__" } };
+		}
+
+		const filters = {};
+		if (row.party_type === "Supplier" || row.party_type === "Customer" || row.party_type === "Employee") {
+			filters.disabled = 0;
+		}
+		return { filters: filters };
+	});
+}
+
+frappe.ui.form.on('Purchase Receipt Extra Entry', {
+	party_type: function (frm, cdt, cdn) {
+		// Reset party when party type changes to prevent stale invalid links.
+		frappe.model.set_value(cdt, cdn, 'party', '');
+	}
+});
