@@ -16,6 +16,7 @@ def validate(doc, method):
 	validate_items_in_purchase_order(doc)
 	ensure_item_projects(doc)
 	apply_purchase_deductions(doc)
+	validate_extra_accounting_entries(doc)
 
 
 def before_submit(doc, method):
@@ -269,4 +270,30 @@ def ensure_item_projects(doc, make_mandatory=False):
 					row.idx or row.name, row.warehouse or row.rejected_warehouse
 				),
 				title=_("Project Required"),
+			)
+
+
+def validate_extra_accounting_entries(doc):
+	"""Validate user-provided extra accounting entries on Purchase Receipt."""
+	for row in doc.get("custom_extra_accounting_entries") or []:
+		if not row.account:
+			frappe.throw(_("Extra Accounting Entries row {0}: Account is required.").format(row.idx))
+
+		debit = flt(row.debit)
+		credit = flt(row.credit)
+		if debit <= 0 and credit <= 0:
+			frappe.throw(_("Extra Accounting Entries row {0}: Enter Debit or Credit amount.").format(row.idx))
+
+		if debit > 0 and credit > 0:
+			frappe.throw(_("Extra Accounting Entries row {0}: Enter either Debit or Credit, not both.").format(row.idx))
+
+		if (row.party_type and not row.party) or (row.party and not row.party_type):
+			frappe.throw(_("Extra Accounting Entries row {0}: Party Type and Party must be set together.").format(row.idx))
+
+		account_company = frappe.db.get_value("Account", row.account, "company")
+		if account_company and account_company != doc.company:
+			frappe.throw(
+				_("Extra Accounting Entries row {0}: Account must belong to company {1}.").format(
+					row.idx, doc.company
+				)
 			)

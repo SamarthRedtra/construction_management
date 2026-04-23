@@ -22,6 +22,7 @@ def after_install():
 	create_stock_entry_custom_fields()
 	create_purchase_receipt_split_fields()
 	create_purchase_receipt_po_project_fields()
+	create_purchase_receipt_extra_gl_fields()
 	create_warehouse_custom_fields()
 	create_dpr_quantity_fields()
 	create_payment_certificate_fields()
@@ -35,6 +36,7 @@ def after_install():
 
 def after_migrate():
 	"""Run after bench migrate to ensure property setters are in place"""
+	create_purchase_receipt_extra_gl_fields()
 	create_security_payment_entry_fields()
 	create_security_number_cards()
 	setup_advanced_general_ledger()
@@ -266,6 +268,37 @@ def create_purchase_receipt_po_project_fields():
 			frappe.logger().error(f"Error creating custom field {field_def.get('fieldname')}: {str(e)}")
 	
 	frappe.logger().info("Purchase Receipt PO and Project fields created successfully")
+
+
+def create_purchase_receipt_extra_gl_fields():
+	"""Create Purchase Receipt fields for user-defined extra accounting entries."""
+
+	fields_to_create = [
+		{
+			"dt": "Purchase Receipt",
+			"fieldname": "custom_extra_accounting_entries_section",
+			"label": "Extra Accounting Entries",
+			"fieldtype": "Section Break",
+			"insert_after": "taxes"
+		},
+		{
+			"dt": "Purchase Receipt",
+			"fieldname": "custom_extra_accounting_entries",
+			"label": "Additional Entries",
+			"fieldtype": "Table",
+			"options": "Purchase Receipt Extra Entry",
+			"insert_after": "custom_extra_accounting_entries_section",
+			"description": "Manual debit/credit rows posted along with Purchase Receipt GL entries."
+		},
+	]
+
+	for field_def in fields_to_create:
+		try:
+			create_custom_field_if_not_exists(field_def)
+		except Exception as e:
+			frappe.logger().error(f"Error creating custom field {field_def.get('fieldname')}: {str(e)}")
+
+	frappe.logger().info("Purchase Receipt extra accounting fields created successfully")
 
 
 def create_warehouse_custom_fields():
