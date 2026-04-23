@@ -344,6 +344,10 @@ def validate(doc, method):
 	# Always ensure deduction items exist and are purchase-enabled
 	_ensure_purchase_deduction_items()
 
+	# If custom liability account is set on a row, use it for posting instead
+	# of the regular expense account (no additional GL rows are created).
+	_apply_custom_liability_account_override(doc)
+
 	# Auto-fill blank warehouse/expense-account fields before ERPNext validates them
 	_set_default_target_warehouse(doc)
 
@@ -375,10 +379,39 @@ def validate(doc, method):
 
 	for item in doc.items:
 		if item.item_code in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION") and not doc.get("custom_is_advance"):
-			item.expense_account = default_expense_account
+			# Keep explicit liability override if user has set it on the row.
+			if not item.get("custom_liability_account"):
+				item.expense_account = default_expense_account
 
 	# After deductions (if any) so new rows exist; ERPNext validate already ran (amounts final)
 	set_po_line_progress(doc, persist="memory")
+
+
+def _apply_custom_liability_account_override(doc):
+	"""Use item-level custom liability account as posting account when provided."""
+	default_liability_account = doc.get("custom_liability_account")
+
+	for item in doc.items:
+		liability_account = item.get("custom_liability_account")
+
+		# If row-level field is blank, inherit from Purchase Invoice header.
+		if not liability_account:
+			liability_account = default_liability_account
+			if liability_account:
+				item.custom_liability_account = liability_account
+
+		if not liability_account:
+			continue
+
+		account_company = frappe.db.get_value("Account", liability_account, "company")
+		if account_company and account_company != doc.company:
+			frappe.throw(
+				_("Row {0}: Liability Account {1} must belong to company {2}.").format(
+					item.idx or item.name, frappe.bold(liability_account), frappe.bold(doc.company)
+				)
+			)
+
+		item.expense_account = liability_account
 
 
 def _set_default_target_warehouse(doc):
