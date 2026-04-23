@@ -21,6 +21,31 @@ function setup_po_line_progress_columns(frm) {
 	}
 }
 
+function apply_item_liability_account_row(frm, cdt, cdn) {
+	const row = locals[cdt] && locals[cdt][cdn];
+	if (!row) return;
+
+	// Row-level value always wins over expense account.
+	if (row.custom_liability_account) {
+		frappe.model.set_value(cdt, cdn, 'expense_account', row.custom_liability_account);
+		return;
+	}
+
+	if (!row.item_code) return;
+	const liability_account = frm && frm.doc ? frm.doc.custom_liability_account : null;
+	if (!liability_account) return;
+
+	frappe.model.set_value(cdt, cdn, 'custom_liability_account', liability_account);
+	frappe.model.set_value(cdt, cdn, 'expense_account', liability_account);
+}
+
+function apply_item_liability_account_all_rows(frm) {
+	if (!frm || frm.doc.docstatus !== 0) return;
+	(frm.doc.items || []).forEach(row => {
+		apply_item_liability_account_row(frm, row.doctype, row.name);
+	});
+}
+
 frappe.ui.form.on('Purchase Invoice', {
 	onload: function (frm) {
 		setup_po_line_progress_columns(frm);
@@ -87,8 +112,14 @@ frappe.ui.form.on('Purchase Invoice', {
 		}
 	},
 
+	custom_liability_account: function (frm) {
+		// When header account changes, push it to rows where row value is empty.
+		apply_item_liability_account_all_rows(frm);
+	},
+
 	refresh: function (frm) {
 		setup_po_line_progress_columns(frm);
+		apply_item_liability_account_all_rows(frm);
 		// Re-setup on refresh to ensure filters are applied after form loads
 		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
 			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
@@ -119,7 +150,16 @@ frappe.ui.form.on('Purchase Invoice', {
 frappe.ui.form.on('Purchase Invoice Item', {
 	items_add: function (frm, cdt, cdn) {
 		frappe.model.set_value(cdt, cdn, 'site', 'Transit');
+		apply_item_liability_account_row(frm, cdt, cdn);
 		recalculate_purchase_deductions(frm);
+	},
+
+	item_code: function (frm, cdt, cdn) {
+		apply_item_liability_account_row(frm, cdt, cdn);
+	},
+
+	custom_liability_account: function (frm, cdt, cdn) {
+		apply_item_liability_account_row(frm, cdt, cdn);
 	},
 
 	items_remove: function (frm, cdt, cdn) {
