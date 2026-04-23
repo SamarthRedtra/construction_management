@@ -62,12 +62,6 @@ frappe.ui.form.on('Purchase Receipt', {
 			});
 		}
 
-		// Auto-fill blank custom site fields to resolve mandatory dimension errors
-		(frm.doc.items || []).forEach(item => {
-			if (!item.site) {
-				frappe.model.set_value(item.doctype, item.name, 'site', 'Transit');
-			}
-		});
 	},
 
 	before_save: function (frm) {
