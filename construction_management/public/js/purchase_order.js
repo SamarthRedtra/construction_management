@@ -11,13 +11,6 @@ frappe.ui.form.on('Purchase Order', {
 			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
 			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'items');
 		}
-
-		// Auto-fill blank custom site fields to resolve mandatory dimension errors
-		(frm.doc.items || []).forEach(item => {
-			if (!item.site) {
-				frappe.model.set_value(item.doctype, item.name, 'site', 'Transit');
-			}
-		});
 	},
 
 	refresh: function (frm) {
