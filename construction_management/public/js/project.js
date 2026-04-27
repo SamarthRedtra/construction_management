@@ -1179,7 +1179,7 @@ window.add_boq_item = function (bill_name, project) {
 				{ fieldname: 'qty', label: 'Quantity', fieldtype: 'Float', reqd: 1 },
 				{
 					fieldname: 'rate', label: 'Valuation Rate', fieldtype: 'Currency', read_only: 1,
-					description: 'Auto-fetched from stock valuation rate'
+					description: 'Auto-fetched from valuation rate; falls back to Item Price/Standard Rate'
 				},
 				{ fieldname: 'amount', label: 'Amount', fieldtype: 'Currency', read_only: 1 }
 			],
@@ -1227,7 +1227,11 @@ window.add_boq_item = function (bill_name, project) {
 					args: { item_code: item_code },
 					callback: function (r) {
 						if (r.message) {
-							matDialog.set_value('rate', r.message.valuation_rate || 0);
+							matDialog.set_value('rate', r.message.rate || r.message.valuation_rate || 0);
+							if (matDialog.fields_dict.rate && matDialog.fields_dict.rate.df) {
+								matDialog.fields_dict.rate.df.description = `Auto-fetched from ${r.message.rate_source || 'Valuation Rate'}`;
+								matDialog.refresh_field('rate');
+							}
 							updateMatAmount();
 						}
 					}

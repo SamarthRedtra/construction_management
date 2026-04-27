@@ -33,32 +33,75 @@ def get_employee_daily_rate(employee: str) -> float:
 @frappe.whitelist()
 def get_item_valuation_rate(item_code: str, warehouse: str = None) -> dict:
 	"""
-	Get the valuation rate for an item.
+	Get valuation rate for an item with safe fallbacks for costing screens.
 	
 	Args:
 		item_code: Item code
 		warehouse: Warehouse (optional)
 		
 	Returns:
-		Dict with valuation_rate
+		Dict with:
+		- valuation_rate: true valuation rate (Bin/Item/0)
+		- rate: effective costing rate with fallback chain
+		- rate_source: source label for effective rate
 	"""
-	rate = 0
+	valuation_rate = 0
+	effective_rate = 0
+	rate_source = "Valuation Rate"
+
+	# 1) Prefer warehouse-level valuation
 	if warehouse:
-		rate = frappe.db.get_value(
+		valuation_rate = frappe.db.get_value(
 			"Bin",
 			{"item_code": item_code, "warehouse": warehouse},
 			"valuation_rate"
 		)
 	
-	if not rate:
-		# Fallback to item's valuation rate
-		rate = frappe.db.get_value("Item", item_code, "valuation_rate")
+	# 2) Fallback to item-level valuation
+	if not valuation_rate:
+		valuation_rate = frappe.db.get_value("Item", item_code, "valuation_rate")
+
+	valuation_rate = flt(valuation_rate)
+	if valuation_rate > 0:
+		effective_rate = valuation_rate
+		rate_source = "Valuation Rate"
+	else:
+		# 3) Fallback to buying Item Price (default buying price list first)
+		item_price_rate = 0
+		buying_price_list = frappe.db.get_single_value("Buying Settings", "buying_price_list")
+
+		if buying_price_list:
+			price = frappe.db.get_value(
+				"Item Price",
+				{"item_code": item_code, "price_list": buying_price_list},
+				"price_list_rate"
+			)
+			if price:
+				item_price_rate = flt(price)
+
+		if not item_price_rate:
+			price = frappe.db.get_value(
+				"Item Price",
+				{"item_code": item_code, "buying": 1},
+				"price_list_rate"
+			)
+			if price:
+				item_price_rate = flt(price)
+
+		if item_price_rate > 0:
+			effective_rate = item_price_rate
+			rate_source = "Item Price"
+		else:
+			# 4) Fallback to item master standard rate
+			standard_rate = flt(frappe.db.get_value("Item", item_code, "standard_rate"))
+			effective_rate = standard_rate
+			rate_source = "Standard Rate" if standard_rate > 0 else "No Rate Found"
 	
-	if not rate:
-		# Fallback to standard rate
-		rate = frappe.db.get_value("Item", item_code, "standard_rate")
-	
-	return {"valuation_rate": flt(rate)}
+	return {
+		"valuation_rate": valuation_rate,
+		"rate": flt(effective_rate),
+		"rate_source": rate_source,
+	}
 
 
 @frappe.whitelist()
