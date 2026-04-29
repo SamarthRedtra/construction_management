@@ -37,9 +37,21 @@ def _patched_get_doctype_link_fields(self, doctype=None):
 	return doctype_link_fields
 
 
-def _patched_link_table_apply_join(self, query, engine=None):
-	"""Skip permission conditions on Employee join for Project Engineer fields."""
+def _patched_link_table_apply_select(self, query, engine=None):
+	"""Alias table fields correctly for related Link queries."""
 	table = frappe.qb.DocType(self.doctype)
+	if self.parent_doctype == "Project" and self.link_fieldname in PROJECT_ENGINEER_FIELDS:
+		table = table.as_(f"tab{self.doctype}_{self.link_fieldname}")
+	query = self.apply_join(query, engine=engine)
+	return query.select(getattr(table, self.fieldname).as_(self.alias or None))
+
+
+def _patched_link_table_apply_join(self, query, engine=None):
+	"""Skip permission conditions on Employee join for Project Engineer fields and apply aliases."""
+	table = frappe.qb.DocType(self.doctype)
+	if self.parent_doctype == "Project" and self.link_fieldname in PROJECT_ENGINEER_FIELDS:
+		table = table.as_(f"tab{self.doctype}_{self.link_fieldname}")
+		
 	main_table = frappe.qb.DocType(self.parent_doctype)
 	if not query.is_joined(table):
 		query = query.left_join(table).on(table.name == getattr(main_table, self.link_fieldname))
@@ -63,4 +75,6 @@ def patch_project_user_permissions():
 		print("patching project user permissions")
 		Engine.get_doctype_link_fields = _patched_get_doctype_link_fields
 		LinkTableField.apply_join = _patched_link_table_apply_join
+		LinkTableField.apply_select = _patched_link_table_apply_select
 		Engine._project_perm_patched = True
+
