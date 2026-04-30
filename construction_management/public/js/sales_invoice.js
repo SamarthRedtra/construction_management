@@ -124,25 +124,46 @@ function cm_render_si_jv_summary(frm) {
 
 frappe.ui.form.on('Sales Invoice Item', {
 	items_add: function (frm, cdt, cdn) {
-		recalculate_deductions(frm);
+		_si_deduction_debounce(frm);
 	},
 
 	items_remove: function (frm, cdt, cdn) {
-		recalculate_deductions(frm);
+		_si_deduction_debounce(frm);
 	},
 
 	qty: function (frm, cdt, cdn) {
-		recalculate_deductions(frm);
+		const row = locals[cdt][cdn];
+		if (_is_deduction_item(row)) return;
+		_si_deduction_debounce(frm);
 	},
 
 	rate: function (frm, cdt, cdn) {
-		recalculate_deductions(frm);
+		const row = locals[cdt][cdn];
+		if (_is_deduction_item(row)) return;
+		_si_deduction_debounce(frm);
 	},
 
 	amount: function (frm, cdt, cdn) {
-		recalculate_deductions(frm);
+		const row = locals[cdt][cdn];
+		if (_is_deduction_item(row)) return;
+		_si_deduction_debounce(frm);
 	}
 });
+
+const _DEDUCTION_ITEMS = ['RETENTION-DEDUCTION', 'ADVANCE-DEDUCTION', 'PURCHASE-ADVANCE'];
+
+function _is_deduction_item(row) {
+	return row && _DEDUCTION_ITEMS.includes(row.item_code);
+}
+
+// Debounce to avoid rapid-fire API calls when editing multiple fields
+let _si_deduction_timer = null;
+function _si_deduction_debounce(frm) {
+	if (_si_deduction_timer) clearTimeout(_si_deduction_timer);
+	_si_deduction_timer = setTimeout(() => {
+		recalculate_deductions(frm);
+	}, 800);
+}
 
 function pull_retention(frm) {
 	if (!frm.doc.project) {
@@ -308,7 +329,17 @@ function recalculate_deductions(frm) {
 		return;
 	}
 
-	// Call server API to get deduction details
+	// Check if any deduction items exist (per-item deductions)
+	const has_deductions = (frm.doc.items || []).some(
+		i => _DEDUCTION_ITEMS.includes(i.item_code)
+	);
+	if (!has_deductions) return;
+
+	// Prevent re-entrant calls
+	if (frm._recalculating_deductions) return;
+	frm._recalculating_deductions = true;
+
+	// Get retention/advance percentages from server
 	frappe.call({
 		method: 'construction_management.api.boq_invoice.get_deduction_details',
 		args: {
@@ -318,71 +349,58 @@ function recalculate_deductions(frm) {
 		},
 		callback: function (r) {
 			if (!r.message || !r.message.enable_progressive_boq) {
-				return; // Progressive BOQ not enabled
+				return;
 			}
 
-			const retention_percentage = flt(r.message.retention_percentage);
-			const suggested_retention = flt(r.message.suggested_retention);
-			const suggested_advance = flt(r.message.suggested_advance);
+			const retention_pct = flt(r.message.retention_percentage);
+			const advance_pct = flt(r.message.advance_percentage);
 
-			// Update or create retention deduction
-			if (suggested_retention > 0) {
-				let retention_row = (frm.doc.items || []).find(i => i.item_code === 'RETENTION-DEDUCTION');
+			// Build a map of boq_item -> BOQ item amount (non-deduction items)
+			const boq_amounts = {};
+			(frm.doc.items || []).forEach(item => {
+				if (item.boq_item && !_DEDUCTION_ITEMS.includes(item.item_code)) {
+					boq_amounts[item.boq_item] = flt(item.amount);
+				}
+			});
 
-				if (retention_row) {
-					// Update existing row
-					frappe.model.set_value(retention_row.doctype, retention_row.name, 'rate', -suggested_retention);
-					frappe.model.set_value(retention_row.doctype, retention_row.name, 'amount', -suggested_retention);
-					frappe.model.set_value(retention_row.doctype, retention_row.name, 'description', `Retention deduction (${retention_percentage}%)`);
-				} else {
-					// Create new row
-					const new_row = frm.add_child('items');
-					frappe.model.set_value(new_row.doctype, new_row.name, {
-						'item_code': 'RETENTION-DEDUCTION',
-						'qty': 1,
-						'rate': -suggested_retention,
-						'amount': -suggested_retention,
-						'description': `Retention deduction (${retention_percentage}%)`,
-						'project': frm.doc.project
-					});
+			// Recalculate each per-item deduction row
+			let changed = false;
+			(frm.doc.items || []).forEach(item => {
+				if (!item.boq_item) return;
+
+				const parent_amount = boq_amounts[item.boq_item] || 0;
+
+				if (item.item_code === 'RETENTION-DEDUCTION' && retention_pct > 0) {
+					const new_retention = flt(parent_amount * retention_pct / 100, precision('rate', item));
+					if (flt(item.rate) !== -new_retention) {
+						frappe.model.set_value(item.doctype, item.name, {
+							'rate': -new_retention,
+							'amount': -new_retention,
+							'description': `Retention deduction (${retention_pct}%)`
+						});
+						changed = true;
+					}
 				}
-			} else {
-				// Remove retention item if amount is 0
-				const retention_row = (frm.doc.items || []).find(i => i.item_code === 'RETENTION-DEDUCTION');
-				if (retention_row) {
-					frappe.model.clear_doc(retention_row.doctype, retention_row.name);
+
+				if (item.item_code === 'ADVANCE-DEDUCTION' && advance_pct > 0) {
+					const new_advance = flt(parent_amount * advance_pct / 100, precision('rate', item));
+					if (flt(item.rate) !== -new_advance) {
+						frappe.model.set_value(item.doctype, item.name, {
+							'rate': -new_advance,
+							'amount': -new_advance,
+							'description': `Advance deduction (${advance_pct}%)`
+						});
+						changed = true;
+					}
 				}
+			});
+
+			if (changed) {
+				frm.refresh_field('items');
 			}
-
-			// Update or create advance deduction
-			if (suggested_advance > 0) {
-				let advance_row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
-
-				if (advance_row) {
-					// Update existing row
-					frappe.model.set_value(advance_row.doctype, advance_row.name, 'rate', -suggested_advance);
-					frappe.model.set_value(advance_row.doctype, advance_row.name, 'amount', -suggested_advance);
-				} else {
-					// Create new row
-					const new_row = frm.add_child('items');
-					frappe.model.set_value(new_row.doctype, new_row.name, {
-						'item_code': 'ADVANCE-DEDUCTION',
-						'qty': 1,
-						'rate': -suggested_advance,
-						'amount': -suggested_advance,
-						'description': __('Deduction from advance payment'),
-						'project': frm.doc.project
-					});
-				}
-			} else {
-				// Remove advance item if amount is 0
-				const advance_row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
-				if (advance_row) {
-					frappe.model.clear_doc(advance_row.doctype, advance_row.name);
-				}
-			}
-
-			frm.refresh_field('items');
+		},
+		always: function () {
+			frm._recalculating_deductions = false;
 		}
 	});
 }

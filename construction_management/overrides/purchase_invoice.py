@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 from erpnext.accounts.doctype.purchase_invoice.purchase_invoice import PurchaseInvoice
+from erpnext.accounts.utils import update_voucher_outstanding
 
 _PO_PROGRESS_DEDUCTION_ITEMS = frozenset(
 	{"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION", "PURCHASE-ADVANCE"}
@@ -467,6 +468,15 @@ def on_submit(doc, method):
 		if item.get("boq_item"):
 			update_boq_item_cost(item)
 
+	# Fix outstanding_amount field:
+	# Custom GL entries create multiple Payment Ledger Entries for the same voucher (Net + Retention).
+	# ERPNext's standard processing calls update_voucher_outstanding for each PLE.
+	# Since only one account should define the PI's outstanding_amount field (the main credit_to),
+	# we explicitly re-trigger it here for the main account to ensure it 'wins' over the retention account.
+	update_voucher_outstanding(
+		doc.doctype, doc.name, doc.credit_to, "Supplier", doc.supplier
+	)
+
 
 def before_cancel(doc, method):
 	"""Cancel linked Purchase Advance Payment before Frappe's link check"""
@@ -509,6 +519,9 @@ def apply_purchase_deductions(doc):
 	Auto-add RETENTION-DEDUCTION and ADVANCE-DEDUCTION items based on
 	linked Purchase Order's retention/advance percentages.
 	"""
+	if not doc.project:
+		return
+
 	# Find linked Purchase Order from items
 	purchase_order = _get_linked_purchase_order(doc)
 	if not purchase_order:
@@ -522,28 +535,9 @@ def apply_purchase_deductions(doc):
 	if retention_pct <= 0 and advance_pct <= 0:
 		return
 
-	# Check if deductions already present on this invoice
-	has_retention = False
-	has_advance = False
-	for item in doc.items:
-		if item.item_code == "RETENTION-DEDUCTION":
-			has_retention = True
-		if item.item_code == "ADVANCE-DEDUCTION":
-			has_advance = True
-
-	if has_retention and has_advance:
-		return
-
 	# Check if deductions already exist on linked Purchase Receipts
 	# to avoid double-deducting when PI is created from a PR
 	pr_has_retention, pr_has_advance = _check_pr_deductions(doc)
-	if pr_has_retention:
-		has_retention = True
-	if pr_has_advance:
-		has_advance = True
-
-	if has_retention and has_advance:
-		return
 
 	# Calculate total billable amount (exclude deduction items)
 	total_billable = sum(
@@ -569,26 +563,40 @@ def apply_purchase_deductions(doc):
 	retention_account = boq_settings.get("purchase_retention_account") or default_expense_account
 	advance_account = boq_settings.get("purchase_advance_account") or default_expense_account
 
-	# Add Retention Deduction
-	if retention_pct > 0 and not has_retention:
+	# 1. Add/Update Retention Deduction
+	retention_item = "RETENTION-DEDUCTION"
+	if retention_pct > 0 and not pr_has_retention:
 		retention_amount = flt(total_billable * retention_pct / 100, 2)
 		if retention_amount > 0:
-			doc.append("items", {
-				"item_code": "RETENTION-DEDUCTION",
-				"item_name": "Retention Deduction",
-				"qty": 1,
-				"rate": -retention_amount,
-				"amount": -retention_amount,
-				"description": f"Retention deduction ({retention_pct}%)",
-				"project": doc.project,
-				"expense_account": default_expense_account,
-				"cost_center": default_cost_center,
-				"uom": "Nos",
-				"conversion_factor": 1.0,
-			})
+			found = False
+			for item in doc.items:
+				if item.item_code == retention_item:
+					item.rate = -retention_amount
+					item.amount = -retention_amount
+					item.description = f"Retention deduction ({retention_pct}%)"
+					found = True
+					break
+			if not found:
+				doc.append("items", {
+					"item_code": retention_item,
+					"item_name": "Retention Deduction",
+					"qty": 1,
+					"rate": -retention_amount,
+					"amount": -retention_amount,
+					"description": f"Retention deduction ({retention_pct}%)",
+					"project": doc.project,
+					"expense_account": default_expense_account,
+					"cost_center": default_cost_center,
+					"uom": "Nos",
+					"conversion_factor": 1.0,
+				})
+		else:
+			# Remove existing if any
+			doc.set("items", [item for item in doc.items if item.item_code != retention_item])
 
-	# Add Advance Deduction — capped to remaining un-deducted advance for this PO
-	if advance_pct > 0 and not has_advance:
+	# 2. Add/Update Advance Deduction — capped to remaining un-deducted advance for this PO
+	advance_item = "ADVANCE-DEDUCTION"
+	if advance_pct > 0 and not pr_has_advance:
 		# Total advance given (from advance PIs) for this PO
 		total_advance_given = _get_total_advance_given(purchase_order)
 		# Total advance already deducted on previous submitted PIs for this PO
@@ -602,19 +610,33 @@ def apply_purchase_deductions(doc):
 				remaining_advance
 			)
 			if advance_amount > 0:
-				doc.append("items", {
-					"item_code": "ADVANCE-DEDUCTION",
-					"item_name": "Advance Deduction",
-					"qty": 1,
-					"rate": -advance_amount,
-					"amount": -advance_amount,
-					"description": f"Advance deduction ({advance_pct}%) — remaining: {remaining_advance}",
-					"project": doc.project,
-					"expense_account": default_expense_account,
-					"cost_center": default_cost_center,
-					"uom": "Nos",
-					"conversion_factor": 1.0,
-				})
+				found = False
+				for item in doc.items:
+					if item.item_code == advance_item:
+						item.rate = -advance_amount
+						item.amount = -advance_amount
+						item.description = f"Advance deduction ({advance_pct}%) — remaining: {remaining_advance}"
+						found = True
+						break
+				if not found:
+					doc.append("items", {
+						"item_code": advance_item,
+						"item_name": "Advance Deduction",
+						"qty": 1,
+						"rate": -advance_amount,
+						"amount": -advance_amount,
+						"description": f"Advance deduction ({advance_pct}%) — remaining: {remaining_advance}",
+						"project": doc.project,
+						"expense_account": default_expense_account,
+						"cost_center": default_cost_center,
+						"uom": "Nos",
+						"conversion_factor": 1.0,
+					})
+			else:
+				# Remove existing if any
+				doc.set("items", [item for item in doc.items if item.item_code != advance_item])
+		else:
+			doc.set("items", [item for item in doc.items if item.item_code != advance_item])
 
 
 def _get_linked_purchase_order(doc):
@@ -784,6 +806,4 @@ def _cancel_linked_advance_payment(doc):
 		adv_doc.flags.ignore_permissions = True
 		adv_doc.flags.ignore_links = True
 		adv_doc.cancel()
-		frappe.delete_doc("Purchase Advance Payment", adv.name, force=True, ignore_permissions=True)
-		frappe.msgprint(_("Purchase Advance Payment {0} cancelled and deleted.").format(adv.name))
-
+		adv_doc.delete()
