@@ -10,6 +10,7 @@ from construction_management.overrides.unearned_revenue import (
 	find_journal_entry_by_so,
 	get_source_accounts_and_amount
 )
+from erpnext.accounts.utils import update_voucher_outstanding
 
 
 class SalesInvoiceOverride(SalesInvoice):
@@ -173,6 +174,13 @@ class SalesInvoiceOverride(SalesInvoice):
 			except Exception as e:
 				frappe.log_error(f"Error updating project completion: {str(e)}")
 
+		# Fix outstanding_amount field:
+		# Custom GL entries create multiple Payment Ledger Entries (Net + Retention).
+		# We re-trigger update_voucher_outstanding for the main debit_to account.
+		update_voucher_outstanding(
+			self.doctype, self.name, self.debit_to, "Customer", self.customer
+		)
+
 	def on_cancel(self):
 		super().on_cancel()
 		"""Create reversing ledger entries on invoice cancel and cancel linked PC"""
@@ -203,7 +211,10 @@ class SalesInvoiceOverride(SalesInvoice):
 			create_boq_advance_payment_from_invoice(self)
 
 	def apply_automatic_deductions(self):
-		"""Automatically apply retention and advance deductions if enabled"""
+		"""Automatically apply/recalculate retention and advance deductions if enabled"""
+		if not self.project:
+			return
+			
 		# Skip if deductions are already handled (e.g. from Payment Certificate)
 		if self.get("custom_payment_certificate") or self.get("custom_proforma_invoice"):
 			return
@@ -215,83 +226,108 @@ class SalesInvoiceOverride(SalesInvoice):
 		if not details.get("enable_progressive_boq"):
 			return
 
-		has_deduction = False
+		retention_pct = flt(details.get("retention_percentage"))
+		advance_pct = flt(details.get("advance_percentage"))
+
+		# Check if per-item deductions exist (pattern: each BOQ item has paired deduction rows)
+		has_per_item_deductions = False
+		deduction_boq_items = set()
 		for item in self.items:
-			if item.item_code in ["RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"]:
-				has_deduction = True
-				break
-		
-		if has_deduction:
-			return
+			if item.item_code in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION") and item.get("boq_item"):
+				has_per_item_deductions = True
+				deduction_boq_items.add(item.boq_item)
+
+		if has_per_item_deductions:
+			# Per-item deduction mode: recalculate each deduction row based on its parent BOQ item
+			boq_amounts = {}
+			for item in self.items:
+				if item.get("boq_item") and item.item_code not in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"):
+					boq_amounts[item.boq_item] = flt(item.amount)
+
+			for item in self.items:
+				if not item.get("boq_item"):
+					continue
+				parent_amount = boq_amounts.get(item.boq_item, 0)
+
+				if item.item_code == "RETENTION-DEDUCTION" and retention_pct > 0:
+					new_retention = flt(parent_amount * retention_pct / 100, 2)
+					item.rate = -new_retention
+					item.amount = -new_retention
+					item.qty = 1
+					item.description = f"Retention deduction ({retention_pct}%)"
+
+				elif item.item_code == "ADVANCE-DEDUCTION" and advance_pct > 0:
+					new_advance = flt(parent_amount * advance_pct / 100, 2)
+					item.rate = -new_advance
+					item.amount = -new_advance
+					item.qty = 1
+					item.description = f"Advance deduction ({advance_pct}%)"
+		else:
+			# Global deduction mode (single row for whole invoice)
+			default_income_account = frappe.db.get_value("Company", self.company, "default_income_account")
+			default_cost_center = self.cost_center or frappe.db.get_value("Company", self.company, "cost_center")
 			
-		default_income_account = frappe.db.get_value("Company", self.company, "default_income_account")
-		default_cost_center = self.cost_center or frappe.db.get_value("Company", self.company, "cost_center")
-		
-		# 1. Handle Retention Deduction
-		if details.get("suggested_retention") > 0:
 			retention_item = "RETENTION-DEDUCTION"
-			get_or_create_retention_item() # Ensure it exists
-			
-			# Find existing or add new
-			found = False
-			for item in self.items:
-				if item.item_code == retention_item:
-					item.rate = -flt(details["suggested_retention"])
-					item.amount = -flt(details["suggested_retention"])
-					item.qty = 1
-					item.description = f"Retention deduction ({details['retention_percentage']}%)"
-					item.project = self.project
-					found = True
-					break
-			
-			if not found:
-				self.append("items", {
-					"item_code": retention_item,
-					"qty": 1,
-					"rate": -flt(details["suggested_retention"]),
-					"amount": -flt(details["suggested_retention"]),
-					"description": f"Retention deduction ({details['retention_percentage']}%)",
-					"project": self.project,
-					"income_account": default_income_account,
-					"cost_center": default_cost_center,
-					"uom": "Nos",
-					"conversion_factor": 1.0,
-					"item_name": "Retention Deduction"
-				})
+			if details.get("suggested_retention") > 0:
+				get_or_create_retention_item()
+				found = False
+				for item in self.items:
+					if item.item_code == retention_item:
+						item.rate = -flt(details["suggested_retention"])
+						item.amount = -flt(details["suggested_retention"])
+						item.qty = 1
+						item.description = f"Retention deduction ({retention_pct}%)"
+						item.project = self.project
+						found = True
+						break
+				if not found:
+					self.append("items", {
+						"item_code": retention_item,
+						"qty": 1,
+						"rate": -flt(details["suggested_retention"]),
+						"amount": -flt(details["suggested_retention"]),
+						"description": f"Retention deduction ({retention_pct}%)",
+						"project": self.project,
+						"income_account": default_income_account,
+						"cost_center": default_cost_center,
+						"uom": "Nos",
+						"conversion_factor": 1.0,
+						"item_name": "Retention Deduction"
+					})
+			else:
+				self.set("items", [item for item in self.items if item.item_code != retention_item])
 
-		# 2. Advance Deduction
-		if details.get("suggested_advance") > 0:
 			advance_item = "ADVANCE-DEDUCTION"
-			get_or_create_advance_item()
-			
-			# Find existing or add new
-			found = False
-			for item in self.items:
-				if item.item_code == advance_item:
-					item.rate = -flt(details["suggested_advance"])
-					item.amount = -flt(details["suggested_advance"])
-					item.qty = 1
-					item.description = "Deduction from advance payment"
-					item.project = self.project
-					found = True
-					break
-			
-			if not found:
-				self.append("items", {
-					"item_code": advance_item,
-					"qty": 1,
-					"rate": -flt(details["suggested_advance"]),
-					"amount": -flt(details["suggested_advance"]),
-					"description": "Deduction from advance payment",
-					"project": self.project,
-					"income_account": default_income_account,
-					"cost_center": default_cost_center,
-					"uom": "Nos",
-					"conversion_factor": 1.0,
-					"item_name": "Advance Deduction"
-				})
+			if details.get("suggested_advance") > 0:
+				get_or_create_advance_item()
+				found = False
+				for item in self.items:
+					if item.item_code == advance_item:
+						item.rate = -flt(details["suggested_advance"])
+						item.amount = -flt(details["suggested_advance"])
+						item.qty = 1
+						item.description = "Deduction from advance payment"
+						item.project = self.project
+						found = True
+						break
+				if not found:
+					self.append("items", {
+						"item_code": advance_item,
+						"qty": 1,
+						"rate": -flt(details["suggested_advance"]),
+						"amount": -flt(details["suggested_advance"]),
+						"description": "Deduction from advance payment",
+						"project": self.project,
+						"income_account": default_income_account,
+						"cost_center": default_cost_center,
+						"uom": "Nos",
+						"conversion_factor": 1.0,
+						"item_name": "Advance Deduction"
+					})
+			else:
+				self.set("items", [item for item in self.items if item.item_code != advance_item])
 
-		# Recalculate totals to handle the new items
+		# Recalculate totals to handle the updated items
 		self.run_method("calculate_taxes_and_totals")
 
 	def get_gl_entries(self, warehouse_account=None):
@@ -477,7 +513,10 @@ class SalesInvoiceOverride(SalesInvoice):
 					})
 					new_entries.append(unearned_entry)
 			
-			new_entries.append(entry)
+			# Only append the income entry if it still has a non-zero amount
+			# (100% unearned revenue reversal can reduce credit to 0)
+			if flt(entry.get("debit"), 2) or flt(entry.get("credit"), 2):
+				new_entries.append(entry)
 
 		# 3. Add any unmatched deductions as orphans
 		for i, d in enumerate(deductions):
@@ -515,6 +554,11 @@ class SalesInvoiceOverride(SalesInvoice):
 				
 				new_entries.append(deduction_entry)
 		frappe.log_error(message=new_entries, title= "New Entries")
+		# Final safety: filter out any entries where both debit and credit are 0
+		new_entries = [
+			e for e in new_entries
+			if float(e.get("debit") or 0) or float(e.get("credit") or 0)
+		]
 		return new_entries
 
 

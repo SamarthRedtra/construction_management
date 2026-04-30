@@ -1163,7 +1163,7 @@ def get_advance_balance(project: str) -> float:
 	return remaining_advance
 
 @frappe.whitelist()
-def get_deduction_details(project: str, items: list = None, invoice_name: str = None) -> dict:
+def get_deduction_details(project: str, items: str | list | None = None, invoice_name: str | None = None) -> dict:
 	"""
 	Calculate available retention and advance deduction details for a project/invoice.
 	
