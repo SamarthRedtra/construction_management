@@ -63,7 +63,8 @@ def get_boq_kpi(project: str) -> dict:
 		
 	Returns:
 		dict with total_boq_value, total_billed, total_collected (combined), 
-		invoice_collected, advance_collected, pending, cost breakdown, and retention
+		invoice_collected, advance_collected, advance_available_balance (pool after SI deductions incl. drafts),
+		pending, cost breakdown, and retention
 		
 	Note:
 		total_billed and invoice_collected are ex-VAT (company currency), summed from
@@ -131,6 +132,24 @@ def get_boq_kpi(project: str) -> dict:
 	# Get advance payment summary
 	advance_summary = get_advance_summary(project)
 	advance_collected = flt(advance_summary.get("total_collected", 0))
+
+	# Remaining advance pool (same basis as Pull Advance on Sales Invoice: BOQ advances minus
+	# ADVANCE-DEDUCTION on draft and submitted Sales Invoices)
+	adv_deducted_incl_draft = frappe.db.sql(
+		"""
+		SELECT COALESCE(SUM(ABS(sii.amount)), 0) AS total
+		FROM `tabSales Invoice Item` sii
+		INNER JOIN `tabSales Invoice` si ON si.name = sii.parent
+		WHERE si.project = %s
+			AND si.docstatus IN (0, 1)
+			AND sii.item_code = 'ADVANCE-DEDUCTION'
+		""",
+		project,
+		as_dict=True,
+	)
+	advance_available_balance = flt(advance_collected) - flt(
+		adv_deducted_incl_draft[0].total if adv_deducted_incl_draft else 0
+	)
 	
 	# Get retention summary
 	retention_summary = get_retention_summary(project)
@@ -216,6 +235,7 @@ def get_boq_kpi(project: str) -> dict:
 		# Advance tracking (detailed)
 		"advance_utilized": flt(advance_summary.get("total_utilized", 0)),
 		"advance_balance": flt(advance_summary.get("balance", 0)),
+		"advance_available_balance": flt(advance_available_balance),
 		# Retention tracking
 		"retention_held": flt(retention_summary.get("total_retained", 0)),
 		"retention_released": flt(retention_summary.get("total_released", 0)),

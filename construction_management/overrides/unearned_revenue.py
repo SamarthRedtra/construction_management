@@ -5,6 +5,8 @@ from frappe.utils import flt
 SO_UNEARNED_REMARK_PREFIX = "SO_UNEARNED_REVENUE"
 SI_UNEARNED_REMARK_PREFIX = "SI_UNEARNED_REVENUE_REVERSAL"
 _DEDUCTION_CODES = {"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"}
+# SO / SI rows that are not part of revenue for unearned proration (same as _DEDUCTION_CODES; variance added per BOQ Settings on SI)
+SO_UNEARNED_EXCLUDED_ITEM_CODES = frozenset(_DEDUCTION_CODES)
 
 
 def create_so_unearned_revenue_jv(sales_order):

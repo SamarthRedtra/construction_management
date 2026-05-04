@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, today, getdate
 from construction_management.api.boq_ledger import create_ledger_entry, recalculate_ledger_for_item
+from construction_management.api.boq_tree import get_boq_kpi
 from erpnext.controllers.accounts_controller import get_default_taxes_and_charges
 
 
@@ -1163,7 +1164,12 @@ def get_advance_balance(project: str) -> float:
 	return remaining_advance
 
 @frappe.whitelist()
-def get_deduction_details(project: str, items: str | list | None = None, invoice_name: str | None = None) -> dict:
+def get_deduction_details(
+	project: str,
+	items: str | list | None = None,
+	invoice_name: str | None = None,
+	sales_order_name: str | None = None,
+) -> dict:
 	"""
 	Calculate available retention and advance deduction details for a project/invoice.
 	
@@ -1171,9 +1177,11 @@ def get_deduction_details(project: str, items: str | list | None = None, invoice
 		project: Project name
 		items: List of invoice items with amounts (optional)
 		invoice_name: Name of current invoice to exclude from balance (optional)
+		sales_order_name: Draft SO name — advance lines on this order are added back to the pool for recalculation (optional)
 		
 	Returns:
-		dict with retention_percentage, available_advance, suggested_retention, suggested_advance
+		dict with retention_percentage, available_advance, suggested_retention, suggested_advance,
+		total_billable_amount, available_boq_balance (project BOQ value minus billed BOQ lines, ex-VAT)
 	"""
 	if isinstance(items, str):
 		import json
@@ -1215,6 +1223,18 @@ def get_deduction_details(project: str, items: str | list | None = None, invoice
 			WHERE sii.parent = %s AND sii.item_code = 'ADVANCE-DEDUCTION'
 		""", invoice_name, as_dict=True)
 		available_advance += flt(current_deductions[0].total) if current_deductions else 0
+
+	if sales_order_name:
+		so_adv = frappe.db.sql(
+			"""
+			SELECT COALESCE(SUM(ABS(soi.amount)), 0) AS total
+			FROM `tabSales Order Item` soi
+			WHERE soi.parent = %s AND soi.item_code = 'ADVANCE-DEDUCTION'
+			""",
+			sales_order_name,
+			as_dict=True,
+		)
+		available_advance += flt(so_adv[0].total) if so_adv else 0
 	
 	# Suggested advance based on percentage cap
 	# Calculate suggested advance deduction based on NET Amount (Gross - Variance)
@@ -1225,6 +1245,9 @@ def get_deduction_details(project: str, items: str | list | None = None, invoice
 	# Ensure items exist
 	get_or_create_retention_item()
 	get_or_create_advance_item()
+
+	kpi = get_boq_kpi(project)
+	available_boq_balance = flt(kpi.get("total_boq_value", 0)) - flt(kpi.get("total_billed", 0))
 	
 	return {
 		"retention_percentage": retention_percentage,
@@ -1233,6 +1256,7 @@ def get_deduction_details(project: str, items: str | list | None = None, invoice
 		"suggested_retention": suggested_retention,
 		"suggested_advance": suggested_advance,
 		"total_billable_amount": total_gross_amount,
+		"available_boq_balance": flt(available_boq_balance),
 		"enable_progressive_boq": enable_progressive_boq
 	}
 
@@ -1365,6 +1389,144 @@ def get_or_create_retention_release_item():
 	
 	return item_code
 
+
+@frappe.whitelist()
+def recalculate_sales_order_boq_deductions(sales_order: str) -> dict:
+	"""
+	Remove existing RETENTION-DEDUCTION / ADVANCE-DEDUCTION rows and rebuild them from the current
+	BOQ revenue lines, Project retention %, and advance pool — same rules as create_sales_order_from_selected_items.
+	"""
+	doc = frappe.get_doc("Sales Order", sales_order)
+	if doc.docstatus != 0:
+		frappe.throw(_("Only draft Sales Orders can recalculate deductions."))
+	if not doc.get("project"):
+		frappe.throw(_("Set Project before recalculating deductions."))
+
+	project_doc = frappe.get_doc("Project", doc.project)
+	boq_settings = (
+		frappe.get_cached_doc("BOQ Settings", doc.company)
+		if frappe.db.exists("BOQ Settings", doc.company)
+		else None
+	)
+	variance_item = getattr(boq_settings, "varience_item", None) if boq_settings else None
+
+	deduction_item_codes = {"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"}
+	for row in list(doc.items):
+		if row.item_code in deduction_item_codes:
+			doc.remove(row)
+
+	excluded_for_base = set(deduction_item_codes)
+	if variance_item:
+		excluded_for_base.add(variance_item)
+
+	items_for_deductions = []
+	advance_base_items = []
+
+	for row in doc.items:
+		if row.item_code in excluded_for_base:
+			continue
+		if not row.get("boq_item"):
+			continue
+		amt = flt(row.amount)
+		if amt <= 0:
+			continue
+
+		items_for_deductions.append({"item_code": row.item_code, "amount": amt})
+		boq_desc = row.description
+		bill_no = row.bill_no
+		if not boq_desc or not bill_no:
+			bi = frappe.db.get_value(
+				"BOQ Item", row.boq_item, ["description", "parent_bill"], as_dict=True
+			)
+			if bi:
+				boq_desc = boq_desc or bi.description
+				bill_no = bill_no or bi.parent_bill
+
+		advance_base_items.append({
+			"boq_item": row.boq_item,
+			"bill_no": bill_no,
+			"description": boq_desc or "",
+			"amount": amt,
+		})
+
+		if project_doc.retention_percentage and flt(project_doc.retention_percentage) > 0:
+			retention_amount = flt(amt * flt(project_doc.retention_percentage) / 100, 2)
+			if retention_amount > 0:
+				retention_item_code = get_or_create_retention_item()
+				doc.append(
+					"items",
+					{
+						"item_code": retention_item_code,
+						"item_name": "Retention Deduction",
+						"description": _("Retention deduction ({0}%) for: {1}").format(
+							project_doc.retention_percentage, boq_desc or row.item_code
+						),
+						"qty": 1,
+						"rate": -retention_amount,
+						"amount": -retention_amount,
+						"uom": row.uom or "Nos",
+						"project": doc.project,
+						"boq_item": row.boq_item,
+						"bill_no": bill_no,
+					},
+				)
+
+	if items_for_deductions:
+		deduction_details = get_deduction_details(
+			doc.project,
+			items_for_deductions,
+			sales_order_name=doc.name,
+		)
+		advance_pct = flt(deduction_details.get("advance_percentage", 0))
+		available_advance = flt(deduction_details.get("available_advance", 0))
+		if advance_pct > 0 and available_advance > 0 and advance_base_items:
+			advance_item_code = get_or_create_advance_item()
+			desired_advances = []
+			total_desired = 0
+			for entry in advance_base_items:
+				desired = flt(entry["amount"] * advance_pct / 100, 2)
+				if desired > 0:
+					desired_advances.append((entry, desired))
+					total_desired += desired
+
+			if total_desired > 0:
+				target_total = flt(min(available_advance, total_desired), 2)
+				scale = target_total / total_desired if total_desired else 0
+				running_total = 0
+				last_index = len(desired_advances) - 1
+
+				for idx, (entry, desired) in enumerate(desired_advances):
+					if idx == last_index:
+						advance_amount = flt(target_total - running_total, 2)
+					else:
+						advance_amount = flt(desired * scale, 2)
+						running_total += advance_amount
+
+					if advance_amount <= 0:
+						continue
+
+					doc.append(
+						"items",
+						{
+							"item_code": advance_item_code,
+							"item_name": "Advance Deduction",
+							"description": _("Advance deduction ({0}%) for: {1}").format(
+								advance_pct, entry["description"]
+							),
+							"qty": 1,
+							"rate": -advance_amount,
+							"amount": -advance_amount,
+							"uom": "Nos",
+							"project": doc.project,
+							"boq_item": entry["boq_item"],
+							"bill_no": entry["bill_no"],
+						},
+					)
+
+	doc.run_method("calculate_taxes_and_totals")
+	doc.save()
+
+	return {"status": "ok", "message": _("Retention and advance lines were recalculated.")}
 
 
 @frappe.whitelist()

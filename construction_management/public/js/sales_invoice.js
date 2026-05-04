@@ -231,6 +231,14 @@ function pull_advance_deduction(frm) {
 							read_only: 1
 						},
 						{
+							label: __('Available BOQ Balance'),
+							fieldname: 'available_boq_balance',
+							fieldtype: 'Currency',
+							default: flt(r.message.available_boq_balance),
+							read_only: 1,
+							description: __('Project BOQ total less billed BOQ lines (ex-VAT)')
+						},
+						{
 							label: __('Total Billable Amount'),
 							fieldname: 'total_billable',
 							fieldtype: 'Currency',

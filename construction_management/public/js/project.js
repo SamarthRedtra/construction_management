@@ -166,7 +166,9 @@ function get_dashboard_styles() {
 			visibility: visible !important; 
 			opacity: 1 !important;
 			height: auto !important;
-			overflow: visible !important;
+			max-width: 100% !important;
+			box-sizing: border-box !important;
+			overflow-x: hidden !important;
 		}
 		.boq-dashboard-modern { 
 			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
@@ -175,6 +177,9 @@ function get_dashboard_styles() {
 			visibility: visible !important;
 			position: relative !important;
 			z-index: 1 !important;
+			max-width: 100% !important;
+			box-sizing: border-box !important;
+			overflow-x: hidden !important;
 		}
 		/* Prevent modal from affecting form content */
 		body.modal-open .frappe-control[data-fieldname="construction_dashboard"] {
@@ -390,6 +395,10 @@ function render_kpi_grid(container, kpi, progress, collectionRate, frm) {
 	const totalCost = (kpi.total_cost != null && kpi.total_cost !== '') ? (parseFloat(kpi.total_cost) || 0) : breakdownSum;
 	const margin = (kpi.total_billed || 0) - totalCost;
 	const advanceCollected = kpi.advance_collected || 0;
+	const advanceAvailableBalance =
+		kpi.advance_available_balance != null && kpi.advance_available_balance !== ''
+			? parseFloat(kpi.advance_available_balance)
+			: kpi.advance_balance || 0;
 	const invoiceCollected = kpi.invoice_collected || 0;
 	const retentionPending = kpi.retention_balance || 0;
 	const securityChequeTotal = kpi.security_cheque_total || 0;
@@ -452,6 +461,16 @@ function render_kpi_grid(container, kpi, progress, collectionRate, frm) {
 				<span class="kpi-label">${__('Sales Partner Commission')}</span>
 				<span class="kpi-value">${format_currency(salesPartnerCommissionTotal)}</span>
 				<span class="kpi-sub">${__('SI · fiscal YTD · tap for report')}</span>
+			</div>
+		</div>
+		<div class="kpi-card kpi-success" style="border-color: #a7f3d0;" title="${__('BOQ advances collected minus advance deductions on Sales Invoices (draft and submitted, company currency)')}">
+			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg></div>
+			<div class="kpi-content">
+				<span class="kpi-label">${__('Available Advance Balance')}</span>
+				<span class="kpi-value">${format_currency(advanceAvailableBalance)}</span>
+				<span class="kpi-sub kpi-breakdown">
+					<span class="breakdown-item advance">${__('Adv. received')}: ${format_currency(advanceCollected)}</span>
+				</span>
 			</div>
 		</div>
 		<div class="kpi-card kpi-success" title="${__('Advance + paid invoice amounts (ex. VAT, company currency)')}">
@@ -3723,7 +3742,7 @@ function create_proforma_invoice_dialog(project) {
 function get_modern_styles() {
 	return `<style>
 		/* Modern Dashboard Styles */
-		.boq-dashboard-modern { padding: 0; }
+		.boq-dashboard-modern { padding: 0; max-width: 100%; box-sizing: border-box; overflow-x: hidden; }
 		
 		/* Header */
 		.dashboard-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
@@ -3752,10 +3771,18 @@ function get_modern_styles() {
 		.btn-sm { padding: 6px 12px; font-size: 12px; }
 		
 		/* KPI Grid */
-		.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
-		@media (max-width: 992px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+		/* Columns follow the dashboard container width (not viewport), so cards stay inside the main form column */
+		.kpi-grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+			gap: 16px;
+			margin-bottom: 24px;
+			width: 100%;
+			max-width: 100%;
+			box-sizing: border-box;
+		}
 		@media (max-width: 576px) { .kpi-grid { grid-template-columns: 1fr; } }
-		.kpi-card { background: white; border-radius: 12px; padding: 20px; display: flex; align-items: flex-start; gap: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; transition: all 0.2s; }
+		.kpi-card { background: white; border-radius: 12px; padding: 20px; display: flex; align-items: flex-start; gap: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; transition: all 0.2s; min-width: 0; }
 		.kpi-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
 		.kpi-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 		.kpi-primary .kpi-icon { background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%); color: #4f46e5; }
@@ -3766,7 +3793,20 @@ function get_modern_styles() {
 		.kpi-danger .kpi-icon { background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%); color: #dc2626; }
 		.kpi-content { flex: 1; min-width: 0; }
 		.kpi-label { display: block; font-size: 12px; color: #6b7280; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
-		.kpi-value { display: block; font-size: 22px; font-weight: 700; color: #1f2937; line-height: 1.2; }
+		/* Isolate currency + digits so symbols (e.g. AED د.إ) do not overlap in RTL / mixed locales */
+		.kpi-value {
+			display: block;
+			font-size: 22px;
+			font-weight: 700;
+			color: #1f2937;
+			line-height: 1.35;
+			min-height: 1.35em;
+			unicode-bidi: isolate;
+			direction: ltr;
+			text-align: start;
+		}
+		.kpi-sub, .kpi-breakdown { unicode-bidi: isolate; }
+		.kpi-breakdown .breakdown-item { unicode-bidi: isolate; direction: ltr; }
 		.kpi-progress { height: 4px; background: #e5e7eb; border-radius: 2px; margin-top: 8px; overflow: hidden; }
 		.kpi-progress-bar { height: 100%; border-radius: 2px; transition: width 0.3s; }
 		.kpi-info .kpi-progress-bar { background: linear-gradient(90deg, #3b82f6, #2563eb); }
@@ -3798,7 +3838,7 @@ function get_modern_styles() {
 		.bill-header-right { display: flex; gap: 24px; }
 		.bill-stat { display: flex; flex-direction: column; align-items: flex-end; }
 		.stat-label { font-size: 10px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; }
-		.stat-value { font-size: 14px; font-weight: 600; color: #374151; }
+		.stat-value { font-size: 14px; font-weight: 600; color: #374151; unicode-bidi: isolate; direction: ltr; text-align: end; }
 		.balance-value { color: #059669; }
 		.advance-stat { background: linear-gradient(135deg, #f3e8ff 0%, #ede9fe 100%); border-radius: 6px; padding: 4px 8px; }
 		.advance-value { color: #7c3aed; }
@@ -3815,7 +3855,7 @@ function get_modern_styles() {
 		.items-table tr.fully-billed { opacity: 0.6; }
 		.col-desc { min-width: 180px; }
 		.col-unit { width: 50px; text-align: center; }
-		.col-num { width: 80px; text-align: right; white-space: nowrap; }
+		.col-num { width: 80px; text-align: right; white-space: nowrap; unicode-bidi: isolate; direction: ltr; }
 		.col-group { text-align: center; background: #f1f5f9; }
 		.col-highlight-blue { background: #eff6ff !important; }
 		.col-highlight-green { background: #f0fdf4 !important; }
@@ -3828,7 +3868,7 @@ function get_modern_styles() {
 		.current-qty-input, .current-value-input { width: 70px; padding: 5px 6px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px; text-align: right; transition: all 0.2s; }
 		.current-qty-input:focus, .current-value-input:focus { outline: none; border-color: #5e64ff; box-shadow: 0 0 0 3px rgba(94, 100, 255, 0.1); }
 		.current-qty-input:disabled, .current-value-input:disabled { background: #f3f4f6; color: #9ca3af; }
-		.balance-cell { color: #059669; font-weight: 500; }
+		.balance-cell { color: #059669; font-weight: 500; unicode-bidi: isolate; direction: ltr; }
 		
 		/* Status Pills */
 		.status-pill { display: inline-block; padding: 3px 8px; border-radius: 20px; font-size: 10px; font-weight: 500; }
