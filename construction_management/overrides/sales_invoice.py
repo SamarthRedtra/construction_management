@@ -2,15 +2,109 @@
 # License: MIT
 
 import frappe
+import erpnext
 from frappe import _
-from frappe.utils import flt, today
+from frappe.utils import cint, flt, today
+from erpnext.accounts.doctype.account.account import get_account_currency
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
+from erpnext.controllers.stock_controller import StockController
 from construction_management.overrides.unearned_revenue import (
-	get_boq_unearned_settings,
 	find_journal_entry_by_so,
-	get_source_accounts_and_amount
+	SO_UNEARNED_EXCLUDED_ITEM_CODES,
 )
 from erpnext.accounts.utils import update_voucher_outstanding
+
+
+def _so_base_net_for_boq_item(so_doc, boq_item, excluded_item_codes):
+	"""Sum base_net on SO revenue rows for a BOQ Item (excl. retention/advance/variance lines)."""
+	if not boq_item:
+		return 0.0
+	total = 0.0
+	for row in so_doc.get("items", []):
+		if row.item_code in excluded_item_codes:
+			continue
+		if row.boq_item != boq_item:
+			continue
+		total += flt(row.base_net_amount, row.precision("base_net_amount"))
+	return total
+
+
+def _consolidate_income_gl_by_boq_item(gl_map, income_accounts, unbilled_revenue_account):
+	"""Merge Sales (income) GLE rows that share the same boq_item into one net credit/debit row.
+
+	Keeps voucher totals balanced while replacing many offsetting Sales lines (revenue + retention/advance + gross-up)
+	with a single net line per BOQ item (e.g. three amounts instead of nine).
+	"""
+	if not gl_map:
+		return gl_map
+
+	others = []
+	keyed = {}
+	for e in gl_map:
+		acc = e.get("account")
+		boq = e.get("boq_item")
+		if (
+			acc not in income_accounts
+			or not boq
+			or (unbilled_revenue_account and acc == unbilled_revenue_account)
+		):
+			others.append(e)
+			continue
+		key = (acc, e.get("project"), e.get("cost_center"), boq)
+		keyed.setdefault(key, []).append(e)
+
+	result = list(others)
+	for _key, rows in keyed.items():
+		if len(rows) == 1:
+			result.extend(rows)
+			continue
+
+		tc = sum(flt(r.get("credit")) for r in rows)
+		td = sum(flt(r.get("debit")) for r in rows)
+		tci = sum(flt(r.get("credit_in_account_currency")) for r in rows)
+		tdi = sum(flt(r.get("debit_in_account_currency")) for r in rows)
+		tct = sum(flt(r.get("credit_in_transaction_currency")) for r in rows)
+		tdt = sum(flt(r.get("debit_in_transaction_currency")) for r in rows)
+		tcr = sum(flt(r.get("credit_in_reporting_currency")) for r in rows)
+		tdr = sum(flt(r.get("debit_in_reporting_currency")) for r in rows)
+
+		net = flt(tc - td, 2)
+		net_ac = flt(tci - tdi, 2)
+		net_tr = flt(tct - tdt, 2)
+		net_rep = flt(tcr - tdr, 2)
+		if not net and not net_ac:
+			continue
+
+		tmpl = frappe._dict(dict(rows[0]))
+		for fld in (
+			"debit",
+			"credit",
+			"debit_in_account_currency",
+			"credit_in_account_currency",
+			"debit_in_transaction_currency",
+			"credit_in_transaction_currency",
+			"debit_in_reporting_currency",
+			"credit_in_reporting_currency",
+		):
+			tmpl[fld] = 0
+		tmpl["voucher_detail_no"] = None
+
+		if net >= 0:
+			tmpl["credit"] = net
+			tmpl["credit_in_account_currency"] = net_ac
+			tmpl["credit_in_transaction_currency"] = net_tr
+			if tmpl.get("credit_in_reporting_currency") is not None or net_rep:
+				tmpl["credit_in_reporting_currency"] = net_rep
+		else:
+			tmpl["debit"] = -net
+			tmpl["debit_in_account_currency"] = -net_ac if net_ac else -net
+			tmpl["debit_in_transaction_currency"] = -net_tr
+			if tmpl.get("debit_in_reporting_currency") is not None or net_rep:
+				tmpl["debit_in_reporting_currency"] = -net_rep
+
+		result.append(tmpl)
+
+	return result
 
 
 class SalesInvoiceOverride(SalesInvoice):
@@ -19,6 +113,60 @@ class SalesInvoiceOverride(SalesInvoice):
 		if self.project and not self.custom_is_advanced and self.is_bill_invoice() and self.docstatus == 0:
 			self.apply_automatic_deductions()
 
+	def make_item_gl_entries(self, gl_entries):
+		"""Mirror ERPNext income posting but set voucher_detail_no so merged GL stays one row per item row.
+
+		Retention/advance lines must still post to the income account (negative amounts book as debits). Skipping
+		them breaks double entry: get_gl_entries gross-up adds credit to Sales without the matching deduction debits.
+		"""
+		enable_discount_accounting = cint(
+			frappe.get_single_value("Selling Settings", "enable_discount_accounting")
+		)
+
+		for item in self.get("items"):
+			if (
+				flt(item.base_net_amount, item.precision("base_net_amount"))
+				or item.is_fixed_asset
+				or enable_discount_accounting
+			):
+				if self.is_internal_transfer():
+					continue
+
+				if item.is_fixed_asset and item.asset:
+					self.get_gl_entries_for_fixed_asset(item, gl_entries)
+				else:
+					income_account = (
+						item.income_account
+						if (not item.enable_deferred_revenue or self.is_return)
+						else item.deferred_revenue_account
+					)
+
+					amount, base_amount = self.get_amount_and_base_amount(item, enable_discount_accounting)
+
+					account_currency = get_account_currency(income_account)
+					gl_entries.append(
+						self.get_gl_dict(
+							{
+								"account": income_account,
+								"against": self.customer,
+								"credit": flt(base_amount, item.precision("base_net_amount")),
+								"credit_in_account_currency": (
+									flt(base_amount, item.precision("base_net_amount"))
+									if account_currency == self.company_currency
+									else flt(amount, item.precision("net_amount"))
+								),
+								"credit_in_transaction_currency": flt(amount, item.precision("net_amount")),
+								"cost_center": item.cost_center,
+								"project": item.project or self.project,
+								"voucher_detail_no": item.name,
+							},
+							account_currency,
+							item=item,
+						)
+					)
+
+		if cint(self.update_stock) and erpnext.is_perpetual_inventory_enabled(self.company):
+			gl_entries += StockController.get_gl_entries(self, None)
 
 	def is_bill_invoice(self):
 		is_bill_invoice = False
@@ -207,8 +355,8 @@ class SalesInvoiceOverride(SalesInvoice):
 
 	def on_update(self):
 		"""Handle status changes on update"""
-		if self.get("custom_is_advanced") and self.status == "Paid" and self.docstatus == 1:
-			create_boq_advance_payment_from_invoice(self)
+		if self.get("custom_is_advanced") and self.docstatus == 1:
+			sync_boq_advance_payments_from_invoice(self)
 
 	def apply_automatic_deductions(self):
 		"""Automatically apply/recalculate retention and advance deductions if enabled"""
@@ -351,31 +499,40 @@ class SalesInvoiceOverride(SalesInvoice):
 			if not boq_settings.enable_so_unearned_revenue_jv:
 				return gl_entries
 
-		# 4. Handle Unearned Revenue Reversal
-		unearned_reversals = {} # {(account, project, boq_item): amount}
+		# 4. Unearned reversal per SI row: (matching SO revenue row base_net × unbilled %) — same BOQ Item as SO line
+		unearned_reversal_by_item_row = {}
 		unbilled_revenue_acc = boq_settings.so_unearned_revenue_debit_account
 		
 		if boq_settings.get("enable_so_unearned_revenue_jv") and unbilled_revenue_acc:
+			excluded = set(SO_UNEARNED_EXCLUDED_ITEM_CODES)
+			if variance_item_code:
+				excluded.add(variance_item_code)
+
 			so_list = list(set(item.sales_order for item in self.items if item.sales_order))
 			for so_name in so_list:
-				source_jv = find_journal_entry_by_so(so_name)
-				if not source_jv: continue
-				
-				source_data = get_source_accounts_and_amount(source_jv)
-				if not source_data: continue
-				
-				# Get SO Total for pro-rating
+				if not find_journal_entry_by_so(so_name):
+					continue
+
 				so_doc = frappe.get_cached_doc("Sales Order", so_name)
-				so_total = flt(so_doc.get("base_net_total")  or so_doc.get("base_grand_total"))
-				if so_total <= 0: continue
-				
-				for item in self.items:
-					if item.sales_order == so_name:
-						share = flt(item.base_amount) / so_total
-						reversal_amount = flt(source_data["amount"] * share)
-						
-						key = (item.income_account, item.project, item.boq_item)
-						unearned_reversals[key] = unearned_reversals.get(key, 0) + reversal_amount
+				pct = flt(so_doc.get("custom_unbilled_revenue_percentage") or 100) / 100.0
+				if pct <= 0:
+					continue
+
+				inv_lines = [
+					it
+					for it in self.items
+					if it.sales_order == so_name and it.item_code not in excluded
+				]
+				for item in inv_lines:
+					if not item.boq_item:
+						continue
+					so_line_net = _so_base_net_for_boq_item(so_doc, item.boq_item, excluded)
+					if so_line_net <= 0:
+						continue
+					reversal_amount = flt(so_line_net * pct)
+					unearned_reversal_by_item_row[item.name] = (
+						unearned_reversal_by_item_row.get(item.name, 0) + reversal_amount
+					)
 
 
 		# 1. Map items to their dimensions and identify deduction items
@@ -402,7 +559,7 @@ class SalesInvoiceOverride(SalesInvoice):
 					"item_code": item.item_code
 				})
 
-		if not deductions and not unearned_reversals:
+		if not deductions and not unearned_reversal_by_item_row:
 			return gl_entries
 
 		# 2. Reconstruct entries
@@ -482,11 +639,11 @@ class SalesInvoiceOverride(SalesInvoice):
 					if "credit_in_reporting_currency" in entry:
 						entry["credit_in_reporting_currency"] = flt(entry.get("credit_in_reporting_currency", 0)) + total_gross_up
 
-				# 4b. Adjust for unearned revenue (Reduce Sales, Increase Unbilled Revenue)
-				key = (entry.get("account"), entry.get("project"), entry.get("boq_item"))
-				if key in unearned_reversals:
-					rev_amt = unearned_reversals[key]
-					# Reduce Sales Credit by the portion already recognized in Sales Order
+				# 4b. Unearned: reduce sales by reversal; credit unbilled (matched by SI row / voucher_detail_no)
+				voucher_detail_no = entry.get("voucher_detail_no")
+				if voucher_detail_no and voucher_detail_no in unearned_reversal_by_item_row:
+					rev_amt = unearned_reversal_by_item_row[voucher_detail_no]
+					# Reduce Sales Credit by the portion already recognized at SO (per BOQ line on SO)
 					entry["credit"] = flt(entry.get("credit", 0)) - rev_amt
 					
 					if "credit_in_account_currency" in entry:
@@ -494,7 +651,6 @@ class SalesInvoiceOverride(SalesInvoice):
 					if "credit_in_transaction_currency" in entry:
 						entry["credit_in_transaction_currency"] = flt(entry.get("credit_in_transaction_currency", 0)) - rev_amt
 						
-					# Add credit to Unbilled Revenue account (Clearing the SO Debit)
 					unearned_entry = self.get_gl_dict(add_party_if_needed({
 						"account": unbilled_revenue_acc,
 						"credit": rev_amt,
@@ -502,6 +658,7 @@ class SalesInvoiceOverride(SalesInvoice):
 						"boq_item": entry.get("boq_item"),
 						"bill_no": entry.get("bill_no"),
 						"cost_center": entry.get("cost_center"),
+						"voucher_detail_no": voucher_detail_no,
 						"against": self.customer,
 						"remarks": f"Unearned revenue reversal for {self.name}"
 					}, unbilled_revenue_acc))
@@ -553,34 +710,133 @@ class SalesInvoiceOverride(SalesInvoice):
 				})
 				
 				new_entries.append(deduction_entry)
-		frappe.log_error(message=new_entries, title= "New Entries")
 		# Final safety: filter out any entries where both debit and credit are 0
 		new_entries = [
 			e for e in new_entries
 			if float(e.get("debit") or 0) or float(e.get("credit") or 0)
 		]
+		new_entries = _consolidate_income_gl_by_boq_item(
+			new_entries,
+			income_accounts,
+			unbilled_revenue_acc,
+		)
 		return new_entries
 
 
 
-def create_boq_advance_payment_from_invoice(invoice):
-	"""Automatically create BOQ Advance Payment record from a Paid Advance Invoice"""
-	# Check if already exists to avoid duplication
-	if frappe.db.exists("BOQ Advance Payment", {"linked_invoice": invoice.name, "docstatus": ["!=", 2]}):
+def _has_legacy_lump_boq_advance(si_name: str) -> bool:
+	"""Older builds created one BOQ Advance Payment without linking the Payment Entry reference."""
+	row = frappe.db.sql(
+		"""
+		SELECT name FROM `tabBOQ Advance Payment`
+		WHERE linked_invoice = %s AND docstatus = 1 AND IFNULL(reference, '') = ''
+		LIMIT 1
+		""",
+		si_name,
+	)
+	return bool(row)
+
+
+def create_boq_advance_payment_from_pe_allocation(
+	si_name: str,
+	payment_entry_name: str,
+	allocated_amount: float,
+	posting_date=None,
+	project=None,
+):
+	"""
+	Create one BOQ Advance Payment per Payment Entry allocation against an advance Sales Invoice.
+
+	The PE allocates against grand total (incl. taxes); BOQ advance pool uses net-like amounts,
+	so we apply the same net/grand ratio used in patches/sync_partial_advance_payments.py.
+	"""
+	si = frappe.get_doc("Sales Invoice", si_name)
+	if not si.get("custom_is_advanced") or si.docstatus != 1:
+		return
+
+	if _has_legacy_lump_boq_advance(si.name):
+		# Older behaviour: one BOQ Advance Payment without `reference`; cancel it before using installments.
+		return
+
+	if frappe.db.exists(
+		"BOQ Advance Payment",
+		{
+			"linked_invoice": si.name,
+			"reference": payment_entry_name,
+			"docstatus": ["!=", 2],
+		},
+	):
+		return
+
+	allocated_amount = flt(allocated_amount)
+	if allocated_amount <= 0:
+		return
+
+	base_gt = flt(si.base_grand_total)
+	base_nt = flt(si.base_net_total)
+	if base_gt <= 0:
+		return
+
+	ratio = base_nt / base_gt
+	precision = frappe.get_precision("BOQ Advance Payment", "amount") or 2
+	net_amount = flt(allocated_amount * ratio, precision)
+	if net_amount <= 0:
 		return
 
 	adv = frappe.new_doc("BOQ Advance Payment")
-	adv.project = invoice.project
-	adv.amount = invoice.net_total
-	adv.linked_invoice = invoice.name
-	adv.date = invoice.posting_date
-	adv.remarks = f"Automatically created from Advance Invoice {invoice.name}"
-	
+	adv.project = project or si.project
+	adv.amount = net_amount
+	adv.linked_invoice = si.name
+	adv.reference = payment_entry_name
+	adv.date = posting_date or si.posting_date
+	adv.remarks = _("Advance installment from Payment Entry {0} against {1}").format(
+		payment_entry_name, si.name
+	)
+
 	adv.flags.ignore_permissions = True
 	adv.insert()
 	adv.submit()
-	frappe.msgprint(_("BOQ Advance Payment {0} created automatically.").format(adv.name))
-	frappe.db.commit()
+
+
+def sync_boq_advance_payments_from_invoice(si):
+	"""Ensure BOQ Advance Payment rows exist for every submitted PE allocation against this advance SI."""
+	if isinstance(si, str):
+		si = frappe.get_doc("Sales Invoice", si)
+	if not si.get("custom_is_advanced") or si.docstatus != 1:
+		return
+
+	rows = frappe.db.sql(
+		"""
+		SELECT per.parent AS pe_name, per.allocated_amount, pe.posting_date, pe.project
+		FROM `tabPayment Entry Reference` per
+		INNER JOIN `tabPayment Entry` pe ON pe.name = per.parent
+		WHERE per.reference_doctype = 'Sales Invoice'
+			AND per.reference_name = %s
+			AND pe.docstatus = 1
+			AND IFNULL(per.allocated_amount, 0) > 0
+		""",
+		si.name,
+		as_dict=True,
+	)
+
+	for row in rows:
+		create_boq_advance_payment_from_pe_allocation(
+			si.name,
+			row.pe_name,
+			row.allocated_amount,
+			posting_date=row.posting_date,
+			project=row.project,
+		)
+
+
+def sync_boq_advance_payments(doc):
+	"""Compatibility alias for scripts expecting this name (see fix_advance_pool.py)."""
+	sync_boq_advance_payments_from_invoice(doc)
+
+
+def create_boq_advance_payment_from_invoice(invoice):
+	"""Sync installment-wise advances from Payment Entries (replaces single lump-sum on full payment)."""
+	sync_boq_advance_payments_from_invoice(invoice)
 
 
 def create_boq_ledger_entry(invoice, item, net_amount=None, retention=0, advance=0, variance=0):

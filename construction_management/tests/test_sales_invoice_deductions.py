@@ -179,6 +179,7 @@ class TestSalesInvoiceDeductions(unittest.TestCase):
         self.assertEqual(details["total_billable_amount"], 8000.0)
         self.assertEqual(details["suggested_retention"], 800.0)
         self.assertTrue("enable_progressive_boq" in details)
+        self.assertIn("available_boq_balance", details)
 
     def test_advance_balance_after_deduction(self):
         self._create_advance_payment(1000)
