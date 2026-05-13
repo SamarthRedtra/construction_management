@@ -94,10 +94,14 @@ def process_gl_entry_for_boq(doc):
 		frappe.log_error(f"GL hook cost recalc failed for BOQ Item {boq_item_name} from GL {doc.name}: {str(e)}")
 
 def update_project_cost(project_name):
-	total_cost = get_project_expense_total_from_gl(project_name)
+	from construction_management.api.boq_tree import get_project_cost_breakdown
+	total_cost = get_project_cost_breakdown(project_name).get("total", 0)
 
-	# Update the project cost field (reusing existing field used by DPR)
-	frappe.db.set_value("Project", project_name, "estimated_costing", flt(total_cost))
+	# Update the project cost fields (estimated_costing is used by core ERPNext, total_actual_cost is custom)
+	frappe.db.set_value("Project", project_name, {
+		"estimated_costing": flt(total_cost),
+		"total_actual_cost": flt(total_cost)
+	}, update_modified=False)
 
 
 def get_project_expense_total_from_gl(project_name):

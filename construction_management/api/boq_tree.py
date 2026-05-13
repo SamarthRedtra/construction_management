@@ -127,7 +127,10 @@ def get_boq_kpi(project: str) -> dict:
 		FROM `tabBOQ Item`
 		WHERE project = %s
 	""", project, as_dict=True)[0]
-	total_cost_from_gl = get_project_expense_total_from_gl(project)
+	
+	# Get comprehensive breakdown from GL (includes items not linked to BOQs)
+	gl_breakdown = get_project_cost_breakdown(project)
+	total_cost_from_gl = gl_breakdown.get("total", 0)
 	
 	# Get advance payment summary
 	advance_summary = get_advance_summary(project)
@@ -225,11 +228,11 @@ def get_boq_kpi(project: str) -> dict:
 		"invoice_collected": flt(invoice_collected),
 		"advance_collected": flt(advance_collected),
 		"pending": flt(total_billed) - flt(invoice_collected),
-		"total_labour_cost": flt(cost_breakdown.labour),
-		"total_material_cost": flt(cost_breakdown.material),
-		"total_asset_cost": flt(cost_breakdown.asset),
-		"total_subcontract_cost": flt(cost_breakdown.subcontract),
-		"total_expense_cost": flt(cost_breakdown.expense),
+		"total_labour_cost": flt(gl_breakdown.get("labor", 0)),
+		"total_material_cost": flt(gl_breakdown.get("material", 0)),
+		"total_asset_cost": flt(cost_breakdown.asset), # Still fallback to BOQ for assets if needed, but GL is primary
+		"total_subcontract_cost": flt(gl_breakdown.get("subcontractor", 0)),
+		"total_expense_cost": flt(gl_breakdown.get("other", 0)),
 		"total_overhead_cost": flt(cost_breakdown.overhead),
 		"total_cost": flt(total_cost_from_gl),
 		# Advance tracking (detailed)
@@ -1593,3 +1596,117 @@ def update_boq_item_base(boq_item: str, total_qty: float = None, rate: float = N
 	item.save()
 	
 	return get_item_ledger_values(boq_item)
+
+@frappe.whitelist()
+def get_project_cost_breakdown(project: str) -> dict:
+	"""
+	Get a detailed breakdown of total actual costs for a project from GL.
+	Categories: Subcontractor, Labour, Material, Commission, Other.
+	"""
+	if not project:
+		return {}
+
+	company = frappe.db.get_value("Project", project, "company")
+	settings = frappe.get_doc("BOQ Settings", company) if company else None
+	
+	# Commission totals from Redtra
+	commission_kpi = {"sales_person_commission_total": 0.0, "sales_partner_commission_total": 0.0}
+	try:
+		from redtra_customisation.api.project_commission_kpi import get_project_commission_totals
+		commission_kpi = get_project_commission_totals(project) or commission_kpi
+	except Exception:
+		pass
+	
+	commission_total = flt(commission_kpi.get("sales_person_commission_total", 0)) + \
+					  flt(commission_kpi.get("sales_partner_commission_total", 0))
+
+	# Get all expense GL entries for the project
+	entries = frappe.db.sql("""
+		SELECT 
+			gle.voucher_type,
+			gle.voucher_no,
+			gle.account,
+			acc.account_type,
+			acc.root_type,
+			(gle.debit - gle.credit) as amount,
+			gle.boq_item
+		FROM `tabGL Entry` gle
+		INNER JOIN `tabAccount` acc ON acc.name = gle.account
+		WHERE gle.project = %s
+			AND gle.is_cancelled = 0
+			AND acc.root_type = 'Expense'
+	""", project, as_dict=True)
+
+	# Commission accounts to avoid double counting
+	comm_accounts = []
+	if settings:
+		comm_accounts = [settings.sales_person_commission_account, settings.sales_partner_commission_account]
+		comm_accounts = [a for a in comm_accounts if a]
+
+	breakdown = {
+		"subcontractor": 0.0,
+		"labor": 0.0,
+		"material": 0.0,
+		"commission": commission_total,
+		"other": 0.0,
+		"unallocated": 0.0, # Costs without BOQ Item
+		"total": 0.0
+	}
+
+	for entry in entries:
+		amount = flt(entry.amount)
+		if entry.account in comm_accounts:
+			# Commission is already handled via reports/totals
+			continue
+			
+		# Track unallocated
+		if not entry.boq_item:
+			breakdown["unallocated"] += amount
+
+		# Categorization logic (Order matters)
+		# 1. Subcontractor (Align with BOQ Item logic: All Purchase Invoices/Receipts are Subcontracting)
+		if entry.account_type == "Service" or entry.voucher_type in ("Purchase Invoice", "Purchase Receipt") or "Subcontract" in entry.account:
+			breakdown["subcontractor"] += amount
+		# 2. Material (Stock consumption)
+		elif entry.account_type == "Cost of Goods Sold" or entry.voucher_type == "Stock Entry" or "Material" in entry.account:
+			breakdown["material"] += amount
+		# 3. Labour (Direct labour via JE, Payroll, or specific accounts)
+		elif entry.account_type == "Payroll" or "Labour" in entry.account or "Salary" in entry.account:
+			breakdown["labor"] += amount
+		# 4. Other
+		else:
+			breakdown["other"] += amount
+
+	# Implement Option B: Direct Project Costing for Inventory Purchase Invoices
+	# Include PI items that hit Asset/Liability accounts (like Stock Received But Not Billed)
+	# which don't show up in the Expense GL query.
+	expense_accounts = set(frappe.db.sql_list("SELECT name FROM tabAccount WHERE root_type = 'Expense'"))
+	
+	pi_items = frappe.db.sql("""
+		SELECT 
+			sii.base_net_amount as amount,
+			sii.item_code,
+			sii.item_name,
+			sii.boq_item,
+			sii.expense_account
+		FROM `tabPurchase Invoice Item` sii
+		INNER JOIN `tabPurchase Invoice` si ON si.name = sii.parent
+		WHERE sii.project = %s AND si.docstatus = 1
+	""", project, as_dict=True)
+
+	for pi in pi_items:
+		# If it hit an expense account, it's already counted in the GL entries loop above.
+		# If not (e.g., went to warehouse or SRBNB), we add it manually here.
+		if pi.expense_account not in expense_accounts:
+			amount = flt(pi.amount)
+			
+			if not pi.boq_item:
+				breakdown["unallocated"] += amount
+				
+			# Align with BOQ Item logic: all PI items are considered Subcontractor cost
+			breakdown["subcontractor"] += amount
+
+	breakdown["total"] = breakdown["subcontractor"] + breakdown["labor"] + breakdown["material"] + breakdown["commission"] + breakdown["other"]
+
+	return breakdown
+
