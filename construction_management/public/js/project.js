@@ -486,10 +486,10 @@ function render_kpi_grid(container, kpi, progress, collectionRate, frm) {
 				</span>
 			</div>
 		</div>
-		<div class="kpi-card kpi-warning">
+		<div class="kpi-card kpi-warning" style="cursor: pointer;" title="${__('Click to view detailed breakdown of actual costs')}" onclick="show_project_cost_breakdown('${projectName}')">
 			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></div>
 			<div class="kpi-content">
-				<span class="kpi-label">Total Actual Cost</span>
+				<span class="kpi-label">${__('Total Actual Cost')}</span>
 				<span class="kpi-value">${format_currency(totalCost)}</span>
 				<span class="kpi-sub">Margin: ${format_currency(margin)}</span>
 			</div>
@@ -6809,7 +6809,9 @@ function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
 				padding: 4px 10px;
 				border-radius: 4px;
 				word-break: break-word;
-				max-width: 60%;
+				max-width: 80%;
+				flex: 1;
+				min-width: 0;
 			}
 			.chevron-icon {
 				transition: transform 0.3s ease;
@@ -6842,10 +6844,6 @@ function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
 				color: #6b7280;
 				margin-left: 8px;
 				font-style: italic;
-				white-space: nowrap;
-				overflow: hidden;
-				text-overflow: ellipsis;
-				max-width: 350px;
 				display: inline-block;
 				vertical-align: middle;
 			}
@@ -7220,7 +7218,10 @@ function updateTotal(wrapper, boqItemName) {
 }
 
 function showAddBoqTermDialog(wrapper, frm, boqItems, paymentTermsData) {
-	const availableItems = boqItems.filter(item => !paymentTermsData[item.name]);
+	const availableItems = boqItems.filter(item => {
+		// Check if it's there as a name or as a full string containing the name (legacy)
+		return !Object.keys(paymentTermsData).some(key => key === item.name || key.includes(`(${item.name})`));
+	});
 
 	if (availableItems.length === 0) {
 		frappe.msgprint({
@@ -7231,8 +7232,11 @@ function showAddBoqTermDialog(wrapper, frm, boqItems, paymentTermsData) {
 		return;
 	}
 
-	// Create options as "label\nvalue" format for Select field
-	const options = availableItems.map(item => `${item.label} (${item.name})`).join('\n');
+	// Create options as objects to keep ID as value and description as label
+	const options = availableItems.map(item => ({
+		label: `${item.label} (${item.name})`,
+		value: item.name
+	}));
 
 	const d = new frappe.ui.Dialog({
 		title: 'Add BOQ Item Payment Terms',
@@ -7281,7 +7285,9 @@ function showAddBoqTermDialog(wrapper, frm, boqItems, paymentTermsData) {
 	});
 
 	d.show();
+	d.$wrapper.find('.modal-dialog').addClass('modal-lg');
 }
+
 
 function savePaymentTermsData(frm, paymentTermsData) {
 	// Update the hidden JSON field
@@ -7289,4 +7295,106 @@ function savePaymentTermsData(frm, paymentTermsData) {
 
 	// Mark form as dirty so user can save when ready
 	frm.dirty();
+}
+
+window.show_project_cost_breakdown = function(projectName) {
+	frappe.call({
+		method: 'construction_management.api.boq_tree.get_project_cost_breakdown',
+		args: { project: projectName },
+		callback: function(r) {
+			if (r.message) {
+				const breakdown = r.message;
+				const d = new frappe.ui.Dialog({
+					title: __('Detailed Cost Breakdown: {0}', [projectName]),
+					fields: [
+						{
+							fieldtype: 'HTML',
+							fieldname: 'breakdown_html'
+						}
+					]
+				});
+
+				let html = `
+					<div class="cost-breakdown-container">
+						<table class="table table-bordered breakdown-table">
+							<thead>
+								<tr class="breakdown-header">
+									<th>${__('Category')}</th>
+									<th class="text-right">${__('Amount')}</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td>${__('Subcontractor Cost')}</td>
+									<td class="text-right">${format_currency(breakdown.subcontractor)}</td>
+								</tr>
+								<tr>
+									<td>${__('Labor Cost')}</td>
+									<td class="text-right">${format_currency(breakdown.labor)}</td>
+								</tr>
+								<tr>
+									<td>${__('Material Cost')}</td>
+									<td class="text-right">${format_currency(breakdown.material)}</td>
+								</tr>
+								<tr>
+									<td>${__('Sales Commission Cost')}</td>
+									<td class="text-right">${format_currency(breakdown.commission)}</td>
+								</tr>
+								<tr>
+									<td>${__('Other Costs')}</td>
+									<td class="text-right">${format_currency(breakdown.other)}</td>
+								</tr>
+								<tr class="breakdown-footer">
+									<td><strong>${__('Total Actual Cost')}</strong></td>
+									<td class="text-right"><strong>${format_currency(breakdown.total)}</strong></td>
+								</tr>
+							</tbody>
+						</table>
+						${breakdown.unallocated > 0 ? `
+							<div class="unallocated-warning alert alert-warning">
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: text-top; margin-right: 5px;">
+									<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+									<line x1="12" y1="9" x2="12" y2="13"></line>
+									<line x1="12" y1="17" x2="12.01" y2="17"></line>
+								</svg>
+								${__('Note: {0} of this cost is not linked to any specific BOQ item (Unallocated Cost).', [format_currency(breakdown.unallocated)])}
+							</div>
+						` : ''}
+					</div>
+					<style>
+						.breakdown-table { border-radius: 8px; overflow: hidden; margin-top: 10px; }
+						.breakdown-table thead th { 
+							background-color: var(--bg-light-gray, #f8f9fa); 
+							color: var(--text-muted, #4a5568); 
+							font-weight: 600; 
+							text-transform: uppercase; 
+							font-size: 11px; 
+							letter-spacing: 0.05em; 
+							padding: 12px 15px;
+						}
+						.breakdown-table tbody td {
+							padding: 12px 15px;
+							border-color: var(--border-color, #e2e8f0);
+						}
+						.breakdown-footer td { 
+							background-color: var(--bg-light-gray, #f8f9fa); 
+							font-size: 1.1em; 
+							border-top: 2px solid var(--border-color, #e2e8f0);
+						}
+						.unallocated-warning { 
+							margin-top: 15px; 
+							font-size: 0.9em; 
+							padding: 12px; 
+							border-radius: 8px;
+							display: flex;
+							align-items: flex-start;
+						}
+					</style>
+				`;
+
+				d.get_field('breakdown_html').$wrapper.html(html);
+				d.show();
+			}
+		}
+	});
 }
