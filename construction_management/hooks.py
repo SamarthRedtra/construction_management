@@ -157,6 +157,7 @@ doc_events = {
 		# Handled in class override
 	},
 	"Purchase Invoice": {
+		"before_validate": "construction_management.overrides.purchase_invoice.before_validate",
 		"validate": "construction_management.overrides.purchase_invoice.validate",
 		"before_cancel": "construction_management.overrides.purchase_invoice.before_cancel",
 		"on_submit": "construction_management.overrides.purchase_invoice.on_submit",
@@ -166,6 +167,7 @@ doc_events = {
 		"validate": "construction_management.overrides.purchase_order.validate"
 	},
 	"Purchase Receipt": {
+		"before_validate": "construction_management.overrides.purchase_receipt.before_validate",
 		"validate": "construction_management.overrides.purchase_receipt.validate",
 		"before_submit": "construction_management.overrides.purchase_receipt.before_submit"
 	},

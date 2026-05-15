@@ -340,6 +340,11 @@ def clear_po_line_progress(doc):
 		frappe.db.set_value("Purchase Invoice Item", row.name, z, update_modified=False)
 
 
+def before_validate(doc, method):
+	"""Run before standard validate"""
+	scale_fixed_discount(doc)
+
+
 def validate(doc, method):
 	"""Auto-add retention and advance deduction items based on linked Purchase Order percentages"""
 	# Always ensure deduction items exist and are purchase-enabled
@@ -459,6 +464,35 @@ def _set_default_target_warehouse(doc):
 			row.site = "Transit"
 		if not row.get("rejected_site") and frappe.get_meta(row.doctype).has_field("rejected_site"):
 			row.rejected_site = "Transit"
+
+
+def scale_fixed_discount(doc):
+	"""
+	Proportionally scale the fixed discount amount if it was auto-mapped 
+	from a Purchase Order and this is a partial invoice.
+	"""
+	if doc.discount_amount > 0 and not doc.additional_discount_percentage:
+		po_name = _get_linked_purchase_order(doc)
+		if not po_name:
+			return
+
+		po_doc = frappe.get_cached_doc("Purchase Order", po_name)
+		
+		# If the discount amounts match exactly, it was auto-copied.
+		if po_doc.discount_amount > 0 and doc.discount_amount == po_doc.discount_amount:
+			pi_normal_items_total = sum(
+				flt(item.amount) for item in doc.items
+				if item.item_code not in _PO_PROGRESS_DEDUCTION_ITEMS
+			)
+
+			po_normal_items_total = sum(
+				flt(item.amount) for item in po_doc.items
+				if item.item_code not in _PO_PROGRESS_DEDUCTION_ITEMS
+			)
+
+			if po_normal_items_total > 0:
+				ratio = pi_normal_items_total / po_normal_items_total
+				doc.discount_amount = flt(po_doc.discount_amount * ratio, doc.precision("discount_amount"))
 
 
 def on_submit(doc, method):
