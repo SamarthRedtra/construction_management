@@ -195,6 +195,9 @@ doc_events = {
 	"BOQ Item": {
 		"after_delete": "construction_management.construction_management.doctype.boq_item.boq_item.update_parent_totals"
 	},
+	"Task": {
+		"on_update": "construction_management.overrides.task.on_update"
+	},
 	"Item Price": {
 		"after_insert": "construction_management.tasks.delete_special_item_price_on_insert"
 	}

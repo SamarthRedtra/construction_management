@@ -388,3 +388,87 @@ def get_task_class(progress: float) -> str:
 	else:
 		return "gantt-not-started"
 
+
+@frappe.whitelist()
+def get_task_progress_timeline(boq_item: str) -> dict:
+	"""
+	Fetch all tasks for a specific BOQ Item and cross-reference them with their
+	Task Progress Log entries to return timeline data for the frontend calendar view.
+	
+	Args:
+		boq_item: BOQ Item name
+		
+	Returns:
+		dict with tasks and their timeline of progress
+	"""
+	from construction_management.api.boq_tasks import get_boq_item_tasks_tree
+
+	tree_data = get_boq_item_tasks_tree(boq_item)
+	tasks = _flatten_task_tree(tree_data.get("tasks") or [])
+
+	task_names = [t.get("name") for t in tasks if t.get("name")]
+	if not task_names:
+		return {"tasks": [], "logs": [], "boq_item": tree_data.get("boq_item") or {}}
+
+	logs = frappe.get_all(
+		"Task Progress Log",
+		filters={"boq_item": boq_item, "task": ["in", task_names]},
+		fields=["task", "date", "qty_updated", "progress_percent", "remarks", "user"],
+		order_by="date asc",
+	)
+
+	for t in tasks:
+		if not t.get("is_group"):
+			t["completed_qty"] = frappe.db.get_value("Task", t["name"], "completed_qty") or 0.0
+
+	boq_item_doc = tree_data.get("boq_item") or frappe.get_doc("BOQ Item", boq_item).as_dict()
+	rollup = _get_boq_daily_rollup(logs)
+
+	return {
+		"tasks": tasks,
+		"logs": logs,
+		"boq_item": boq_item_doc,
+		"daily_rollup": rollup,
+	}
+
+
+def _flatten_task_tree(nodes: list, result: list = None) -> list:
+	"""Flatten nested task tree nodes into a single list."""
+	if result is None:
+		result = []
+
+	for node in nodes or []:
+		result.append({
+			"name": node.get("name"),
+			"subject": node.get("subject"),
+			"status": node.get("status"),
+			"progress": node.get("progress"),
+			"completed_qty": node.get("completed_qty"),
+			"expected_area": node.get("expected_area"),
+			"is_group": node.get("is_group"),
+			"exp_start_date": node.get("exp_start_date"),
+			"exp_end_date": node.get("exp_end_date"),
+		})
+		_flatten_task_tree(node.get("children") or [], result)
+
+	return result
+
+
+def _get_boq_daily_rollup(logs: list) -> list:
+	"""Aggregate sub-task logs by date for BOQ-level Gantt summary."""
+	by_date = {}
+	for log in logs or []:
+		date_key = str(log.get("date"))
+		if not date_key:
+			continue
+		entry = by_date.setdefault(date_key, {
+			"date": date_key,
+			"qty_updated": 0.0,
+			"progress_percent": 0.0,
+			"task_count": 0,
+		})
+		entry["qty_updated"] += flt(log.get("qty_updated"))
+		entry["progress_percent"] = max(entry["progress_percent"], flt(log.get("progress_percent")))
+		entry["task_count"] += 1
+
+	return sorted(by_date.values(), key=lambda row: row["date"])

@@ -2401,22 +2401,33 @@ function renderTransactionsTable(transactions) {
  * Requirements: 2.1, 2.2, 2.3, 2.4, 4.1, 4.2, 4.5
  */
 window.showTasksPopup = function (itemName) {
+	window._current_boq_item = itemName;
+	const existing = window._current_task_dialog;
+	if (
+		existing &&
+		existing.$wrapper &&
+		existing.$wrapper.is(':visible') &&
+		window._current_boq_item === itemName &&
+		typeof window.refresh_boq_tasks_dialog === 'function'
+	) {
+		return window.refresh_boq_tasks_dialog(itemName);
+	}
 	frappe.call({
 		method: 'construction_management.api.boq_tasks.get_boq_item_tasks_tree',
 		args: { boq_item: itemName },
 		callback: function (r) {
 			const data = r.message || {};
-			const boqItem = data.boq_item || {};
-			const tasks = data.tasks || [];
-			const hasTasks = data.has_tasks || false;
-			const linkedTask = data.linked_task;
-
-			showTaskManagementDialog(itemName, boqItem, tasks, hasTasks, linkedTask);
+			showTaskManagementDialog(itemName, data);
 		}
 	});
 };
 
-function showTaskManagementDialog(itemName, boqItem, tasks, hasTasks, linkedTask) {
+function showTaskManagementDialog(itemName, data) {
+	let boqItem = data.boq_item || {};
+	let tasks = data.tasks || [];
+	let hasTasks = data.has_tasks || false;
+	let linkedTask = data.linked_task;
+
 	const dialog = new frappe.ui.Dialog({
 		title: __('Task Management - {0}', [boqItem.description?.substring(0, 50) || itemName]),
 		size: 'extra-large',
@@ -2435,9 +2446,8 @@ function showTaskManagementDialog(itemName, boqItem, tasks, hasTasks, linkedTask
 					<div class="task-header-info">
 						<h4>${boqItem.description || 'BOQ Item'}</h4>
 						<div class="task-meta">
-							<span><strong>Qty:</strong> ${format_number(boqItem.total_qty || 0)} ${boqItem.unit || ''}</span>
-							<span><strong>Rate:</strong> ${format_currency(boqItem.rate || 0)}</span>
-							<span><strong>Amount:</strong> ${format_currency(boqItem.total_amount || 0)}</span>
+							<span><strong>${__('Rate')}:</strong> ${format_currency(boqItem.rate || 0)}</span>
+							<span><strong>${__('Amount')}:</strong> ${format_currency(boqItem.total_amount || 0)}</span>
 						</div>
 					</div>
 					<div class="task-header-actions">
@@ -2452,10 +2462,20 @@ function showTaskManagementDialog(itemName, boqItem, tasks, hasTasks, linkedTask
 						`}
 					</div>
 				</div>
+				${typeof renderBoqTaskQtyBanner === 'function' ? renderBoqTaskQtyBanner(boqItem, itemName, tasks) : ''}
 		`;
 
 		if (hasTasks && tasks.length > 0) {
-			content += `<div class="task-tree">${renderTaskTree(tasks)}</div>`;
+			const unitLabel = boqItem.unit || __('Area');
+			content += `
+				<div class="task-tree-header">
+					<span class="task-col-name">${__('Task')}</span>
+					<span class="task-col-area">${__('BOQ Total / Expected / Done')} (${unitLabel})</span>
+					<span class="task-col-progress">${__('Progress')}</span>
+					<span class="task-col-status">${__('Status')}</span>
+					<span class="task-col-actions">${__('Actions')}</span>
+				</div>
+				<div class="task-tree">${renderTaskTree(tasks, boqItem)}</div>`;
 		} else {
 			content += `
 				<div class="no-tasks-message">
@@ -2466,16 +2486,28 @@ function showTaskManagementDialog(itemName, boqItem, tasks, hasTasks, linkedTask
 			`;
 		}
 
-		content += `</div>${getTaskManagementStyles()}`;
+		content += `</div>`;
+		if (typeof ensureTaskTreeStyles === 'function') {
+			ensureTaskTreeStyles();
+		}
 		dialog.fields_dict.task_content.$wrapper.html(content);
 	}
 
-	function renderTaskTree(taskNodes, level = 0) {
+	function renderTaskTree(taskNodes, boqItemData, level = 0) {
 		let html = '';
+		const totalArea = parseFloat(boqItemData?.total_qty || 0);
+		const unitLabel = boqItemData?.unit || '';
+
 		for (const task of taskNodes) {
 			const statusClass = getTaskStatusClass(task.status);
 			const progressWidth = Math.min(100, Math.max(0, task.progress || 0));
 			const hasChildren = task.children && task.children.length > 0;
+			const areaDone = parseFloat(task.completed_qty || 0);
+			const isGroup = task.is_group;
+
+			const areaField = typeof renderTaskAreaFields === 'function'
+				? renderTaskAreaFields(task, boqItemData)
+				: '';
 
 			html += `
 				<div class="task-node" data-task="${task.name}" data-level="${level}">
@@ -2488,13 +2520,14 @@ function showTaskManagementDialog(itemName, boqItem, tasks, hasTasks, linkedTask
 						<div class="task-info">
 							<div class="task-subject">
 								<a href="/app/task/${task.name}" target="_blank">${task.subject}</a>
-								${task.is_group ? '<span class="badge badge-info">Group</span>' : ''}
+								${isGroup ? '<span class="badge badge-info">Group</span>' : ''}
 							</div>
 							<div class="task-details">
-								${task.exp_start_date ? `<span><i class="fa fa-calendar"></i> ${task.exp_start_date}</span>` : ''}
-								${task.exp_end_date ? `<span>→ ${task.exp_end_date}</span>` : ''}
+								${task.exp_start_date ? `<span><i class="fa fa-calendar"></i> ${frappe.datetime.str_to_user(task.exp_start_date)}</span>` : ''}
+								${task.exp_end_date ? `<span>→ ${frappe.datetime.str_to_user(task.exp_end_date)}</span>` : ''}
 							</div>
 						</div>
+						${areaField}
 						<div class="task-progress-container">
 							<div class="progress-bar-wrapper">
 								<div class="progress-bar-mini">
@@ -2521,25 +2554,39 @@ function showTaskManagementDialog(itemName, boqItem, tasks, hasTasks, linkedTask
 							</select>
 						</div>
 						<div class="task-actions">
-							<button class="btn btn-xs btn-default" onclick="addChildTask('${task.name}', '${boqItem.project}', this)" title="Add Sub-Task">
+							<button class="btn btn-xs btn-default" onclick="addChildTask('${task.name}', '${boqItemData.project}', this)" title="${__('Add Sub-Task')}">
 								<i class="fa fa-plus"></i>
 							</button>
-							<button class="btn btn-xs btn-default" onclick="window.open('/app/task/${task.name}', '_blank')" title="Open Task">
+							<button class="btn btn-xs btn-default" onclick="view_task_logs('${task.name}')" title="${__('View Progress Logs')}">
+								<i class="fa fa-history"></i>
+							</button>
+							<button class="btn btn-xs btn-default" onclick="window.open('/app/task/${task.name}', '_blank')" title="${__('Open Task')}">
 								<i class="fa fa-external-link"></i>
 							</button>
 						</div>
 					</div>
-					${hasChildren ? `<div class="task-children">${renderTaskTree(task.children, level + 1)}</div>` : ''}
+					${hasChildren ? `<div class="task-children">${renderTaskTree(task.children, boqItemData, level + 1)}</div>` : ''}
 				</div>
 			`;
 		}
 		return html;
 	}
 
+	window._paint_task_dialog = function (boqItemKey, treeData) {
+		boqItem = treeData.boq_item || {};
+		tasks = treeData.tasks || [];
+		hasTasks = treeData.has_tasks || false;
+		linkedTask = treeData.linked_task;
+		dialog.set_title(__('Task Management - {0}', [boqItem.description?.substring(0, 50) || boqItemKey]));
+		renderTaskManagement();
+	};
+
 	renderTaskManagement();
+	dialog.onhide = function () {
+		window._paint_task_dialog = null;
+	};
 	dialog.show();
 
-	// Store dialog reference for refresh
 	window._current_task_dialog = dialog;
 	window._current_boq_item = itemName;
 }
@@ -2580,7 +2627,19 @@ function getTaskManagementStyles() {
 		.task-subject .badge { font-size: 10px; margin-left: 8px; padding: 2px 6px; }
 		.task-details { font-size: 11px; color: #6c757d; }
 		.task-details span { margin-right: 8px; }
-		.task-progress-container { display: flex; align-items: center; gap: 6px; width: 140px; }
+		.task-tree-header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #f1f5f9; border: 1px solid #e9ecef; border-bottom: none; border-radius: 8px 8px 0 0; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; }
+		.task-tree-header .task-col-name { flex: 1; min-width: 0; padding-left: 32px; }
+		.task-tree-header .task-col-area { width: 150px; text-align: center; }
+		.task-tree-header .task-col-progress { width: 180px; text-align: center; }
+		.task-tree-header .task-col-status { width: 130px; text-align: center; }
+		.task-tree-header .task-col-actions { width: 100px; text-align: center; }
+		.area-done-wrapper { display: flex; align-items: center; gap: 4px; width: 150px; flex-shrink: 0; }
+		.area-done-wrapper .area-label { font-size: 10px; color: #6c757d; margin: 0; min-width: 28px; }
+		.area-done-wrapper .qty-input { width: 72px; padding: 2px 4px; border: 1px solid #ddd; border-radius: 4px; font-size: 11px; text-align: center; }
+		.area-done-wrapper .qty-input:focus { outline: none; border-color: #5e64ff; }
+		.area-done-readonly .qty-input { background: #f8f9fa; }
+		.area-done-wrapper .qty-unit { font-size: 10px; color: #6c757d; white-space: nowrap; }
+		.task-progress-container { display: flex; align-items: center; gap: 6px; width: 180px; flex-shrink: 0; }
 		.progress-bar-wrapper { position: relative; flex: 1; }
 		.progress-bar-mini { height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden; }
 		.progress-fill { height: 100%; background: linear-gradient(90deg, #28a745, #20c997); transition: width 0.2s; }
@@ -2612,6 +2671,107 @@ window.previewTaskProgress = function (task, progress, sliderEl) {
 	const progressValue = Math.min(100, Math.max(0, parseInt(progress) || 0));
 	$node.find(`.progress-fill[data-task="${task}"]`).css('width', progressValue + '%');
 	$node.find(`.progress-input[data-task="${task}"]`).val(progressValue);
+	const expectedQty = parseFloat($node.find('.qty-input').attr('data-expected')) || 0;
+	if (expectedQty > 0) {
+		const qtyValue = (progressValue / 100) * expectedQty;
+		$node.find(`.qty-input[data-task="${task}"]`).val(qtyValue.toFixed(2));
+	}
+};
+
+window.updateTaskQty = function (task, qty, inputEl) {
+	const $node = $(inputEl).closest('.task-node');
+	const expectedQty = parseFloat($node.find('.qty-input').attr('data-expected')) || 0;
+	let qtyValue = parseFloat(qty) || 0;
+	if (expectedQty > 0) {
+		qtyValue = Math.max(0, Math.min(qtyValue, expectedQty));
+	}
+	if (expectedQty <= 0) {
+		frappe.msgprint(__('Please set Expected Area on this sub-task first (e.g. 500 LM out of BOQ total).'));
+		return;
+	}
+
+	let progressValue = (qtyValue / expectedQty) * 100;
+	progressValue = Math.min(100, Math.max(0, parseInt(progressValue) || 0));
+
+	$node.find(`.qty-input[data-task="${task}"]`).val(qtyValue.toFixed(2));
+	$node.find(`.progress-fill[data-task="${task}"]`).css('width', progressValue + '%');
+	$node.find(`.progress-slider[data-task="${task}"]`).val(progressValue);
+	$node.find(`.progress-input[data-task="${task}"]`).val(progressValue);
+
+	let newStatus = null;
+	if (progressValue === 100) {
+		newStatus = 'Completed';
+	} else if (progressValue > 0) {
+		const currentStatus = $node.find('.status-select').val();
+		if (currentStatus === 'Open') {
+			newStatus = 'Working';
+		}
+	}
+
+	frappe.call({
+		method: 'construction_management.api.boq_tasks.update_task_status',
+		args: {
+			task: task,
+			status: newStatus,
+			progress: progressValue,
+			completed_qty: qtyValue,
+			boq_item: window._current_boq_item
+		},
+		callback: function (r) {
+			if (r.message) {
+				frappe.show_alert({
+					message: __('Area done updated to {0} — log saved', [qtyValue.toFixed(2)]),
+					indicator: 'green'
+				});
+				if (r.message.status) {
+					const $select = $node.find('.status-select');
+					$select.val(r.message.status);
+					$select.removeClass('task-status-open task-status-working task-status-pending task-status-overdue task-status-completed task-status-cancelled');
+					$select.addClass(getTaskStatusClass(r.message.status));
+				}
+				if (window._current_boq_item) {
+					refresh_boq_tasks_dialog(window._current_boq_item);
+				}
+			}
+		}
+	});
+};
+
+window.view_task_logs = function (task) {
+	frappe.call({
+		method: 'construction_management.api.boq_tasks.get_task_progress_logs',
+		args: { task: task },
+		callback: function (r) {
+			if (r.message) {
+				const d = new frappe.ui.Dialog({
+					title: __('Progress Logs - {0}', [task]),
+					fields: [{ fieldtype: 'HTML', fieldname: 'logs_html' }]
+				});
+				let html = `<div class="table-responsive"><table class="table table-bordered">
+					<thead><tr>
+						<th>${__('Date')}</th>
+						<th>${__('Area Done')}</th>
+						<th>${__('Progress %')}</th>
+						<th>${__('User')}</th>
+					</tr></thead><tbody>`;
+				if (r.message.length > 0) {
+					r.message.forEach(log => {
+						html += `<tr>
+							<td>${frappe.datetime.str_to_user(log.date)}</td>
+							<td>${parseFloat(log.qty_updated || 0).toFixed(2)}</td>
+							<td>${parseFloat(log.progress_percent || 0).toFixed(1)}%</td>
+							<td>${log.user || ''}</td>
+						</tr>`;
+					});
+				} else {
+					html += `<tr><td colspan="4" class="text-center text-muted">${__('No progress logs yet')}</td></tr>`;
+				}
+				html += '</tbody></table></div>';
+				d.fields_dict.logs_html.$wrapper.html(html);
+				d.show();
+			}
+		}
+	});
 };
 
 window.updateTaskProgress = function (task, progress, inputEl) {
@@ -2632,17 +2792,33 @@ window.updateTaskProgress = function (task, progress, inputEl) {
 		}
 	}
 
+	const expectedQty = parseFloat($node.find('.qty-input').attr('data-expected')) || 0;
+	let qtyValue = parseFloat($node.find(`.qty-input[data-task="${task}"]`).val()) || 0;
+	if (expectedQty > 0) {
+		qtyValue = (progressValue / 100) * expectedQty;
+		$node.find(`.qty-input[data-task="${task}"]`).val(qtyValue.toFixed(2));
+	}
+
 	frappe.call({
 		method: 'construction_management.api.boq_tasks.update_task_status',
-		args: { task: task, status: newStatus, progress: progressValue },
+		args: {
+			task: task,
+			status: newStatus,
+			progress: progressValue,
+			completed_qty: qtyValue,
+			boq_item: window._current_boq_item
+		},
 		callback: function (r) {
 			if (r.message) {
-				frappe.show_alert({ message: __('Progress updated to {0}%', [progressValue]), indicator: 'green' });
+				frappe.show_alert({ message: __('Progress updated to {0}% — log saved', [progressValue]), indicator: 'green' });
 				if (r.message.status) {
 					const $select = $node.find('.status-select');
 					$select.val(r.message.status);
 					$select.removeClass('task-status-open task-status-working task-status-pending task-status-overdue task-status-completed task-status-cancelled');
 					$select.addClass(getTaskStatusClass(r.message.status));
+				}
+				if (window._current_boq_item) {
+					refresh_boq_tasks_dialog(window._current_boq_item);
 				}
 			}
 		}
@@ -2661,9 +2837,22 @@ window.updateTaskStatusWithProgress = function (task, status, selectEl) {
 		progress = 0;
 	}
 
+	const expectedQty = parseFloat($node.find('.qty-input').attr('data-expected')) || 0;
+	let qtyValue = parseFloat($node.find(`.qty-input[data-task="${task}"]`).val()) || 0;
+	if (progress !== null && expectedQty > 0) {
+		qtyValue = (progress / 100) * expectedQty;
+		$node.find(`.qty-input[data-task="${task}"]`).val(qtyValue.toFixed(2));
+	}
+
 	frappe.call({
 		method: 'construction_management.api.boq_tasks.update_task_status',
-		args: { task: task, status: status, progress: progress },
+		args: {
+			task: task,
+			status: status,
+			progress: progress,
+			completed_qty: qtyValue,
+			boq_item: window._current_boq_item
+		},
 		callback: function (r) {
 			if (r.message) {
 				frappe.show_alert({ message: __('Task status updated'), indicator: 'green' });
@@ -2701,8 +2890,7 @@ window.createTaskForBOQ = function (boq_item, btnEl) {
 						d.hide();
 						frappe.show_alert({ message: __('Task {0} created', [r.message.task]), indicator: 'green' });
 						if (window._current_task_dialog) {
-							window._current_task_dialog.hide();
-							showTasksPopup(boq_item);
+							refresh_boq_tasks_dialog(boq_item);
 						}
 					}
 				}
@@ -2713,16 +2901,44 @@ window.createTaskForBOQ = function (boq_item, btnEl) {
 };
 
 window.addChildTask = function (parent_task, project, btnEl) {
+	const boq_item = window._current_boq_item;
 	const d = new frappe.ui.Dialog({
 		title: __('Add Sub-Task'),
 		fields: [
 			{ fieldname: 'subject', label: 'Task Name', fieldtype: 'Data', reqd: 1 },
 			{ fieldtype: 'Column Break' },
-			{ fieldname: 'start_date', label: 'Start Date', fieldtype: 'Date' },
-			{ fieldname: 'end_date', label: 'End Date', fieldtype: 'Date' }
+			{ fieldname: 'start_date', label: 'Start Date', fieldtype: 'Date', default: frappe.datetime.get_today() },
+			{ fieldname: 'end_date', label: 'End Date', fieldtype: 'Date' },
+			{ fieldtype: 'Section Break', label: __('Progress') },
+			{
+				fieldname: 'expected_area',
+				label: __('Expected Area'),
+				fieldtype: 'Float',
+				reqd: 1,
+				default: 0,
+				description: __('Portion of BOQ total quantity for this sub-task')
+			},
+			{ fieldtype: 'Column Break' },
+			{ fieldname: 'completed_qty', label: __('Area Done (Total)'), fieldtype: 'Float', default: 0 },
+			{ fieldtype: 'Column Break' },
+			{ fieldname: 'progress', label: __('Progress (%)'), fieldtype: 'Percent', default: 0 },
+			{ fieldtype: 'Section Break', label: __('Assignment') },
+			{
+				fieldname: 'assignees',
+				label: __('Assignees'),
+				fieldtype: 'MultiSelectPills',
+				get_data: function (txt) {
+					return frappe.db.get_link_options('User', txt, {
+						user_type: 'System User',
+						enabled: 1
+					});
+				}
+			}
 		],
 		primary_action_label: __('Create'),
 		primary_action: function (values) {
+			const assignee_list = (values.assignees || []).filter(Boolean);
+
 			frappe.call({
 				method: 'construction_management.api.boq_tasks.create_child_task',
 				args: {
@@ -2730,22 +2946,34 @@ window.addChildTask = function (parent_task, project, btnEl) {
 					subject: values.subject,
 					project: project,
 					start_date: values.start_date,
-					end_date: values.end_date
+					end_date: values.end_date,
+					boq_item: boq_item,
+					expected_area: values.expected_area || 0,
+					progress: values.progress || 0,
+					completed_qty: values.completed_qty || 0,
+					assignees: assignee_list
 				},
 				callback: function (r) {
 					if (r.message) {
 						d.hide();
 						frappe.show_alert({ message: __('Sub-task created'), indicator: 'green' });
 						if (window._current_task_dialog && window._current_boq_item) {
-							window._current_task_dialog.hide();
-							showTasksPopup(window._current_boq_item);
+							refresh_boq_tasks_dialog(window._current_boq_item);
 						}
 					}
 				}
 			});
 		}
 	});
-	d.show();
+	if (boq_item) {
+		frappe.db.get_value('BOQ Item', boq_item, 'total_qty', (r) => {
+			const boqTotal = flt(r?.message?.total_qty);
+			d.set_df_property('expected_area', 'description', __('BOQ total quantity is {0}. Enter how much this sub-task covers.', [boqTotal]));
+			d.show();
+		});
+	} else {
+		d.show();
+	}
 };
 
 /**
