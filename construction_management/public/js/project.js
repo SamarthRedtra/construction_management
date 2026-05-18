@@ -2873,24 +2873,31 @@ window.view_gantt_chart = function (project) {
 };
 
 function show_gantt_chart_dialog(project, boqItems) {
-	const options = boqItems.map(item => ({
-		label: `[${item.bill_number}] ${item.description || item.name}`,
-		value: item.name
-	}));
-
 	const d = new frappe.ui.Dialog({
 		title: __('Tasks Timeline - {0}', [project]),
 		size: 'extra-large',
 		fields: [
 			{
-				fieldname: 'boq_item',
-				label: 'Select BOQ Item',
-				fieldtype: 'Select',
-				options: options,
+				fieldname: 'boq_items',
+				label: 'Select BOQ Items',
+				fieldtype: 'MultiSelectList',
+				get_data: function(txt) {
+					return boqItems
+						.filter(item => {
+							const label = `[${item.bill_number}] ${item.description || item.name}`;
+							return label.toLowerCase().includes((txt || "").toLowerCase());
+						})
+						.map(item => ({
+							value: item.name,
+							label: `[${item.bill_number}] ${item.description || item.name}`
+						}));
+				},
 				onchange: function() {
-					const boq_item = d.get_value('boq_item');
-					if (boq_item) {
-						load_gantt_timeline(boq_item);
+					const boq_items = d.get_value('boq_items');
+					if (boq_items && boq_items.length > 0) {
+						load_gantt_timeline(boq_items);
+					} else {
+						d.fields_dict.gantt_container.$wrapper.html('<div class="text-center text-muted" style="padding: 50px;">Select at least one BOQ Item to view the timeline.</div>');
 					}
 				}
 			},
@@ -2907,16 +2914,16 @@ function show_gantt_chart_dialog(project, boqItems) {
 
 	d.show();
 
-	function load_gantt_timeline(boq_item) {
+	function load_gantt_timeline(boq_items) {
 		d.fields_dict.gantt_container.$wrapper.html('<div class="text-center" style="padding: 50px;"><i class="fa fa-spinner fa-spin fa-3x"></i></div>');
 		frappe.call({
 			method: 'construction_management.api.gantt.get_task_progress_timeline',
-			args: { boq_item: boq_item },
+			args: { boq_item: boq_items },
 			callback: function (r) {
 				if (r.message) {
 					window._gantt_timeline_export = {
 						project: project,
-						boq_item: boq_item,
+						boq_item: typeof boq_items === 'string' ? boq_items : JSON.stringify(boq_items),
 						data: r.message
 					};
 					render_gantt_calendar(d.fields_dict.gantt_container.$wrapper, r.message);
@@ -2926,7 +2933,7 @@ function show_gantt_chart_dialog(project, boqItems) {
 	}
 
 	if (boqItems.length > 0) {
-		d.set_value('boq_item', boqItems[0].name);
+		d.set_value('boq_items', [boqItems[0].name]);
 	}
 }
 
@@ -2961,7 +2968,7 @@ function render_gantt_calendar(wrapper, data) {
 
 	if (dailyRollup.length > 0) {
 		const totalCompleted = parseFloat(boqItem.completed_qty || 0);
-		const totalQty = parseFloat(boqItem.total_qty || 0);
+		const totalQty = tasks.reduce((sum, t) => sum + parseFloat(t.expected_area || 0), 0) || parseFloat(boqItem.total_qty || 0);
 		const overallProgress = totalQty > 0 ? Math.min(100, (totalCompleted / totalQty) * 100) : 0;
 		tbody += `<tr style="background: #eff6ff;">
 			<td><strong>${__('BOQ Summary')}</strong><div style="font-size: 11px; color: #6c757d;">${boqItem.description || boqItem.name || ''}</div></td>
@@ -3078,7 +3085,7 @@ function build_gantt_timeline_export_rows(data) {
 
 	if (dailyRollup.length > 0) {
 		const totalCompleted = parseFloat(boqItem.completed_qty || 0);
-		const totalQty = parseFloat(boqItem.total_qty || 0);
+		const totalQty = tasks.reduce((sum, t) => sum + parseFloat(t.expected_area || 0), 0) || parseFloat(boqItem.total_qty || 0);
 		const overallProgress = totalQty > 0 ? Math.min(100, (totalCompleted / totalQty) * 100) : 0;
 		const summaryRow = [
 			__('BOQ Summary'),

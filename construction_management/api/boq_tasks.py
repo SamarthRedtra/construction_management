@@ -118,7 +118,9 @@ def rollup_boq_progress(boq_item: str) -> dict:
 	if not linked_task:
 		return {"progress": 0, "completed_qty": 0}
 
-	child_fields = ["name", "progress", "completed_qty"]
+	child_fields = ["name", "progress"]
+	if frappe.db.has_column("Task", "completed_qty"):
+		child_fields.append("completed_qty")
 	if has_task_expected_area_field():
 		child_fields.append("expected_area")
 
@@ -131,8 +133,8 @@ def rollup_boq_progress(boq_item: str) -> dict:
 		return {"progress": 0, "completed_qty": 0, "expected_area": 0}
 
 	boq_total = flt(frappe.db.get_value("BOQ Item", boq_item, "total_qty"))
-	completed_qty = sum(flt(t.completed_qty) for t in child_tasks)
-	expected_total = sum(flt(t.expected_area) for t in child_tasks) or boq_total
+	completed_qty = sum(flt(t.get("completed_qty", 0)) for t in child_tasks)
+	expected_total = sum(flt(t.get("expected_area", 0)) for t in child_tasks) or boq_total
 
 	if expected_total > 0:
 		progress = min(100.0, (completed_qty / expected_total) * 100.0)
