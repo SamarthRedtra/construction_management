@@ -37,11 +37,15 @@ def has_task_expected_area_field() -> bool:
 
 def get_task_expected_area(task_doc, boq_item: str = None) -> float:
 	"""Expected area for progress: task field, else BOQ total for group rows."""
+	if not boq_item:
+		task_name = task_doc.name if hasattr(task_doc, "name") else task_doc.get("name")
+		boq_item = get_boq_item_for_task(task_name)
+		
+	if boq_item:
+		return flt(frappe.db.get_value("BOQ Item", boq_item, "total_qty"))
+
 	if hasattr(task_doc, "expected_area") and flt(task_doc.expected_area) > 0:
 		return flt(task_doc.expected_area)
-
-	if boq_item and not task_doc.get("parent_task"):
-		return flt(frappe.db.get_value("BOQ Item", boq_item, "total_qty"))
 
 	return 0.0
 
@@ -133,8 +137,9 @@ def rollup_boq_progress(boq_item: str) -> dict:
 		return {"progress": 0, "completed_qty": 0, "expected_area": 0}
 
 	boq_total = flt(frappe.db.get_value("BOQ Item", boq_item, "total_qty"))
-	completed_qty = sum(flt(t.get("completed_qty", 0)) for t in child_tasks)
-	expected_total = sum(flt(t.get("expected_area", 0)) for t in child_tasks) or boq_total
+	child_count = len(child_tasks)
+	completed_qty = (sum(flt(t.get("completed_qty", 0)) for t in child_tasks) / child_count) if child_count else 0.0
+	expected_total = boq_total
 
 	if expected_total > 0:
 		progress = min(100.0, (completed_qty / expected_total) * 100.0)
@@ -500,9 +505,10 @@ def get_boq_item_tasks_tree(boq_item: str) -> dict:
 		child_fields = ["name"]
 		if has_task_expected_area_field():
 			child_fields.append("expected_area")
-		for child in frappe.get_all("Task", filters={"parent_task": linked_task}, fields=child_fields):
+		child_list = frappe.get_all("Task", filters={"parent_task": linked_task}, fields=child_fields)
+		if child_list:
 			if has_task_expected_area_field():
-				allocated_expected += flt(child.expected_area)
+				allocated_expected = sum(flt(c.expected_area) for c in child_list) / len(child_list)
 
 	boq_total_qty = flt(boq_item_doc.total_qty)
 	result = {

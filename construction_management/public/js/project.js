@@ -2968,7 +2968,7 @@ function render_gantt_calendar(wrapper, data) {
 
 	if (dailyRollup.length > 0) {
 		const totalCompleted = parseFloat(boqItem.completed_qty || 0);
-		const totalQty = tasks.reduce((sum, t) => sum + parseFloat(t.expected_area || 0), 0) || parseFloat(boqItem.total_qty || 0);
+		const totalQty = parseFloat(boqItem.total_qty || 0);
 		const overallProgress = totalQty > 0 ? Math.min(100, (totalCompleted / totalQty) * 100) : 0;
 		tbody += `<tr style="background: #eff6ff;">
 			<td><strong>${__('BOQ Summary')}</strong><div style="font-size: 11px; color: #6c757d;">${boqItem.description || boqItem.name || ''}</div></td>
@@ -2992,7 +2992,7 @@ function render_gantt_calendar(wrapper, data) {
 	tasks.forEach(task => {
 		const taskLogs = logs.filter(l => l.task === task.name);
 		const progressColor = task.progress >= 100 ? '#10b981' : (task.progress > 0 ? '#fbbf24' : '#9ca3af');
-		const taskTotalArea = parseFloat(task.expected_area || 0);
+		const taskTotalArea = parseFloat(boqItem.total_qty || task.expected_area || 0);
 		
 		tbody += `<tr>
 			<td>
@@ -3085,7 +3085,7 @@ function build_gantt_timeline_export_rows(data) {
 
 	if (dailyRollup.length > 0) {
 		const totalCompleted = parseFloat(boqItem.completed_qty || 0);
-		const totalQty = tasks.reduce((sum, t) => sum + parseFloat(t.expected_area || 0), 0) || parseFloat(boqItem.total_qty || 0);
+		const totalQty = parseFloat(boqItem.total_qty || 0);
 		const overallProgress = totalQty > 0 ? Math.min(100, (totalCompleted / totalQty) * 100) : 0;
 		const summaryRow = [
 			__('BOQ Summary'),
@@ -3107,7 +3107,7 @@ function build_gantt_timeline_export_rows(data) {
 		const row = [
 			task.subject || '',
 			task.name || '',
-			parseFloat(task.expected_area || 0).toFixed(2),
+			parseFloat(boqItem.total_qty || task.expected_area || 0).toFixed(2),
 			parseFloat(task.completed_qty || 0).toFixed(2),
 			parseFloat(task.progress || 0).toFixed(1)
 		];
