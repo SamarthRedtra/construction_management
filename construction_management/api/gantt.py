@@ -392,42 +392,104 @@ def get_task_class(progress: float) -> str:
 @frappe.whitelist()
 def get_task_progress_timeline(boq_item: str) -> dict:
 	"""
-	Fetch all tasks for a specific BOQ Item and cross-reference them with their
+	Fetch all tasks for one or more BOQ Items and cross-reference them with their
 	Task Progress Log entries to return timeline data for the frontend calendar view.
 	
 	Args:
-		boq_item: BOQ Item name
+		boq_item: BOQ Item name (can be a JSON array string or a comma-separated list of names)
 		
 	Returns:
 		dict with tasks and their timeline of progress
 	"""
+	import json
+	
+	# Parse boq_item into a list of names
+	boq_items = []
+	if isinstance(boq_item, list):
+		boq_items = boq_item
+	elif isinstance(boq_item, str):
+		if boq_item.startswith("[") and boq_item.endswith("]"):
+			try:
+				boq_items = json.loads(boq_item)
+			except Exception:
+				boq_items = [boq_item]
+		elif "," in boq_item:
+			boq_items = [x.strip() for x in boq_item.split(",")]
+		else:
+			boq_items = [boq_item]
+	else:
+		boq_items = [boq_item]
+		
+	boq_items = [b for b in boq_items if b]
+	
+	if not boq_items:
+		return {"tasks": [], "logs": [], "boq_item": {}, "daily_rollup": []}
+
 	from construction_management.api.boq_tasks import get_boq_item_tasks_tree
+	has_task_completed_qty = frappe.db.has_column("Task", "completed_qty")
 
-	tree_data = get_boq_item_tasks_tree(boq_item)
-	tasks = _flatten_task_tree(tree_data.get("tasks") or [])
+	all_tasks = []
+	all_logs = []
+	all_boq_item_details = []
 
-	task_names = [t.get("name") for t in tasks if t.get("name")]
-	if not task_names:
-		return {"tasks": [], "logs": [], "boq_item": tree_data.get("boq_item") or {}}
+	for b in boq_items:
+		if not frappe.db.exists("BOQ Item", b):
+			continue
+			
+		tree_data = get_boq_item_tasks_tree(b)
+		tasks = _flatten_task_tree(tree_data.get("tasks") or [])
+		
+		for t in tasks:
+			if not t.get("is_group"):
+				t["completed_qty"] = frappe.db.get_value("Task", t["name"], "completed_qty") if has_task_completed_qty else 0.0
+				t["completed_qty"] = t["completed_qty"] or 0.0
+				
+		all_tasks.extend(tasks)
+		
+		task_names = [t.get("name") for t in tasks if t.get("name")]
+		if task_names:
+			logs = frappe.get_all(
+				"Task Progress Log",
+				filters={"boq_item": b, "task": ["in", task_names]},
+				fields=["task", "date", "qty_updated", "progress_percent", "remarks", "user"],
+				order_by="date asc",
+			)
+			all_logs.extend(logs)
+			
+		boq_item_doc = tree_data.get("boq_item") or frappe.get_doc("BOQ Item", b).as_dict()
+		all_boq_item_details.append(boq_item_doc)
 
-	logs = frappe.get_all(
-		"Task Progress Log",
-		filters={"boq_item": boq_item, "task": ["in", task_names]},
-		fields=["task", "date", "qty_updated", "progress_percent", "remarks", "user"],
-		order_by="date asc",
-	)
+	# Combine BOQ Item details for display
+	combined_boq = {}
+	if all_boq_item_details:
+		total_qty = sum(flt(item.get("total_qty", 0)) for item in all_boq_item_details)
+		completed_qty = sum(flt(item.get("completed_qty", 0)) for item in all_boq_item_details)
+		units = list(set(item.get("unit") for item in all_boq_item_details if item.get("unit")))
+		unit = ", ".join(units) if units else ""
+		
+		if len(all_boq_item_details) == 1:
+			name = all_boq_item_details[0].get("name")
+			description = all_boq_item_details[0].get("description") or name
+		else:
+			name = f"Multiple BOQ Items ({len(all_boq_item_details)})"
+			description = f"Selected Items: " + ", ".join(item.get("name") for item in all_boq_item_details[:3])
+			if len(all_boq_item_details) > 3:
+				description += "..."
+				
+		combined_boq = {
+			"name": name,
+			"description": description,
+			"total_qty": total_qty,
+			"completed_qty": completed_qty,
+			"unit": unit
+		}
 
-	for t in tasks:
-		if not t.get("is_group"):
-			t["completed_qty"] = frappe.db.get_value("Task", t["name"], "completed_qty") or 0.0
-
-	boq_item_doc = tree_data.get("boq_item") or frappe.get_doc("BOQ Item", boq_item).as_dict()
-	rollup = _get_boq_daily_rollup(logs)
+	rollup = _get_boq_daily_rollup(all_logs)
 
 	return {
-		"tasks": tasks,
-		"logs": logs,
-		"boq_item": boq_item_doc,
+		"tasks": all_tasks,
+		"logs": all_logs,
+		"boq_item": combined_boq,
 		"daily_rollup": rollup,
 	}
 
