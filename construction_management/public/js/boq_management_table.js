@@ -2440,7 +2440,22 @@ function showTaskManagementDialog(itemName, data) {
 	});
 
 	function renderTaskManagement() {
-		let content = `
+		if (typeof window.ensureTaskTreeStyles === 'function') {
+			window.ensureTaskTreeStyles();
+		} else if (!$('#task-management-qty-styles').length) {
+			$('head').append(getTaskManagementStyles());
+		}
+
+		let content;
+		if (typeof window.build_task_tree_dialog_html === 'function') {
+			content = window.build_task_tree_dialog_html(itemName, {
+				boq_item: boqItem,
+				tasks: tasks,
+				has_tasks: hasTasks,
+				linked_task: linkedTask
+			});
+		} else {
+			content = `
 			<div class="task-management-container">
 				<div class="task-header">
 					<div class="task-header-info">
@@ -2462,12 +2477,12 @@ function showTaskManagementDialog(itemName, data) {
 						`}
 					</div>
 				</div>
-				${typeof renderBoqTaskQtyBanner === 'function' ? renderBoqTaskQtyBanner(boqItem, itemName, tasks) : ''}
+				${typeof window.renderBoqTaskQtyBanner === 'function' ? window.renderBoqTaskQtyBanner(boqItem, itemName, tasks) : ''}
 		`;
 
-		if (hasTasks && tasks.length > 0) {
-			const unitLabel = boqItem.unit || __('Area');
-			content += `
+			if (hasTasks && tasks.length > 0) {
+				const unitLabel = boqItem.unit || __('Area');
+				content += `
 				<div class="task-tree-header">
 					<span class="task-col-name">${__('Task')}</span>
 					<span class="task-col-area">${__('BOQ Total / Expected / Done')} (${unitLabel})</span>
@@ -2476,20 +2491,19 @@ function showTaskManagementDialog(itemName, data) {
 					<span class="task-col-actions">${__('Actions')}</span>
 				</div>
 				<div class="task-tree">${renderTaskTree(tasks, boqItem)}</div>`;
-		} else {
-			content += `
+			} else {
+				content += `
 				<div class="no-tasks-message">
 					<i class="fa fa-tasks" style="font-size: 48px; color: #ccc; margin-bottom: 15px;"></i>
 					<p>No tasks linked to this BOQ Item yet.</p>
 					<p class="text-muted">Click "Create Task" to create a group task for this BOQ Item.</p>
 				</div>
 			`;
+			}
+
+			content += `</div>`;
 		}
 
-		content += `</div>`;
-		if (typeof ensureTaskTreeStyles === 'function') {
-			ensureTaskTreeStyles();
-		}
 		dialog.fields_dict.task_content.$wrapper.html(content);
 	}
 
@@ -2509,8 +2523,8 @@ function showTaskManagementDialog(itemName, data) {
 			const areaDone = parseFloat(task.completed_qty || 0);
 			const isGroup = task.is_group;
 
-			const areaField = typeof renderTaskAreaFields === 'function'
-				? renderTaskAreaFields(task, boqItemData)
+			const areaField = typeof window.renderTaskAreaFields === 'function'
+				? window.renderTaskAreaFields(task, boqItemData)
 				: '';
 
 			html += `
@@ -2590,6 +2604,12 @@ function showTaskManagementDialog(itemName, data) {
 		renderTaskManagement();
 	};
 
+	if (typeof window.ensureTaskTreeStyles === 'function') {
+		window.ensureTaskTreeStyles();
+	} else if (!$('#task-management-qty-styles').length) {
+		$('head').append(getTaskManagementStyles());
+	}
+
 	renderTaskManagement();
 	dialog.onhide = function () {
 		window._paint_task_dialog = null;
@@ -2613,8 +2633,18 @@ function getTaskStatusClass(status) {
 }
 
 function getTaskManagementStyles() {
-	return `<style>
+	return `<style id="task-management-qty-styles">
 		.task-management-container { padding: 0; }
+		.boq-qty-banner { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; width: 100%; }
+		.boq-qty-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; min-width: 0; }
+		.boq-qty-card-primary { border-color: #c7d2fe; background: #f8fafc; }
+		.boq-qty-label { font-size: 10px; font-weight: 600; text-transform: uppercase; color: #64748b; margin-bottom: 4px; }
+		.boq-qty-value { font-size: 18px; font-weight: 700; color: #0f172a; line-height: 1.2; }
+		.boq-qty-unit { font-size: 12px; font-weight: 500; color: #64748b; }
+		.boq-qty-hint { font-size: 10px; color: #94a3b8; margin-top: 4px; line-height: 1.3; }
+		.boq-qty-edit { font-size: 11px; color: #4f46e5; display: inline-block; margin-top: 6px; }
+		.boq-qty-warning { background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; padding: 8px 12px; border-radius: 6px; font-size: 12px; margin-bottom: 12px; }
+		@media (max-width: 900px) { .boq-qty-banner { grid-template-columns: repeat(2, 1fr); } }
 		.task-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px; margin-bottom: 16px; }
 		.task-header h4 { margin: 0 0 8px 0; font-size: 15px; }
 		.task-meta { font-size: 12px; opacity: 0.9; }

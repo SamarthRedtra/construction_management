@@ -5206,9 +5206,13 @@ window.view_boq_tasks = function (boq_item) {
 		existing.$wrapper &&
 		existing.$wrapper.is(':visible') &&
 		window._current_boq_item === boq_item &&
-		typeof window._paint_task_dialog === 'function'
+		typeof window.refresh_boq_tasks_dialog === 'function'
 	) {
 		return window.refresh_boq_tasks_dialog(boq_item);
+	}
+	// Prefer unified Task Management popup (includes qty summary banner with Remaining to Allocate)
+	if (typeof window.showTasksPopup === 'function') {
+		return window.showTasksPopup(boq_item);
 	}
 	frappe.call({
 		method: 'construction_management.api.boq_tasks.get_boq_item_tasks_tree',
@@ -5405,12 +5409,15 @@ function getBoqQtySummary(boqItem, tasks) {
 	const unit = boqItem.unit || '';
 	const boqTotal = parseFloat(boqItem.total_qty || 0);
 	const allocatedFromApi = parseFloat(boqItem.allocated_expected);
+	const remainingFromApi = parseFloat(boqItem.remaining_expected);
 	const subtasks = flattenBoqTaskNodes(tasks).filter((t) => !t.is_group);
 	const allocated = !isNaN(allocatedFromApi)
 		? allocatedFromApi
 		: subtasks.reduce((sum, t) => sum + parseFloat(t.expected_area || 0), 0);
 	const doneTotal = parseFloat(boqItem.completed_qty || 0);
-	const remaining = Math.max(0, boqTotal - allocated);
+	const remaining = !isNaN(remainingFromApi)
+		? remainingFromApi
+		: Math.max(0, boqTotal - allocated);
 	const progressPct = boqTotal > 0 ? Math.min(100, (doneTotal / boqTotal) * 100) : 0;
 
 	return { unit, boqTotal, allocated, remaining, doneTotal, progressPct, subtaskCount: subtasks.length };
@@ -5513,7 +5520,7 @@ function getTaskTreeStylesCss() {
 		.task-actions { display: flex; gap: 4px; flex-shrink: 0; }
 		.task-children { background: #fafafa; }
 		.no-tasks-message { text-align: center; padding: 40px 20px; color: #6c757d; }
-		.boq-qty-banner { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+		.boq-qty-banner { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; width: 100%; }
 		.boq-qty-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; }
 		.boq-qty-card-primary { border-color: #c7d2fe; background: #f8fafc; }
 		.boq-qty-label { font-size: 10px; font-weight: 600; text-transform: uppercase; color: #64748b; margin-bottom: 4px; }
@@ -5525,6 +5532,15 @@ function getTaskTreeStylesCss() {
 		@media (max-width: 900px) { .boq-qty-banner { grid-template-columns: repeat(2, 1fr); } }
 	`;
 }
+
+// Expose task popup helpers for boq_management_table.js (Task Management dialog)
+window.build_task_tree_dialog_html = build_task_tree_dialog_html;
+window.renderBoqTaskQtyBanner = renderBoqTaskQtyBanner;
+window.getBoqQtySummary = getBoqQtySummary;
+window.flattenBoqTaskNodes = flattenBoqTaskNodes;
+window.ensureTaskTreeStyles = ensureTaskTreeStyles;
+window.renderTaskAreaFields = renderTaskAreaFields;
+window.render_task_tree_nodes = render_task_tree_nodes;
 
 function renderTaskAreaFields(task, boqItemData) {
 	const unit = boqItemData.unit || '';
