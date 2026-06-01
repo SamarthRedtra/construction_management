@@ -2500,7 +2500,11 @@ function showTaskManagementDialog(itemName, data) {
 
 		for (const task of taskNodes) {
 			const statusClass = getTaskStatusClass(task.status);
-			const progressWidth = Math.min(100, Math.max(0, task.progress || 0));
+			const expectedForProgress = parseFloat(task.expected_area || 0);
+			const doneForProgress = parseFloat(task.completed_qty || 0);
+			const progressWidth = expectedForProgress > 0
+				? Math.min(100, Math.max(0, (doneForProgress / expectedForProgress) * 100))
+				: Math.min(100, Math.max(0, task.progress || 0));
 			const hasChildren = task.children && task.children.length > 0;
 			const areaDone = parseFloat(task.completed_qty || 0);
 			const isGroup = task.is_group;
@@ -2557,6 +2561,11 @@ function showTaskManagementDialog(itemName, data) {
 							<button class="btn btn-xs btn-default" onclick="addChildTask('${task.name}', '${boqItemData.project}', this)" title="${__('Add Sub-Task')}">
 								<i class="fa fa-plus"></i>
 							</button>
+							${!hasChildren && !isGroup ? `
+							<button class="btn btn-xs btn-primary" onclick="add_task_progress_entry('${task.name}')" title="${__('Add Progress')}">
+								<i class="fa fa-calendar-plus-o"></i>
+							</button>
+							` : ''}
 							<button class="btn btn-xs btn-default" onclick="view_task_logs('${task.name}')" title="${__('View Progress Logs')}">
 								<i class="fa fa-history"></i>
 							</button>
@@ -2666,12 +2675,24 @@ window.toggleTaskChildren = function (el) {
 	node.toggleClass('collapsed');
 };
 
+function _resolveTaskExpectedQty($node) {
+	if (typeof window.getTaskExpectedQty === 'function') {
+		return window.getTaskExpectedQty($node);
+	}
+	const fromAttr = parseFloat($node.find('.qty-input').attr('data-expected'));
+	if (!isNaN(fromAttr) && fromAttr > 0) {
+		return fromAttr;
+	}
+	const fromInput = parseFloat($node.find('.expected-input').val());
+	return !isNaN(fromInput) && fromInput > 0 ? fromInput : 0;
+}
+
 window.previewTaskProgress = function (task, progress, sliderEl) {
 	const $node = $(sliderEl).closest('.task-node');
 	const progressValue = Math.min(100, Math.max(0, parseInt(progress) || 0));
 	$node.find(`.progress-fill[data-task="${task}"]`).css('width', progressValue + '%');
 	$node.find(`.progress-input[data-task="${task}"]`).val(progressValue);
-	const expectedQty = parseFloat($node.find('.qty-input').attr('data-expected')) || 0;
+	const expectedQty = _resolveTaskExpectedQty($node);
 	if (expectedQty > 0) {
 		const qtyValue = (progressValue / 100) * expectedQty;
 		$node.find(`.qty-input[data-task="${task}"]`).val(qtyValue.toFixed(2));
@@ -2680,7 +2701,7 @@ window.previewTaskProgress = function (task, progress, sliderEl) {
 
 window.updateTaskQty = function (task, qty, inputEl) {
 	const $node = $(inputEl).closest('.task-node');
-	const expectedQty = parseFloat($node.find('.qty-input').attr('data-expected')) || 0;
+	const expectedQty = _resolveTaskExpectedQty($node);
 	let qtyValue = parseFloat(qty) || 0;
 	if (expectedQty > 0) {
 		qtyValue = Math.max(0, Math.min(qtyValue, expectedQty));
@@ -2737,42 +2758,48 @@ window.updateTaskQty = function (task, qty, inputEl) {
 	});
 };
 
-window.view_task_logs = function (task) {
-	frappe.call({
-		method: 'construction_management.api.boq_tasks.get_task_progress_logs',
-		args: { task: task },
-		callback: function (r) {
-			if (r.message) {
-				const d = new frappe.ui.Dialog({
-					title: __('Progress Logs - {0}', [task]),
-					fields: [{ fieldtype: 'HTML', fieldname: 'logs_html' }]
-				});
-				let html = `<div class="table-responsive"><table class="table table-bordered">
-					<thead><tr>
-						<th>${__('Date')}</th>
-						<th>${__('Area Done')}</th>
-						<th>${__('Progress %')}</th>
-						<th>${__('User')}</th>
-					</tr></thead><tbody>`;
-				if (r.message.length > 0) {
-					r.message.forEach(log => {
-						html += `<tr>
-							<td>${frappe.datetime.str_to_user(log.date)}</td>
-							<td>${parseFloat(log.qty_updated || 0).toFixed(2)}</td>
-							<td>${parseFloat(log.progress_percent || 0).toFixed(1)}%</td>
-							<td>${log.user || ''}</td>
-						</tr>`;
+if (typeof window.view_task_logs !== 'function') {
+	window.view_task_logs = function (task) {
+		frappe.call({
+			method: 'construction_management.api.boq_tasks.get_task_progress_logs',
+			args: { task: task },
+			callback: function (r) {
+				if (r.message) {
+					const d = new frappe.ui.Dialog({
+						title: __('Progress Logs - {0}', [task]),
+						fields: [{ fieldtype: 'HTML', fieldname: 'logs_html' }]
 					});
-				} else {
-					html += `<tr><td colspan="4" class="text-center text-muted">${__('No progress logs yet')}</td></tr>`;
+					let html = `<div class="table-responsive"><table class="table table-bordered">
+						<thead><tr>
+							<th>${__('Date')}</th>
+							<th>${__('Daily Qty')}</th>
+							<th>${__('Cumulative Total')}</th>
+							<th>${__('Progress %')}</th>
+							<th>${__('User')}</th>
+							<th>${__('Remarks')}</th>
+						</tr></thead><tbody>`;
+					if (r.message.length > 0) {
+						r.message.forEach(log => {
+							html += `<tr>
+								<td>${frappe.datetime.str_to_user(log.date)}</td>
+								<td>${parseFloat(log.qty_updated || 0).toFixed(2)}</td>
+								<td>${parseFloat(log.cumulative_qty || 0).toFixed(2)}</td>
+								<td>${parseFloat(log.progress_percent || 0).toFixed(1)}%</td>
+								<td>${log.user || ''}</td>
+								<td>${log.remarks || ''}</td>
+							</tr>`;
+						});
+					} else {
+						html += `<tr><td colspan="6" class="text-center text-muted">${__('No progress logs yet')}</td></tr>`;
+					}
+					html += '</tbody></table></div>';
+					d.fields_dict.logs_html.$wrapper.html(html);
+					d.show();
 				}
-				html += '</tbody></table></div>';
-				d.fields_dict.logs_html.$wrapper.html(html);
-				d.show();
 			}
-		}
-	});
-};
+		});
+	};
+}
 
 window.updateTaskProgress = function (task, progress, inputEl) {
 	const progressValue = Math.min(100, Math.max(0, parseInt(progress) || 0));
@@ -2792,11 +2819,18 @@ window.updateTaskProgress = function (task, progress, inputEl) {
 		}
 	}
 
-	const expectedQty = parseFloat($node.find('.qty-input').attr('data-expected')) || 0;
+	const expectedQty = _resolveTaskExpectedQty($node);
 	let qtyValue = parseFloat($node.find(`.qty-input[data-task="${task}"]`).val()) || 0;
 	if (expectedQty > 0) {
 		qtyValue = (progressValue / 100) * expectedQty;
 		$node.find(`.qty-input[data-task="${task}"]`).val(qtyValue.toFixed(2));
+	} else if (progressValue > 0) {
+		frappe.msgprint(__('Please set Expected Area on this sub-task first.'));
+		return;
+	}
+
+	if (progressValue > 0 && qtyValue <= 0) {
+		return;
 	}
 
 	frappe.call({
@@ -2837,7 +2871,7 @@ window.updateTaskStatusWithProgress = function (task, status, selectEl) {
 		progress = 0;
 	}
 
-	const expectedQty = parseFloat($node.find('.qty-input').attr('data-expected')) || 0;
+	const expectedQty = _resolveTaskExpectedQty($node);
 	let qtyValue = parseFloat($node.find(`.qty-input[data-task="${task}"]`).val()) || 0;
 	if (progress !== null && expectedQty > 0) {
 		qtyValue = (progress / 100) * expectedQty;
@@ -2864,6 +2898,9 @@ window.updateTaskStatusWithProgress = function (task, status, selectEl) {
 				$node.find(`.progress-fill[data-task="${task}"]`).css('width', newProgress + '%');
 				$node.find(`.progress-slider[data-task="${task}"]`).val(newProgress);
 				$node.find(`.progress-input[data-task="${task}"]`).val(newProgress);
+				if (window._current_boq_item) {
+					refresh_boq_tasks_dialog(window._current_boq_item);
+				}
 			}
 		}
 	});
