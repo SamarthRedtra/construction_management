@@ -119,6 +119,8 @@ def get_boq_items_for_project(project: str) -> list:
 		SELECT 
 			bi.name,
 			bi.description,
+			bi.total_qty,
+			bi.unit,
 			bi.parent_bill as bill_no,
 			bb.bill_no as bill_number
 		FROM `tabBOQ Item` bi

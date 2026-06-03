@@ -36,18 +36,65 @@ def has_task_expected_area_field() -> bool:
 
 
 def get_task_expected_area(task_doc, boq_item: str = None) -> float:
-	"""Expected area for progress: task field, else BOQ total for group rows."""
-	if not boq_item:
-		task_name = task_doc.name if hasattr(task_doc, "name") else task_doc.get("name")
-		boq_item = get_boq_item_for_task(task_name)
-		
-	if boq_item:
-		return flt(frappe.db.get_value("BOQ Item", boq_item, "total_qty"))
-
+	"""Expected area for progress: sub-task expected_area, else BOQ total for group task."""
 	if hasattr(task_doc, "expected_area") and flt(task_doc.expected_area) > 0:
 		return flt(task_doc.expected_area)
 
+	if not boq_item:
+		task_name = task_doc.name if hasattr(task_doc, "name") else task_doc.get("name")
+		boq_item = get_boq_item_for_task(task_name)
+
+	if boq_item:
+		return flt(frappe.db.get_value("BOQ Item", boq_item, "total_qty"))
+
 	return 0.0
+
+
+def get_task_cumulative_qty_from_logs(task: str) -> float:
+	"""Sum of daily increments from Task Progress Log for a task."""
+	if not task:
+		return 0.0
+	result = frappe.db.sql(
+		"""
+		SELECT COALESCE(SUM(qty_updated), 0)
+		FROM `tabTask Progress Log`
+		WHERE task = %s
+		""",
+		task,
+	)
+	return flt(result[0][0]) if result else 0.0
+
+
+def sync_task_completed_qty_from_logs(task: str, boq_item: str = None) -> dict:
+	"""Set Task.completed_qty and progress from the sum of daily progress logs."""
+	task_doc = frappe.get_doc("Task", task)
+	boq_item = boq_item or get_boq_item_for_task(task)
+	cumulative = get_task_cumulative_qty_from_logs(task)
+
+	if hasattr(task_doc, "completed_qty"):
+		task_doc.completed_qty = cumulative
+
+	expected = get_task_expected_area(task_doc, boq_item)
+	task_doc.progress = calculate_progress_from_area(cumulative, expected, boq_item)
+
+	if flt(task_doc.progress) >= 100:
+		task_doc.status = "Completed"
+		task_doc.progress = 100
+	elif flt(task_doc.progress) > 0 and task_doc.status == "Open":
+		task_doc.status = "Working"
+
+	task_doc.flags.ignore_permissions = True
+	frappe.flags.skip_task_progress_log = True
+	try:
+		task_doc.save(ignore_permissions=True)
+	finally:
+		frappe.flags.skip_task_progress_log = False
+
+	return {
+		"completed_qty": cumulative,
+		"progress": flt(task_doc.progress),
+		"status": task_doc.status,
+	}
 
 
 def calculate_progress_from_area(completed_qty: float, expected_area: float, boq_item: str = None) -> float:
@@ -66,24 +113,48 @@ def _task_area_payload(task) -> dict:
 	}
 
 
+def _progress_log_name(task: str, log_date) -> str:
+	"""Deterministic primary key for Task Progress Log (one row per task per date)."""
+	d = getdate(log_date or today())
+	return f"TPL-{task}-{d.strftime('%Y')}-{d.strftime('%m')}-{d.strftime('%d')}"
+
+
 def log_task_progress(
 	task: str,
 	boq_item: str,
 	progress: float = None,
 	completed_qty: float = None,
+	daily_qty: float = None,
+	log_date: str = None,
 	remarks: str = None,
 ) -> str | None:
-	"""Create or update today's Task Progress Log for a task."""
+	"""Create or update a Task Progress Log entry (qty_updated = daily increment for that date)."""
 	if not task or not boq_item:
 		return None
 
-	if progress is None and completed_qty is None:
+	entry_date = getdate(log_date or today())
+	qty_for_log = None
+
+	if daily_qty is not None:
+		qty_for_log = flt(daily_qty)
+	elif completed_qty is not None:
+		other_sum = frappe.db.sql(
+			"""
+			SELECT COALESCE(SUM(qty_updated), 0)
+			FROM `tabTask Progress Log`
+			WHERE task = %s AND date != %s
+			""",
+			(task, entry_date),
+		)[0][0]
+		qty_for_log = max(0.0, flt(completed_qty) - flt(other_sum))
+
+	if qty_for_log is None and progress is None:
 		return None
 
-	current_date = today()
-	existing_name = frappe.db.get_value(
+	log_name = _progress_log_name(task, entry_date)
+	existing_name = log_name if frappe.db.exists("Task Progress Log", log_name) else frappe.db.get_value(
 		"Task Progress Log",
-		{"task": task, "date": current_date},
+		{"task": task, "date": entry_date},
 		"name",
 	)
 
@@ -91,27 +162,32 @@ def log_task_progress(
 		log = frappe.get_doc("Task Progress Log", existing_name)
 	else:
 		log = frappe.new_doc("Task Progress Log")
+		log.name = log_name
 		log.boq_item = boq_item
 		log.task = task
-		log.date = current_date
+		log.date = entry_date
 		log.user = frappe.session.user
 
-	if completed_qty is not None:
-		log.qty_updated = flt(completed_qty)
-	if progress is not None:
-		log.progress_percent = flt(progress)
-	if remarks:
-		log.remarks = remarks
+	if qty_for_log is not None:
+		log.qty_updated = qty_for_log
 
 	task_expected = frappe.db.get_value("Task", task, "expected_area")
 	if task_expected and hasattr(log, "expected_area"):
 		log.expected_area = flt(task_expected)
 
+	if remarks:
+		log.remarks = remarks
+
 	log.flags.ignore_permissions = True
-	if existing_name:
-		log.save()
-	else:
-		log.insert()
+	log.save()
+
+	synced = sync_task_completed_qty_from_logs(task, boq_item)
+	if progress is not None:
+		log.progress_percent = flt(progress)
+	elif synced.get("progress") is not None:
+		log.progress_percent = flt(synced["progress"])
+	log.flags.ignore_permissions = True
+	log.save()
 
 	return log.name
 
@@ -137,8 +213,7 @@ def rollup_boq_progress(boq_item: str) -> dict:
 		return {"progress": 0, "completed_qty": 0, "expected_area": 0}
 
 	boq_total = flt(frappe.db.get_value("BOQ Item", boq_item, "total_qty"))
-	child_count = len(child_tasks)
-	completed_qty = (sum(flt(t.get("completed_qty", 0)) for t in child_tasks) / child_count) if child_count else 0.0
+	completed_qty = sum(flt(t.get("completed_qty", 0)) for t in child_tasks)
 	expected_total = boq_total
 
 	if expected_total > 0:
@@ -196,6 +271,25 @@ def enrich_task_tree_with_today_logs(tasks: list) -> None:
 			apply_logs(node.get("children") or [])
 
 	apply_logs(tasks)
+
+
+def enrich_task_tree_with_log_totals(tasks: list) -> None:
+	"""Refresh completed_qty and progress on leaf nodes from progress log totals."""
+	if not tasks:
+		return
+
+	def apply(nodes):
+		for node in nodes or []:
+			if node.get("children"):
+				apply(node["children"])
+			elif not node.get("is_group"):
+				cumulative = get_task_cumulative_qty_from_logs(node["name"])
+				node["completed_qty"] = cumulative
+				expected = flt(node.get("expected_area"))
+				if expected > 0:
+					node["progress"] = calculate_progress_from_area(cumulative, expected)
+
+	apply(tasks)
 
 
 def assign_users_to_task(task_name: str, assignees=None) -> None:
@@ -508,7 +602,7 @@ def get_boq_item_tasks_tree(boq_item: str) -> dict:
 		child_list = frappe.get_all("Task", filters={"parent_task": linked_task}, fields=child_fields)
 		if child_list:
 			if has_task_expected_area_field():
-				allocated_expected = sum(flt(c.expected_area) for c in child_list) / len(child_list)
+				allocated_expected = sum(flt(c.expected_area) for c in child_list)
 
 	boq_total_qty = flt(boq_item_doc.total_qty)
 	result = {
@@ -538,8 +632,20 @@ def get_boq_item_tasks_tree(boq_item: str) -> dict:
 	# Build task tree
 	task_tree = build_task_tree(linked_task)
 	enrich_task_tree_with_today_logs(task_tree)
+	enrich_task_tree_with_log_totals(task_tree)
 	result["tasks"] = task_tree
 	result["has_tasks"] = True
+
+	def _sum_leaf_completed(nodes):
+		total = 0.0
+		for node in nodes or []:
+			if node.get("children"):
+				total += _sum_leaf_completed(node["children"])
+			elif not node.get("is_group"):
+				total += flt(node.get("completed_qty"))
+		return total
+
+	result["boq_item"]["completed_qty"] = _sum_leaf_completed(task_tree)
 	parent_area = _task_area_payload(parent_task)
 	result["parent_task"] = {
 		"name": parent_task.name,
@@ -713,7 +819,6 @@ def update_task_status(
 	Returns:
 		dict with updated task details
 	"""
-	from frappe.utils import today
 	task_doc = frappe.get_doc("Task", task)
 	
 	# Update status if provided
@@ -735,43 +840,82 @@ def update_task_status(
 	# Auto-set progress based on status
 	if status == "Completed":
 		task_doc.progress = 100
+		if progress is None and completed_qty is None:
+			completed_qty = get_task_expected_area(task_doc, boq_item or get_boq_item_for_task(task))
 	elif status == "Open":
 		task_doc.progress = 0
+		if progress is None and completed_qty is None:
+			completed_qty = 0
 	elif status == "Cancelled":
 		task_doc.progress = 0
+		if progress is None and completed_qty is None:
+			completed_qty = 0
 	
 	if expected_area is not None and hasattr(task_doc, "expected_area"):
 		task_doc.expected_area = flt(expected_area)
-
-	if completed_qty is not None:
-		task_doc.completed_qty = flt(completed_qty)
-
-		if progress is None:
-			expected = get_task_expected_area(task_doc, boq_item or get_boq_item_for_task(task))
-			task_doc.progress = calculate_progress_from_area(
-				task_doc.completed_qty, expected, boq_item
-			)
-	
-	task_doc.flags.ignore_permissions = True
-	frappe.flags.skip_task_progress_log = True
-	try:
-		task_doc.save()
-	finally:
-		frappe.flags.skip_task_progress_log = False
+		task_doc.flags.ignore_permissions = True
+		frappe.flags.skip_task_progress_log = True
+		try:
+			task_doc.save(ignore_permissions=True)
+		finally:
+			frappe.flags.skip_task_progress_log = False
+		task_doc.reload()
 
 	boq_item = boq_item or get_boq_item_for_task(task)
-	if boq_item and (progress is not None or completed_qty is not None or expected_area is not None):
-		log_progress = flt(progress) if progress is not None else flt(task_doc.progress)
-		log_qty = flt(completed_qty) if completed_qty is not None else flt(task_doc.get("completed_qty"))
+
+	if completed_qty is None and progress is not None:
+		expected = get_task_expected_area(task_doc, boq_item)
+		if expected > 0:
+			completed_qty = (flt(progress) / 100.0) * expected
+
+	if boq_item and (progress is not None or completed_qty is not None):
 		log_task_progress(
 			task=task,
 			boq_item=boq_item,
-			progress=log_progress,
-			completed_qty=log_qty,
+			progress=flt(progress) if progress is not None else None,
+			completed_qty=flt(completed_qty) if completed_qty is not None else None,
 			remarks=_("Daily area update"),
 		)
 		rollup_boq_progress(boq_item)
+		task_doc.reload()
+	elif status or expected_area is not None:
+		task_doc.flags.ignore_permissions = True
+		frappe.flags.skip_task_progress_log = True
+		try:
+			task_doc.save(ignore_permissions=True)
+		finally:
+			frappe.flags.skip_task_progress_log = False
 
+	return {
+		"name": task_doc.name,
+		"status": task_doc.status,
+		"progress": flt(task_doc.progress),
+		"completed_qty": flt(task_doc.get("completed_qty")),
+		"expected_area": flt(task_doc.get("expected_area")) if hasattr(task_doc, "expected_area") else 0.0,
+	}
+
+
+@frappe.whitelist()
+def add_task_progress_entry(
+	task: str,
+	boq_item: str,
+	log_date: str,
+	daily_qty: float,
+	remarks: str = None,
+) -> dict:
+	"""Add or update a daily progress increment for a task on a specific date."""
+	if not task or not boq_item:
+		frappe.throw(_("Task and BOQ Item are required"))
+
+	log_task_progress(
+		task=task,
+		boq_item=boq_item,
+		daily_qty=flt(daily_qty),
+		log_date=log_date,
+		remarks=remarks or _("Progress entry"),
+	)
+	rollup_boq_progress(boq_item)
+	task_doc = frappe.get_doc("Task", task)
 	return {
 		"name": task_doc.name,
 		"status": task_doc.status,
@@ -783,14 +927,20 @@ def update_task_status(
 @frappe.whitelist()
 def get_task_progress_logs(task: str) -> list:
 	"""
-	Get all progress logs for a specific task.
+	Get all progress logs for a specific task with running cumulative total.
 	"""
-	return frappe.get_all(
+	logs = frappe.get_all(
 		"Task Progress Log",
 		filters={"task": task},
 		fields=["name", "date", "qty_updated", "progress_percent", "user", "remarks"],
-		order_by="date desc"
+		order_by="date asc",
 	)
+	running = 0.0
+	for log in logs:
+		running += flt(log.get("qty_updated"))
+		log["cumulative_qty"] = running
+	logs.reverse()
+	return logs
 
 
 @frappe.whitelist()

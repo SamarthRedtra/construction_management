@@ -425,8 +425,7 @@ def get_task_progress_timeline(boq_item: str) -> dict:
 	if not boq_items:
 		return {"tasks": [], "logs": [], "boq_item": {}, "daily_rollup": []}
 
-	from construction_management.api.boq_tasks import get_boq_item_tasks_tree
-	has_task_completed_qty = frappe.db.has_column("Task", "completed_qty")
+	from construction_management.api.boq_tasks import get_boq_item_tasks_tree, get_task_cumulative_qty_from_logs
 
 	all_tasks = []
 	all_logs = []
@@ -441,8 +440,13 @@ def get_task_progress_timeline(boq_item: str) -> dict:
 		
 		for t in tasks:
 			if not t.get("is_group"):
-				t["completed_qty"] = frappe.db.get_value("Task", t["name"], "completed_qty") if has_task_completed_qty else 0.0
-				t["completed_qty"] = t["completed_qty"] or 0.0
+				cumulative = get_task_cumulative_qty_from_logs(t["name"])
+				t["completed_qty"] = cumulative
+				expected = flt(t.get("expected_area"))
+				if expected > 0:
+					t["progress"] = min(100.0, (cumulative / expected) * 100.0)
+				else:
+					t["progress"] = flt(t.get("progress") or 0)
 				
 		all_tasks.extend(tasks)
 		
