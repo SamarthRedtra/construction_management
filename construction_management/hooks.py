@@ -140,7 +140,8 @@ override_doctype_class = {
 	"Sales Invoice": "construction_management.overrides.sales_invoice.SalesInvoiceOverride",
 	"Purchase Invoice": "construction_management.overrides.purchase_invoice.PurchaseInvoiceOverride",
 	"Purchase Receipt": "construction_management.overrides.purchase_receipt_class.PurchaseReceiptOverride",
-	"Process Statement Of Accounts": "construction_management.overrides.process_statement_of_accounts.ProcessStatementOfAccountsOverride"
+	"Process Statement Of Accounts": "construction_management.overrides.process_statement_of_accounts.ProcessStatementOfAccountsOverride",
+	"GL Entry": "construction_management.overrides.gl_entry.GLEntryOverride",
 }
 
 # Monkey Patches
