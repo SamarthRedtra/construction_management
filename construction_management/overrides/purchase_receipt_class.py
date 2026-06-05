@@ -90,22 +90,21 @@ class PurchaseReceiptOverride(PurchaseReceipt):
 				continue
 
 			account_currency = frappe.get_cached_value("Account", account, "account_currency") or self.company_currency
-			account_type = frappe.get_cached_value("Account", account, "account_type")
-			party_type = row.get("party_type") if account_type in ("Receivable", "Payable") else None
-			party = row.get("party") if party_type else None
-			extra_entry = self.get_gl_dict(
-				{
-					"account": account,
-					"debit": debit,
-					"credit": credit,
-					"cost_center": self.get("cost_center") or self._get_default_extra_entry_cost_center(),
-					"project": self.get("project") or self._get_default_extra_entry_project(),
-					"party_type": party_type,
-					"party": party,
-					"remarks": f"Extra entry from {self.doctype} {self.name}",
-				},
-				account_currency=account_currency,
-			)
+			gl_args = {
+				"account": account,
+				"debit": debit,
+				"credit": credit,
+				"cost_center": self.get("cost_center") or self._get_default_extra_entry_cost_center(),
+				"project": self.get("project") or self._get_default_extra_entry_project(),
+				"voucher_detail_no": row.name,
+				"remarks": f"Extra entry from {self.doctype} {self.name}",
+			}
+			party_type = row.get("party_type")
+			party = row.get("party")
+			if party_type and party:
+				gl_args.update({"party_type": party_type, "party": party, "against": party})
+
+			extra_entry = self.get_gl_dict(gl_args, account_currency=account_currency)
 			gl_entries.append(extra_entry)
 
 		return gl_entries
