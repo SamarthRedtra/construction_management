@@ -5,14 +5,10 @@ import frappe
 from frappe import _
 from frappe.utils import flt, today
 
-
-def _payment_entry_security_type_flags(instrument_type: str) -> dict:
-	"""Exactly one Payment Entry security-type flag is set; others cleared."""
-	return {
-		"custom_is_security_cheque": 1 if instrument_type == "Security Cheque" else 0,
-		"custom_is_security_deposit": 1 if instrument_type == "Security Deposit" else 0,
-		"custom_is_authorization_fees": 1 if instrument_type == "Authorization Fees" else 0,
-	}
+from construction_management.construction_management.doctype.security_instrument.security_instrument import (
+	_payment_entry_security_type_flags,
+	create_issue_payment_entry,
+)
 
 
 @frappe.whitelist()
@@ -64,51 +60,14 @@ def create_security_payment_entry(
 			"party": party,
 			"amount": amount,
 			"mode_of_payment": mode_of_payment,
+			"bank_account": bank_account,
 			"reference_no": reference_no,
 			"reference_date": reference_date,
 			"remarks": remarks,
 		}
 	)
 	instrument.insert()
-
-	payment_entry = frappe.new_doc("Payment Entry")
-	payment_entry.payment_type = payment_type
-	payment_entry.party_type = party_type
-	payment_entry.party = party
-	payment_entry.company = company
-	payment_entry.project = project
-	payment_entry.posting_date = posting_date
-	payment_entry.mode_of_payment = mode_of_payment
-	payment_entry.reference_no = reference_no
-	payment_entry.reference_date = reference_date if reference_no else None
-	payment_entry.remarks = remarks
-	payment_entry.custom_security_instrument = instrument.name
-	payment_entry.custom_security_entry_role = "Issue"
-
-	# Sync PDC fields if redtra_customisation app is installed (check for field existence)
-	pe_meta = frappe.get_meta("Payment Entry")
-	if pe_meta.has_field("pdc_cheque_number"):
-		payment_entry.pdc_cheque_number = reference_no
-	if pe_meta.has_field("pdc_cheque_date"):
-		payment_entry.pdc_cheque_date = reference_date or posting_date
-
-	for _key, _val in _payment_entry_security_type_flags(instrument_type).items():
-		setattr(payment_entry, _key, _val)
-	payment_entry.custom_security_redeemed = 0
-
-	if payment_type == "Receive":
-		payment_entry.paid_to = bank_account
-		payment_entry.paid_amount = amount
-		payment_entry.received_amount = amount
-	else:
-		payment_entry.paid_from = bank_account
-		payment_entry.paid_amount = amount
-		payment_entry.received_amount = amount
-
-	payment_entry.insert()
-
-	instrument.db_set("payment_entry", payment_entry.name, update_modified=False)
-	instrument.payment_entry = payment_entry.name
+	payment_entry = create_issue_payment_entry(instrument)
 
 	return {
 		"payment_entry": payment_entry.name,

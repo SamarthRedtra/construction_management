@@ -1,4 +1,14 @@
 frappe.ui.form.on('Security Instrument', {
+	setup(frm) {
+		frm.set_query('bank_account', () => ({
+			filters: {
+				account_type: ['in', ['Bank', 'Cash']],
+				is_group: 0,
+				...(frm.doc.company ? { company: frm.doc.company } : {}),
+			},
+		}));
+	},
+
 	refresh(frm) {
 		if (frm.doc.payment_entry) {
 			frm.add_custom_button(__('Issue Payment Entry'), () => {
@@ -37,5 +47,17 @@ frappe.ui.form.on('Security Instrument', {
 				);
 			});
 		}
-	}
+	},
+
+	on_submit(frm) {
+		if (frm.doc.payment_entry) {
+			frappe.msgprint({
+				title: __('Security Instrument Submitted'),
+				message: __('Draft Payment Entry {0} was created. Submit it to mark this instrument as Issued.', [
+					`<a href="/app/payment-entry/${frm.doc.payment_entry}">${frm.doc.payment_entry}</a>`,
+				]),
+				indicator: 'green',
+			});
+		}
+	},
 });
