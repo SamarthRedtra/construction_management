@@ -4,6 +4,7 @@
  "creation": "2026-03-13 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
+ "is_submittable": 1,
  "field_order": [
   "naming_series",
   "instrument_type",
@@ -158,6 +159,14 @@
    "options": "Mode of Payment"
   },
   {
+   "depends_on": "eval:!doc.payment_entry",
+   "fieldname": "bank_account",
+   "fieldtype": "Link",
+   "label": "Bank / Cash Account",
+   "mandatory_depends_on": "eval:doc.docstatus===0 && !doc.payment_entry",
+   "options": "Account"
+  },
+  {
    "depends_on": "eval:doc.instrument_type==='Security Cheque'",
    "fieldname": "reference_no",
    "fieldtype": "Data",
@@ -210,6 +219,7 @@
  "owner": "Administrator",
  "permissions": [
   {
+   "cancel": 1,
    "create": 1,
    "delete": 1,
    "email": 1,
@@ -219,9 +229,11 @@
    "report": 1,
    "role": "System Manager",
    "share": 1,
+   "submit": 1,
    "write": 1
   },
   {
+   "cancel": 1,
    "create": 1,
    "email": 1,
    "export": 1,
@@ -231,9 +243,11 @@
    "role": "Accounts User",
    "select": 1,
    "share": 1,
+   "submit": 1,
    "write": 1
   },
   {
+   "cancel": 1,
    "create": 1,
    "delete": 1,
    "email": 1,
@@ -244,9 +258,11 @@
    "role": "Accounts Manager",
    "select": 1,
    "share": 1,
+   "submit": 1,
    "write": 1
   },
   {
+   "cancel": 1,
    "create": 1,
    "email": 1,
    "export": 1,
@@ -256,9 +272,11 @@
    "role": "Project Manager",
    "select": 1,
    "share": 1,
+   "submit": 1,
    "write": 1
   },
   {
+   "cancel": 1,
    "create": 1,
    "email": 1,
    "export": 1,
@@ -268,6 +286,7 @@
    "role": "Quantity Surveyor",
    "select": 1,
    "share": 1,
+   "submit": 1,
    "write": 1
   }
  ],
