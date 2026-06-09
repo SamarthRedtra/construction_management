@@ -4,7 +4,6 @@
  "creation": "2026-03-13 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
- "is_submittable": 1,
  "field_order": [
   "naming_series",
   "instrument_type",
@@ -20,6 +19,7 @@
   "section_break_party",
   "party_type",
   "party",
+  "bank_account",
   "column_break_party",
   "amount",
   "outstanding_balance",
@@ -30,7 +30,8 @@
   "payment_entry",
   "reclaim_payment_entry",
   "redeemed_on",
-  "remarks"
+  "remarks",
+  "amended_from"
  ],
  "fields": [
   {
@@ -207,11 +208,22 @@
    "fieldname": "remarks",
    "fieldtype": "Small Text",
    "label": "Remarks"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Security Instrument",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
   }
  ],
  "index_web_pages_for_search": 1,
+ "is_submittable": 1,
  "links": [],
- "modified": "2026-03-13 22:00:23.210550",
+ "modified": "2026-06-09 15:51:54.619205",
  "modified_by": "Administrator",
  "module": "Construction Management",
  "name": "Security Instrument",
