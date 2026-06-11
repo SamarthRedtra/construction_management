@@ -36,7 +36,7 @@ def scale_fixed_discount(doc):
 	Proportionally scale the fixed discount amount if it was auto-mapped 
 	from a Purchase Order and this is a partial receipt.
 	"""
-	if doc.discount_amount > 0 and not doc.additional_discount_percentage:
+	if flt(doc.discount_amount) > 0 and not doc.additional_discount_percentage:
 		po_name = doc.get("custom_purchase_order")
 		if not po_name:
 			for item in doc.items:
@@ -50,7 +50,7 @@ def scale_fixed_discount(doc):
 		po_doc = frappe.get_cached_doc("Purchase Order", po_name)
 		
 		# If the discount amounts match exactly, it was auto-copied.
-		if po_doc.discount_amount > 0 and doc.discount_amount == po_doc.discount_amount:
+		if flt(po_doc.discount_amount) > 0 and flt(doc.discount_amount) == flt(po_doc.discount_amount):
 			pr_normal_items_total = sum(
 				flt(item.amount) for item in doc.items
 				if item.item_code not in DEDUCTION_ITEM_CODES

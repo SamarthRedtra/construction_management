@@ -471,7 +471,7 @@ def scale_fixed_discount(doc):
 	Proportionally scale the fixed discount amount if it was auto-mapped 
 	from a Purchase Order and this is a partial invoice.
 	"""
-	if doc.discount_amount > 0 and not doc.additional_discount_percentage:
+	if flt(doc.discount_amount) > 0 and not doc.additional_discount_percentage:
 		po_name = _get_linked_purchase_order(doc)
 		if not po_name:
 			return
@@ -479,7 +479,7 @@ def scale_fixed_discount(doc):
 		po_doc = frappe.get_cached_doc("Purchase Order", po_name)
 		
 		# If the discount amounts match exactly, it was auto-copied.
-		if po_doc.discount_amount > 0 and doc.discount_amount == po_doc.discount_amount:
+		if flt(po_doc.discount_amount) > 0 and flt(doc.discount_amount) == flt(po_doc.discount_amount):
 			pi_normal_items_total = sum(
 				flt(item.amount) for item in doc.items
 				if item.item_code not in _PO_PROGRESS_DEDUCTION_ITEMS
