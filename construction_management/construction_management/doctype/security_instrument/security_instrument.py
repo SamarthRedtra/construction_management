@@ -102,6 +102,7 @@ def persist_security_instrument_outstanding_balance(name: str) -> None:
 
 class SecurityInstrument(Document):
 	ALLOWED_INSTRUMENT_TYPES = ("Security Cheque", "Security Deposit", "Authorization Fees")
+	ignore_linked_doctypes = ("Payment Entry",)
 
 	def validate(self):
 		if self.instrument_type and self.instrument_type not in self.ALLOWED_INSTRUMENT_TYPES:
@@ -129,9 +130,23 @@ class SecurityInstrument(Document):
 		create_issue_payment_entry(self)
 
 	def before_cancel(self):
-		for payment_entry_name in filter(None, [self.payment_entry, self.reclaim_payment_entry]):
-			if not frappe.db.exists("Payment Entry", payment_entry_name):
+		for fieldname in ("payment_entry", "reclaim_payment_entry"):
+			payment_entry_name = self.get(fieldname)
+			if not payment_entry_name or not frappe.db.exists("Payment Entry", payment_entry_name):
 				continue
+
+			# Break circular SI <-> PE links before cancelling the Payment Entry.
+			self.db_set(fieldname, None, update_modified=False)
+			setattr(self, fieldname, None)
+			if frappe.db.get_value("Payment Entry", payment_entry_name, "custom_security_instrument") == self.name:
+				frappe.db.set_value(
+					"Payment Entry",
+					payment_entry_name,
+					"custom_security_instrument",
+					None,
+					update_modified=False,
+				)
+
 			pe = frappe.get_doc("Payment Entry", payment_entry_name)
 			if pe.docstatus == 1:
 				pe.flags.ignore_links = True
