@@ -29,11 +29,11 @@ class PurchaseInvoiceOverride(PurchaseInvoice):
 
 		# If project is not set, keep default ERPNext posting
 		if not self.get("project"):
-			return gl_entries
+			return _ensure_supplier_party_on_gl_entries(self, gl_entries)
 
 		# If BOQ Settings is missing for company, keep default posting
 		if not frappe.db.exists("BOQ Settings", self.company):
-			return gl_entries
+			return _ensure_supplier_party_on_gl_entries(self, gl_entries)
 
 		boq_settings = frappe.db.get_value(
 			"BOQ Settings",
@@ -45,7 +45,7 @@ class PurchaseInvoiceOverride(PurchaseInvoice):
 		advance_account = boq_settings.get("purchase_advance_account")
 
 		if not (retention_account or advance_account):
-			return gl_entries
+			return _ensure_supplier_party_on_gl_entries(self, gl_entries)
 
 		deductions = []
 		expense_accounts = set()
@@ -72,7 +72,7 @@ class PurchaseInvoiceOverride(PurchaseInvoice):
 				)
 
 		if not deductions:
-			return gl_entries
+			return _ensure_supplier_party_on_gl_entries(self, gl_entries)
 
 		new_entries = []
 		processed_deductions = []
@@ -203,7 +203,29 @@ class PurchaseInvoiceOverride(PurchaseInvoice):
 				)
 				new_entries.append(deduction_entry)
 
-		return new_entries
+		return _ensure_supplier_party_on_gl_entries(self, new_entries)
+
+
+def _ensure_supplier_party_on_gl_entries(doc, gl_entries):
+	"""ERPNext requires Supplier on Payable account GL rows; retention/advance paths may omit it."""
+	supplier = doc.get("supplier")
+	if not supplier:
+		return gl_entries
+
+	for entry in gl_entries:
+		if entry.get("party_type") and entry.get("party"):
+			continue
+
+		account = entry.get("account")
+		if not account:
+			continue
+
+		account_type = frappe.get_cached_value("Account", account, "account_type")
+		if account_type == "Payable":
+			entry["party_type"] = "Supplier"
+			entry["party"] = supplier
+
+	return gl_entries
 
 	def get_pc_payable_print_context(self):
 		"""Build dict for Payment Certificate (Payable) Jinja print format."""

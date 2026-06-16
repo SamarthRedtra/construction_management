@@ -52,6 +52,8 @@ frappe.ui.form.on('Sales Invoice', {
 			}, __('Get Deductions'));
 		}
 
+		construction_management.deduction_summary.render(frm);
+
 		// Render reversal JV summary widget for submitted invoices
 		if (frm.doc.docstatus === 1) {
 			cm_render_si_jv_summary(frm);
@@ -125,10 +127,12 @@ function cm_render_si_jv_summary(frm) {
 frappe.ui.form.on('Sales Invoice Item', {
 	items_add: function (frm, cdt, cdn) {
 		_si_deduction_debounce(frm);
+		construction_management.deduction_summary.render(frm);
 	},
 
 	items_remove: function (frm, cdt, cdn) {
 		_si_deduction_debounce(frm);
+		construction_management.deduction_summary.render(frm);
 	},
 
 	qty: function (frm, cdt, cdn) {
@@ -145,7 +149,10 @@ frappe.ui.form.on('Sales Invoice Item', {
 
 	amount: function (frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
-		if (_is_deduction_item(row)) return;
+		if (_is_deduction_item(row)) {
+			construction_management.deduction_summary.render(frm);
+			return;
+		}
 		_si_deduction_debounce(frm);
 	}
 });
@@ -195,6 +202,7 @@ function pull_retention(frm) {
 					'project': frm.doc.project
 				});
 				frm.refresh_field('items');
+				construction_management.deduction_summary.render(frm);
 			} else {
 				frappe.msgprint(__('No retention to pull or retention percentage is 0.'));
 			}
@@ -274,6 +282,7 @@ function pull_advance_deduction(frm) {
 							'project': frm.doc.project
 						});
 						frm.refresh_field('items');
+						construction_management.deduction_summary.render(frm);
 						d.hide();
 					}
 				});
@@ -406,6 +415,7 @@ function recalculate_deductions(frm) {
 			if (changed) {
 				frm.refresh_field('items');
 			}
+			construction_management.deduction_summary.render(frm);
 		},
 		always: function () {
 			frm._recalculating_deductions = false;
