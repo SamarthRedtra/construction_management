@@ -1131,17 +1131,41 @@ def get_or_create_advance_item():
 	return item_code
 
 
+def _get_invoiced_advance_total(project: str) -> float:
+	"""Sum net advance billed on submitted advance Sales Invoices for a project."""
+	if not frappe.db.has_column("Sales Invoice", "custom_is_advanced"):
+		return 0
+
+	result = frappe.db.sql(
+		"""
+		SELECT COALESCE(SUM(base_net_total), 0) AS total
+		FROM `tabSales Invoice`
+		WHERE project = %s
+			AND docstatus = 1
+			AND IFNULL(custom_is_advanced, 0) = 1
+		""",
+		project,
+		as_dict=True,
+	)
+	return flt(result[0].total) if result else 0
+
+
 def get_advance_balance(project: str) -> float:
 	"""Get the available advance balance for a project"""
-	# Get total advances collected
-	total_advances = frappe.db.sql("""
-		SELECT COALESCE(SUM(amount), 0) as total
+	paid_pool = frappe.db.sql(
+		"""
+		SELECT COALESCE(SUM(amount), 0) AS total
 		FROM `tabBOQ Advance Payment`
 		WHERE project = %s AND docstatus = 1
-	""", project, as_dict=True)
-	
-	total_collected = flt(total_advances[0].total) if total_advances else 0
-	
+		""",
+		project,
+		as_dict=True,
+	)
+
+	paid_collected = flt(paid_pool[0].total) if paid_pool else 0
+	invoiced_advance = _get_invoiced_advance_total(project)
+	total_collected = max(paid_collected, invoiced_advance)
+
 	# Get total advances already deducted (from invoice items)
 	# Include Draft (0) as well as Submitted (1) invoices
 	total_deducted = frappe.db.sql("""

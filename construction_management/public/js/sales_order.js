@@ -20,6 +20,8 @@ frappe.ui.form.on('Sales Order', {
 			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'items');
 		}
 
+		construction_management.deduction_summary.render(frm);
+
 		// Recalculate BOQ retention & advance (draft, saved orders with project + BOQ lines)
 		if (
 			!frm.is_new() &&
@@ -128,6 +130,39 @@ function cm_render_so_jv_summary(frm) {
 		frm.dashboard.show();
 	});
 }
+
+
+frappe.ui.form.on('Sales Order Item', {
+	items_add(frm) {
+		construction_management.deduction_summary.render(frm);
+	},
+
+	items_remove(frm) {
+		construction_management.deduction_summary.render(frm);
+	},
+
+	amount(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (
+			row &&
+			(row.item_code === construction_management.deduction_summary.RETENTION_ITEM ||
+				row.item_code === construction_management.deduction_summary.ADVANCE_ITEM)
+		) {
+			construction_management.deduction_summary.render(frm);
+		}
+	},
+
+	rate(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (
+			row &&
+			(row.item_code === construction_management.deduction_summary.RETENTION_ITEM ||
+				row.item_code === construction_management.deduction_summary.ADVANCE_ITEM)
+		) {
+			construction_management.deduction_summary.render(frm);
+		}
+	},
+});
 
 
 /* Per-BOQ retention/advance: use Actions → Recalculate Retention & Advance after editing lines. */

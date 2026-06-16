@@ -163,6 +163,39 @@ class TestSalesInvoiceDeductions(unittest.TestCase):
         adv.submit()
         return adv.name
 
+    def _create_submitted_advance_invoice(self, amount):
+        inv = frappe.new_doc("Sales Invoice")
+        inv.customer = self.customer
+        inv.project = self.project
+        inv.company = self.company
+        inv.posting_date = frappe.utils.today()
+        inv.custom_is_advanced = 1
+        inv.append("items", {
+            "item_code": self.item,
+            "qty": 1,
+            "rate": amount,
+            "amount": amount,
+        })
+        inv.insert(ignore_permissions=True)
+        inv.submit()
+        return inv
+
+    def test_advance_balance_from_unpaid_submitted_invoice(self):
+        advance_si = self._create_submitted_advance_invoice(3000)
+        expected_pool = flt(advance_si.base_net_total)
+
+        self.assertEqual(get_advance_balance(self.project), expected_pool)
+
+        details = get_deduction_details(self.project, [])
+        self.assertEqual(details["available_advance"], expected_pool)
+
+    def test_advance_balance_partial_payment_uses_invoiced_total(self):
+        advance_si = self._create_submitted_advance_invoice(5000)
+        invoiced_total = flt(advance_si.base_net_total)
+        self._create_advance_payment(2000)
+
+        self.assertEqual(get_advance_balance(self.project), invoiced_total)
+
     def test_get_deduction_details(self):
         # Create advance of 1000
         self._create_advance_payment(1000)
