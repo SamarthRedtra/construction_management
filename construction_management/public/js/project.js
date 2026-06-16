@@ -7340,6 +7340,13 @@ window.show_bulk_site_create_dialog = function (project) {
 // BOQ Payment Terms Interface
 // ============================================
 
+function get_payment_terms_boq_keys(paymentTermsData) {
+	return Object.keys(paymentTermsData || {}).map((key) => {
+		const match = key.match(/\(([^)]+)\)\s*$/);
+		return match ? match[1] : key;
+	});
+}
+
 function render_payment_terms_interface(frm) {
 	const wrapper = frm.fields_dict.custom_payment_terms_html?.$wrapper;
 	if (!wrapper) return;
@@ -7359,14 +7366,15 @@ function render_payment_terms_interface(frm) {
 		paymentTermsData = {};
 	}
 
-	// Fetch ALL BOQ items for this project, not just those in bills
+	// Fetch ALL BOQ items for this project (limit_page_length: 0 = no cap)
 	frappe.call({
 		method: 'frappe.client.get_list',
 		args: {
 			doctype: 'BOQ Item',
 			filters: { project: frm.doc.name },
 			fields: ['name', 'item_code', 'description', 'parent_bill'],
-			limit: 1000
+			limit_page_length: 0,
+			order_by: 'name asc',
 		},
 		callback: function (r) {
 			const boqItems = (r.message || []).map(item => ({
@@ -7919,74 +7927,85 @@ function updateTotal(wrapper, boqItemName) {
 }
 
 function showAddBoqTermDialog(wrapper, frm, boqItems, paymentTermsData) {
-	const availableItems = boqItems.filter(item => {
-		// Check if it's there as a name or as a full string containing the name (legacy)
-		return !Object.keys(paymentTermsData).some(key => key === item.name || key.includes(`(${item.name})`));
-	});
+	const excluded = get_payment_terms_boq_keys(paymentTermsData);
 
-	if (availableItems.length === 0) {
-		frappe.msgprint({
-			title: __('No Items Available'),
-			message: __('All BOQ items already have payment terms defined.'),
-			indicator: 'orange'
-		});
-		return;
-	}
-
-	// Create options as objects to keep ID as value and description as label
-	const options = availableItems.map(item => ({
-		label: `${item.label} (${item.name})`,
-		value: item.name
-	}));
-
-	const d = new frappe.ui.Dialog({
-		title: 'Add BOQ Item Payment Terms',
-		fields: [
-			{
-				fieldname: 'boq_item',
-				label: 'Select BOQ Item',
-				fieldtype: 'Select',
-				options: options,
-				reqd: 1,
-				description: 'Choose a BOQ item to define payment terms'
+	frappe.call({
+		method: 'frappe.client.get_count',
+		args: {
+			doctype: 'BOQ Item',
+			filters: excluded.length
+				? { project: frm.doc.name, name: ['not in', excluded] }
+				: { project: frm.doc.name },
+		},
+		callback: function (r) {
+			if (!r.message) {
+				frappe.msgprint({
+					title: __('No Items Available'),
+					message: __('All BOQ items already have payment terms defined.'),
+					indicator: 'orange',
+				});
+				return;
 			}
-		],
-		primary_action_label: 'Add Payment Terms',
-		primary_action: function (values) {
-			const boqItem = values.boq_item;
-			if (!paymentTermsData[boqItem]) {
-				paymentTermsData[boqItem] = [
+
+			const d = new frappe.ui.Dialog({
+				title: __('Add BOQ Item Payment Terms'),
+				fields: [
 					{
-						milestone: 'After Installation',
-						percentage: 50,
-						advance: 80,
-						retention: 20
+						fieldname: 'boq_item',
+						label: __('Select BOQ Item'),
+						fieldtype: 'Link',
+						options: 'BOQ Item',
+						reqd: 1,
+						description: __('Type to search by BOQ ID or description'),
+						get_query: () => {
+							const filters = { project: frm.doc.name };
+							if (excluded.length) {
+								filters.name = ['not in', excluded];
+							}
+							return { filters };
+						},
 					},
-					{
-						milestone: 'After Effect',
-						percentage: 20,
-						advance: 100,
-						retention: 0
-					},
-					{
-						milestone: 'After Cleaning',
-						percentage: 30,
-						advance: 70,
-						retention: 30
+				],
+				primary_action_label: __('Add Payment Terms'),
+				primary_action: function (values) {
+					const boqItem = values.boq_item;
+					if (!boqItem) {
+						return;
 					}
-				];
-				savePaymentTermsData(frm, paymentTermsData);
-				// Re-render after save completes
-				setTimeout(() => {
-					renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData);
-				}, 500);
-			}
-			d.hide();
-		}
-	});
+					if (!paymentTermsData[boqItem]) {
+						paymentTermsData[boqItem] = [
+							{
+								milestone: 'After Installation',
+								percentage: 50,
+								advance: 80,
+								retention: 20,
+							},
+							{
+								milestone: 'After Effect',
+								percentage: 20,
+								advance: 100,
+								retention: 0,
+							},
+							{
+								milestone: 'After Cleaning',
+								percentage: 30,
+								advance: 70,
+								retention: 30,
+							},
+						];
+						savePaymentTermsData(frm, paymentTermsData);
+						setTimeout(() => {
+							renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData);
+						}, 500);
+					}
+					d.hide();
+				},
+			});
 
-	d.show();
-	d.$wrapper.find('.modal-dialog').addClass('modal-lg');
+			d.show();
+			d.$wrapper.find('.modal-dialog').addClass('modal-lg');
+		},
+	});
 }
 
 
