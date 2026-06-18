@@ -230,6 +230,8 @@ def apply_purchase_deductions(doc):
 	retention_account = boq_settings.get("purchase_retention_account") or default_expense_account
 	advance_account = boq_settings.get("purchase_advance_account") or default_expense_account
 
+	conversion_rate = flt(doc.get("conversion_rate") or 1.0)
+
 	# Add Retention Deduction
 	if retention_pct > 0 and not has_retention:
 		retention_amount = flt(total_billable * retention_pct / 100, 2)
@@ -237,14 +239,18 @@ def apply_purchase_deductions(doc):
 			doc.append("items", {
 				"item_code": "RETENTION-DEDUCTION",
 				"item_name": "Retention Deduction",
-				"qty": 1,
+				"qty": 1.0,
+				"received_qty": 1.0,
 				"rate": -retention_amount,
 				"amount": -retention_amount,
+				"base_rate": -retention_amount * conversion_rate,
+				"base_amount": -retention_amount * conversion_rate,
 				"description": f"Retention deduction ({retention_pct}%)",
 				"project": doc.project,
 				"expense_account": default_expense_account,
 				"cost_center": default_cost_center,
 				"uom": "Nos",
+				"stock_uom": "Nos",
 				"conversion_factor": 1.0,
 			})
 
@@ -255,23 +261,42 @@ def apply_purchase_deductions(doc):
 			doc.append("items", {
 				"item_code": "ADVANCE-DEDUCTION",
 				"item_name": "Advance Deduction",
-				"qty": 1,
+				"qty": 1.0,
+				"received_qty": 1.0,
 				"rate": -advance_amount,
 				"amount": -advance_amount,
+				"base_rate": -advance_amount * conversion_rate,
+				"base_amount": -advance_amount * conversion_rate,
 				"description": f"Advance deduction ({advance_pct}%)",
 				"project": doc.project,
 				"expense_account": default_expense_account,
 				"cost_center": default_cost_center,
 				"uom": "Nos",
+				"stock_uom": "Nos",
 				"conversion_factor": 1.0,
 			})
 
-	# Always sweep to ensure deduction rows use the default expense account
+	# Always sweep to ensure deduction rows use the default expense account and mandatory fields are populated
 	default_expense_account = frappe.db.get_value("Company", doc.company, "default_expense_account")
 	
 	for item in doc.items:
 		if item.item_code in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"):
 			item.expense_account = default_expense_account
+			if not item.get("qty"):
+				item.qty = 1.0
+			if not item.get("received_qty"):
+				item.received_qty = item.qty
+			if not item.get("uom"):
+				item.uom = "Nos"
+			if not item.get("stock_uom"):
+				item.stock_uom = item.uom
+			if not item.get("conversion_factor"):
+				item.conversion_factor = 1.0
+			if not item.get("base_rate"):
+				item.base_rate = flt(item.rate) * conversion_rate
+			if not item.get("base_amount"):
+				item.base_amount = flt(item.amount) * conversion_rate
+
 
 
 def ensure_item_projects(doc, make_mandatory=False):

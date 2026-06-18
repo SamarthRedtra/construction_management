@@ -1,0 +1,424 @@
+/* Copyright (c) 2026, Construction Management */
+/* License: MIT */
+
+/* Layout & Typography */
+.project-soa-layout {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	padding: 20px;
+	background-color: #fafbfc;
+	color: #2b303b;
+}
+
+.project-soa-header-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 30px;
+	background: #ffffff;
+	padding: 15px 25px;
+	border: 1px solid #e2e8f0;
+	border-radius: 8px;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.project-soa-title-container {
+	flex: 1;
+}
+
+.soa-title-main {
+	font-size: 24px;
+	font-weight: 700;
+	color: #1a202c;
+	margin: 0;
+	text-transform: uppercase;
+	letter-spacing: -0.5px;
+}
+
+.project-soa-filter-container {
+	flex: 0 0 350px;
+}
+
+.project-soa-filter-container .form-group {
+	margin: 0 !important;
+}
+
+.project-soa-filter-container .control-label {
+	display: none !important;
+}
+
+/* Empty & Loading States */
+.soa-empty-state, .soa-loading-state, .soa-error-state {
+	text-align: center;
+	padding: 80px 20px;
+	background: #ffffff;
+	border: 1px solid #e2e8f0;
+	border-radius: 12px;
+	box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+	margin-top: 20px;
+}
+
+.soa-empty-icon {
+	color: #a0aec0;
+	margin-bottom: 15px;
+}
+
+.soa-empty-state h3 {
+	font-size: 18px;
+	font-weight: 600;
+	color: #4a5568;
+	margin-bottom: 8px;
+}
+
+.soa-empty-state p {
+	color: #718096;
+	font-size: 14px;
+	max-width: 400px;
+	margin: 0 auto;
+}
+
+.soa-spinner {
+	width: 40px;
+	height: 40px;
+	border: 3px solid #e2e8f0;
+	border-top: 3px solid #3182ce;
+	border-radius: 50%;
+	animation: soa-spin 0.8s linear infinite;
+	margin: 0 auto 15px;
+}
+
+@keyframes soa-spin {
+	0% { transform: rotate(0deg); }
+	100% { transform: rotate(360deg); }
+}
+
+/* Tables Styling */
+.soa-table {
+	width: 100%;
+	border-collapse: collapse;
+	background-color: #ffffff;
+	font-size: 13px;
+	margin-bottom: 15px;
+}
+
+.soa-table th, .soa-table td {
+	padding: 10px 14px;
+	line-height: 1.5;
+	text-align: left;
+	vertical-align: middle;
+}
+
+.soa-table th {
+	background-color: #f7fafc;
+	font-weight: 600;
+	color: #4a5568;
+	text-transform: uppercase;
+	font-size: 11px;
+	letter-spacing: 0.5px;
+	border-bottom: 2px solid #e2e8f0;
+}
+
+.soa-table td {
+	border-bottom: 1px solid #edf2f7;
+	color: #2d3748;
+}
+
+.soa-table tbody tr:hover {
+	background-color: #f8fafc;
+	transition: background-color 0.2s ease;
+}
+
+.border-table {
+	border: 1px solid #e2e8f0;
+	border-radius: 6px;
+	overflow: hidden;
+}
+
+.text-center { text-align: center !important; }
+.text-right { text-align: right !important; }
+.font-semibold { font-weight: 600 !important; }
+.font-medium { font-weight: 500 !important; }
+.font-bold { font-weight: 700 !important; }
+
+/* Document Links */
+.document-link {
+	color: #3182ce;
+	text-decoration: none;
+	font-weight: 500;
+}
+
+.document-link:hover {
+	color: #2b6cb0;
+	text-decoration: underline;
+}
+
+/* Badge styles */
+.badge-type {
+	display: inline-block;
+	padding: 2px 8px;
+	font-size: 11px;
+	font-weight: 500;
+	border-radius: 4px;
+	text-transform: uppercase;
+}
+
+.badge-type.tax-invoice {
+	background-color: #ebf8ff;
+	color: #2b6cb0;
+}
+
+.badge-type.proforma-invoice {
+	background-color: #fefcbf;
+	color: #b7791f;
+}
+
+/* Top Services Section Layout */
+.soa-section-row {
+	display: flex;
+	gap: 30px;
+	margin-bottom: 40px;
+	align-items: flex-start;
+}
+
+.soa-ongoing-project-left {
+	flex: 0 0 25%;
+}
+
+.ongoing-project-title {
+	font-size: 26px;
+	font-weight: 700;
+	color: #e53e3e;
+	margin-top: 5px;
+	line-height: 1.2;
+}
+
+.soa-services-right {
+	flex: 1;
+}
+
+.services-total-row {
+	background-color: #fff5f5;
+}
+
+.services-total-row td {
+	border-top: 2px solid #fed7d7;
+	border-bottom: none !important;
+	color: #c53030 !important;
+	font-size: 14px;
+}
+
+.services-total-row td.total-val {
+	font-size: 16px;
+}
+
+/* Cheque block layouts inside tables */
+.cheque-header {
+	display: flex;
+	justify-content: space-between;
+	font-weight: 600;
+	font-size: 11px;
+}
+
+.cheque-box {
+	display: flex;
+	justify-content: space-between;
+	background-color: #f7fafc;
+	border: 1px solid #cbd5e0;
+	border-radius: 4px;
+	padding: 4px 10px;
+	font-size: 12px;
+	max-width: 320px;
+	color: #4a5568;
+}
+
+.cheque-divider {
+	color: #a0aec0;
+	padding: 0 6px;
+}
+
+.cheque-no {
+	font-weight: 600;
+	color: #2d3748;
+}
+
+.cheque-amt {
+	font-weight: 600;
+	color: #2b6cb0;
+}
+
+/* Invoice middle section layout */
+.soa-section-block {
+	background: #ffffff;
+	border: 1px solid #e2e8f0;
+	border-radius: 8px;
+	padding: 20px;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+	margin-bottom: 40px;
+}
+
+.invoice-transactions-table {
+	margin-bottom: 25px;
+}
+
+/* Middle summary bar styling */
+.soa-summary-bar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 15px;
+	justify-content: space-between;
+	border-top: 1px dashed #e2e8f0;
+	padding-top: 20px;
+}
+
+.soa-summary-item {
+	flex: 1;
+	min-width: 160px;
+	background: #fff;
+	border: 1px solid #edf2f7;
+	border-radius: 6px;
+	padding: 12px 16px;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.summary-label {
+	display: block;
+	font-size: 11px;
+	font-weight: 600;
+	color: #718096;
+	text-transform: uppercase;
+	margin-bottom: 6px;
+	letter-spacing: 0.3px;
+}
+
+.summary-value {
+	display: block;
+	font-size: 18px;
+	font-weight: 700;
+}
+
+.red-text {
+	color: #e53e3e;
+}
+
+.blue-text {
+	color: #3182ce;
+}
+
+/* Bottom elements layout */
+.soa-bottom-row {
+	display: flex;
+	gap: 40px;
+	margin-bottom: 30px;
+}
+
+.soa-expenses-block {
+	flex: 0 0 60%;
+}
+
+.soa-profit-loss-block {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.bottom-section-title {
+	font-size: 18px;
+	font-weight: 700;
+	color: #2d3748;
+	margin-bottom: 15px;
+}
+
+.expenses-table th {
+	background-color: #edf2f7;
+}
+
+.expenses-total-row {
+	background-color: #fff5f5;
+}
+
+.expenses-total-row td {
+	border-top: 2px solid #fed7d7;
+	color: #c53030 !important;
+}
+
+/* Profit Loss Card Layout */
+.profit-loss-card {
+	background-color: #ffffff;
+	border: 1px solid #e2e8f0;
+	border-radius: 12px;
+	padding: 30px;
+	text-align: center;
+	box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04);
+	width: 100%;
+	max-width: 380px;
+}
+
+.profit-loss-title {
+	font-size: 16px;
+	font-weight: 600;
+	color: #718096;
+	text-transform: uppercase;
+	margin-bottom: 12px;
+	letter-spacing: 0.5px;
+}
+
+.profit-loss-value {
+	font-size: 36px;
+	font-weight: 800;
+	letter-spacing: -1px;
+}
+
+.profit-positive {
+	color: #38a169;
+}
+
+.profit-negative {
+	color: #e53e3e;
+}
+
+/* Footer layout */
+.soa-footer {
+	text-align: center;
+	padding: 25px 0;
+	border-top: 1px solid #edf2f7;
+	margin-top: 40px;
+}
+
+.soa-footer p {
+	color: #a0aec0;
+	font-size: 11px;
+	margin: 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 992px) {
+	.soa-section-row, .soa-bottom-row {
+		flex-direction: column;
+		gap: 20px;
+	}
+	.soa-ongoing-project-left, .soa-expenses-block {
+		flex: 0 0 100%;
+	}
+	.soa-profit-loss-block {
+		justify-content: flex-start;
+		margin-top: 10px;
+	}
+	.profit-loss-card {
+		max-width: 100%;
+	}
+}
+
+/* Force Left-to-Right layout for numeric and currency values to display negative signs cleanly */
+.profit-loss-value,
+.summary-value,
+.cheque-box,
+.soa-table td.text-right,
+.services-total-row td.total-val {
+	direction: ltr !important;
+	display: inline-block;
+	unicode-bidi: embed;
+}
+
+.soa-table td.text-right {
+	display: table-cell !important;
+}

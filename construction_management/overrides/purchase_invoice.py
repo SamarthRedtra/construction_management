@@ -60,13 +60,14 @@ class PurchaseInvoiceOverride(PurchaseInvoice):
 			if target_account:
 				deductions.append(
 					{
+						"expense_account": item.expense_account,
+						"target_account": target_account,
 						"amount": abs(flt(item.base_amount)),
 						"transaction_amount": abs(flt(item.amount)),
-						"account": target_account,
+						"project": item.project or self.project,
+						"cost_center": item.cost_center or self.cost_center,
 						"boq_item": item.boq_item,
 						"bill_no": item.bill_no,
-						"cost_center": item.cost_center or self.cost_center,
-						"project": item.project or self.project,
 						"item_code": item.item_code,
 					}
 				)
@@ -74,6 +75,179 @@ class PurchaseInvoiceOverride(PurchaseInvoice):
 		if not deductions:
 			return _ensure_supplier_party_on_gl_entries(self, gl_entries)
 
+		# If subcontractor purchase, redirect deduction entries directly to target accounts and do not gross up (Case A),
+		# or if they are merged, gross up and add custom entries (Case B).
+		if _is_subcontractor_purchase(self):
+			new_entries = []
+			processed_deductions = []
+
+			def add_party_if_needed(gl_dict, account):
+				acc_type = frappe.db.get_value("Account", account, "account_type")
+				if acc_type in ["Receivable", "Payable"]:
+					gl_dict.update(
+						{
+							"party_type": "Supplier",
+							"party": self.supplier,
+							"against": self.supplier,
+						}
+					)
+				return gl_dict
+
+			# First Pass: Try to match and redirect negative standard entries directly (Case A)
+			for entry in gl_entries:
+				debit_val = flt(entry.get("debit"))
+				credit_val = flt(entry.get("credit"))
+				val = debit_val if debit_val != 0 else -credit_val
+				if val < 0:
+					for idx, d in enumerate(deductions):
+						if idx in processed_deductions:
+							continue
+						if entry.get("account") == d["expense_account"] and abs(abs(val) - d["amount"]) < 0.01:
+							target_currency = frappe.get_cached_value("Account", d["target_account"], "account_currency") or self.company_currency
+							
+							entry["account"] = d["target_account"]
+							entry["credit"] = d["amount"]
+							entry["debit"] = 0
+							entry["account_currency"] = target_currency
+							if "credit_in_account_currency" in entry:
+								entry["credit_in_account_currency"] = d["amount"] if target_currency == self.company_currency else d["transaction_amount"]
+							if "debit_in_account_currency" in entry:
+								entry["debit_in_account_currency"] = 0
+							if "credit_in_transaction_currency" in entry:
+								entry["credit_in_transaction_currency"] = d["transaction_amount"]
+							if "debit_in_transaction_currency" in entry:
+								entry["debit_in_transaction_currency"] = 0
+							if "credit_in_reporting_currency" in entry:
+								entry["credit_in_reporting_currency"] = d["amount"]
+							if "debit_in_reporting_currency" in entry:
+								entry["debit_in_reporting_currency"] = 0
+								
+							add_party_if_needed(entry, d["target_account"])
+							processed_deductions.append(idx)
+							break
+				new_entries.append(entry)
+
+			# Second Pass: Handle remaining unmatched merged entries (Case B)
+			final_entries = []
+			for entry in new_entries:
+				# Match expense entries (Debits to an account used in items)
+				if entry.get("account") in expense_accounts and flt(entry.get("debit")) > 0:
+					total_gross_up = 0
+					total_gross_up_transaction = 0
+					for idx, d in enumerate(deductions):
+						if idx in processed_deductions:
+							continue
+
+						# Match by project, boq_item, and cost_center
+						match = (
+							d["project"] == entry.get("project")
+							and d["boq_item"] == entry.get("boq_item")
+						)
+						if not match and not entry.get("boq_item") and not d["boq_item"]:
+							match = (
+								d["project"] == entry.get("project")
+								and d["cost_center"] == entry.get("cost_center")
+							)
+
+						if match:
+							total_gross_up += d["amount"]
+							total_gross_up_transaction += d["transaction_amount"]
+							processed_deductions.append(idx)
+
+							target_currency = frappe.get_cached_value("Account", d["target_account"], "account_currency") or self.company_currency
+							deduction_entry = self.get_gl_dict(
+								add_party_if_needed({
+									"account": d["target_account"],
+									"credit": d["amount"],
+									"credit_in_account_currency": (
+										d["amount"]
+										if target_currency == self.company_currency
+										else d["transaction_amount"]
+									),
+									"project": d["project"],
+									"boq_item": d["boq_item"],
+									"bill_no": d["bill_no"],
+									"cost_center": d["cost_center"],
+									"against": self.supplier,
+									"remarks": f"{d['item_code']} for {self.name}",
+								}, d["target_account"]),
+								account_currency=target_currency
+							)
+							deduction_entry.update(
+								{
+									"transaction_currency": self.currency,
+									"transaction_exchange_rate": self.get("conversion_rate") or 1,
+									"credit_in_transaction_currency": d["transaction_amount"],
+								}
+							)
+							final_entries.append(deduction_entry)
+
+					if total_gross_up > 0:
+						entry["debit"] = flt(entry.get("debit", 0)) + total_gross_up
+						if "debit_in_account_currency" in entry:
+							if entry.get("account_currency") == self.currency:
+								entry["debit_in_account_currency"] = (
+									flt(entry.get("debit_in_account_currency", 0)) + total_gross_up_transaction
+								)
+							else:
+								entry["debit_in_account_currency"] = flt(entry.get("debit_in_account_currency", 0)) + total_gross_up
+						if "debit_in_transaction_currency" in entry:
+							entry["debit_in_transaction_currency"] = (
+								flt(entry.get("debit_in_transaction_currency", 0)) + total_gross_up_transaction
+							)
+						if "debit_in_reporting_currency" in entry:
+							entry["debit_in_reporting_currency"] = (
+								flt(entry.get("debit_in_reporting_currency", 0)) + total_gross_up
+							)
+
+				final_entries.append(entry)
+
+			# Add unmatched deductions as orphans (should theoretically never happen if standard entries exist)
+			for idx, d in enumerate(deductions):
+				if idx not in processed_deductions:
+					for entry in final_entries:
+						if entry.get("account") in expense_accounts and flt(entry.get("debit")) > 0:
+							entry["debit"] = flt(entry.get("debit", 0)) + d["amount"]
+							if "debit_in_transaction_currency" in entry:
+								entry["debit_in_transaction_currency"] = (
+									flt(entry.get("debit_in_transaction_currency", 0)) + d["transaction_amount"]
+								)
+							if "debit_in_account_currency" in entry:
+								if entry.get("account_currency") == self.currency:
+									entry["debit_in_account_currency"] = (
+										flt(entry.get("debit_in_account_currency", 0)) + d["transaction_amount"]
+									)
+								else:
+									entry["debit_in_account_currency"] = flt(entry.get("debit_in_account_currency", 0)) + d["amount"]
+							break
+
+					unmatched_gl = {
+						"account": d["target_account"],
+						"credit": d["amount"],
+						"project": d["project"],
+						"boq_item": d["boq_item"],
+						"bill_no": d["bill_no"],
+						"cost_center": d["cost_center"],
+						"against": self.supplier,
+						"remarks": f"{d['item_code']} for {self.name}",
+					}
+					target_currency = frappe.get_cached_value("Account", d["target_account"], "account_currency") or self.company_currency
+					deduction_entry = self.get_gl_dict(
+						add_party_if_needed(unmatched_gl, d["target_account"]),
+						account_currency=target_currency
+					)
+					deduction_entry.update(
+						{
+							"transaction_currency": self.currency,
+							"transaction_exchange_rate": self.get("conversion_rate") or 1,
+							"credit_in_transaction_currency": d["transaction_amount"],
+						}
+					)
+					final_entries.append(deduction_entry)
+
+			return _ensure_supplier_party_on_gl_entries(self, final_entries)
+
+		# Keep original gross-up logic for non-subcontractor purchases if they ever have deductions
 		new_entries = []
 		processed_deductions = []
 
@@ -112,10 +286,10 @@ class PurchaseInvoiceOverride(PurchaseInvoice):
 						total_gross_up_transaction += d["transaction_amount"]
 						processed_deductions.append(idx)
 
-						acc_currency = frappe.get_cached_value("Account", d["account"], "account_currency") or self.company_currency
+						acc_currency = frappe.get_cached_value("Account", d["target_account"], "account_currency") or self.company_currency
 						deduction_entry = self.get_gl_dict(
 							add_party_if_needed({
-								"account": d["account"],
+								"account": d["target_account"],
 								"credit": d["amount"],
 								"credit_in_account_currency": (
 									d["amount"]
@@ -128,7 +302,7 @@ class PurchaseInvoiceOverride(PurchaseInvoice):
 								"cost_center": d["cost_center"],
 								"against": self.supplier,
 								"remarks": f"{d['item_code']} for {self.name}",
-							}, d["account"]),
+							}, d["target_account"]),
 							account_currency=acc_currency
 						)
 						deduction_entry.update(
@@ -180,7 +354,7 @@ class PurchaseInvoiceOverride(PurchaseInvoice):
 						break
 
 				unmatched_gl = {
-					"account": d["account"],
+					"account": d["target_account"],
 					"credit": d["amount"],
 					"project": d["project"],
 					"boq_item": d["boq_item"],
@@ -189,9 +363,9 @@ class PurchaseInvoiceOverride(PurchaseInvoice):
 					"against": self.supplier,
 					"remarks": f"{d['item_code']} for {self.name}",
 				}
-				acc_currency = frappe.get_cached_value("Account", d["account"], "account_currency") or self.company_currency
+				acc_currency = frappe.get_cached_value("Account", d["target_account"], "account_currency") or self.company_currency
 				deduction_entry = self.get_gl_dict(
-					add_party_if_needed(unmatched_gl, d["account"]),
+					add_party_if_needed(unmatched_gl, d["target_account"]),
 					account_currency=acc_currency
 				)
 				deduction_entry.update(
@@ -747,6 +921,8 @@ def _get_advance_already_deducted(purchase_order, exclude_pi=None):
 
 def _is_subcontractor_purchase(doc):
 	"""Check if the linked Purchase Order is for a Subcontractor"""
+	if doc.get("custom_suppliersubcontractor") == "Subcontractor":
+		return True
 	po = _get_linked_purchase_order(doc)
 	if not po:
 		return False
