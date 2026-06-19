@@ -216,7 +216,9 @@ class BulkDPREntry {
 						// Ensure we have a numeric balance to start with
 						const originalBalance = parseFloat(mat.balance) || 0;
 						const valuationRate = parseFloat(mat.valuation_rate) || 0;
-						const displayLabel = `${mat.item_name || mat.name} | Stock: ${originalBalance.toFixed(2)} | Rate: ${valuationRate.toFixed(2)}`;
+						const displayLabel = showCosts.value
+							? `${mat.item_name || mat.name} | Stock: ${originalBalance.toFixed(2)} | Rate: ${valuationRate.toFixed(2)}`
+							: `${mat.item_name || mat.name} | Stock: ${originalBalance.toFixed(2)}`;
 						return {
 							...mat,
 							display_label: displayLabel,
@@ -908,6 +910,7 @@ class BulkDPREntry {
 				const searchQuery = ref('');
 				const searchInput = ref(null);
 				const rootEl = ref(null);
+				const showCosts = ref((frappe.user_roles || []).some(r => ['Purchase Manager', 'Accounts Manager', 'Accounts User'].includes(r)));
 
 				const filteredOptions = computed(() => {
 					if (!searchQuery.value) return props.options;
@@ -1042,7 +1045,7 @@ class BulkDPREntry {
 					emit('update:modelValue', current);
 				};
 
-				return { isOpen, selectedItems, toggle, select, remove, searchQuery, filteredOptions, searchInput, rootEl };
+				return { isOpen, selectedItems, toggle, select, remove, searchQuery, filteredOptions, searchInput, rootEl, showCosts };
 			},
 			template: `
 				<div class="simple-multiselect position-relative" ref="rootEl">
@@ -1067,7 +1070,7 @@ class BulkDPREntry {
 							<span v-if="opt.balance !== undefined" class="text-muted small ml-1">
 								(Avail: {{ opt.balance }} {{ opt.stock_uom }})
 							</span>
-							<span v-if="opt.rate_per_day" class="text-muted small ml-1">
+							<span v-if="opt.rate_per_day && showCosts" class="text-muted small ml-1">
 								(Rate: {{ opt.rate_per_day.toFixed(2) }})
 							</span>
 						</div>
