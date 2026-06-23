@@ -170,7 +170,8 @@ doc_events = {
 	"Purchase Receipt": {
 		"before_validate": "construction_management.overrides.purchase_receipt.before_validate",
 		"validate": "construction_management.overrides.purchase_receipt.validate",
-		"before_submit": "construction_management.overrides.purchase_receipt.before_submit"
+		"before_submit": "construction_management.overrides.purchase_receipt.before_submit",
+		"on_submit": "redtra_customisation.override.provisional_purchase_order.on_purchase_receipt_submit",
 	},
 	"Project": {
 		"on_update": "construction_management.overrides.project.clear_project_cache",

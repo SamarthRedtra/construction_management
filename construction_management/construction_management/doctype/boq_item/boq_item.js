@@ -3,6 +3,9 @@
 
 frappe.ui.form.on("BOQ Item", {
 	refresh(frm) {
+		if (!frm.is_new()) {
+			frm.trigger("render_rate_history");
+		}
 		// Add "Recalculate Costs" button to refresh all cost calculations
 		if (!frm.is_new()) {
 			frm.add_custom_button(__("Recalculate Costs"), function () {
@@ -118,6 +121,63 @@ frappe.ui.form.on("BOQ Item", {
 
 	estimated_other_cost_per_unit(frm) {
 		calculate_unit_based_totals(frm);
+	},
+
+	render_rate_history(frm) {
+		if (frm.is_new()) return;
+		frappe.call({
+			method: "construction_management.construction_management.doctype.boq_item.boq_item.get_rate_history",
+			args: {
+				boq_item: frm.doc.name
+			},
+			callback(r) {
+				if (r.message && r.message.length) {
+					let html = `
+						<div class="rate-history-container" style="margin-top: 15px; margin-bottom: 15px; border: 1px solid var(--border-color); border-radius: var(--border-radius-md); padding: 12px; background-color: var(--light-bg);">
+							<details>
+								<summary style="font-weight: bold; color: var(--text-color); cursor: pointer; font-size: var(--text-md); outline: none;">
+									<i class="fa fa-history" style="color: var(--text-muted); margin-right: 6px;"></i> ${__('View Pricing/Rate Change History')} (${r.message.length})
+								</summary>
+								<div style="margin-top: 10px; overflow-x: auto;">
+									<table class="table table-bordered table-condensed" style="margin-bottom: 0; font-size: var(--text-sm); background-color: var(--card-bg);">
+										<thead>
+											<tr style="background-color: var(--border-color); font-weight: bold;">
+												<th>${__('Changed Date')}</th>
+												<th>${__('User')}</th>
+												<th style="text-align: right;">${__('Rate')}</th>
+												<th style="text-align: right;">${__('BOQ Item Total Amount')}</th>
+											</tr>
+										</thead>
+										<tbody>
+					`;
+					r.message.forEach(row => {
+						let rate = flt(row.rate);
+						let amount = flt(row.amount);
+						let user_name = row.user_name || row.changed_by || '';
+						html += `
+							<tr>
+								<td>${frappe.datetime.str_to_user(row.posting_date)}</td>
+								<td>${user_name}</td>
+								<td style="text-align: right; font-weight: bold; color: var(--text-color);">${format_currency(rate, (frappe.boot.sysdefaults && frappe.boot.sysdefaults.currency) || 'AED')}</td>
+								<td style="text-align: right; font-weight: bold; color: var(--text-color);">${format_currency(amount, (frappe.boot.sysdefaults && frappe.boot.sysdefaults.currency) || 'AED')}</td>
+							</tr>
+						`;
+					});
+					html += `
+										</tbody>
+									</table>
+								</div>
+							</details>
+						</div>
+					`;
+					frm.get_field('rate_history_html').$wrapper.html(html);
+				} else {
+					frm.get_field('rate_history_html').$wrapper.html(
+						`<div style="font-size: var(--text-sm); color: var(--text-muted); margin-top: 15px; margin-bottom: 15px; padding: 12px; border: 1px dashed var(--border-color); border-radius: var(--border-radius-md); text-align: center;">${__('No billing history found.')}</div>`
+					);
+				}
+			}
+		});
 	}
 });
 

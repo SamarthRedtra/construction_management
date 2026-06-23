@@ -24,6 +24,7 @@
   "total_qty",
   "rate",
   "total_amount",
+  "rate_history_html",
   "section_estimated_costs",
   "estimated_material_cost_per_unit",
   "estimated_labour_cost_per_unit",
@@ -194,6 +195,11 @@
    "in_list_view": 1,
    "label": "Total Amount",
    "read_only": 1
+  },
+  {
+   "fieldname": "rate_history_html",
+   "fieldtype": "HTML",
+   "label": "Rate History"
   },
   {
    "fieldname": "section_unit_breakdown",

@@ -29,6 +29,15 @@ def before_submit(doc, method):
 	_set_default_target_warehouse(doc)
 	validate_items_in_purchase_order(doc)
 	ensure_item_projects(doc, make_mandatory=True)
+	bump_provisional_po_qty_before_receipt(doc)
+
+
+def bump_provisional_po_qty_before_receipt(doc):
+	from redtra_customisation.override.provisional_purchase_order import (
+		bump_provisional_po_qty_before_receipt as bump_po_qty,
+	)
+
+	bump_po_qty(doc)
 
 
 def scale_fixed_discount(doc):

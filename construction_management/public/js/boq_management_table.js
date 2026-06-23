@@ -280,19 +280,24 @@ function render_item_row(item, frm) {
 					aria-label="Total quantity" tabindex="0">
 			</td>
 			<td class="col-rate sticky-col">
-				<input type="number" class="boq-rate-input" value="${ledgerAmount.rate || 0}" 
-					data-item="${item.name}" step="0.01" min="0" 
-					aria-label="Rate" tabindex="0">
+				<div class="rate-input-container" style="display: flex; align-items: center; gap: 2px; width: 100%;">
+					<input type="number" class="boq-rate-input" value="${ledgerAmount.rate || 0}" 
+						data-item="${item.name}" step="0.01" min="0" 
+						aria-label="Rate" tabindex="0" style="text-align: right; width: 100%; min-width: 0; flex: 1; padding: 4px;">
+					<span class="rate-history-toggle-icon" onclick="toggleRateHistory('${item.name}', this); event.stopPropagation();" title="View rate history" style="cursor: pointer; color: var(--primary-color, #1b8beb); display: inline-flex; align-items: center; justify-content: center; font-size: 14px; padding: 2px; flex-shrink: 0;">
+						<i class="fa fa-info-circle"></i>
+					</span>
+				</div>
 			</td>
 			<td class="col-amount sticky-col sticky-col-last">${format_currency(ledgerAmount.total || 0)}</td>
 			
 			<!-- Qty Breakdown (moved before Value) -->
-	<td class="col-num">${format_number(ledgerQty.prev || 0)}</td>
+	<td class="col-num prev-qty-cell" data-item="${item.name}">${format_number(ledgerQty.prev || 0)}</td>
 	<td class="col-num curr-qty-cell" data-item="${item.name}">${format_number(ledgerQty.current || 0)}</td>
-	<td class="col-num font-bold">${format_number(ledgerQty.to_date || 0)}</td>
+	<td class="col-num font-bold todate-qty-cell" data-item="${item.name}">${format_number(ledgerQty.to_date || 0)}</td>
 			
 			<!-- Value Breakdown -->
-	<td class="col-num">${format_currency(ledgerAmount.prev || 0)}</td>
+	<td class="col-num prev-value-cell" data-item="${item.name}">${format_currency(ledgerAmount.prev || 0)}</td>
 	<td class="col-num curr-value-cell" data-item="${item.name}">${format_currency(ledgerAmount.current || 0)}</td>
 	<td class="col-num font-bold accum-value-cell" data-item="${item.name}">${format_currency(ledgerAmount.to_date || 0)}</td>
 			
@@ -454,6 +459,107 @@ function sync_row_ledger_from_server(row, ledger) {
 	pctInput.data('total-qty', qty.total || 0);
 	pctInput.data('total-amount', amt.total || 0);
 	pctInput.val(pct.toFixed(2));
+
+	// Update visible breakdown cells dynamically (syncing table columns with ledger calculations)
+	row.find('.prev-qty-cell').text(format_number(qty.prev || 0));
+	row.find('.curr-qty-cell').text(format_number(qty.current || 0));
+	row.find('.todate-qty-cell').text(format_number(qty.to_date || 0));
+	
+	row.find('.prev-value-cell').text(format_currency(amt.prev || 0));
+	row.find('.curr-value-cell').text(format_currency(amt.current || 0));
+	row.find('.accum-value-cell').text(format_currency(amt.to_date || 0));
+	
+	row.find('.col-amount').text(format_currency(amt.total || 0));
+}
+
+// Dismiss rate history dropdown when clicking outside
+$(document).on('click.rate-history', function(e) {
+	if (!$(e.target).closest('.rate-history-toggle-icon, .rate-history-dropdown').length) {
+		$('.rate-history-dropdown').remove();
+	}
+});
+
+window.toggleRateHistory = function(itemName, btn) {
+	const $btn = $(btn);
+	
+	// Check if already open for this button
+	let existing = $('.rate-history-dropdown[data-item="' + itemName + '"]');
+	if (existing.length) {
+		existing.remove();
+		return;
+	}
+	
+	// Close any other open dropdowns
+	$('.rate-history-dropdown').remove();
+	
+	// Create dropdown
+	const $dropdown = $('<div class="rate-history-dropdown" data-item="' + itemName + '"></div>').css({
+		position: 'absolute',
+		fontSize: '10px',
+		padding: '8px',
+		border: '1px solid var(--border-color, #d1d8dd)',
+		borderRadius: '4px',
+		backgroundColor: 'var(--card-bg, #ffffff)',
+		width: '320px',
+		textAlign: 'left',
+		zIndex: 99999,
+		boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+	});
+	
+	$dropdown.html('<div style="color: var(--text-muted); padding: 4px; text-align: center;"><i class="fa fa-spinner fa-spin"></i> Loading...</div>');
+	
+	// Position relative to button
+	const offset = $btn.offset();
+	$dropdown.css({
+		top: offset.top + $btn.outerHeight() + 4,
+		left: Math.max(10, offset.left - 290) // Positioned slightly to the left so it doesn't overflow screen right edge
+	}).appendTo('body').show();
+	
+	frappe.call({
+		method: "construction_management.construction_management.doctype.boq_item.boq_item.get_rate_history",
+		args: {
+			boq_item: itemName
+		},
+		callback(r) {
+			if (r.message && r.message.length) {
+				let html = `
+					<div style="font-weight: bold; margin-bottom: 6px; border-bottom: 1px solid var(--border-color); padding-bottom: 4px; color: var(--text-color);">
+						Rate History: ${itemName}
+					</div>
+					<table style="width: 100%; border-collapse: collapse; font-size: 10px; line-height: 1.3; background-color: var(--card-bg);">
+						<thead>
+							<tr style="border-bottom: 1px solid var(--border-color); font-weight: bold; text-align: left; color: var(--text-muted);">
+								<th style="padding: 4px 4px 4px 0;">Date</th>
+								<th style="padding: 4px;">User</th>
+								<th style="padding: 4px; text-align: right;">Rate</th>
+								<th style="padding: 4px 0 4px 4px; text-align: right;">Amount</th>
+							</tr>
+						</thead>
+						<tbody>
+				`;
+				r.message.forEach(row => {
+					let rate = flt(row.rate);
+					let amount = flt(row.amount);
+					let user_name = row.user_name || row.changed_by || '';
+					html += `
+						<tr style="border-bottom: 1px solid #f0f0f0;">
+							<td style="padding: 5px 4px 5px 0; white-space: nowrap;">${frappe.datetime.str_to_user(row.posting_date)}</td>
+							<td style="padding: 5px 4px; overflow: hidden; text-overflow: ellipsis; max-width: 120px;" title="${user_name}">${user_name}</td>
+							<td style="padding: 5px 4px; text-align: right; font-weight: bold; color: var(--text-color);">${format_currency(rate)}</td>
+							<td style="padding: 5px 0 5px 4px; text-align: right; font-weight: bold; color: var(--text-color);">${format_currency(amount)}</td>
+						</tr>
+					`;
+				});
+				html += `
+						</tbody>
+					</table>
+				`;
+				$dropdown.html(html);
+			} else {
+				$dropdown.html(`<div style="font-weight: bold; margin-bottom: 6px; border-bottom: 1px solid var(--border-color); padding-bottom: 4px; color: var(--text-color);">Rate History: ${itemName}</div><div style="color: var(--text-muted); text-align: center; padding: 4px;">No billing history found.</div>`);
+			}
+		}
+	});
 }
 
 
@@ -600,8 +706,6 @@ function attach_table_events(container, frm) {
 				if (r.message) {
 					frappe.show_alert({ message: __('Total Quantity updated'), indicator: 'green' });
 					const row = input.closest('tr');
-					const rate = flt(row.find('.boq-rate-input').val());
-					row.find('.col-amount').text(format_currency(newQty * rate));
 					sync_row_ledger_from_server(row, r.message);
 				}
 			}
@@ -624,8 +728,6 @@ function attach_table_events(container, frm) {
 				if (r.message) {
 					frappe.show_alert({ message: __('Rate updated'), indicator: 'green' });
 					const row = input.closest('tr');
-					const qty = flt(row.find('.boq-qty-input').val(), BOQ_QTY_PRECISION);
-					row.find('.col-amount').text(format_currency(qty * newRate));
 					row.find('.current-qty-input, .current-value-input').data('rate', newRate);
 					sync_row_ledger_from_server(row, r.message);
 				}
@@ -3610,11 +3712,11 @@ function get_table_styles() {
 		.col-checkbox { width: 32px; min-width: 32px; text-align: center; }
 		.col-desc { width: 180px; min-width: 160px; max-width: 200px; text-align: left; word-wrap: break-word; }
 		.col-unit { width: 50px; min-width: 50px; text-align: center; }
-		.col-rate { width: 80px; min-width: 80px; text-align: right; }
+		.col-rate { width: 120px; min-width: 120px; text-align: right; }
 		.col-amount { width: 90px; min-width: 90px; text-align: right; }
 		.col-num { width: 80px; min-width: 70px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 		.col-actions { width: 160px; min-width: 160px; text-align: center; padding: 4px 2px !important; }
-		.col-total-qty { width: 80px; min-width: 70px; text-align: right; }
+		.col-total-qty { width: 100px; min-width: 100px; text-align: right; }
 		
 		/* Sticky Columns - Requirements: 2.1, 2.2, 2.3, 2.4 */
 		.sticky-col { position: sticky; background: #fff; z-index: 2; }
@@ -3622,14 +3724,14 @@ function get_table_styles() {
 		.comprehensive-items-table tr:hover .sticky-col { background: #fafbfc; }
 		
 		/* Sticky column left offsets - Recalculated for fixed widths */
-		/* Expand (36) + Checkbox (32) + Desc (180) + Unit (50) + Total Qty (80) + Rate (80) */
+		/* Expand (36) + Checkbox (32) + Desc (180) + Unit (50) + Total Qty (100) + Rate (120) */
 		.col-expand.sticky-col { left: 0; }
 		.col-checkbox.sticky-col { left: 36px; }
 		.col-desc.sticky-col { left: 68px; }      /* 36 + 32 */
 		.col-unit.sticky-col { left: 247px; }     /* 68 + 180 */
 		.col-total-qty.sticky-col { left: 297px; } /* 248 + 50 */
-		.col-rate.sticky-col { left: 367px; }     /* 298 + 80 */
-		.col-amount.sticky-col { left: 447px; }   /* 378 + 80 */
+		.col-rate.sticky-col { left: 397px; }     /* 297 + 100 */
+		.col-amount.sticky-col { left: 517px; }   /* 397 + 120 */
 		
 		/* Visual separation for last sticky column - Requirements: 2.1, 2.2, 2.3, 2.4 */
 		.sticky-col-last { 

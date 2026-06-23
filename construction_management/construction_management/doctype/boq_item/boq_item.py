@@ -14,6 +14,7 @@ class BOQItem(Document):
 		self.calculate_estimated_costs()
 		self.calculate_amounts()
 		self.update_billing_status()
+		self.log_rate_change()
 	
 	def calculate_estimated_costs(self):
 		"""Calculate total estimated cost as sum of all cost components.
@@ -160,22 +161,28 @@ class BOQItem(Document):
 	
 	def calculate_amounts(self):
 		"""Calculate all amount fields"""
-		# Total amount
-		self.total_amount = flt(self.total_qty) * flt(self.rate)
+		# Get ledger values if not new
+		if not self.is_new():
+			from construction_management.api.boq_ledger import (
+				get_previous_qty, get_previous_amount
+			)
+			
+			self.prev_qty = get_previous_qty(self.name)
+			self.prev_amount = get_previous_amount(self.name)
+			
+			# Total amount takes historical rates into account: Billed + Remaining * Current Rate
+			self.total_amount = flt(self.prev_amount) + (flt(self.total_qty) - flt(self.prev_qty)) * flt(self.rate)
+		else:
+			# For new items, standard calculation applies
+			self.prev_qty = 0
+			self.prev_amount = 0
+			self.total_amount = flt(self.total_qty) * flt(self.rate)
 		
 		# Current amount
 		self.current_amount = flt(self.current_qty) * flt(self.rate)
 		
 		# Get ledger values
 		if not self.is_new():
-			from construction_management.api.boq_ledger import (
-				get_previous_qty, get_previous_amount,
-				get_to_date_qty, get_to_date_amount
-			)
-			
-			self.prev_qty = get_previous_qty(self.name)
-			self.prev_amount = get_previous_amount(self.name)
-			
 			# To-date includes current
 			self.to_date_qty = flt(self.prev_qty) + flt(self.current_qty)
 			self.to_date_amount = flt(self.prev_amount) + flt(self.current_amount)
@@ -544,6 +551,26 @@ class BOQItem(Document):
 			"has_estimates": total_estimated > 0
 		}
 
+	def log_rate_change(self):
+		check_rate_history_table()
+		
+		# Check if rate changed
+		is_changed = False
+		if self.is_new():
+			is_changed = True
+		else:
+			db_rate = frappe.db.get_value("BOQ Item", self.name, "rate")
+			if db_rate is not None and flt(db_rate) != flt(self.rate):
+				is_changed = True
+				
+		if is_changed:
+			# Log the new rate change
+			import uuid
+			frappe.db.sql("""
+				INSERT INTO `tabBOQ Rate History` (name, parent, changed_by, changed_date, rate, amount)
+				VALUES (%s, %s, %s, NOW(), %s, %s)
+			""", (str(uuid.uuid4()), self.name, frappe.session.user or "Administrator", flt(self.rate), flt(self.total_amount)))
+
 
 @frappe.whitelist()
 def recalculate_costs(boq_item_name: str) -> dict:
@@ -644,3 +671,50 @@ def update_parent_totals(doc, method=None):
 			boq.db_update()
 		except frappe.DoesNotExistError:
 			pass
+
+
+def check_rate_history_table():
+	frappe.db.sql("""
+		CREATE TABLE IF NOT EXISTS `tabBOQ Rate History` (
+			name VARCHAR(140) PRIMARY KEY,
+			parent VARCHAR(140),
+			changed_by VARCHAR(140),
+			changed_date DATETIME,
+			rate DECIMAL(18, 6),
+			amount DECIMAL(18, 6),
+			INDEX (parent)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+	""")
+
+
+@frappe.whitelist()
+def get_rate_history(boq_item):
+	check_rate_history_table()
+	
+	history = frappe.db.sql("""
+		SELECT changed_date as posting_date, changed_by, rate, amount
+		FROM `tabBOQ Rate History`
+		WHERE parent = %s
+		ORDER BY changed_date DESC
+	""", boq_item, as_dict=True)
+	
+	if not history:
+		# Fallback to current state
+		creation, rate, amount, owner = frappe.db.get_value(
+			"BOQ Item",
+			boq_item,
+			["creation", "rate", "total_amount", "owner"]
+		)
+		history = [{
+			"posting_date": creation,
+			"changed_by": owner,
+			"rate": flt(rate),
+			"amount": flt(amount)
+		}]
+		
+	for h in history:
+		full_name = frappe.db.get_value("User", h.get("changed_by"), "full_name")
+		h["user_name"] = full_name or h.get("changed_by")
+		
+	return history
+
