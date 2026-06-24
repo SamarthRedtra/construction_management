@@ -266,6 +266,7 @@ def get_soa_pdf(filters):
 	import json
 	from frappe.utils.pdf import get_pdf
 	from frappe.www.printview import get_print_style
+	from construction_management.report_pdf_utils import get_report_pdf_options, inline_file_images
 
 	if isinstance(filters, str):
 		filters = frappe._dict(json.loads(filters))
@@ -378,7 +379,10 @@ def get_soa_pdf(filters):
 		body=html,
 	)
 
-	pdf = get_pdf(full_html, {"orientation": "Landscape"})
+	pdf = get_pdf(
+		inline_file_images(full_html),
+		get_report_pdf_options(orientation="Landscape"),
+	)
 
 	frappe.local.response.filename = "Statement_of_Account{}.pdf".format(
 		f"_{party_label}" if party_label else ""

@@ -15,6 +15,7 @@ from frappe import _
 from frappe.utils import add_days, add_months, format_date, getdate, today
 from frappe.utils.pdf import get_pdf
 from frappe.www.printview import get_print_style
+from construction_management.report_pdf_utils import get_report_pdf_options, inline_file_images
 
 from erpnext import get_company_currency
 from erpnext.accounts.party import get_party_account_currency
@@ -203,10 +204,16 @@ def get_advanced_report_pdf(doc, consolidated=True):
 	elif consolidated:
 		delimiter = '<div style="page-break-before: always;"></div>' if doc.include_break else ""
 		result = delimiter.join(list(statement_dict.values()))
-		return get_pdf(result, {"orientation": doc.orientation})
+		return get_pdf(
+			inline_file_images(result),
+			get_report_pdf_options(orientation=doc.orientation),
+		)
 	else:
 		for customer, statement_html in statement_dict.items():
-			statement_dict[customer] = get_pdf(statement_html, {"orientation": doc.orientation})
+			statement_dict[customer] = get_pdf(
+				inline_file_images(statement_html),
+				get_report_pdf_options(orientation=doc.orientation),
+			)
 		return statement_dict
 
 
