@@ -3,14 +3,13 @@
 
 import frappe
 from frappe import _, _dict
-from frappe.utils import getdate, flt
+from frappe.utils import cint, getdate, flt
 
+import erpnext.accounts.report.general_ledger.general_ledger as gl_report
 from erpnext.accounts.report.general_ledger.general_ledger import (
-	execute as gl_execute,
 	validate_filters,
 	validate_party,
 	set_account_currency,
-	get_gl_entries,
 	get_columns as gl_get_columns,
 	get_data_with_opening_closing,
 	get_result_as_list,
@@ -53,7 +52,13 @@ def get_result(filters, account_details):
 	if filters.get("include_dimensions"):
 		accounting_dimensions = get_accounting_dimensions()
 
-	gl_entries = get_gl_entries(filters, accounting_dimensions)
+	gl_entries = gl_report.get_gl_entries(filters, accounting_dimensions)
+
+	if filters.get("party_type") or filters.get("party"):
+		gl_entries = _sort_gl_entries_for_party(
+			gl_entries,
+			group_by_against_voucher=_get_group_by_against_voucher_setting(filters),
+		)
 
 	data = get_data_with_opening_closing(filters, account_details, accounting_dimensions, gl_entries)
 	result = get_result_as_list(data, filters)
@@ -63,6 +68,48 @@ def get_result(filters, account_details):
 		result = inject_proforma_rows(result, filters)
 
 	return result
+
+
+def _get_group_by_against_voucher_setting(filters):
+	if "group_by_against_voucher" in filters and filters.get("group_by_against_voucher") is not None:
+		return cint(filters.get("group_by_against_voucher"))
+
+	try:
+		from redtra_customisation.override.general_ledger_report import _get_gl_setting
+
+		return bool(
+			_get_gl_setting(
+				"group_by_against_voucher_in_gl",
+				filters,
+				"group_by_against_voucher",
+			)
+		)
+	except ImportError:
+		return False
+
+
+def _sort_gl_entries_for_party(gl_entries, group_by_against_voucher=False):
+	def sort_key(gle):
+		key = [gle.get("posting_date") or ""]
+		if group_by_against_voucher:
+			key.append(_group_key_for_party_sort(gle))
+		key.extend(
+			[
+				gle.get("voucher_no") or "",
+				gle.get("account") or "",
+				gle.get("creation") or "",
+			]
+		)
+		return tuple(key)
+
+	return sorted(gl_entries, key=sort_key)
+
+
+def _group_key_for_party_sort(gle):
+	against_voucher = (gle.get("against_voucher") or "").strip()
+	if against_voucher:
+		return against_voucher
+	return gle.get("voucher_no") or ""
 
 
 def get_sales_orders(filters):
