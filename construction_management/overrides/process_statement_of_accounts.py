@@ -36,6 +36,7 @@ from erpnext.accounts.doctype.process_statement_of_accounts.process_statement_of
 
 from construction_management.construction_management.report.advanced_general_ledger.advanced_general_ledger import (
 	execute as get_advanced_soa,
+	get_soa_totals,
 )
 
 
@@ -187,6 +188,7 @@ def get_advanced_html(doc, filters, entry, col, res, ageing):
 			)
 			if doc.terms_and_conditions
 			else None,
+			"soa_totals": get_soa_totals(res),
 		},
 	)
 	html = frappe.render_template(

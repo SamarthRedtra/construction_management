@@ -34,6 +34,8 @@
 	</div>
 	<br>
 
+	{% set totals = soa_totals if soa_totals is defined else None %}
+
 	{# ── GL Entries Table (includes Proforma / Sales Order rows inline) ── #}
 	<h4>{{ _("General Ledger Transactions") }}</h4>
 	<table class="table table-bordered" style="font-size: 10px">
@@ -129,27 +131,34 @@
 	<h4>{{ _("Summary") }}</h4>
 	<table class="table table-bordered" style="font-size: 11px">
 		<tbody>
-			{% set gl_debit = {"val": 0} %}
-			{% set gl_credit = {"val": 0} %}
-			{% for row in data %}
-			{% if row.get("posting_date") %}
-			{% if gl_debit.update({"val": gl_debit.val + (row.debit or 0)}) %}{% endif %}
-			{% if gl_credit.update({"val": gl_credit.val + (row.credit or 0)}) %}{% endif %}
+			{% if totals and (totals.opening_debit or totals.opening_credit) %}
+			<tr>
+				<td style="width: 50%"><b>{{ _("Opening Debit") }}</b></td>
+				<td style="text-align: right">{{ frappe.utils.fmt_money(totals.opening_debit,
+					currency=filters.presentation_currency) }}</td>
+			</tr>
+			<tr>
+				<td><b>{{ _("Opening Credit") }}</b></td>
+				<td style="text-align: right">{{ frappe.utils.fmt_money(totals.opening_credit,
+					currency=filters.presentation_currency) }}</td>
+			</tr>
 			{% endif %}
-			{% endfor %}
 			<tr>
 				<td style="width: 50%"><b>{{ _("Total Debit") }}</b></td>
-				<td style="text-align: right">{{ frappe.utils.fmt_money(gl_debit.val,
+				<td style="text-align: right">{{ frappe.utils.fmt_money(
+					totals.total_debit if totals else 0,
 					currency=filters.presentation_currency) }}</td>
 			</tr>
 			<tr>
 				<td><b>{{ _("Total Credit") }}</b></td>
-				<td style="text-align: right">{{ frappe.utils.fmt_money(gl_credit.val,
+				<td style="text-align: right">{{ frappe.utils.fmt_money(
+					totals.total_credit if totals else 0,
 					currency=filters.presentation_currency) }}</td>
 			</tr>
 			<tr>
 				<td><b>{{ _("Balance (Dr - Cr)") }}</b></td>
-				<td style="text-align: right">{{ frappe.utils.fmt_money(gl_debit.val - gl_credit.val,
+				<td style="text-align: right">{{ frappe.utils.fmt_money(
+					totals.net_balance if totals else 0,
 					currency=filters.presentation_currency) }}</td>
 			</tr>
 		</tbody>
@@ -219,11 +228,15 @@
 				</tr>
 				<tr>
 					<td colspan="4"><b>{{ _("Due Amount") }}</b></td>
-					<td style="text-align: right"><b>{{ frappe.utils.fmt_money(gl_debit.val - gl_credit.val, currency=filters.presentation_currency) }}</b></td>
+					<td style="text-align: right"><b>{{ frappe.utils.fmt_money(
+						totals.net_balance if totals else 0,
+						currency=filters.presentation_currency) }}</b></td>
 				</tr>
 				<tr>
 					<td colspan="4"><b>{{ _("Due Amount After PDs") }}</b></td>
-					<td style="text-align: right"><b>{{ frappe.utils.fmt_money(gl_debit.val - gl_credit.val - total_pd_amount.val, currency=filters.presentation_currency) }}</b></td>
+					<td style="text-align: right"><b>{{ frappe.utils.fmt_money(
+						(totals.net_balance if totals else 0) - total_pd_amount.val,
+						currency=filters.presentation_currency) }}</b></td>
 				</tr>
 			</tfoot>
 		</table>

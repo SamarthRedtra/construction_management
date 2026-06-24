@@ -304,6 +304,38 @@ def inject_proforma_rows(result, filters):
 	return final
 
 
+def get_soa_totals(data):
+	"""Summary totals for SOA PDF including opening balance."""
+	from erpnext.accounts.report.general_ledger.general_ledger import get_translated_labels_for_totals
+
+	labels = get_translated_labels_for_totals()
+	totals = {
+		"opening_debit": 0,
+		"opening_credit": 0,
+		"period_debit": 0,
+		"period_credit": 0,
+		"closing_balance": 0,
+	}
+
+	for row in data:
+		account = row.get("account")
+		if account == labels["opening"]:
+			totals["opening_debit"] = flt(row.get("debit"))
+			totals["opening_credit"] = flt(row.get("credit"))
+		elif account == labels["closing"]:
+			totals["closing_balance"] = flt(row.get("balance"))
+		elif row.get("posting_date"):
+			totals["period_debit"] += flt(row.get("debit"))
+			totals["period_credit"] += flt(row.get("credit"))
+
+	totals["total_debit"] = totals["opening_debit"] + totals["period_debit"]
+	totals["total_credit"] = totals["opening_credit"] + totals["period_credit"]
+	totals["net_balance"] = totals["closing_balance"] or (
+		totals["total_debit"] - totals["total_credit"]
+	)
+	return totals
+
+
 @frappe.whitelist()
 def get_soa_pdf(filters):
 	"""
@@ -392,6 +424,7 @@ def get_soa_pdf(filters):
 			"pdcs": pdcs,
 			"letter_head": letter_head,
 			"terms_and_conditions": None,
+			"soa_totals": get_soa_totals(data),
 		},
 	)
 
