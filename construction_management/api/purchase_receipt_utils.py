@@ -63,3 +63,51 @@ def get_project_warehouse(project):
 		warehouse = frappe.db.get_value("Warehouse", {"project": project}, "name")
 
 	return warehouse
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def get_purchase_receipts_for_invoice(
+	doctype, txt, searchfield, start, page_len, filters, as_dict=False
+):
+	"""Purchase Receipt search for PI 'Get Items From' popup — date ascending, with delivery note."""
+	filters = filters or {}
+
+	filter_list = [
+		["docstatus", "=", 1],
+		["is_return", "=", 0],
+	]
+
+	for fieldname in ("company", "supplier", "posting_date"):
+		value = filters.get(fieldname)
+		if value not in (None, ""):
+			filter_list.append([fieldname, "=", value])
+
+	delivery_note = filters.get("supplier_delivery_note")
+	if delivery_note not in (None, ""):
+		filter_list.append(["supplier_delivery_note", "like", f"%{delivery_note}%"])
+
+	status = filters.get("status")
+	if status:
+		if isinstance(status, list) and len(status) == 2:
+			filter_list.append(["status", status[0], status[1]])
+		else:
+			filter_list.append(["status", "=", status])
+
+	or_filters = []
+	if txt:
+		or_filters = [
+			["name", "like", f"%{txt}%"],
+			["supplier_delivery_note", "like", f"%{txt}%"],
+		]
+
+	return frappe.get_list(
+		"Purchase Receipt",
+		filters=filter_list,
+		or_filters=or_filters,
+		fields=["name", "supplier", "posting_date", "supplier_delivery_note"],
+		order_by="posting_date asc, name asc",
+		limit_start=start,
+		limit_page_length=page_len,
+		ignore_permissions=True,
+	)

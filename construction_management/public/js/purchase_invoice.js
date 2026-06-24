@@ -6,6 +6,42 @@
  * BOQ dimension fields (bill_no, boq_item) are on the child table (items).
  */
 
+function setup_purchase_receipt_fetch(frm) {
+	if (frm.doc.docstatus !== 0) {
+		return;
+	}
+
+	frm.remove_custom_button(__("Purchase Receipt"), __("Get Items From"));
+
+	frm.add_custom_button(
+		__("Purchase Receipt"),
+		function () {
+			erpnext.utils.map_current_doc({
+				method: "erpnext.stock.doctype.purchase_receipt.purchase_receipt.make_purchase_invoice",
+				source_doctype: "Purchase Receipt",
+				target: frm,
+				setters: {
+					supplier: frm.doc.supplier || undefined,
+					posting_date: undefined,
+					supplier_delivery_note: undefined,
+				},
+				get_query_filters: {
+					docstatus: 1,
+					status: ["not in", ["Closed", "Completed", "Return Issued"]],
+					company: frm.doc.company,
+					is_return: 0,
+				},
+				get_query_method:
+					"construction_management.api.purchase_receipt_utils.get_purchase_receipts_for_invoice",
+				allow_child_item_selection: true,
+				child_fieldname: "items",
+				child_columns: ["item_code", "item_name", "qty", "amount", "billed_amt"],
+			});
+		},
+		__("Get Items From")
+	);
+}
+
 const PO_LINE_PROGRESS_FIELDS = [
 	'custom_prev_qty',
 	'custom_prev_amount',
@@ -131,6 +167,8 @@ frappe.ui.form.on('Purchase Invoice', {
 			frm.set_df_property("project", "reqd", 1);
 		}
 
+		// Run after ERPNext adds its default Purchase Receipt fetch button.
+		setTimeout(() => setup_purchase_receipt_fetch(frm), 0);
 	},
 
 	before_save: function (frm) {
