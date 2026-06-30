@@ -501,6 +501,7 @@ class SalesInvoiceOverride(SalesInvoice):
 
 		# 4. Unearned reversal per SI row: (matching SO revenue row base_net × unbilled %) — same BOQ Item as SO line
 		unearned_reversal_by_item_row = {}
+		unearned_reversal_by_boq_item = {}
 		unbilled_revenue_acc = boq_settings.so_unearned_revenue_debit_account
 		
 		if boq_settings.get("enable_so_unearned_revenue_jv") and unbilled_revenue_acc:
@@ -533,9 +534,59 @@ class SalesInvoiceOverride(SalesInvoice):
 					unearned_reversal_by_item_row[item.name] = (
 						unearned_reversal_by_item_row.get(item.name, 0) + reversal_amount
 					)
+					unearned_reversal_by_boq_item[item.boq_item] = (
+						unearned_reversal_by_boq_item.get(item.boq_item, 0) + reversal_amount
+					)
 
+		applied_unearned_boq_items = set()
 
-		# 1. Map items to their dimensions and identify deduction items
+		def _get_unearned_reversal_amount(entry):
+			voucher_detail_no = entry.get("voucher_detail_no")
+			if voucher_detail_no and voucher_detail_no in unearned_reversal_by_item_row:
+				return unearned_reversal_by_item_row[voucher_detail_no]
+
+			boq_item = entry.get("boq_item")
+			if boq_item and boq_item in unearned_reversal_by_boq_item and boq_item not in applied_unearned_boq_items:
+				return unearned_reversal_by_boq_item[boq_item]
+			return 0
+
+		def _apply_unearned_reversal(entry, rev_amt):
+			if not rev_amt:
+				return
+
+			entry["credit"] = flt(entry.get("credit", 0)) - rev_amt
+
+			if "credit_in_account_currency" in entry:
+				entry["credit_in_account_currency"] = flt(entry.get("credit_in_account_currency", 0)) - rev_amt
+			if "credit_in_transaction_currency" in entry:
+				entry["credit_in_transaction_currency"] = flt(
+					entry.get("credit_in_transaction_currency", 0)
+				) - rev_amt
+
+			boq_item = entry.get("boq_item")
+			voucher_detail_no = entry.get("voucher_detail_no")
+			if boq_item:
+				applied_unearned_boq_items.add(boq_item)
+
+			unearned_entry = self.get_gl_dict(add_party_if_needed({
+				"account": unbilled_revenue_acc,
+				"credit": rev_amt,
+				"project": entry.get("project"),
+				"boq_item": boq_item,
+				"bill_no": entry.get("bill_no"),
+				"cost_center": entry.get("cost_center"),
+				"voucher_detail_no": voucher_detail_no,
+				"against": self.customer,
+				"remarks": f"Unearned revenue reversal for {self.name}",
+			}, unbilled_revenue_acc))
+
+			unearned_entry.update({
+				"transaction_currency": self.currency,
+				"transaction_exchange_rate": self.get("conversion_rate") or 1,
+				"credit_in_transaction_currency": rev_amt,
+			})
+			new_entries.append(unearned_entry)
+
 		deductions = []
 		income_accounts = set()
 		for item in self.items:
@@ -559,7 +610,7 @@ class SalesInvoiceOverride(SalesInvoice):
 					"item_code": item.item_code
 				})
 
-		if not deductions and not unearned_reversal_by_item_row:
+		if not deductions and not unearned_reversal_by_item_row and not unearned_reversal_by_boq_item:
 			return gl_entries
 
 		# 2. Reconstruct entries
@@ -639,36 +690,9 @@ class SalesInvoiceOverride(SalesInvoice):
 					if "credit_in_reporting_currency" in entry:
 						entry["credit_in_reporting_currency"] = flt(entry.get("credit_in_reporting_currency", 0)) + total_gross_up
 
-				# 4b. Unearned: reduce sales by reversal; credit unbilled (matched by SI row / voucher_detail_no)
-				voucher_detail_no = entry.get("voucher_detail_no")
-				if voucher_detail_no and voucher_detail_no in unearned_reversal_by_item_row:
-					rev_amt = unearned_reversal_by_item_row[voucher_detail_no]
-					# Reduce Sales Credit by the portion already recognized at SO (per BOQ line on SO)
-					entry["credit"] = flt(entry.get("credit", 0)) - rev_amt
-					
-					if "credit_in_account_currency" in entry:
-						entry["credit_in_account_currency"] = flt(entry.get("credit_in_account_currency", 0)) - rev_amt
-					if "credit_in_transaction_currency" in entry:
-						entry["credit_in_transaction_currency"] = flt(entry.get("credit_in_transaction_currency", 0)) - rev_amt
-						
-					unearned_entry = self.get_gl_dict(add_party_if_needed({
-						"account": unbilled_revenue_acc,
-						"credit": rev_amt,
-						"project": entry.get("project"),
-						"boq_item": entry.get("boq_item"),
-						"bill_no": entry.get("bill_no"),
-						"cost_center": entry.get("cost_center"),
-						"voucher_detail_no": voucher_detail_no,
-						"against": self.customer,
-						"remarks": f"Unearned revenue reversal for {self.name}"
-					}, unbilled_revenue_acc))
-					
-					unearned_entry.update({
-						"transaction_currency": self.currency,
-						"transaction_exchange_rate": self.get("conversion_rate") or 1,
-						"credit_in_transaction_currency": rev_amt
-					})
-					new_entries.append(unearned_entry)
+				# 4b. Unearned: reduce sales by reversal; credit unbilled (by SI row or BOQ item)
+				rev_amt = _get_unearned_reversal_amount(entry)
+				_apply_unearned_reversal(entry, rev_amt)
 			
 			# Only append the income entry if it still has a non-zero amount
 			# (100% unearned revenue reversal can reduce credit to 0)
