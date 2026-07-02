@@ -4,7 +4,11 @@
 import frappe
 from frappe import _
 from frappe.utils import flt
-from construction_management.api.purchase_receipt_utils import get_warehouse_project
+from construction_management.api.purchase_receipt_utils import (
+	get_purchase_deduction_percentages,
+	get_warehouse_project,
+	is_subcontractor_purchase,
+)
 
 # Item codes that should be excluded from PO item validation
 DEDUCTION_ITEM_CODES = {"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"}
@@ -194,15 +198,12 @@ def apply_purchase_deductions(doc):
 	if not purchase_order:
 		return
 
-	# Only apply deductions for Subcontractor type purchases (checked on PO level)
-	po_type = frappe.db.get_value("Purchase Order", purchase_order, "custom_suppliersubcontractor")
-	if po_type != "Subcontractor":
+	if not is_subcontractor_purchase(doc, purchase_order):
 		return
 
-	# Read PO percentages
+	# Read PO percentages (fall back to Project when PO fields are blank)
 	po_doc = frappe.get_cached_doc("Purchase Order", purchase_order)
-	retention_pct = flt(po_doc.get("custom_retention_"))
-	advance_pct = flt(po_doc.get("custom_advance_"))
+	retention_pct, advance_pct = get_purchase_deduction_percentages(doc, po_doc)
 
 	if retention_pct <= 0 and advance_pct <= 0:
 		return

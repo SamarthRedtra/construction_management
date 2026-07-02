@@ -20,6 +20,10 @@ frappe.ui.form.on('Purchase Receipt', {
 		}
 		setup_extra_accounting_entry_queries(frm);
 
+		if (frm.doc.docstatus === 0) {
+			recalculate_pr_deductions(frm);
+		}
+
 		// Explicit queries for BOQ dimensions in child table
 		frm.set_query("bill_no", "items", function (doc, cdt, cdn) {
 			let row = locals[cdt][cdn];
@@ -151,20 +155,50 @@ function recalculate_pr_deductions(frm) {
 
 	if (!purchase_order) return;
 
+	const is_subcontractor =
+		frm.doc.custom_suppliersubcontractor === 'Subcontractor';
+
 	// Fetch PO retention/advance percentages and supplier/subcontractor type
 	frappe.db.get_value('Purchase Order', purchase_order,
-		['custom_retention_', 'custom_advance_', 'custom_suppliersubcontractor'])
+		['custom_retention_', 'custom_advance_', 'custom_suppliersubcontractor', 'project'])
 		.then(r => {
 			if (!r.message) return;
 
-			// Only apply for Subcontractor type
-			if (r.message.custom_suppliersubcontractor !== 'Subcontractor') return;
+			if (!is_subcontractor && r.message.custom_suppliersubcontractor !== 'Subcontractor') return;
 
-			const retention_pct = flt(r.message.custom_retention_);
-			const advance_pct = flt(r.message.custom_advance_);
+			let retention_pct = flt(r.message.custom_retention_);
+			let advance_pct = flt(r.message.custom_advance_);
 
-			if (retention_pct <= 0 && advance_pct <= 0) return;
+			const project = frm.doc.project || r.message.project;
+			const apply_deductions = () => {
+				if (retention_pct <= 0 && advance_pct <= 0) return;
+				apply_pr_deduction_amounts(frm, retention_pct, advance_pct);
+			};
 
+			if (!project || (retention_pct > 0 && advance_pct > 0)) {
+				apply_deductions();
+				return;
+			}
+
+			frappe.db.get_value('Project', project, ['retention_percentage', 'advance_deduction'])
+				.then((project_r) => {
+					if (!project_r.message) {
+						apply_deductions();
+						return;
+					}
+
+					if (retention_pct <= 0) {
+						retention_pct = flt(project_r.message.retention_percentage);
+					}
+					if (advance_pct <= 0) {
+						advance_pct = flt(project_r.message.advance_deduction);
+					}
+					apply_deductions();
+				});
+		});
+}
+
+function apply_pr_deduction_amounts(frm, retention_pct, advance_pct) {
 			// Calculate total billable (exclude deduction items)
 			let total_billable = 0;
 			for (let item of (frm.doc.items || [])) {
@@ -240,7 +274,6 @@ function recalculate_pr_deductions(frm) {
 			}
 
 			frm.refresh_field('items');
-		});
 }
 
 

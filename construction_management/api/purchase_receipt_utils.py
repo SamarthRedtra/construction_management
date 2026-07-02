@@ -3,6 +3,9 @@
 
 import frappe
 from frappe import _
+from frappe.utils import flt
+
+DEDUCTION_ITEM_CODES = {"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"}
 
 
 @frappe.whitelist()
@@ -63,6 +66,56 @@ def get_project_warehouse(project):
 		warehouse = frappe.db.get_value("Warehouse", {"project": project}, "name")
 
 	return warehouse
+
+
+def get_linked_purchase_order(doc):
+	purchase_order = doc.get("custom_purchase_order")
+	if purchase_order:
+		return purchase_order
+
+	for item in doc.get("items") or []:
+		if item.get("purchase_order"):
+			return item.purchase_order
+
+	return None
+
+
+def is_subcontractor_purchase(doc, purchase_order=None):
+	if doc.get("custom_suppliersubcontractor") == "Subcontractor":
+		return True
+
+	purchase_order = purchase_order or get_linked_purchase_order(doc)
+	if not purchase_order:
+		return False
+
+	return (
+		frappe.db.get_value("Purchase Order", purchase_order, "custom_suppliersubcontractor")
+		== "Subcontractor"
+	)
+
+
+def get_purchase_deduction_percentages(doc, po_doc):
+	"""Use PO retention/advance %, falling back to the linked Project."""
+	retention_pct = flt(po_doc.get("custom_retention_"))
+	advance_pct = flt(po_doc.get("custom_advance_"))
+
+	project = doc.get("project") or po_doc.get("project")
+	if not project:
+		return retention_pct, advance_pct
+
+	project_values = frappe.db.get_value(
+		"Project",
+		project,
+		["retention_percentage", "advance_deduction"],
+		as_dict=True,
+	) or {}
+
+	if retention_pct <= 0:
+		retention_pct = flt(project_values.get("retention_percentage"))
+	if advance_pct <= 0:
+		advance_pct = flt(project_values.get("advance_deduction"))
+
+	return retention_pct, advance_pct
 
 
 @frappe.whitelist()
