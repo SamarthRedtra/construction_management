@@ -1,0 +1,134 @@
+{% set short_name = doc.custom_project_short_name or frappe.db.get_value("Project", doc.project, "custom_project_short_name") %}
+{% set engineer_name = doc.custom_engineer_name or (doc.engineer and frappe.db.get_value("Employee", doc.engineer, "employee_name")) %}
+{% set supervisor_name = doc.custom_supervisor and frappe.db.get_value("Employee", doc.custom_supervisor, "employee_name") %}
+{% set foreman_name = doc.custom_foreman %}
+
+<style>
+	.dr-print {
+		font-family: Arial, sans-serif;
+		font-size: 12px;
+		color: #222;
+		max-width: 900px;
+		margin: 0 auto;
+	}
+	.dr-title {
+		text-align: center;
+		font-size: 18px;
+		font-weight: bold;
+		text-transform: uppercase;
+		margin-bottom: 16px;
+		border-bottom: 2px solid #333;
+		padding-bottom: 8px;
+	}
+	.dr-meta {
+		width: 100%;
+		border-collapse: collapse;
+		margin-bottom: 18px;
+	}
+	.dr-meta td {
+		border: 1px solid #999;
+		padding: 7px 10px;
+		vertical-align: top;
+	}
+	.dr-meta .label {
+		font-weight: bold;
+		background: #f5f5f5;
+		width: 22%;
+	}
+	.dr-workers {
+		width: 100%;
+		border-collapse: collapse;
+		margin-bottom: 16px;
+	}
+	.dr-workers th,
+	.dr-workers td {
+		border: 1px solid #999;
+		padding: 7px 10px;
+	}
+	.dr-workers th {
+		background: #ececec;
+		text-align: left;
+	}
+	.dr-workers .num {
+		text-align: center;
+		width: 60px;
+	}
+	.dr-remarks {
+		border: 1px solid #999;
+		padding: 10px;
+		min-height: 48px;
+	}
+</style>
+
+<div class="dr-print">
+	<div class="dr-title">{{ _("Daily Roster") }}</div>
+
+	<table class="dr-meta">
+		<tr>
+			<td class="label">{{ _("Date") }}</td>
+			<td>{{ frappe.format_value(doc.date, {"fieldtype": "Date"}) }}</td>
+			<td class="label">{{ _("Company") }}</td>
+			<td>{{ doc.company }}</td>
+		</tr>
+		<tr>
+			<td class="label">{{ _("Project Short Name") }}</td>
+			<td colspan="3"><strong>{{ short_name or doc.project }}</strong></td>
+		</tr>
+		<tr>
+			<td class="label">{{ _("Project") }}</td>
+			<td>{{ doc.project }}</td>
+			<td class="label">{{ _("Contractor") }}</td>
+			<td>{{ doc.custom_contractor or "" }}</td>
+		</tr>
+		<tr>
+			<td class="label">{{ _("Time In") }}</td>
+			<td>{{ frappe.format_value(doc.time_in, {"fieldtype": "Time"}) }}</td>
+			<td class="label">{{ _("Time Out") }}</td>
+			<td>{{ frappe.format_value(doc.time_out, {"fieldtype": "Time"}) }}</td>
+		</tr>
+		<tr>
+			<td class="label">{{ _("Engineer") }}</td>
+			<td>{{ engineer_name or "" }}</td>
+			<td class="label">{{ _("Supervisor") }}</td>
+			<td>{{ supervisor_name or "" }}</td>
+		</tr>
+		<tr>
+			<td class="label">{{ _("Foreman") }}</td>
+			<td>{{ foreman_name or "" }}</td>
+			<td class="label">{{ _("Total Workers") }}</td>
+			<td>{{ doc.custom_total_workers or (doc.workers | length) }}</td>
+		</tr>
+		{% if doc.custom_external_workers %}
+		<tr>
+			<td class="label">{{ _("External Workers") }}</td>
+			<td colspan="3">{{ doc.custom_external_workers }}</td>
+		</tr>
+		{% endif %}
+	</table>
+
+	<table class="dr-workers">
+		<thead>
+			<tr>
+				<th class="num">#</th>
+				<th>{{ _("Worker") }}</th>
+			</tr>
+		</thead>
+		<tbody>
+			{% for row in doc.workers %}
+			<tr>
+				<td class="num">{{ loop.index }}</td>
+				<td>{{ frappe.db.get_value("Employee", row.employee, "employee_name") or row.employee }}</td>
+			</tr>
+			{% else %}
+			<tr>
+				<td colspan="2">{{ _("No workers listed") }}</td>
+			</tr>
+			{% endfor %}
+		</tbody>
+	</table>
+
+	{% if doc.remarks %}
+	<div><strong>{{ _("Remarks") }}</strong></div>
+	<div class="dr-remarks">{{ doc.remarks }}</div>
+	{% endif %}
+</div>

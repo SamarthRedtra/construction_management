@@ -50,6 +50,7 @@ doctype_js = {
 	"Interim Payment Certificate": "public/js/ipc.js",
 	"Project": ["public/js/boq_management_table.js", "public/js/boq_fullscreen_manager.js", "public/js/sticky_columns_manager.js", "public/js/profit_loss_indicator.js", "public/js/bill_financial_summary_widget.js", "public/js/project.js"],
 	"Daily Progress Record": "public/js/daily_progress_record.js",
+	"Daily Roster": "public/js/daily_roster.js",
 	"Purchase Receipt": "public/js/purchase_receipt.js",
 	"Sales Invoice": ["public/js/accounting_dimension_filters.js", "public/js/deduction_summary.js", "public/js/sales_invoice.js"],
 	"Purchase Invoice": ["public/js/accounting_dimension_filters.js", "public/js/purchase_invoice.js"],
@@ -179,6 +180,9 @@ doc_events = {
 	},
 	"Daily Progress Record": {
 		"validate": "construction_management.construction_management.doctype.boq_settings.boq_settings.validate_warehouse_for_dpr"
+	},
+	"Daily Roster": {
+		"validate": "construction_management.overrides.daily_roster.set_project_short_name",
 	},
 	"Sales Order": {
 		"validate": "construction_management.overrides.sales_order.validate",
