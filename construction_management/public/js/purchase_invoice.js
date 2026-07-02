@@ -17,7 +17,7 @@ function setup_purchase_receipt_fetch(frm) {
 		__("Purchase Receipt"),
 		function () {
 			erpnext.utils.map_current_doc({
-				method: "erpnext.stock.doctype.purchase_receipt.purchase_receipt.make_purchase_invoice",
+				method: "erpnext.stock.doctype.purchase_receipt.mapper.make_purchase_invoice",
 				source_doctype: "Purchase Receipt",
 				target: frm,
 				setters: {
