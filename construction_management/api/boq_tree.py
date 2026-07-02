@@ -301,7 +301,13 @@ def get_retention_summary(project: str) -> dict:
 		AND sii.item_code = 'RETENTION-DEDUCTION'
 	""", project, as_dict=True)
 	
-	total_retained = flt(total_retention[0].total) if total_retention else 0
+	invoice_retained = flt(total_retention[0].total) if total_retention else 0
+
+	from construction_management.api.boq_opening_balance import get_opening_retention_balance
+
+	company = frappe.db.get_value("Project", project, "company")
+	opening_retained = get_opening_retention_balance(project, company)
+	total_retained = invoice_retained + opening_retained
 	
 	# Get retention released
 	total_released = frappe.db.sql("""
@@ -317,6 +323,8 @@ def get_retention_summary(project: str) -> dict:
 	
 	return {
 		"total_retained": total_retained,
+		"invoice_retained": invoice_retained,
+		"opening_retained": opening_retained,
 		"total_released": released,
 		"retention_balance": total_retained - released
 	}

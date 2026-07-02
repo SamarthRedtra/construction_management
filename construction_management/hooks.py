@@ -198,6 +198,10 @@ doc_events = {
 		"on_submit": "construction_management.overrides.payment_entry.on_submit",
 		"on_cancel": "construction_management.overrides.payment_entry.on_cancel"
 	},
+	"Journal Entry": {
+		"on_submit": "construction_management.api.boq_opening_balance.sync_opening_journal_entry",
+		"on_cancel": "construction_management.api.boq_opening_balance.cancel_opening_journal_entry",
+	},
 	"BOQ Item": {
 		"after_delete": "construction_management.construction_management.doctype.boq_item.boq_item.update_parent_totals"
 	},
