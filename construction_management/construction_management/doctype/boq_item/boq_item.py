@@ -564,12 +564,29 @@ class BOQItem(Document):
 				is_changed = True
 				
 		if is_changed:
+			from construction_management.api.boq_ledger import get_previous_amount, get_previous_qty
+
+			prev_qty = flt(get_previous_qty(self.name))
+			prev_amount = flt(get_previous_amount(self.name))
+			balance_qty = flt(self.total_qty) - prev_qty
+			balance_value = flt(balance_qty) * flt(self.rate)
 			# Log the new rate change
 			import uuid
 			frappe.db.sql("""
-				INSERT INTO `tabBOQ Rate History` (name, parent, changed_by, changed_date, rate, amount)
-				VALUES (%s, %s, %s, NOW(), %s, %s)
-			""", (str(uuid.uuid4()), self.name, frappe.session.user or "Administrator", flt(self.rate), flt(self.total_amount)))
+				INSERT INTO `tabBOQ Rate History`
+					(name, parent, changed_by, changed_date, rate, amount, prev_qty, prev_amount, balance_qty, balance_value)
+				VALUES (%s, %s, %s, NOW(), %s, %s, %s, %s, %s, %s)
+			""", (
+				str(uuid.uuid4()),
+				self.name,
+				frappe.session.user or "Administrator",
+				flt(self.rate),
+				flt(self.total_amount),
+				prev_qty,
+				prev_amount,
+				balance_qty,
+				balance_value,
+			))
 
 
 @frappe.whitelist()
@@ -682,6 +699,10 @@ def check_rate_history_table():
 			changed_date DATETIME,
 			rate DECIMAL(18, 6),
 			amount DECIMAL(18, 6),
+			prev_qty DECIMAL(18, 6) DEFAULT 0,
+			prev_amount DECIMAL(18, 6) DEFAULT 0,
+			balance_qty DECIMAL(18, 6) DEFAULT 0,
+			balance_value DECIMAL(18, 6) DEFAULT 0,
 			INDEX (parent)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 	""")
@@ -717,4 +738,32 @@ def get_rate_history(boq_item):
 		h["user_name"] = full_name or h.get("changed_by")
 		
 	return history
+
+
+@frappe.whitelist()
+def get_rate_split_summary(boq_item):
+	"""Return billed vs remaining rate split and rate history for BOQ grid tooltip."""
+	from construction_management.api.boq_ledger import get_previous_amount, get_previous_qty
+
+	check_rate_history_table()
+	item = frappe.get_doc("BOQ Item", boq_item)
+	prev_qty = flt(get_previous_qty(boq_item))
+	prev_amount = flt(get_previous_amount(boq_item))
+	current_rate = flt(item.rate)
+	total_qty = flt(item.total_qty)
+	balance_qty = flt(total_qty) - prev_qty
+	balance_value = flt(balance_qty) * current_rate
+	prev_effective_rate = flt(prev_amount / prev_qty) if prev_qty else 0
+	total_amount = flt(prev_amount) + balance_value
+
+	return {
+		"prev_qty": prev_qty,
+		"prev_amount": prev_amount,
+		"prev_effective_rate": prev_effective_rate,
+		"balance_qty": balance_qty,
+		"current_rate": current_rate,
+		"balance_value": balance_value,
+		"total_amount": total_amount,
+		"rate_history": get_rate_history(boq_item),
+	}
 

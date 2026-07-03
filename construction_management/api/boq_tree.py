@@ -161,6 +161,9 @@ def get_boq_kpi(project: str) -> dict:
 	from construction_management.api.security_instrument import get_project_security_summary
 	security_summary = get_project_security_summary(project)
 
+	from construction_management.api.project_financials import get_project_journal_entry_summary
+	je_summary = get_project_journal_entry_summary(project)
+
 	# Document-level additional discount (ERPNext v14+ uses discount_amount / base_discount_amount;
 	# older docs referenced additional_discount_amount which is not a DB column in current ERPNext).
 	si_discount_col = None
@@ -249,6 +252,9 @@ def get_boq_kpi(project: str) -> dict:
 		"security_deposit_count": security_summary.get("security_deposit_count", 0),
 		"authorization_fees_total": flt(security_summary.get("authorization_fees_total", 0)),
 		"authorization_fees_count": security_summary.get("authorization_fees_count", 0),
+		"journal_entry_count": je_summary.get("count", 0),
+		"journal_entry_opening_count": je_summary.get("opening_count", 0),
+		"journal_entry_boq_count": je_summary.get("boq_account_count", 0),
 		# Sales Invoice — additional discount (treated as revenue deduction)
 		"si_additional_discount_total": flt(si_additional_discount_total),
 		# Sales Invoice — taxes/VAT (document total, company currency when available)
@@ -327,6 +333,224 @@ def get_retention_summary(project: str) -> dict:
 		"opening_retained": opening_retained,
 		"total_released": released,
 		"retention_balance": total_retained - released
+	}
+
+
+def _breakdown_link(doctype: str, name: str) -> str:
+	route_map = {
+		"Journal Entry": "journal-entry",
+		"BOQ Advance Payment": "boq-advance-payment",
+		"Sales Invoice": "sales-invoice",
+	}
+	slug = route_map.get(doctype) or frappe.scrub(doctype).replace("_", "-")
+	return f"/app/{slug}/{name}"
+
+
+@frappe.whitelist()
+def get_advance_breakdown(project: str) -> dict:
+	"""Source-level advance collected and deductions for project KPI drill-down."""
+	rows = []
+	seen_si_advances = set()
+
+	for bap in frappe.get_all(
+		"BOQ Advance Payment",
+		filters={"project": project, "docstatus": 1},
+		fields=["name", "amount", "date", "reference", "remarks", "linked_invoice"],
+		order_by="date desc, creation desc",
+	):
+		source_type = "BOQ Advance Payment"
+		document = bap.name
+		doctype = "BOQ Advance Payment"
+		if bap.reference and "::" in (bap.reference or ""):
+			source_type = "Opening JE"
+			document = bap.reference.split("::", 1)[0]
+			doctype = "Journal Entry"
+		elif bap.linked_invoice:
+			source_type = "Advance Sales Invoice"
+			document = bap.linked_invoice
+			doctype = "Sales Invoice"
+			seen_si_advances.add(bap.linked_invoice)
+
+		rows.append(
+			{
+				"source_type": source_type,
+				"document": document,
+				"doctype": doctype,
+				"date": bap.date,
+				"amount": flt(bap.amount),
+				"remarks": bap.remarks or "",
+				"link": _breakdown_link(doctype, document),
+			}
+		)
+
+	if frappe.db.has_column("Sales Invoice", "custom_is_advanced"):
+		for si in frappe.get_all(
+			"Sales Invoice",
+			filters={"project": project, "docstatus": 1, "custom_is_advanced": 1},
+			fields=["name", "posting_date", "base_net_total", "grand_total"],
+			order_by="posting_date desc",
+		):
+			if si.name in seen_si_advances:
+				continue
+			amount = flt(si.base_net_total) or flt(si.grand_total)
+			rows.append(
+				{
+					"source_type": "Advance Sales Invoice",
+					"document": si.name,
+					"doctype": "Sales Invoice",
+					"date": si.posting_date,
+					"amount": amount,
+					"remarks": _("Advance billing invoice"),
+					"link": _breakdown_link("Sales Invoice", si.name),
+				}
+			)
+
+	for row in frappe.db.sql(
+		"""
+		SELECT si.name AS document, si.posting_date AS date, sii.amount AS amount
+		FROM `tabSales Invoice Item` sii
+		INNER JOIN `tabSales Invoice` si ON si.name = sii.parent
+		WHERE si.project = %s
+			AND si.docstatus IN (0, 1)
+			AND sii.item_code = 'ADVANCE-DEDUCTION'
+		ORDER BY si.posting_date DESC, si.name DESC
+		""",
+		project,
+		as_dict=True,
+	):
+		rows.append(
+			{
+				"source_type": "Advance Deduction",
+				"document": row.document,
+				"doctype": "Sales Invoice",
+				"date": row.date,
+				"amount": -flt(abs(row.amount)),
+				"remarks": _("Advance deducted on Sales Invoice"),
+				"link": _breakdown_link("Sales Invoice", row.document),
+			}
+		)
+
+	total_positive = sum(flt(r["amount"]) for r in rows if flt(r["amount"]) > 0)
+	total_negative = sum(flt(r["amount"]) for r in rows if flt(r["amount"]) < 0)
+	advance_summary = get_advance_summary(project)
+
+	return {
+		"rows": rows,
+		"total_collected": flt(advance_summary.get("total_collected", 0)),
+		"total_deducted": flt(advance_summary.get("total_utilized", 0)),
+		"balance": flt(advance_summary.get("balance", 0)),
+		"available_balance": flt(total_positive) + flt(total_negative),
+	}
+
+
+@frappe.whitelist()
+def get_retention_breakdown(project: str) -> dict:
+	"""Source-level retention held and released for project KPI drill-down."""
+	rows = []
+	company = frappe.db.get_value("Project", project, "company")
+
+	from construction_management.api.boq_opening_balance import get_boq_sales_accounts
+
+	accounts = get_boq_sales_accounts(company) if company else {}
+	retention_account = accounts.get("retention_account")
+
+	if retention_account:
+		opening_rows = frappe.db.sql(
+			"""
+			SELECT je.name AS document, je.posting_date AS date,
+				SUM(
+					CASE
+						WHEN acc.root_type IN ('Liability', 'Equity', 'Income') THEN gle.credit - gle.debit
+						ELSE gle.debit - gle.credit
+					END
+				) AS amount
+			FROM `tabGL Entry` gle
+			INNER JOIN `tabJournal Entry` je
+				ON je.name = gle.voucher_no AND gle.voucher_type = 'Journal Entry'
+			INNER JOIN `tabAccount` acc ON acc.name = gle.account
+			WHERE gle.is_cancelled = 0
+				AND gle.project = %s
+				AND gle.company = %s
+				AND gle.account = %s
+				AND je.docstatus = 1
+				AND (je.is_opening = 'Yes' OR je.voucher_type = 'Opening Entry')
+			GROUP BY je.name, je.posting_date
+			HAVING amount != 0
+			ORDER BY je.posting_date DESC
+			""",
+			(project, company, retention_account),
+			as_dict=True,
+		)
+		for row in opening_rows:
+			rows.append(
+				{
+					"source_type": "Opening JE",
+					"document": row.document,
+					"doctype": "Journal Entry",
+					"date": row.date,
+					"amount": flt(row.amount),
+					"remarks": _("Opening retention balance"),
+					"link": _breakdown_link("Journal Entry", row.document),
+				}
+			)
+
+	for row in frappe.db.sql(
+		"""
+		SELECT si.name AS document, si.posting_date AS date, ABS(sii.amount) AS amount
+		FROM `tabSales Invoice Item` sii
+		INNER JOIN `tabSales Invoice` si ON si.name = sii.parent
+		WHERE si.project = %s
+			AND si.docstatus = 1
+			AND sii.item_code = 'RETENTION-DEDUCTION'
+		ORDER BY si.posting_date DESC, si.name DESC
+		""",
+		project,
+		as_dict=True,
+	):
+		rows.append(
+			{
+				"source_type": "Retention Deducted",
+				"document": row.document,
+				"doctype": "Sales Invoice",
+				"date": row.date,
+				"amount": flt(row.amount),
+				"remarks": _("Retention deducted on Sales Invoice"),
+				"link": _breakdown_link("Sales Invoice", row.document),
+			}
+		)
+
+	for row in frappe.db.sql(
+		"""
+		SELECT si.name AS document, si.posting_date AS date, sii.amount AS amount
+		FROM `tabSales Invoice Item` sii
+		INNER JOIN `tabSales Invoice` si ON si.name = sii.parent
+		WHERE si.project = %s
+			AND si.docstatus = 1
+			AND sii.item_code = 'RETENTION-RELEASE'
+		ORDER BY si.posting_date DESC, si.name DESC
+		""",
+		project,
+		as_dict=True,
+	):
+		rows.append(
+			{
+				"source_type": "Retention Released",
+				"document": row.document,
+				"doctype": "Sales Invoice",
+				"date": row.date,
+				"amount": -flt(abs(row.amount)),
+				"remarks": _("Retention released on Sales Invoice"),
+				"link": _breakdown_link("Sales Invoice", row.document),
+			}
+		)
+
+	retention_summary = get_retention_summary(project)
+	return {
+		"rows": rows,
+		"total_retained": flt(retention_summary.get("total_retained", 0)),
+		"opening_retained": flt(retention_summary.get("opening_retained", 0)),
+		"total_released": flt(retention_summary.get("total_released", 0)),
+		"retention_balance": flt(retention_summary.get("retention_balance", 0)),
 	}
 
 

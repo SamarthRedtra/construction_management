@@ -411,6 +411,8 @@ function render_kpi_grid(container, kpi, progress, collectionRate, frm) {
 	const siVatTotal = kpi.si_vat_total || 0;
 	const salesPersonCommissionTotal = kpi.sales_person_commission_total || 0;
 	const salesPartnerCommissionTotal = kpi.sales_partner_commission_total || 0;
+	const journalEntryCount = kpi.journal_entry_count || 0;
+	const journalEntryOpeningCount = kpi.journal_entry_opening_count || 0;
 	const projectName = (frm && frm.doc && frm.doc.name) ? frm.doc.name : '';
 	const projectCompany = (frm && frm.doc && frm.doc.company) ? frm.doc.company : '';
 
@@ -463,7 +465,7 @@ function render_kpi_grid(container, kpi, progress, collectionRate, frm) {
 				<span class="kpi-sub">${__('SI · fiscal YTD · tap for report')}</span>
 			</div>
 		</div>
-		<div class="kpi-card kpi-success" style="border-color: #a7f3d0;" title="${__('BOQ advances collected minus advance deductions on Sales Invoices (draft and submitted, company currency)')}">
+		<div class="kpi-card kpi-success" style="border-color: #a7f3d0; cursor: pointer;" title="${__('View advance sources and deductions')}" onclick="view_advance_breakdown('${projectName}')">
 			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg></div>
 			<div class="kpi-content">
 				<span class="kpi-label">${__('Available Advance Balance')}</span>
@@ -494,12 +496,20 @@ function render_kpi_grid(container, kpi, progress, collectionRate, frm) {
 				<span class="kpi-sub">Margin: ${format_currency(margin)}</span>
 			</div>
 		</div>
-		<div class="kpi-card kpi-secondary" data-retention="${retentionPending}" title="${__('Retention pending to bill / release')}">
+		<div class="kpi-card kpi-secondary" style="cursor: pointer;" data-retention="${retentionPending}" title="${__('View retention sources and releases')}" onclick="view_retention_breakdown('${projectName}')">
 			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
 			<div class="kpi-content">
 				<span class="kpi-label">Retention Pending</span>
 				<span class="kpi-value">${format_currency(retentionPending)}</span>
-				<span class="kpi-sub">${__('To bill / release')}</span>
+				<span class="kpi-sub">${__('To bill / release · tap for breakdown')}</span>
+			</div>
+		</div>
+		<div class="kpi-card kpi-warning" style="cursor: pointer;" title="${__('View journal entries linked to this project')}" onclick="view_project_journal_entries('${projectName}')">
+			<div class="kpi-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg></div>
+			<div class="kpi-content">
+				<span class="kpi-label">${__('Journal Entries')}</span>
+				<span class="kpi-value">${journalEntryCount}</span>
+				<span class="kpi-sub">${journalEntryOpeningCount} ${__('opening')} · ${__('tap for details')}</span>
 			</div>
 		</div>
 		<div class="kpi-card kpi-info" style="cursor: pointer;" title="${__('View security cheques')}" onclick="view_security_payment_entries('${projectName}', 'Security Cheque')">
@@ -588,6 +598,14 @@ function render_action_bar(container, frm) {
 				Resources
 			</button>
 			${can_modify_boq ? `
+			<button class="btn-modern btn-primary-modern" onclick="create_direct_tax_invoice_from_project('${frm.doc.name}')">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+				${__('Direct Tax Invoice')}
+			</button>
+			<button class="btn-modern btn-outline" onclick="create_sales_order_from_project('${frm.doc.name}')">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+				${__('Sales Order (Proforma)')}
+			</button>
 			<button class="btn-modern btn-outline" onclick="record_advance_payment('${frm.doc.name}')">
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
 				Record Advance
@@ -1424,21 +1442,56 @@ window.create_item_invoice = function (boq_item) {
 		return;
 	}
 
-	// Show dialog with proforma option
+	const billingMode = (cur_frm && cur_frm.doc && cur_frm.doc.custom_default_billing_mode) || 'Direct BOQ';
+	const defaultPath = billingMode === 'Direct BOQ' ? 'Direct Tax Invoice' : 'Sales Order (Proforma)';
+	const dialogFields = [
+		{ fieldname: 'qty', label: 'Quantity', fieldtype: 'Float', read_only: 1, default: currentQty },
+		{
+			fieldname: 'billing_path',
+			label: __('Billing Path'),
+			fieldtype: 'Select',
+			options: 'Direct Tax Invoice\nSales Order (Proforma)',
+			default: defaultPath,
+			reqd: 1,
+			description: __('Direct Tax Invoice skips Sales Order. Sales Order path creates a proforma for PC / tax invoice later.')
+		},
+		{ fieldtype: 'Section Break' },
+		{ fieldname: 'apply_retention', label: 'Apply Retention', fieldtype: 'Check', default: 1 },
+		{ fieldname: 'advance_deduction', label: 'Advance Deduction', fieldtype: 'Currency', default: 0 }
+	];
+
 	const d = new frappe.ui.Dialog({
 		title: __('Create Invoice'),
-		fields: [
-			{ fieldname: 'qty', label: 'Quantity', fieldtype: 'Float', read_only: 1, default: currentQty },
-			{
-				fieldname: 'is_proforma', label: 'Create as Proforma', fieldtype: 'Check', default: 0,
-				description: 'Proforma invoices remain in Draft status for customer approval'
-			},
-			{ fieldtype: 'Section Break' },
-			{ fieldname: 'apply_retention', label: 'Apply Retention', fieldtype: 'Check', default: 1 },
-			{ fieldname: 'advance_deduction', label: 'Advance Deduction', fieldtype: 'Currency', default: 0 }
-		],
-		primary_action_label: __('Create Invoice'),
+		fields: dialogFields,
+		primary_action_label: __('Create'),
 		primary_action: function (values) {
+			if (values.billing_path === 'Sales Order (Proforma)') {
+				frappe.call({
+					method: 'construction_management.api.boq_invoice.create_sales_order_from_selected_items',
+					args: {
+						project: cur_frm.doc.name,
+						items: JSON.stringify([{ boq_item: boq_item, qty: currentQty }]),
+						auto_submit: 1
+					},
+					freeze: true,
+					freeze_message: __('Creating Sales Order...'),
+					callback: function (r) {
+						if (r.message && r.message.status === 'success') {
+							d.hide();
+							frappe.show_alert({
+								message: __('Sales Order {0} created. Create Payment Certificate, then tax invoice.', [r.message.name]),
+								indicator: 'green'
+							});
+							window.open(`/app/sales-order/${r.message.name}`, '_blank');
+							if (cur_frm) {
+								render_construction_dashboard(cur_frm);
+							}
+						}
+					}
+				});
+				return;
+			}
+
 			frappe.call({
 				method: 'construction_management.api.boq_invoice.create_invoice_from_boq_item',
 				args: {
@@ -1447,16 +1500,17 @@ window.create_item_invoice = function (boq_item) {
 					current_qty: currentQty,
 					apply_retention: values.apply_retention ? 1 : 0,
 					advance_deduction: values.advance_deduction || 0,
-					is_proforma: values.is_proforma ? 1 : 0
+					is_proforma: 0
 				},
 				callback: function (r) {
 					if (r.message) {
 						d.hide();
-						const invoiceType = values.is_proforma ? 'Proforma Invoice' : 'Invoice';
-						frappe.show_alert({ message: __(`${invoiceType} {0} created`, [r.message.invoice]), indicator: 'green' });
-						// Open in new tab
+						frappe.show_alert({ message: __('Tax Invoice {0} created', [r.message.invoice]), indicator: 'green' });
 						const route = `/app/sales-invoice/${r.message.invoice}`;
 						window.open(route, '_blank');
+						if (cur_frm) {
+							render_construction_dashboard(cur_frm);
+						}
 					}
 				}
 			});
@@ -3588,6 +3642,130 @@ window.view_security_payment_entries = function (project, instrumentType) {
 		instrument_type: instrumentType
 	};
 	frappe.set_route('List', 'Security Instrument', routeOptions);
+};
+
+function show_financial_breakdown_dialog(title, summaryHtml, rows) {
+	const tableHtml = rows.length ? `
+		<table class="table table-bordered" style="font-size: 12px;">
+			<thead style="background: #f8f9fa;">
+				<tr>
+					<th>${__('Source')}</th>
+					<th>${__('Document')}</th>
+					<th>${__('Date')}</th>
+					<th class="text-right">${__('Amount')}</th>
+					<th>${__('Remarks')}</th>
+				</tr>
+			</thead>
+			<tbody>
+				${rows.map((row) => `
+					<tr>
+						<td>${frappe.utils.escape_html(row.source_type || '')}</td>
+						<td><a href="${row.link}" target="_blank">${frappe.utils.escape_html(row.document || '')}</a></td>
+						<td>${row.date ? frappe.datetime.str_to_user(row.date) : '-'}</td>
+						<td class="text-right" style="font-weight: 600;">${format_currency(row.amount || 0)}</td>
+						<td style="font-size: 11px; color: #666;">${frappe.utils.escape_html(row.remarks || '-')}</td>
+					</tr>
+				`).join('')}
+			</tbody>
+		</table>
+	` : `<div class="text-muted">${__('No records found.')}</div>`;
+
+	const d = new frappe.ui.Dialog({
+		title: title,
+		size: 'large',
+		fields: [{ fieldtype: 'HTML', fieldname: 'content', options: `${summaryHtml}${tableHtml}` }]
+	});
+	d.onhide = function () {
+		cleanup_modal_and_restore_dashboard();
+	};
+	d.show();
+	ensure_dashboard_visible();
+}
+
+window.view_project_journal_entries = function (project) {
+	frappe.call({
+		method: 'construction_management.api.project_financials.get_project_journal_entries',
+		args: { project },
+		callback: function (r) {
+			const data = r.message || {};
+			const summary = data.summary || {};
+			const entries = data.journal_entries || [];
+			const rows = (data.rows || []).map((row) => ({
+				source_type: row.is_opening_entry ? __('Opening JE') : (row.voucher_type || __('Journal Entry')),
+				document: row.je_name,
+				date: row.posting_date,
+				amount: flt(row.credit) - flt(row.debit),
+				remarks: `${row.account || ''}${row.is_boq_account ? ' · BOQ account' : ''}`,
+				link: row.link
+			}));
+			const summaryHtml = `
+				<div style="margin-bottom: 12px; padding: 10px; background: #f8fafc; border-radius: 6px;">
+					<strong>${summary.count || 0}</strong> ${__('journal entries')}
+					· ${summary.opening_count || 0} ${__('opening')}
+					· ${summary.boq_account_count || 0} ${__('on BOQ accounts')}
+				</div>
+			`;
+			show_financial_breakdown_dialog(__('Journal Entries — {0}', [project]), summaryHtml, rows);
+		}
+	});
+};
+
+window.view_advance_breakdown = function (project) {
+	frappe.call({
+		method: 'construction_management.api.boq_tree.get_advance_breakdown',
+		args: { project },
+		callback: function (r) {
+			const data = r.message || {};
+			const summaryHtml = `
+				<div style="margin-bottom: 12px; padding: 10px; background: #ecfdf5; border-radius: 6px;">
+					${__('Collected')}: <strong>${format_currency(data.total_collected || 0)}</strong>
+					· ${__('Deducted')}: <strong>${format_currency(data.total_deducted || 0)}</strong>
+					· ${__('Balance')}: <strong>${format_currency(data.balance || 0)}</strong>
+				</div>
+			`;
+			show_financial_breakdown_dialog(__('Advance Breakdown — {0}', [project]), summaryHtml, data.rows || []);
+		}
+	});
+};
+
+window.view_retention_breakdown = function (project) {
+	frappe.call({
+		method: 'construction_management.api.boq_tree.get_retention_breakdown',
+		args: { project },
+		callback: function (r) {
+			const data = r.message || {};
+			const summaryHtml = `
+				<div style="margin-bottom: 12px; padding: 10px; background: #eff6ff; border-radius: 6px;">
+					${__('Retained')}: <strong>${format_currency(data.total_retained || 0)}</strong>
+					· ${__('Opening')}: <strong>${format_currency(data.opening_retained || 0)}</strong>
+					· ${__('Released')}: <strong>${format_currency(data.total_released || 0)}</strong>
+					· ${__('Balance')}: <strong>${format_currency(data.retention_balance || 0)}</strong>
+				</div>
+			`;
+			show_financial_breakdown_dialog(__('Retention Breakdown — {0}', [project]), summaryHtml, data.rows || []);
+		}
+	});
+};
+
+window.create_direct_tax_invoice_from_project = function (project) {
+	if (typeof window.create_direct_tax_invoice_from_selection === 'function') {
+		window.create_direct_tax_invoice_from_selection(project);
+		return;
+	}
+	frappe.show_alert({ message: __('Open the BOQ grid and select items with billing quantity first.'), indicator: 'orange' });
+};
+
+window.create_sales_order_from_project = function (project) {
+	if ($('.item-checkbox:checked').length === 0) {
+		frappe.show_alert({
+			message: __('Select BOQ items in the grid below and enter billing quantities, then try again.'),
+			indicator: 'orange'
+		});
+		return;
+	}
+	if (typeof window.generateBulkSalesOrder === 'function') {
+		window.generateBulkSalesOrder();
+	}
 };
 
 function cm_navigate_project_commission_report(project, reportName, company) {

@@ -289,7 +289,10 @@ function render_item_row(item, frm) {
 					</span>
 				</div>
 			</td>
-			<td class="col-amount sticky-col sticky-col-last">${format_currency(ledgerAmount.total || 0)}</td>
+			<td class="col-amount sticky-col sticky-col-last">
+				<div>${format_currency(ledgerAmount.total || 0)}</div>
+				${(flt(ledgerQty.prev || 0) > 0 && flt(ledgerQty.balance || 0) > 0) ? `<div class="rate-split-hint" style="font-size:9px;color:#64748b;line-height:1.2;margin-top:2px;">${format_currency(ledgerAmount.prev || 0)} + ${format_currency(flt(ledgerQty.balance || 0) * flt(ledgerAmount.rate || 0))}</div>` : ''}
+			</td>
 			
 			<!-- Qty Breakdown (moved before Value) -->
 	<td class="col-num prev-qty-cell" data-item="${item.name}">${format_number(ledgerQty.prev || 0)}</td>
@@ -516,16 +519,27 @@ window.toggleRateHistory = function(itemName, btn) {
 	}).appendTo('body').show();
 	
 	frappe.call({
-		method: "construction_management.construction_management.doctype.boq_item.boq_item.get_rate_history",
+		method: "construction_management.construction_management.doctype.boq_item.boq_item.get_rate_split_summary",
 		args: {
 			boq_item: itemName
 		},
 		callback(r) {
-			if (r.message && r.message.length) {
-				let html = `
-					<div style="font-weight: bold; margin-bottom: 6px; border-bottom: 1px solid var(--border-color); padding-bottom: 4px; color: var(--text-color);">
-						Rate History: ${itemName}
-					</div>
+			const split = r.message || {};
+			const history = split.rate_history || [];
+			let html = `
+				<div style="font-weight: bold; margin-bottom: 6px; border-bottom: 1px solid var(--border-color); padding-bottom: 4px; color: var(--text-color);">
+					${__('Rate Split')}: ${itemName}
+				</div>
+				<div style="font-size: 10px; margin-bottom: 8px; line-height: 1.5; color: var(--text-color);">
+					<div><strong>${__('Billed')}:</strong> ${format_number(split.prev_qty || 0)} × ${format_currency(split.prev_effective_rate || 0)} = ${format_currency(split.prev_amount || 0)}</div>
+					<div><strong>${__('Remaining')}:</strong> ${format_number(split.balance_qty || 0)} × ${format_currency(split.current_rate || 0)} = ${format_currency(split.balance_value || 0)}</div>
+					<div style="margin-top: 4px; font-weight: bold;"><strong>${__('Total contract value')}:</strong> ${format_currency(split.total_amount || 0)}</div>
+				</div>
+			`;
+
+			if (history.length) {
+				html += `
+					<div style="font-weight: bold; margin-bottom: 4px; color: var(--text-muted); font-size: 10px;">${__('Rate change history')}</div>
 					<table style="width: 100%; border-collapse: collapse; font-size: 10px; line-height: 1.3; background-color: var(--card-bg);">
 						<thead>
 							<tr style="border-bottom: 1px solid var(--border-color); font-weight: bold; text-align: left; color: var(--text-muted);">
@@ -537,7 +551,7 @@ window.toggleRateHistory = function(itemName, btn) {
 						</thead>
 						<tbody>
 				`;
-				r.message.forEach(row => {
+				history.forEach(row => {
 					let rate = flt(row.rate);
 					let amount = flt(row.amount);
 					let user_name = row.user_name || row.changed_by || '';
@@ -550,14 +564,11 @@ window.toggleRateHistory = function(itemName, btn) {
 						</tr>
 					`;
 				});
-				html += `
-						</tbody>
-					</table>
-				`;
-				$dropdown.html(html);
+				html += `</tbody></table>`;
 			} else {
-				$dropdown.html(`<div style="font-weight: bold; margin-bottom: 6px; border-bottom: 1px solid var(--border-color); padding-bottom: 4px; color: var(--text-color);">Rate History: ${itemName}</div><div style="color: var(--text-muted); text-align: center; padding: 4px;">No billing history found.</div>`);
+				html += `<div style="color: var(--text-muted); text-align: center; padding: 4px; font-size: 10px;">${__('No rate changes logged.')}</div>`;
 			}
+			$dropdown.html(html);
 		}
 	});
 }
@@ -816,6 +827,8 @@ function updateSelectionToolbar(container) {
 	let toolbar = container.find('.selection-action-toolbar');
 
 	if (selectedCount > 0) {
+		const billingMode = (cur_frm && cur_frm.doc && cur_frm.doc.custom_default_billing_mode) || 'Direct BOQ';
+		const isDirectMode = billingMode === 'Direct BOQ';
 		if (toolbar.length === 0) {
 			const toolbarHtml = `
 				<div class="selection-action-toolbar">
@@ -823,19 +836,26 @@ function updateSelectionToolbar(container) {
 						<span class="selection-count">${selectedCount} item(s) selected</span>
 					</div>
 					<div class="toolbar-actions">
-						<button class="btn-toolbar btn-primary-toolbar" onclick="generateBulkSalesOrder()">
+						<button class="btn-toolbar ${isDirectMode ? 'btn-primary-toolbar' : 'btn-secondary-toolbar'}" onclick="create_direct_tax_invoice_from_selection()">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
 								<polyline points="14 2 14 8 20 8"></polyline>
 							</svg>
-							Generate Sales Order
+							${__('Direct Tax Invoice')}
 						</button>
-						<button class="btn-toolbar btn-secondary-toolbar" onclick="generateSalesInvoiceFromSelection()">
+						<button class="btn-toolbar ${isDirectMode ? 'btn-secondary-toolbar' : 'btn-primary-toolbar'}" onclick="generateBulkSalesOrder()">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
 								<polyline points="14 2 14 8 20 8"></polyline>
 							</svg>
-							Generate Sales Invoice
+							${__('Sales Order (Proforma)')}
+						</button>
+						<button class="btn-toolbar btn-secondary-toolbar" onclick="generateSalesInvoiceFromSelection()" title="${__('Create tax invoice from an existing submitted Sales Order')}">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+								<polyline points="14 2 14 8 20 8"></polyline>
+							</svg>
+							${__('Tax Invoice from SO')}
 						</button>
 						<button class="btn-toolbar btn-danger-toolbar" onclick="deleteSelectedBOQItems()">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -863,6 +883,81 @@ function updateSelectionToolbar(container) {
 		toolbar.slideUp(200);
 	}
 }
+
+function collect_billable_items_from_selection(useCheckedOnly = true) {
+	const items = [];
+	const selector = useCheckedOnly ? '.item-checkbox:checked' : '.item-checkbox';
+	$(selector).each(function () {
+		const itemName = $(this).data('item');
+		const row = $(this).closest('tr');
+		const qty = parseFloat(row.find('.current-qty-input').val()) || 0;
+		if (qty > 0) {
+			items.push({ boq_item: itemName, current_qty: qty, qty: qty });
+		}
+	});
+	return items;
+}
+
+window.create_direct_tax_invoice_from_selection = function (project) {
+	const projectName = project || (cur_frm && cur_frm.doc && cur_frm.doc.name);
+	if (!projectName) {
+		frappe.show_alert({ message: __('Project not found'), indicator: 'orange' });
+		return;
+	}
+
+	let items = collect_billable_items_from_selection(true);
+	if (!items.length) {
+		items = collect_billable_items_from_selection(false);
+	}
+	if (!items.length) {
+		frappe.show_alert({ message: __('Select items or enter billing quantities first'), indicator: 'orange' });
+		return;
+	}
+
+	const d = new frappe.ui.Dialog({
+		title: __('Create Direct Tax Invoice'),
+		fields: [
+			{
+				fieldname: 'item_count',
+				label: __('Items'),
+				fieldtype: 'Data',
+				read_only: 1,
+				default: String(items.length)
+			},
+			{ fieldtype: 'Section Break' },
+			{ fieldname: 'apply_retention', label: __('Apply Retention'), fieldtype: 'Check', default: 1 },
+			{ fieldname: 'advance_deduction', label: __('Advance Deduction'), fieldtype: 'Currency', default: 0 }
+		],
+		primary_action_label: __('Create Tax Invoice'),
+		primary_action(values) {
+			frappe.call({
+				method: 'construction_management.api.boq_invoice.create_invoice_from_selected_items',
+				args: {
+					project: projectName,
+					items: JSON.stringify(items),
+					apply_retention: values.apply_retention ? 1 : 0,
+					advance_deduction: values.advance_deduction || 0,
+					is_proforma: 0
+				},
+				freeze: true,
+				freeze_message: __('Creating Tax Invoice...'),
+				callback(r) {
+					if (r.message && r.message.status === 'success') {
+						d.hide();
+						frappe.show_alert({ message: __('Tax Invoice {0} created', [r.message.invoice]), indicator: 'green' });
+						window.open(`/app/sales-invoice/${r.message.invoice}`, '_blank');
+						if (typeof render_construction_dashboard === 'function' && cur_frm) {
+							render_construction_dashboard(cur_frm);
+						}
+					} else if (r.message && r.message.error_message) {
+						frappe.msgprint(r.message.error_message);
+					}
+				}
+			});
+		}
+	});
+	d.show();
+};
 
 window.generateBulkSalesOrder = function () {
 	const selectedItems = $('.item-checkbox:checked');

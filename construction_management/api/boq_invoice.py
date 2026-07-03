@@ -21,6 +21,14 @@ def has_invoice_permission() -> bool:
 	return any(role in user_roles for role in allowed_roles)
 
 
+def _set_direct_billing_mode(invoice, is_proforma: int = 0):
+	"""Tag direct BOQ invoices with billing mode when field exists."""
+	if is_proforma:
+		return
+	if frappe.db.has_column("Sales Invoice", "custom_billing_mode"):
+		invoice.custom_billing_mode = "Direct BOQ"
+
+
 @frappe.whitelist()
 def get_pending_proformas_for_item(boq_item: str) -> list:
 	"""
@@ -170,8 +178,8 @@ def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float
 	# Set proforma flag if requested
 	if is_proforma:
 		invoice.custom_is_proforma = 1
-	
-	# Add item - use linked_item for item_code with accounting dimensions
+	else:
+		_set_direct_billing_mode(invoice, is_proforma)
 	invoice.append("items", {
 		"item_code": invoice_item_code,
 		"item_name": item.description[:140] if item.description else "BOQ Item",
@@ -334,6 +342,7 @@ def create_invoice_from_multiple_items(project: str, items: list,
 	invoice.project = project
 	invoice.posting_date = today()
 	invoice.due_date = today()
+	_set_direct_billing_mode(invoice, 0)
 	
 	total_amount = 0
 	
@@ -2614,6 +2623,8 @@ def create_invoice_from_selected_items(project: str, items: str | list,
 	# Set proforma flag if requested
 	if is_proforma:
 		invoice.custom_is_proforma = 1
+	else:
+		_set_direct_billing_mode(invoice, is_proforma)
 	
 	total_amount = 0
 	items_added = 0
