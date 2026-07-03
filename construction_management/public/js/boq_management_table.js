@@ -96,6 +96,7 @@ function render_bill_section(bill, frm, isExpanded) {
 					<div class="bill-stat"><span class="stat-label">EST. GP%</span><span class="stat-value">${(profitability.estimated_gp_percent || 0).toFixed(1)}%</span></div>
 					<div class="bill-stat"><span class="stat-label">RETENTION</span><span class="stat-value">${format_currency(totals.retention_amount || 0)}</span></div>
 					<div class="bill-stat"><span class="stat-label">ADVANCE</span><span class="stat-value">${format_currency(totals.advance_amount || 0)}</span></div>
+					<div class="bill-stat"><span class="stat-label">TAX</span><span class="stat-value">${format_currency(totals.tax_amount || 0)}</span></div>
 				</div>
 			</div>
 			<div class="bill-items-container" style="${isExpanded ? '' : 'display: none;'}">
@@ -149,7 +150,7 @@ function render_comprehensive_items_table(items, frm) {
 						<th colspan="6" class="col-group col-group-estimated">Estimated Cost</th>
 					<th colspan="7" class="col-group col-group-actual">Actual Cost</th>
 					<th colspan="4" class="col-group col-group-profit">Profitability</th>
-						<th colspan="3" class="col-group col-group-financial">Financial Summary</th>
+						<th colspan="4" class="col-group col-group-financial">Financial Summary</th>
 						<th rowspan="2" class="col-actions">Actions</th>
 					</tr>
 					<tr class="header-row-sub">
@@ -194,6 +195,7 @@ function render_comprehensive_items_table(items, frm) {
 						<!-- Financial Summary -->
 						<th class="col-num">Retention</th>
 						<th class="col-num">Advances</th>
+						<th class="col-num">Tax</th>
 						<th class="col-num">Net Amount</th>
 					</tr>
 				</thead>
@@ -253,8 +255,10 @@ function render_item_row(item, frm) {
 		rowStatusTooltip = 'Payment Certificate created - Tax Invoice pending';
 	}
 
+	const skipAdvance = cint(item.skip_advance_deduction);
+
 	return `
-		<tr class="item-row ${isFullyBilled ? 'fully-billed' : ''} ${rowStatusClass}" data-item="${item.name}" role="row">
+		<tr class="item-row ${isFullyBilled ? 'fully-billed' : ''} ${rowStatusClass} ${skipAdvance ? 'skip-advance-row' : ''}" data-item="${item.name}" role="row">
 			<td class="col-expand sticky-col">
 				<button class="expand-btn" onclick="toggleTransactionHistory('${item.name}'); event.stopPropagation();" title="View Transactions" aria-label="Expand transaction history for ${item.description || item.name}" aria-expanded="false" tabindex="0">
 					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -270,6 +274,12 @@ function render_item_row(item, frm) {
 					<span class="item-desc"><a href="/app/boq-item/${item.name}" onclick="event.stopPropagation()">${item.name || 'No description'}</a></span>
 					<span class="item-desc">${item.description || 'No description'}</span>
 				</div>
+				<label class="skip-advance-toggle" title="${__('When checked, advance is not deducted on Sales Order / Sales Invoice for this item')}">
+					<input type="checkbox" class="skip-advance-input" data-item="${item.name}"
+						${skipAdvance ? 'checked' : ''}
+						aria-label="${__('Skip advance deduction for')} ${item.description || item.name}" tabindex="0">
+					<span>${__('Skip Advance')}</span>
+				</label>
 				<!-- Profit/Loss Indicator - Requirements: 8.1, 8.2, 8.3, 8.4 -->
 				<div class="profit-indicator-container" data-item-id="${item.name}"></div>
 			</td>
@@ -290,8 +300,19 @@ function render_item_row(item, frm) {
 				</div>
 			</td>
 			<td class="col-amount sticky-col sticky-col-last">
-				<div>${format_currency(ledgerAmount.total || 0)}</div>
+				<div style="display:flex;align-items:center;justify-content:space-between;gap:4px;">
+					<span>${format_currency(ledgerAmount.total || 0)}</span>
+					${(flt(item.retention_amount || 0) || flt(item.advance_amount || 0) || flt(item.tax_amount || 0))
+						? `<span class="amount-breakdown-toggle" onclick="toggleAmountBreakdown('${item.name}', this); event.stopPropagation();" title="Financial breakdown" style="cursor:pointer;color:var(--primary-color,#1b8beb);font-size:13px;display:inline-flex;align-items:center;"><i class="fa fa-caret-down"></i></span>`
+						: ''}
+				</div>
 				${(flt(ledgerQty.prev || 0) > 0 && flt(ledgerQty.balance || 0) > 0) ? `<div class="rate-split-hint" style="font-size:9px;color:#64748b;line-height:1.2;margin-top:2px;">${format_currency(ledgerAmount.prev || 0)} + ${format_currency(flt(ledgerQty.balance || 0) * flt(ledgerAmount.rate || 0))}</div>` : ''}
+				<div class="amount-breakdown" data-item="${item.name}" style="display:none;font-size:10px;line-height:1.5;margin-top:4px;border-top:1px solid var(--border-color,#e2e8f0);padding-top:4px;">
+					<div style="color:var(--orange-500,#f97316);">Ret: ${format_currency(-(item.retention_amount || 0))}</div>
+					<div style="color:var(--blue-500,#3b82f6);">Adv: ${format_currency(-(item.advance_amount || 0))}</div>
+					<div style="color:var(--green-500,#22c55e);">Tax: ${format_currency(item.tax_amount || 0)}</div>
+					<div style="border-top:1px solid var(--border-color,#e2e8f0);margin-top:2px;padding-top:2px;font-weight:600;color:var(--green-600,#16a34a);">Net: ${format_currency((revenue.total || 0) - flt(item.retention_amount || 0) - flt(item.advance_amount || 0))}</div>
+				</div>
 			</td>
 			
 			<!-- Qty Breakdown (moved before Value) -->
@@ -375,6 +396,7 @@ function render_item_row(item, frm) {
 			<!-- Financial Summary -->
 			<td class="col-num text-warning">${format_currency(item.retention_amount || 0)}</td>
 			<td class="col-num text-info">${format_currency(item.advance_amount || 0)}</td>
+			<td class="col-num" style="color:var(--green-500,#22c55e);">${format_currency(item.tax_amount || 0)}</td>
 			<td class="col-num text-success font-bold">${format_currency((revenue.total || 0) - (item.retention_amount || 0) - (item.advance_amount || 0))}</td>
 			
 			<!-- Actions - Requirements: 3.2, 3.3 -->
@@ -526,12 +548,22 @@ window.toggleRateHistory = function(itemName, btn) {
 		callback(r) {
 			const split = r.message || {};
 			const history = split.rate_history || [];
+			const tiers = split.billing_tiers || [];
 			let html = `
 				<div style="font-weight: bold; margin-bottom: 6px; border-bottom: 1px solid var(--border-color); padding-bottom: 4px; color: var(--text-color);">
 					${__('Rate Split')}: ${itemName}
 				</div>
 				<div style="font-size: 10px; margin-bottom: 8px; line-height: 1.5; color: var(--text-color);">
-					<div><strong>${__('Billed')}:</strong> ${format_number(split.prev_qty || 0)} × ${format_currency(split.prev_effective_rate || 0)} = ${format_currency(split.prev_amount || 0)}</div>
+			`;
+			if (tiers.length) {
+				tiers.forEach(t => {
+					const inv = t.invoice ? `<span style="color:var(--text-muted);">(${t.invoice})</span>` : '';
+					html += `<div><strong>${__('Billed')}:</strong> ${format_number(t.qty || 0)} × ${format_currency(t.rate || 0)} = ${format_currency(t.amount || 0)} ${inv}</div>`;
+				});
+			} else {
+				html += `<div style="color:var(--text-muted);">${__('No billing yet')}</div>`;
+			}
+			html += `
 					<div><strong>${__('Remaining')}:</strong> ${format_number(split.balance_qty || 0)} × ${format_currency(split.current_rate || 0)} = ${format_currency(split.balance_value || 0)}</div>
 					<div style="margin-top: 4px; font-weight: bold;"><strong>${__('Total contract value')}:</strong> ${format_currency(split.total_amount || 0)}</div>
 				</div>
@@ -573,11 +605,52 @@ window.toggleRateHistory = function(itemName, btn) {
 	});
 }
 
+window.toggleAmountBreakdown = function(itemName, toggleEl) {
+	const $bd = $(`.amount-breakdown[data-item="${itemName}"]`);
+	const $icon = $(toggleEl).find('i');
+	$bd.slideToggle(150, function () {
+		const visible = $bd.is(':visible');
+		$icon.toggleClass('fa-caret-down', !visible).toggleClass('fa-caret-up', visible);
+	});
+}
+
 
 /**
  * Attach event handlers for the table
  */
 function attach_table_events(container, frm) {
+	// Skip advance deduction toggle
+	container.find('.skip-advance-input').on('change', function () {
+		const input = $(this);
+		const itemName = input.data('item');
+		const skip = input.prop('checked') ? 1 : 0;
+		const row = input.closest('tr');
+
+		frappe.call({
+			method: 'construction_management.api.boq_tree.update_boq_item_skip_advance',
+			args: {
+				boq_item: itemName,
+				skip_advance_deduction: skip,
+			},
+			callback(r) {
+				if (r.exc) {
+					input.prop('checked', !skip);
+					return;
+				}
+				row.toggleClass('skip-advance-row', !!skip);
+				frappe.show_alert({
+					message: skip
+						? __('Advance deduction disabled for this BOQ item')
+						: __('Advance deduction enabled for this BOQ item'),
+					indicator: 'green',
+				});
+			},
+			error() {
+				input.prop('checked', !skip);
+			},
+		});
+	});
+
 	// Handle Percentage input change
 	container.find('.current-percentage-input').on('change input', function () {
 		const input = $(this);
@@ -3777,6 +3850,25 @@ function get_table_styles() {
 		}
 		.comprehensive-items-table tr:hover { background: #fafbfc; }
 		.comprehensive-items-table tr.fully-billed { opacity: 0.5; }
+		.comprehensive-items-table tr.skip-advance-row .skip-advance-toggle { color: #b45309; font-weight: 600; }
+		.comprehensive-items-table .skip-advance-toggle {
+			display: inline-flex;
+			align-items: center;
+			gap: 6px;
+			margin-top: 6px;
+			font-size: 10px;
+			color: #64748b;
+			cursor: pointer;
+			user-select: none;
+		}
+		.comprehensive-items-table .skip-advance-input {
+			width: 14px;
+			height: 14px;
+			margin: 0;
+			cursor: pointer;
+			accent-color: #f59e0b;
+			flex-shrink: 0;
+		}
 		
 		/* Row status highlighting - Issue #3 */
 		.row-status-pc-pending { background-color: #fff3e0 !important; border-left: 3px solid #e65100; }

@@ -1444,79 +1444,90 @@ window.create_item_invoice = function (boq_item) {
 
 	const billingMode = (cur_frm && cur_frm.doc && cur_frm.doc.custom_default_billing_mode) || 'Direct BOQ';
 	const defaultPath = billingMode === 'Direct BOQ' ? 'Direct Tax Invoice' : 'Sales Order (Proforma)';
-	const dialogFields = [
-		{ fieldname: 'qty', label: 'Quantity', fieldtype: 'Float', read_only: 1, default: currentQty },
-		{
-			fieldname: 'billing_path',
-			label: __('Billing Path'),
-			fieldtype: 'Select',
-			options: 'Direct Tax Invoice\nSales Order (Proforma)',
-			default: defaultPath,
-			reqd: 1,
-			description: __('Direct Tax Invoice skips Sales Order. Sales Order path creates a proforma for PC / tax invoice later.')
-		},
-		{ fieldtype: 'Section Break' },
-		{ fieldname: 'apply_retention', label: 'Apply Retention', fieldtype: 'Check', default: 1 },
-		{ fieldname: 'advance_deduction', label: 'Advance Deduction', fieldtype: 'Currency', default: 0 }
-	];
 
-	const d = new frappe.ui.Dialog({
-		title: __('Create Invoice'),
-		fields: dialogFields,
-		primary_action_label: __('Create'),
-		primary_action: function (values) {
-			if (values.billing_path === 'Sales Order (Proforma)') {
+	frappe.db.get_value('BOQ Item', boq_item, 'skip_advance_deduction').then((r) => {
+		const skipAdvance = cint(r.message && r.message.skip_advance_deduction);
+		const dialogFields = [
+			{ fieldname: 'qty', label: 'Quantity', fieldtype: 'Float', read_only: 1, default: currentQty },
+			{
+				fieldname: 'billing_path',
+				label: __('Billing Path'),
+				fieldtype: 'Select',
+				options: 'Direct Tax Invoice\nSales Order (Proforma)',
+				default: defaultPath,
+				reqd: 1,
+				description: __('Direct Tax Invoice skips Sales Order. Sales Order path creates a proforma for PC / tax invoice later.')
+			},
+			{ fieldtype: 'Section Break' },
+			{ fieldname: 'apply_retention', label: 'Apply Retention', fieldtype: 'Check', default: 1 },
+			{
+				fieldname: 'advance_deduction',
+				label: 'Advance Deduction',
+				fieldtype: 'Currency',
+				default: 0,
+				read_only: skipAdvance ? 1 : 0,
+				description: skipAdvance ? __('Advance deduction disabled for this BOQ item') : ''
+			}
+		];
+
+		const d = new frappe.ui.Dialog({
+			title: __('Create Invoice'),
+			fields: dialogFields,
+			primary_action_label: __('Create'),
+			primary_action: function (values) {
+				if (values.billing_path === 'Sales Order (Proforma)') {
+					frappe.call({
+						method: 'construction_management.api.boq_invoice.create_sales_order_from_selected_items',
+						args: {
+							project: cur_frm.doc.name,
+							items: JSON.stringify([{ boq_item: boq_item, qty: currentQty }]),
+							auto_submit: 1
+						},
+						freeze: true,
+						freeze_message: __('Creating Sales Order...'),
+						callback: function (r) {
+							if (r.message && r.message.status === 'success') {
+								d.hide();
+								frappe.show_alert({
+									message: __('Sales Order {0} created. Create Payment Certificate, then tax invoice.', [r.message.name]),
+									indicator: 'green'
+								});
+								window.open(`/app/sales-order/${r.message.name}`, '_blank');
+								if (cur_frm) {
+									render_construction_dashboard(cur_frm);
+								}
+							}
+						}
+					});
+					return;
+				}
+
 				frappe.call({
-					method: 'construction_management.api.boq_invoice.create_sales_order_from_selected_items',
+					method: 'construction_management.api.boq_invoice.create_invoice_from_boq_item',
 					args: {
 						project: cur_frm.doc.name,
-						items: JSON.stringify([{ boq_item: boq_item, qty: currentQty }]),
-						auto_submit: 1
+						boq_item: boq_item,
+						current_qty: currentQty,
+						apply_retention: values.apply_retention ? 1 : 0,
+						advance_deduction: values.advance_deduction || 0,
+						is_proforma: 0
 					},
-					freeze: true,
-					freeze_message: __('Creating Sales Order...'),
 					callback: function (r) {
-						if (r.message && r.message.status === 'success') {
+						if (r.message) {
 							d.hide();
-							frappe.show_alert({
-								message: __('Sales Order {0} created. Create Payment Certificate, then tax invoice.', [r.message.name]),
-								indicator: 'green'
-							});
-							window.open(`/app/sales-order/${r.message.name}`, '_blank');
+							frappe.show_alert({ message: __('Tax Invoice {0} created', [r.message.invoice]), indicator: 'green' });
+							const route = `/app/sales-invoice/${r.message.invoice}`;
+							window.open(route, '_blank');
 							if (cur_frm) {
 								render_construction_dashboard(cur_frm);
 							}
 						}
 					}
 				});
-				return;
 			}
-
-			frappe.call({
-				method: 'construction_management.api.boq_invoice.create_invoice_from_boq_item',
-				args: {
-					project: cur_frm.doc.name,
-					boq_item: boq_item,
-					current_qty: currentQty,
-					apply_retention: values.apply_retention ? 1 : 0,
-					advance_deduction: values.advance_deduction || 0,
-					is_proforma: 0
-				},
-				callback: function (r) {
-					if (r.message) {
-						d.hide();
-						frappe.show_alert({ message: __('Tax Invoice {0} created', [r.message.invoice]), indicator: 'green' });
-						const route = `/app/sales-invoice/${r.message.invoice}`;
-						window.open(route, '_blank');
-						if (cur_frm) {
-							render_construction_dashboard(cur_frm);
-						}
-					}
-				}
-			});
-		}
+		});
+		d.show();
 	});
-	d.show();
 };
 
 window.view_item_invoices = function (boq_item) {

@@ -24,6 +24,7 @@
   "total_qty",
   "rate",
   "total_amount",
+  "skip_advance_deduction",
   "rate_history_html",
   "section_estimated_costs",
   "estimated_material_cost_per_unit",
@@ -195,6 +196,12 @@
    "in_list_view": 1,
    "label": "Total Amount",
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "skip_advance_deduction",
+   "fieldtype": "Check",
+   "label": "Skip Advance Deduction"
   },
   {
    "fieldname": "rate_history_html",

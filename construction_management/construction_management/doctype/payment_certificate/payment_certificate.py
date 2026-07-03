@@ -343,7 +343,13 @@ class PaymentCertificate(Document):
 			invoice.custom_retention_account = retention_account
 		
 		# Add items from PC items table with per-item deductions
-		from construction_management.api.boq_invoice import get_deduction_details, get_or_create_retention_item, get_or_create_advance_item
+		from construction_management.api.boq_invoice import (
+			get_deduction_details,
+			get_or_create_retention_item,
+			get_or_create_advance_item,
+			boq_item_skips_advance,
+			get_boq_items_skip_advance,
+		)
 		
 		# Get deduction settings for the project
 		deduction_details = get_deduction_details(self.project, self.items, invoice_name=None)
@@ -352,6 +358,14 @@ class PaymentCertificate(Document):
 		
 		total_proforma = flt(self.proforma_amount)
 		total_accepted = flt(self.accepted_amount)
+		skip_advance_set = get_boq_items_skip_advance(
+			[pc_item.boq_item for pc_item in self.items if pc_item.get("boq_item")]
+		)
+		eligible_accepted = sum(
+			flt(pc_item.accepted_amount)
+			for pc_item in self.items
+			if pc_item.get("boq_item") and pc_item.boq_item not in skip_advance_set
+		)
 		
 		variance_item_code = settings.varience_item
 		retention_item_code = "RETENTION-DEDUCTION"
@@ -418,8 +432,12 @@ class PaymentCertificate(Document):
 						})
 
 				# 4. Per-item Advance Deduction
-				if suggested_advance > 0 and total_accepted > 0:
-					share = flt(pc_item.accepted_amount) / total_accepted
+				if (
+					suggested_advance > 0
+					and eligible_accepted > 0
+					and not boq_item_skips_advance(pc_item.boq_item)
+				):
+					share = flt(pc_item.accepted_amount) / eligible_accepted
 					item_advance = flt(suggested_advance * share, 2)
 					if item_advance > 0:
 						invoice.append("items", {

@@ -600,7 +600,8 @@ def get_boq_items(bill_name: str) -> list:
 			"estimated_gp", "estimated_gp_percent",
 			"cost_to_date", "margin",
 			"labour_cost", "material_cost", "subcontract_cost",
-			"asset_cost", "expense_cost", "overhead_cost"
+			"asset_cost", "expense_cost", "overhead_cost",
+			"skip_advance_deduction",
 		],
 		order_by="idx"
 	)
@@ -662,6 +663,9 @@ def get_boq_items(bill_name: str) -> list:
 		
 		# Get retention amount (pro-rata from invoice)
 		item["retention_amount"] = get_item_retention_amount(item.name)
+
+		# Get proportional tax from Sales Invoices
+		item["tax_amount"] = get_item_tax_amount(item.name)
 	
 	return items
 
@@ -899,9 +903,26 @@ def get_item_ledger_values(boq_item: str) -> dict:
 			to_date_qty = prev_qty + current_qty
 			to_date_amount = prev_amount + current_amount
 	
+	# Compute total_amount using gross SI data so deductions don't deflate it
+	gross = frappe.db.sql("""
+		SELECT COALESCE(SUM(sii.qty), 0) AS qty,
+			   COALESCE(SUM(sii.amount), 0) AS amount
+		FROM `tabSales Invoice Item` sii
+		JOIN `tabSales Invoice` si ON si.name = sii.parent
+		WHERE sii.boq_item = %s AND si.docstatus = 1
+			AND sii.qty > 0 AND sii.rate > 0
+	""", boq_item, as_dict=True)
+
+	if gross and flt(gross[0].qty):
+		billed_amount = flt(gross[0].qty)
+		remaining = flt(item.total_qty) - flt(gross[0].qty)
+		total_amount = flt(gross[0].amount) + max(remaining, 0) * flt(item.rate)
+	else:
+		total_amount = flt(item.total_amount)
+
 	# Balance
 	balance_qty = flt(item.total_qty) - flt(to_date_qty)
-	balance_amount = flt(item.total_amount) - flt(to_date_amount)
+	balance_amount = flt(total_amount) - flt(to_date_amount)
 	
 	return {
 		"qty": {
@@ -913,7 +934,7 @@ def get_item_ledger_values(boq_item: str) -> dict:
 		},
 		"amount": {
 			"rate": flt(item.rate),
-			"total": flt(item.total_amount),
+			"total": flt(total_amount),
 			"prev": flt(prev_amount),
 			"current": flt(current_amount),
 			"to_date": flt(to_date_amount),
@@ -967,7 +988,8 @@ def calculate_bill_totals(items: list) -> dict:
 			"estimated_gp": 0, "estimated_gp_percent": 0
 		},
 		"retention_amount": 0,
-		"advance_amount": 0
+		"advance_amount": 0,
+		"tax_amount": 0
 	}
 	
 	for item in items:
@@ -1003,6 +1025,7 @@ def calculate_bill_totals(items: list) -> dict:
 			
 		totals["retention_amount"] += flt(item.get("retention_amount", 0))
 		totals["advance_amount"] += flt(item.get("advance_amount", 0))
+		totals["tax_amount"] += flt(item.get("tax_amount", 0))
 	
 	# Calculate bill-level GP%
 	revenue_for_gp = flt(totals["revenue"]["tax_invoice"]) or flt(totals["revenue"]["pc"])
@@ -1350,6 +1373,26 @@ def get_item_retention_amount(boq_item: str) -> float:
 		WHERE boq_item = %s
 	""", boq_item)[0][0] or 0
 	return flt(total_retention)
+
+
+def get_item_tax_amount(boq_item: str) -> float:
+	"""Proportionally allocate Sales Invoice tax to this BOQ item.
+
+	For each submitted SI that contains this BOQ item, compute:
+	  item_share = sii.base_net_amount / si.base_net_total
+	  item_tax   = item_share * si.base_total_taxes_and_charges
+	Then sum across all SIs.
+	"""
+	result = frappe.db.sql("""
+		SELECT COALESCE(SUM(
+			sii.base_net_amount / NULLIF(si.base_net_total, 0)
+			* si.base_total_taxes_and_charges
+		), 0) AS total_tax
+		FROM `tabSales Invoice Item` sii
+		JOIN `tabSales Invoice` si ON si.name = sii.parent
+		WHERE sii.boq_item = %s AND si.docstatus = 1
+	""", boq_item)
+	return flt(result[0][0]) if result else 0
 	
 
 
@@ -1828,6 +1871,18 @@ def update_boq_item_base(boq_item: str, total_qty: float = None, rate: float = N
 	item.save()
 	
 	return get_item_ledger_values(boq_item)
+
+
+@frappe.whitelist()
+def update_boq_item_skip_advance(boq_item: str, skip_advance_deduction: int = 0) -> dict:
+	"""Toggle skip advance deduction for a BOQ item from the project construction table."""
+	item = frappe.get_doc("BOQ Item", boq_item)
+	item.skip_advance_deduction = int(skip_advance_deduction)
+	item.save(ignore_permissions=True)
+	return {
+		"boq_item": item.name,
+		"skip_advance_deduction": item.skip_advance_deduction,
+	}
 
 @frappe.whitelist()
 def get_project_cost_breakdown(project: str) -> dict:

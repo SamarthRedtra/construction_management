@@ -129,6 +129,9 @@ def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float
 	# Get BOQ Item
 	item = frappe.get_doc("BOQ Item", boq_item)
 	
+	if boq_item_skips_advance(boq_item):
+		advance_deduction = 0
+	
 	# Validate balance
 	from construction_management.api.boq_ledger import get_to_date_qty
 	to_date_qty = get_to_date_qty(boq_item)
@@ -345,6 +348,7 @@ def create_invoice_from_multiple_items(project: str, items: list,
 	_set_direct_billing_mode(invoice, 0)
 	
 	total_amount = 0
+	boq_item_amounts = {}
 	
 	for item_data in items:
 		boq_item_name = item_data.get("boq_item")
@@ -371,6 +375,7 @@ def create_invoice_from_multiple_items(project: str, items: list,
 		
 		current_amount = flt(current_qty) * flt(item.rate)
 		total_amount += current_amount
+		boq_item_amounts[boq_item_name] = flt(boq_item_amounts.get(boq_item_name, 0)) + current_amount
 		
 		# Ensure linked_item exists - create if not
 		if not item.linked_item:
@@ -404,6 +409,10 @@ def create_invoice_from_multiple_items(project: str, items: list,
 	
 	if not invoice.items:
 		frappe.throw(_("No valid items to invoice"))
+	
+	advance_deduction = resolve_advance_deduction_for_boq_items(
+		advance_deduction, boq_item_amounts, project
+	)
 	
 	# Calculate retention
 	retention_amount = 0
@@ -575,6 +584,7 @@ def create_invoice_from_selected_bills(project: str, bill_names: list,
 	total_amount = 0
 	items_added = 0
 	bills_included = set()
+	boq_item_amounts = {}
 	
 	for item_data in items_to_bill:
 		current_qty = flt(item_data.current_qty)
@@ -597,6 +607,9 @@ def create_invoice_from_selected_bills(project: str, bill_names: list,
 		
 		current_amount = flt(current_qty) * flt(item_data.rate)
 		total_amount += current_amount
+		boq_item_amounts[item_data.boq_item] = (
+			flt(boq_item_amounts.get(item_data.boq_item, 0)) + current_amount
+		)
 		
 		# Get the item_code to use - prefer linked_item, fallback to item_code
 		invoice_item_code = item_data.linked_item or item_data.item_code
@@ -637,6 +650,10 @@ def create_invoice_from_selected_bills(project: str, bill_names: list,
 	
 	if not invoice.items:
 		frappe.throw(_("No valid items to invoice"))
+	
+	advance_deduction = resolve_advance_deduction_for_boq_items(
+		advance_deduction, boq_item_amounts, project
+	)
 	
 	# Calculate retention
 	retention_amount = 0
@@ -1196,6 +1213,57 @@ def get_advance_balance(project: str) -> float:
 	# Thus, we ignore the percentage here or return the full remaining amount.
 	return remaining_advance
 
+
+def get_boq_items_skip_advance(boq_item_names: list[str]) -> set[str]:
+	"""Return BOQ item names where skip_advance_deduction is enabled."""
+	if not boq_item_names:
+		return set()
+	names = list({name for name in boq_item_names if name})
+	if not names:
+		return set()
+	return set(
+		frappe.get_all(
+			"BOQ Item",
+			filters={"name": ["in", names], "skip_advance_deduction": 1},
+			pluck="name",
+		)
+	)
+
+
+def boq_item_skips_advance(boq_item: str) -> bool:
+	if not boq_item:
+		return False
+	return bool(frappe.db.get_value("BOQ Item", boq_item, "skip_advance_deduction"))
+
+
+def resolve_advance_deduction_for_boq_items(
+	advance_deduction: float,
+	boq_item_amounts: dict[str, float],
+	project: str,
+) -> float:
+	"""Zero or cap advance when BOQ items skip advance deduction."""
+	advance_deduction = flt(advance_deduction)
+	if advance_deduction <= 0 or not boq_item_amounts:
+		return 0
+
+	skip_set = get_boq_items_skip_advance(list(boq_item_amounts.keys()))
+	if skip_set and len(skip_set) == len(boq_item_amounts):
+		return 0
+
+	eligible_amount = sum(
+		flt(amt) for boq, amt in boq_item_amounts.items() if boq not in skip_set
+	)
+	if eligible_amount <= 0:
+		return 0
+
+	project_doc = frappe.get_doc("Project", project)
+	advance_pct = flt(getattr(project_doc, "advance_deduction", 0))
+	max_from_pct = (
+		flt(eligible_amount * advance_pct / 100, 2) if advance_pct else eligible_amount
+	)
+	return flt(min(advance_deduction, max_from_pct, get_advance_balance(project)), 2)
+
+
 @frappe.whitelist()
 def get_deduction_details(
 	project: str,
@@ -1227,6 +1295,8 @@ def get_deduction_details(
 	
 	total_gross_amount = 0
 	total_net_amount = 0
+	skip_advance_boq_items = []
+	total_net_amount_for_advance = 0
 	
 	if items:
 		# Fetch variance item from BOQ Settings
@@ -1240,6 +1310,24 @@ def get_deduction_details(
 		# Net Amount: Include Variance deduction (so Gross - Variance)
 		total_net_amount = sum(flt(item.get("amount", 0)) for item in items 
 			if not item.get("item_code") in ["RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"])
+
+		boq_names = [item.get("boq_item") for item in items if item.get("boq_item")]
+		if boq_names:
+			skip_set = get_boq_items_skip_advance(boq_names)
+			skip_advance_boq_items = list(skip_set)
+			if skip_set:
+				total_net_amount_for_advance = sum(
+					flt(item.get("amount", 0))
+					for item in items
+					if item.get("item_code") not in ["RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"]
+					and item.get("boq_item") not in skip_set
+				)
+			else:
+				total_net_amount_for_advance = total_net_amount
+		else:
+			total_net_amount_for_advance = total_net_amount
+	else:
+		total_net_amount_for_advance = total_net_amount
 	
 	# Retention is usually on Gross Amount
 	suggested_retention = flt(total_gross_amount * retention_percentage / 100, 2)
@@ -1271,7 +1359,7 @@ def get_deduction_details(
 	
 	# Suggested advance based on percentage cap
 	# Calculate suggested advance deduction based on NET Amount (Gross - Variance)
-	suggested_advance_deduction = flt(total_net_amount * advance_percentage / 100, 2)
+	suggested_advance_deduction = flt(total_net_amount_for_advance * advance_percentage / 100, 2)
 	
 	suggested_advance = min(available_advance, suggested_advance_deduction)
 	
@@ -1290,7 +1378,8 @@ def get_deduction_details(
 		"suggested_advance": suggested_advance,
 		"total_billable_amount": total_gross_amount,
 		"available_boq_balance": flt(available_boq_balance),
-		"enable_progressive_boq": enable_progressive_boq
+		"enable_progressive_boq": enable_progressive_boq,
+		"skip_advance_boq_items": skip_advance_boq_items,
 	}
 
 
@@ -1475,12 +1564,13 @@ def recalculate_sales_order_boq_deductions(sales_order: str) -> dict:
 				boq_desc = boq_desc or bi.description
 				bill_no = bill_no or bi.parent_bill
 
-		advance_base_items.append({
-			"boq_item": row.boq_item,
-			"bill_no": bill_no,
-			"description": boq_desc or "",
-			"amount": amt,
-		})
+		if not boq_item_skips_advance(row.boq_item):
+			advance_base_items.append({
+				"boq_item": row.boq_item,
+				"bill_no": bill_no,
+				"description": boq_desc or "",
+				"amount": amt,
+			})
 
 		if project_doc.retention_percentage and flt(project_doc.retention_percentage) > 0:
 			retention_amount = flt(amt * flt(project_doc.retention_percentage) / 100, 2)
@@ -1648,12 +1738,13 @@ def create_sales_order_from_selected_items(
 				"item_code": boq_item.linked_item or boq_item.item_code,
 				"amount": amount
 			})
-			advance_base_items.append({
-				"boq_item": boq_item_name,
-				"bill_no": boq_item.parent_bill,
-				"description": boq_item.description,
-				"amount": amount
-			})
+			if not boq_item_skips_advance(boq_item_name):
+				advance_base_items.append({
+					"boq_item": boq_item_name,
+					"bill_no": boq_item.parent_bill,
+					"description": boq_item.description,
+					"amount": amount
+				})
 			
 			# Calculate and add Retention Deduction
 			if project_doc.retention_percentage:
@@ -2629,6 +2720,7 @@ def create_invoice_from_selected_items(project: str, items: str | list,
 	total_amount = 0
 	items_added = 0
 	bills_included = set()
+	boq_item_amounts = {}
 	
 	for item_data in items:
 		boq_item_name = item_data.get("boq_item")
@@ -2656,6 +2748,7 @@ def create_invoice_from_selected_items(project: str, items: str | list,
 		
 		current_amount = flt(current_qty) * flt(item.rate)
 		total_amount += current_amount
+		boq_item_amounts[boq_item_name] = flt(boq_item_amounts.get(boq_item_name, 0)) + current_amount
 		
 		# Ensure linked_item exists - create if not
 		if not item.linked_item:
@@ -2698,6 +2791,10 @@ def create_invoice_from_selected_items(project: str, items: str | list,
 	
 	if not invoice.items:
 		frappe.throw(_("No valid items to invoice"))
+	
+	advance_deduction = resolve_advance_deduction_for_boq_items(
+		advance_deduction, boq_item_amounts, project
+	)
 	
 	# Calculate retention
 	retention_amount = 0

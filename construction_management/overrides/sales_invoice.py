@@ -367,7 +367,11 @@ class SalesInvoiceOverride(SalesInvoice):
 		if self.get("custom_payment_certificate") or self.get("custom_proforma_invoice"):
 			return
 
-		from construction_management.api.boq_invoice import get_deduction_details, get_or_create_retention_item, get_or_create_advance_item
+		from construction_management.api.boq_invoice import (
+			get_deduction_details,
+			get_or_create_retention_item,
+			get_or_create_advance_item,
+		)
 		
 		details = get_deduction_details(self.project, self.items, invoice_name=self.name)
 		
@@ -376,6 +380,7 @@ class SalesInvoiceOverride(SalesInvoice):
 
 		retention_pct = flt(details.get("retention_percentage"))
 		advance_pct = flt(details.get("advance_percentage"))
+		skip_advance_set = set(details.get("skip_advance_boq_items") or [])
 
 		# Check if per-item deductions exist (pattern: each BOQ item has paired deduction rows)
 		has_per_item_deductions = False
@@ -386,6 +391,19 @@ class SalesInvoiceOverride(SalesInvoice):
 				deduction_boq_items.add(item.boq_item)
 
 		if has_per_item_deductions:
+			if skip_advance_set:
+				self.set(
+					"items",
+					[
+						item
+						for item in self.items
+						if not (
+							item.item_code == "ADVANCE-DEDUCTION"
+							and item.get("boq_item") in skip_advance_set
+						)
+					],
+				)
+
 			# Per-item deduction mode: recalculate each deduction row based on its parent BOQ item
 			boq_amounts = {}
 			for item in self.items:
@@ -405,6 +423,8 @@ class SalesInvoiceOverride(SalesInvoice):
 					item.description = f"Retention deduction ({retention_pct}%)"
 
 				elif item.item_code == "ADVANCE-DEDUCTION" and advance_pct > 0:
+					if item.boq_item in skip_advance_set:
+						continue
 					new_advance = flt(parent_amount * advance_pct / 100, 2)
 					item.rate = -new_advance
 					item.amount = -new_advance

@@ -371,6 +371,7 @@ function recalculate_deductions(frm) {
 
 			const retention_pct = flt(r.message.retention_percentage);
 			const advance_pct = flt(r.message.advance_percentage);
+			const skipAdvanceSet = new Set(r.message.skip_advance_boq_items || []);
 
 			// Build a map of boq_item -> BOQ item amount (non-deduction items)
 			const boq_amounts = {};
@@ -400,6 +401,18 @@ function recalculate_deductions(frm) {
 				}
 
 				if (item.item_code === 'ADVANCE-DEDUCTION' && advance_pct > 0) {
+					if (skipAdvanceSet.has(item.boq_item)) {
+						if (flt(item.amount) !== 0) {
+							frappe.model.set_value(item.doctype, item.name, {
+								'rate': 0,
+								'amount': 0,
+								'qty': 0,
+								'description': __('Advance deduction skipped for this BOQ item')
+							});
+							changed = true;
+						}
+						return;
+					}
 					const new_advance = flt(parent_amount * advance_pct / 100, precision('rate', item));
 					if (flt(item.rate) !== -new_advance) {
 						frappe.model.set_value(item.doctype, item.name, {

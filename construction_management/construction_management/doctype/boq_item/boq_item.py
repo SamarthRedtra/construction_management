@@ -170,8 +170,18 @@ class BOQItem(Document):
 			self.prev_qty = get_previous_qty(self.name)
 			self.prev_amount = get_previous_amount(self.name)
 			
-			# Total amount takes historical rates into account: Billed + Remaining * Current Rate
-			self.total_amount = flt(self.prev_amount) + (flt(self.total_qty) - flt(self.prev_qty)) * flt(self.rate)
+			# Use gross SI amounts for total_amount (contract value) so that
+			# deductions don't deflate the displayed contract value.
+			gross_billed = self._get_gross_billed_amount()
+			if gross_billed:
+				billed_qty = flt(gross_billed.get("qty", 0))
+				billed_amount = flt(gross_billed.get("amount", 0))
+			else:
+				billed_qty = flt(self.prev_qty)
+				billed_amount = flt(self.prev_amount)
+
+			remaining_qty = flt(self.total_qty) - billed_qty
+			self.total_amount = billed_amount + remaining_qty * flt(self.rate)
 		else:
 			# For new items, standard calculation applies
 			self.prev_qty = 0
@@ -250,6 +260,21 @@ class BOQItem(Document):
 		""", self.name)
 
 		return flt(result[0][0]) if result else 0.0
+
+	def _get_gross_billed_amount(self) -> dict | None:
+		"""Sum gross qty and amount from submitted Sales Invoice items for this BOQ item,
+		excluding negative deduction rows so the result reflects the actual billed value."""
+		result = frappe.db.sql("""
+			SELECT COALESCE(SUM(sii.qty), 0) AS qty,
+				   COALESCE(SUM(sii.amount), 0) AS amount
+			FROM `tabSales Invoice Item` sii
+			JOIN `tabSales Invoice` si ON si.name = sii.parent
+			WHERE sii.boq_item = %s AND si.docstatus = 1
+				AND sii.qty > 0 AND sii.rate > 0
+		""", self.name, as_dict=True)
+		if result and flt(result[0].qty):
+			return {"qty": flt(result[0].qty), "amount": flt(result[0].amount)}
+		return None
 
 	def _get_operational_costs(self) -> dict:
 		"""
@@ -742,24 +767,51 @@ def get_rate_history(boq_item):
 
 @frappe.whitelist()
 def get_rate_split_summary(boq_item):
-	"""Return billed vs remaining rate split and rate history for BOQ grid tooltip."""
+	"""Return per-invoice billing tiers, remaining balance and rate history."""
 	from construction_management.api.boq_ledger import get_previous_amount, get_previous_qty
 
 	check_rate_history_table()
 	item = frappe.get_doc("BOQ Item", boq_item)
-	prev_qty = flt(get_previous_qty(boq_item))
-	prev_amount = flt(get_previous_amount(boq_item))
 	current_rate = flt(item.rate)
 	total_qty = flt(item.total_qty)
-	balance_qty = flt(total_qty) - prev_qty
+
+	# Per-invoice gross billing tiers (excludes deduction line items)
+	billing_tiers = frappe.db.sql("""
+		SELECT sii.parent AS invoice, sii.qty, sii.rate, sii.amount,
+			   si.posting_date
+		FROM `tabSales Invoice Item` sii
+		JOIN `tabSales Invoice` si ON si.name = sii.parent
+		WHERE sii.boq_item = %s AND si.docstatus = 1
+			AND sii.qty > 0 AND sii.rate > 0
+		ORDER BY si.posting_date ASC, sii.idx ASC
+	""", boq_item, as_dict=True)
+
+	billed_qty = sum(flt(t.qty) for t in billing_tiers)
+	billed_amount = sum(flt(t.amount) for t in billing_tiers)
+
+	# Fallback to ledger when no SI data exists
+	if not billing_tiers:
+		prev_qty = flt(get_previous_qty(boq_item))
+		prev_amount = flt(get_previous_amount(boq_item))
+		if prev_qty:
+			billing_tiers = [{
+				"invoice": None,
+				"qty": prev_qty,
+				"rate": flt(prev_amount / prev_qty),
+				"amount": prev_amount,
+				"posting_date": None,
+			}]
+			billed_qty = prev_qty
+			billed_amount = prev_amount
+
+	balance_qty = flt(total_qty) - billed_qty
 	balance_value = flt(balance_qty) * current_rate
-	prev_effective_rate = flt(prev_amount / prev_qty) if prev_qty else 0
-	total_amount = flt(prev_amount) + balance_value
+	total_amount = flt(billed_amount) + balance_value
 
 	return {
-		"prev_qty": prev_qty,
-		"prev_amount": prev_amount,
-		"prev_effective_rate": prev_effective_rate,
+		"billing_tiers": billing_tiers,
+		"billed_qty": billed_qty,
+		"billed_amount": billed_amount,
 		"balance_qty": balance_qty,
 		"current_rate": current_rate,
 		"balance_value": balance_value,
