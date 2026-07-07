@@ -6,7 +6,7 @@ from collections import defaultdict
 import frappe
 from frappe import _
 from frappe.utils import flt
-from erpnext.accounts.doctype.purchase_invoice.purchase_invoice import PurchaseInvoice
+from redtra_customisation.override.purchase_invoice import CustomPurchaseInvoice
 from erpnext.accounts.utils import update_voucher_outstanding
 
 _PO_PROGRESS_DEDUCTION_ITEMS = frozenset(
@@ -23,7 +23,7 @@ _PO_PROGRESS_FIELDS = (
 )
 
 
-class PurchaseInvoiceOverride(PurchaseInvoice):
+class PurchaseInvoiceOverride(CustomPurchaseInvoice):
 	def get_gl_entries(self, warehouse_account=None):
 		gl_entries = super().get_gl_entries(warehouse_account)
 

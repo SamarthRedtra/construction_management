@@ -344,115 +344,39 @@ class PaymentCertificate(Document):
 		
 		# Add items from PC items table with per-item deductions
 		from construction_management.api.boq_invoice import (
+			append_per_item_revenue_and_deductions,
 			get_deduction_details,
-			get_or_create_retention_item,
-			get_or_create_advance_item,
-			boq_item_skips_advance,
-			get_boq_items_skip_advance,
 		)
-		
-		# Get deduction settings for the project
-		deduction_details = get_deduction_details(self.project, self.items, invoice_name=None)
-		suggested_retention = flt(deduction_details.get("suggested_retention"))
-		suggested_advance = flt(deduction_details.get("suggested_advance"))
-		
-		total_proforma = flt(self.proforma_amount)
-		total_accepted = flt(self.accepted_amount)
-		skip_advance_set = get_boq_items_skip_advance(
-			[pc_item.boq_item for pc_item in self.items if pc_item.get("boq_item")]
-		)
-		eligible_accepted = sum(
-			flt(pc_item.accepted_amount)
-			for pc_item in self.items
-			if pc_item.get("boq_item") and pc_item.boq_item not in skip_advance_set
-		)
-		
-		variance_item_code = settings.varience_item
-		retention_item_code = "RETENTION-DEDUCTION"
-		advance_item_code = "ADVANCE-DEDUCTION"
-		
-		get_or_create_retention_item()
-		get_or_create_advance_item()
 
-		if self.get("items"):
-			for pc_item in self.items:
-				# 1. Main BOQ Item line
-				invoice.append("items", {
+		deduction_details = get_deduction_details(self.project, self.items, invoice_name=None)
+
+		line_items = []
+		for pc_item in self.items:
+			line_items.append(
+				{
 					"item_code": frappe.db.get_value("BOQ Item", pc_item.boq_item, "item_code") or "Service",
 					"description": pc_item.description,
 					"qty": pc_item.qty,
 					"rate": pc_item.rate,
-					"amount": flt(pc_item.qty) * flt(pc_item.rate),
-					"income_account": income_account,
-					"project": self.project,
+					"amount": flt(pc_item.amount),
+					"accepted_amount": flt(pc_item.accepted_amount),
 					"boq_item": pc_item.boq_item,
 					"bill_no": pc_item.bill_no,
 					"sales_order": self.sales_order,
 					"so_detail": pc_item.sales_order_item,
-					"cost_center": invoice.cost_center
-				})
-				
-				# 2. Per-item Variance Deduction
-				item_variance = flt(pc_item.amount) - flt(pc_item.accepted_amount)
-				if item_variance > 0:
-					if not variance_item_code:
-						frappe.throw(_("Please set 'Varience Deduction Item' in BOQ Settings matching company {0}").format(company))
-					
-					invoice.append("items", {
-						"item_code": variance_item_code,
-						"item_name": "Variance Deduction",
-						"description": f"Variance adjustment for: {pc_item.description or pc_item.boq_item}",
-						"qty": 1,
-						"rate": -item_variance,
-						"amount": -item_variance,
-						"income_account": income_account,
-						"project": self.project,
-						"boq_item": pc_item.boq_item,
-						"bill_no": pc_item.bill_no,
-						"cost_center": invoice.cost_center
-					})
-				
-				# 3. Per-item Retention Deduction
-				if suggested_retention > 0 and total_proforma > 0:
-					share = flt(pc_item.amount) / total_proforma
-					item_retention = flt(suggested_retention * share, 2)
-					if item_retention > 0:
-						invoice.append("items", {
-							"item_code": retention_item_code,
-							"item_name": "Retention Deduction",
-							"description": f"Retention deduction ({deduction_details['retention_percentage']}%) for: {pc_item.description or pc_item.boq_item}",
-							"qty": 1,
-							"rate": -item_retention,
-							"amount": -item_retention,
-							"income_account": income_account,
-							"project": self.project,
-							"boq_item": pc_item.boq_item,
-							"bill_no": pc_item.bill_no,
-							"cost_center": invoice.cost_center
-						})
+				}
+			)
 
-				# 4. Per-item Advance Deduction
-				if (
-					suggested_advance > 0
-					and eligible_accepted > 0
-					and not boq_item_skips_advance(pc_item.boq_item)
-				):
-					share = flt(pc_item.accepted_amount) / eligible_accepted
-					item_advance = flt(suggested_advance * share, 2)
-					if item_advance > 0:
-						invoice.append("items", {
-							"item_code": advance_item_code,
-							"item_name": "Advance Deduction",
-							"description": f"Deduction from advance payment for: {pc_item.description or pc_item.boq_item}",
-							"qty": 1,
-							"rate": -item_advance,
-							"amount": -item_advance,
-							"income_account": income_account,
-							"project": self.project,
-							"boq_item": pc_item.boq_item,
-							"bill_no": pc_item.bill_no,
-							"cost_center": invoice.cost_center
-						})
+		append_per_item_revenue_and_deductions(
+			invoice,
+			line_items,
+			deduction_details,
+			company=company,
+			project=self.project,
+			income_account=income_account,
+			cost_center=invoice.cost_center,
+			include_variance=True,
+		)
 		
 		# Populate taxes from Payment Certificate or Defaults
 		if self.get("taxes_and_charges"):

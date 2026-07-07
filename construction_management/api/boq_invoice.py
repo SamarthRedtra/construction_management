@@ -1270,6 +1270,7 @@ def get_deduction_details(
 	items: str | list | None = None,
 	invoice_name: str | None = None,
 	sales_order_name: str | None = None,
+	sales_order_names: str | list | None = None,
 ) -> dict:
 	"""
 	Calculate available retention and advance deduction details for a project/invoice.
@@ -1279,6 +1280,7 @@ def get_deduction_details(
 		items: List of invoice items with amounts (optional)
 		invoice_name: Name of current invoice to exclude from balance (optional)
 		sales_order_name: Draft SO name — advance lines on this order are added back to the pool for recalculation (optional)
+		sales_order_names: List of SO names — same add-back for combined SO invoicing (optional)
 		
 	Returns:
 		dict with retention_percentage, available_advance, suggested_retention, suggested_advance,
@@ -1346,13 +1348,19 @@ def get_deduction_details(
 		available_advance += flt(current_deductions[0].total) if current_deductions else 0
 
 	if sales_order_name:
+		sales_order_names = sales_order_names or [sales_order_name]
+	if isinstance(sales_order_names, str):
+		import json
+		sales_order_names = json.loads(sales_order_names)
+
+	for so_name in sales_order_names or []:
 		so_adv = frappe.db.sql(
 			"""
 			SELECT COALESCE(SUM(ABS(soi.amount)), 0) AS total
 			FROM `tabSales Order Item` soi
 			WHERE soi.parent = %s AND soi.item_code = 'ADVANCE-DEDUCTION'
 			""",
-			sales_order_name,
+			so_name,
 			as_dict=True,
 		)
 		available_advance += flt(so_adv[0].total) if so_adv else 0
@@ -3328,3 +3336,418 @@ def get_action_for_proforma(proforma: dict) -> str:
 		return "view_details"
 	else:
 		return "create_pc"
+
+
+SO_DEDUCTION_ITEM_CODES = frozenset({"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"})
+
+
+def _parse_name_list(values) -> list[str]:
+	import json
+
+	if not values:
+		return []
+	if isinstance(values, str):
+		values = json.loads(values)
+	if isinstance(values, (list, tuple)):
+		return [str(v).strip() for v in values if str(v).strip()]
+	return [str(values).strip()]
+
+
+def _get_so_item_pending_amount(so_item) -> float:
+	return flt(flt(so_item.amount) - flt(so_item.billed_amt))
+
+
+def _get_so_item_pending_qty(so_item, so_doc) -> float:
+	if so_doc.get("has_unit_price_items") and flt(so_item.qty) == 0:
+		return flt(so_item.qty)
+	if flt(so_item.qty) and flt(so_item.billed_amt):
+		billed_qty = frappe.db.sql(
+			"""
+			SELECT COALESCE(SUM(qty), 0)
+			FROM `tabSales Invoice Item` sii
+			INNER JOIN `tabSales Invoice` si ON si.name = sii.parent
+			WHERE si.docstatus = 1 AND sii.so_detail = %s
+			""",
+			so_item.name,
+		)[0][0] or 0
+		return flt(so_item.qty) - flt(billed_qty)
+	return flt(so_item.qty) - flt(so_item.returned_qty)
+
+
+def _so_has_submitted_payment_certificate(so_name: str) -> bool:
+	return bool(
+		frappe.db.exists(
+			"Payment Certificate",
+			{"sales_order": so_name, "docstatus": 1},
+		)
+	)
+
+
+def get_pending_so_revenue_lines(so_doc) -> list[dict]:
+	"""Return unbilled BOQ revenue lines from a submitted Sales Order."""
+	lines = []
+	for so_item in so_doc.items:
+		if so_item.item_code in SO_DEDUCTION_ITEM_CODES:
+			continue
+		if not so_item.get("boq_item"):
+			continue
+
+		pending_amount = _get_so_item_pending_amount(so_item)
+		if pending_amount <= 0:
+			continue
+
+		pending_qty = _get_so_item_pending_qty(so_item, so_doc)
+		rate = flt(so_item.rate)
+		if not rate and pending_qty:
+			rate = flt(pending_amount / pending_qty)
+
+		lines.append(
+			{
+				"item_code": so_item.item_code,
+				"description": so_item.description,
+				"qty": pending_qty,
+				"rate": rate,
+				"amount": pending_amount,
+				"accepted_amount": pending_amount,
+				"boq_item": so_item.boq_item,
+				"bill_no": so_item.bill_no,
+				"sales_order": so_doc.name,
+				"so_detail": so_item.name,
+			}
+		)
+	return lines
+
+
+def append_per_item_revenue_and_deductions(
+	invoice,
+	line_items: list[dict],
+	deduction_details: dict,
+	*,
+	company: str,
+	project: str,
+	income_account: str | None = None,
+	cost_center: str | None = None,
+	include_variance: bool = False,
+):
+	"""Append revenue lines and proportional retention/advance deductions to a Sales Invoice."""
+	settings = frappe.get_cached_doc("BOQ Settings", company)
+	income_account = income_account or frappe.db.get_value("Company", company, "default_income_account")
+	cost_center = cost_center or invoice.cost_center or frappe.db.get_value("Company", company, "cost_center")
+
+	suggested_retention = flt(deduction_details.get("suggested_retention"))
+	suggested_advance = flt(deduction_details.get("suggested_advance"))
+	retention_pct = flt(deduction_details.get("retention_percentage"))
+	total_proforma = sum(flt(row.get("amount")) for row in line_items)
+
+	skip_advance_set = get_boq_items_skip_advance(
+		[row.get("boq_item") for row in line_items if row.get("boq_item")]
+	)
+	eligible_accepted = sum(
+		flt(row.get("accepted_amount"))
+		for row in line_items
+		if row.get("boq_item") and row.get("boq_item") not in skip_advance_set
+	)
+
+	variance_item_code = settings.varience_item
+	retention_item_code = "RETENTION-DEDUCTION"
+	advance_item_code = "ADVANCE-DEDUCTION"
+
+	get_or_create_retention_item()
+	get_or_create_advance_item()
+
+	for row in line_items:
+		invoice.append(
+			"items",
+			{
+				"item_code": row.get("item_code") or "Service",
+				"description": row.get("description"),
+				"qty": flt(row.get("qty")),
+				"rate": flt(row.get("rate")),
+				"amount": flt(row.get("amount")),
+				"income_account": income_account,
+				"project": project,
+				"boq_item": row.get("boq_item"),
+				"bill_no": row.get("bill_no"),
+				"sales_order": row.get("sales_order"),
+				"so_detail": row.get("so_detail"),
+				"cost_center": cost_center,
+			},
+		)
+
+		if include_variance:
+			item_variance = flt(row.get("amount")) - flt(row.get("accepted_amount"))
+			if item_variance > 0:
+				if not variance_item_code:
+					frappe.throw(
+						_("Please set 'Varience Deduction Item' in BOQ Settings matching company {0}").format(
+							company
+						)
+					)
+				invoice.append(
+					"items",
+					{
+						"item_code": variance_item_code,
+						"item_name": "Variance Deduction",
+						"description": f"Variance adjustment for: {row.get('description') or row.get('boq_item')}",
+						"qty": 1,
+						"rate": -item_variance,
+						"amount": -item_variance,
+						"income_account": income_account,
+						"project": project,
+						"boq_item": row.get("boq_item"),
+						"bill_no": row.get("bill_no"),
+						"cost_center": cost_center,
+					},
+				)
+
+		if suggested_retention > 0 and total_proforma > 0:
+			share = flt(row.get("amount")) / total_proforma
+			item_retention = flt(suggested_retention * share, 2)
+			if item_retention > 0:
+				invoice.append(
+					"items",
+					{
+						"item_code": retention_item_code,
+						"item_name": "Retention Deduction",
+						"description": f"Retention deduction ({retention_pct}%) for: {row.get('description') or row.get('boq_item')}",
+						"qty": 1,
+						"rate": -item_retention,
+						"amount": -item_retention,
+						"income_account": income_account,
+						"project": project,
+						"boq_item": row.get("boq_item"),
+						"bill_no": row.get("bill_no"),
+						"cost_center": cost_center,
+					},
+				)
+
+		if (
+			suggested_advance > 0
+			and eligible_accepted > 0
+			and row.get("boq_item")
+			and not boq_item_skips_advance(row.get("boq_item"))
+		):
+			share = flt(row.get("accepted_amount")) / eligible_accepted
+			item_advance = flt(suggested_advance * share, 2)
+			if item_advance > 0:
+				invoice.append(
+					"items",
+					{
+						"item_code": advance_item_code,
+						"item_name": "Advance Deduction",
+						"description": f"Deduction from advance payment for: {row.get('description') or row.get('boq_item')}",
+						"qty": 1,
+						"rate": -item_advance,
+						"amount": -item_advance,
+						"income_account": income_account,
+						"project": project,
+						"boq_item": row.get("boq_item"),
+						"bill_no": row.get("bill_no"),
+						"cost_center": cost_center,
+					},
+				)
+
+
+@frappe.whitelist()
+def get_billable_sales_orders_for_invoice(project: str) -> list:
+	"""Sales Orders with unbilled BOQ revenue lines, excluding submitted Payment Certificates."""
+	if not project:
+		return []
+
+	filters = {"docstatus": 1, "project": project}
+	sos = frappe.get_all(
+		"Sales Order",
+		filters=filters,
+		fields=[
+			"name",
+			"project",
+			"customer",
+			"customer_name",
+			"company",
+			"base_grand_total",
+			"transaction_date as posting_date",
+			"taxes_and_charges",
+		],
+		order_by="transaction_date desc",
+	)
+
+	billable = []
+	for so_row in sos:
+		if _so_has_submitted_payment_certificate(so_row.name):
+			continue
+
+		so_doc = frappe.get_doc("Sales Order", so_row.name)
+		pending_lines = get_pending_so_revenue_lines(so_doc)
+		if not pending_lines:
+			continue
+
+		pending_amount = sum(flt(line.get("amount")) for line in pending_lines)
+		invoiced_amount = flt(so_row.base_grand_total) - pending_amount
+
+		billable.append(
+			{
+				"name": so_row.name,
+				"project": so_row.project,
+				"customer": so_row.customer,
+				"customer_name": so_row.customer_name,
+				"company": so_row.company,
+				"posting_date": so_row.posting_date,
+				"amount": flt(so_row.base_grand_total),
+				"pending_amount": pending_amount,
+				"invoiced_amount": max(invoiced_amount, 0),
+				"has_invoice": 1 if invoiced_amount > 0 else 0,
+				"taxes_and_charges": so_row.taxes_and_charges,
+				"boq_items": list({line.get("boq_item") for line in pending_lines if line.get("boq_item")}),
+			}
+		)
+
+	return billable
+
+
+def _validate_combined_sales_orders(project: str, sales_orders: list[str]) -> list:
+	if not sales_orders:
+		frappe.throw(_("Select at least one Sales Order"))
+
+	so_docs = []
+	reference = None
+	tax_templates = set()
+
+	for so_name in sales_orders:
+		if not frappe.db.exists("Sales Order", so_name):
+			frappe.throw(_("Sales Order {0} does not exist").format(so_name))
+
+		so_doc = frappe.get_doc("Sales Order", so_name)
+		if so_doc.docstatus != 1:
+			frappe.throw(_("Sales Order {0} must be submitted").format(so_name))
+		if so_doc.project != project:
+			frappe.throw(_("Sales Order {0} does not belong to project {1}").format(so_name, project))
+		if _so_has_submitted_payment_certificate(so_name):
+			frappe.throw(
+				_("Sales Order {0} already has a submitted Payment Certificate").format(so_name)
+			)
+
+		pending_lines = get_pending_so_revenue_lines(so_doc)
+		if not pending_lines:
+			frappe.throw(_("Sales Order {0} has no unbilled BOQ lines").format(so_name))
+
+		if reference is None:
+			reference = {
+				"customer": so_doc.customer,
+				"company": so_doc.company,
+				"project": so_doc.project,
+				"currency": so_doc.currency,
+				"conversion_rate": so_doc.conversion_rate,
+				"selling_price_list": so_doc.selling_price_list,
+			}
+		else:
+			if so_doc.customer != reference["customer"]:
+				frappe.throw(_("All selected Sales Orders must have the same customer"))
+			if so_doc.company != reference["company"]:
+				frappe.throw(_("All selected Sales Orders must belong to the same company"))
+
+		if so_doc.taxes_and_charges:
+			tax_templates.add(so_doc.taxes_and_charges)
+
+		so_docs.append(so_doc)
+
+	if len(tax_templates) > 1:
+		frappe.throw(_("All selected Sales Orders must use the same tax template"))
+
+	return so_docs
+
+
+@frappe.whitelist()
+def make_combined_sales_invoice_from_selected_sales_orders(sales_orders) -> dict:
+	"""Create combined draft Sales Invoice from selected SO names (project derived from SOs)."""
+	sales_order_names = _parse_name_list(sales_orders)
+	if not sales_order_names:
+		frappe.throw(_("Select at least one Sales Order"))
+
+	rows = frappe.get_all(
+		"Sales Order",
+		filters={"name": ["in", sales_order_names], "docstatus": 1},
+		fields=["name", "project"],
+	)
+	if len(rows) != len(sales_order_names):
+		frappe.throw(_("All selected Sales Orders must be submitted"))
+
+	projects = {row.project for row in rows if row.project}
+	if not projects:
+		frappe.throw(_("Selected Sales Orders must have a Project"))
+	if len(projects) > 1:
+		frappe.throw(_("All selected Sales Orders must belong to the same project"))
+
+	return make_combined_sales_invoice_from_sales_orders(projects.pop(), sales_order_names)
+
+
+@frappe.whitelist()
+def make_combined_sales_invoice_from_sales_orders(project: str, sales_orders) -> dict:
+	"""Create one draft Sales Invoice from multiple submitted Sales Orders."""
+	if not has_invoice_permission():
+		frappe.throw(_("You do not have permission to create invoices"), frappe.PermissionError)
+
+	sales_order_names = _parse_name_list(sales_orders)
+	so_docs = _validate_combined_sales_orders(project, sales_order_names)
+
+	revenue_lines = []
+	for so_doc in so_docs:
+		revenue_lines.extend(get_pending_so_revenue_lines(so_doc))
+
+	if not revenue_lines:
+		frappe.throw(_("No billable lines found on selected Sales Orders"))
+
+	first_so = so_docs[0]
+	company = first_so.company
+	customer = first_so.customer
+
+	invoice = frappe.new_doc("Sales Invoice")
+	invoice.customer = customer
+	invoice.company = company
+	invoice.project = project
+	invoice.posting_date = today()
+	invoice.due_date = today()
+	invoice.currency = first_so.currency
+	invoice.conversion_rate = first_so.conversion_rate or 1
+	invoice.selling_price_list = first_so.selling_price_list
+	invoice.cost_center = frappe.db.get_value("Company", company, "cost_center")
+
+	if frappe.db.has_column("Sales Invoice", "custom_billing_mode"):
+		invoice.custom_billing_mode = "Sales Order"
+	if frappe.db.has_column("Sales Invoice", "custom_source_sales_orders"):
+		invoice.custom_source_sales_orders = ", ".join(sales_order_names)
+	if frappe.db.has_column("Sales Invoice", "custom_is_proforma"):
+		invoice.custom_is_proforma = 0
+
+	deduction_details = get_deduction_details(
+		project,
+		revenue_lines,
+		sales_order_names=sales_order_names,
+	)
+	append_per_item_revenue_and_deductions(
+		invoice,
+		revenue_lines,
+		deduction_details,
+		company=company,
+		project=project,
+		cost_center=invoice.cost_center,
+		include_variance=False,
+	)
+
+	tax_template = next((so.taxes_and_charges for so in so_docs if so.taxes_and_charges), None)
+	if tax_template:
+		invoice.taxes_and_charges = tax_template
+	elif not invoice.get("taxes"):
+		default_tax = get_default_taxes_and_charges("Sales Taxes and Charges Template", company=company)
+		if default_tax and default_tax.get("taxes_and_charges"):
+			invoice.taxes_and_charges = default_tax["taxes_and_charges"]
+			for tax in default_tax.get("taxes", []):
+				invoice.append("taxes", tax)
+
+	if not invoice.get("taxes") and not invoice.get("taxes_and_charges"):
+		invoice.run_method("set_taxes_and_charges")
+
+	invoice.run_method("calculate_taxes_and_totals")
+	invoice.flags.ignore_permissions = True
+	invoice.insert()
+
+	return {"sales_invoice": invoice.name, "sales_orders": sales_order_names}

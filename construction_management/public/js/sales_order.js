@@ -22,6 +22,24 @@ frappe.ui.form.on('Sales Order', {
 
 		construction_management.deduction_summary.render(frm);
 
+		// Combined tax invoice from this SO + other proformas on the same project
+		if (
+			frm.doc.docstatus === 1 &&
+			frm.doc.project &&
+			(frm.doc.items || []).some((r) => r.boq_item)
+		) {
+			frm.add_custom_button(
+				__('Combined Tax Invoice'),
+				function () {
+					construction_management.combined_sales_invoice_from_so.open_project_dialog(
+						frm.doc.project,
+						[frm.doc.name]
+					);
+				},
+				__('Create')
+			);
+		}
+
 		// Recalculate BOQ retention & advance (draft, saved orders with project + BOQ lines)
 		if (
 			!frm.is_new() &&

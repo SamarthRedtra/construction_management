@@ -27,7 +27,10 @@ app_license = "mit"
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/construction_management/css/construction_management.css"
-app_include_js = "/assets/construction_management/js/accounting_dimension_filters.js"
+app_include_js = [
+	"/assets/construction_management/js/accounting_dimension_filters.js",
+	"/assets/construction_management/js/combined_sales_invoice_from_so.js",
+]
 
 # include js, css files in header of web template
 # web_include_css = "/assets/construction_management/css/construction_management.css"
@@ -62,6 +65,9 @@ doctype_js = {
 }
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
+doctype_list_js = {
+	"Sales Order": "public/js/sales_order_list.js",
+}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
 

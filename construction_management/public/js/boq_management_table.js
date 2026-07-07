@@ -923,12 +923,12 @@ function updateSelectionToolbar(container) {
 							</svg>
 							${__('Sales Order (Proforma)')}
 						</button>
-						<button class="btn-toolbar btn-secondary-toolbar" onclick="generateSalesInvoiceFromSelection()" title="${__('Create tax invoice from an existing submitted Sales Order')}">
+						<button class="btn-toolbar btn-secondary-toolbar" onclick="generateSalesInvoiceFromSelection()" title="${__('Create one tax invoice from multiple submitted Sales Orders')}">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
 								<polyline points="14 2 14 8 20 8"></polyline>
 							</svg>
-							${__('Tax Invoice from SO')}
+							${__('Combined Tax Invoice from SO')}
 						</button>
 						<button class="btn-toolbar btn-danger-toolbar" onclick="deleteSelectedBOQItems()">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1131,30 +1131,11 @@ window.generateSalesInvoiceFromSelection = function () {
 		return;
 	}
 
-	frappe.call({
-		method: 'construction_management.construction_management.doctype.payment_certificate.payment_certificate.get_pending_sales_orders',
-		args: { project: cur_frm.doc.name },
-		callback: function (r) {
-			const pending_sos = r.message || [];
-			if (pending_sos.length === 0) {
-				frappe.show_alert({ message: __('No Sales Orders found for this project'), indicator: 'orange' });
-				return;
-			}
+	if (!cur_frm?.doc?.name) {
+		return;
+	}
 
-			frappe.prompt([
-				{
-					fieldname: 'sales_order', fieldtype: 'Select', label: 'Sales Order',
-					options: pending_sos.map(so => ({ label: `${so.name} (${format_currency(so.amount)})`, value: so.name })),
-					reqd: 1
-				}
-			], function (values) {
-				frappe.model.open_mapped_doc({
-					method: 'erpnext.selling.doctype.sales_order.sales_order.make_sales_invoice',
-					source_name: values.sales_order
-				});
-			}, __('Generate Sales Invoice'), __('Generate'));
-		}
-	});
+	construction_management.combined_sales_invoice_from_so.open_project_dialog(cur_frm.doc.name);
 };
 
 window.clearSelection = function () {
