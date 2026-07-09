@@ -47,6 +47,19 @@ frappe.ui.form.on('Purchase Receipt', {
 			return {};
 		});
 
+		if (frm.doc.docstatus === 1) {
+			frm.add_custom_button(__('Create Material Issue'), function () {
+				construction_management.bulk_material_issue.open_tool(
+					[{ doctype: 'Purchase Receipt', name: frm.doc.name }],
+					{
+						company: frm.doc.company,
+						project: frm.doc.project,
+						source_type: 'Purchase Receipt',
+					}
+				);
+			}, __('Actions'));
+		}
+
 		// Add "Create Payment Certificate" button for submitted PRs with Subcontractor type
 		if (frm.doc.docstatus === 1 && frm.doc.custom_suppliersubcontractor == "Subcontractor") {
 			frappe.call({
@@ -169,33 +182,23 @@ function recalculate_pr_deductions(frm) {
 			let retention_pct = flt(r.message.custom_retention_);
 			let advance_pct = flt(r.message.custom_advance_);
 
-			const project = frm.doc.project || r.message.project;
-			const apply_deductions = () => {
-				if (retention_pct <= 0 && advance_pct <= 0) return;
-				apply_pr_deduction_amounts(frm, retention_pct, advance_pct);
-			};
-
-			if (!project || (retention_pct > 0 && advance_pct > 0)) {
-				apply_deductions();
+			if (retention_pct <= 0 && advance_pct <= 0) {
+				remove_pr_deduction_rows(frm);
 				return;
 			}
 
-			frappe.db.get_value('Project', project, ['retention_percentage', 'advance_deduction'])
-				.then((project_r) => {
-					if (!project_r.message) {
-						apply_deductions();
-						return;
-					}
-
-					if (retention_pct <= 0) {
-						retention_pct = flt(project_r.message.retention_percentage);
-					}
-					if (advance_pct <= 0) {
-						advance_pct = flt(project_r.message.advance_deduction);
-					}
-					apply_deductions();
-				});
+			apply_pr_deduction_amounts(frm, retention_pct, advance_pct);
 		});
+}
+
+function remove_pr_deduction_rows(frm) {
+	for (const item_code of ['RETENTION-DEDUCTION', 'ADVANCE-DEDUCTION']) {
+		const row = (frm.doc.items || []).find(i => i.item_code === item_code);
+		if (row) {
+			frappe.model.clear_doc(row.doctype, row.name);
+		}
+	}
+	frm.refresh_field('items');
 }
 
 function apply_pr_deduction_amounts(frm, retention_pct, advance_pct) {
@@ -238,6 +241,11 @@ function apply_pr_deduction_amounts(frm, retention_pct, advance_pct) {
 						frappe.model.clear_doc(retention_row.doctype, retention_row.name);
 					}
 				}
+			} else {
+				const retention_row = (frm.doc.items || []).find(i => i.item_code === 'RETENTION-DEDUCTION');
+				if (retention_row) {
+					frappe.model.clear_doc(retention_row.doctype, retention_row.name);
+				}
 			}
 
 			// Update or create advance deduction
@@ -270,6 +278,11 @@ function apply_pr_deduction_amounts(frm, retention_pct, advance_pct) {
 					if (advance_row) {
 						frappe.model.clear_doc(advance_row.doctype, advance_row.name);
 					}
+				}
+			} else {
+				const advance_row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
+				if (advance_row) {
+					frappe.model.clear_doc(advance_row.doctype, advance_row.name);
 				}
 			}
 

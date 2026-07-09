@@ -1,0 +1,164 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-07-08 12:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "filters_section",
+  "company",
+  "project",
+  "from_date",
+  "to_date",
+  "column_break_filters",
+  "source_type",
+  "action_type",
+  "posting_date_override",
+  "show_zero_stock_rows",
+  "section_break_rows",
+  "fetch_eligible_sources",
+  "items",
+  "section_break_actions",
+  "create_material_issues"
+ ],
+ "fields": [
+  {
+   "fieldname": "filters_section",
+   "fieldtype": "Section Break",
+   "label": "Filters"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Project"
+  },
+  {
+   "fieldname": "from_date",
+   "fieldtype": "Date",
+   "label": "From Date"
+  },
+  {
+   "fieldname": "to_date",
+   "fieldtype": "Date",
+   "label": "To Date"
+  },
+  {
+   "fieldname": "column_break_filters",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Both",
+   "fieldname": "source_type",
+   "fieldtype": "Select",
+   "label": "Source Type",
+   "options": "Material Transfer\nPurchase Receipt\nBoth",
+   "reqd": 1
+  },
+  {
+   "default": "Submit",
+   "fieldname": "action_type",
+   "fieldtype": "Select",
+   "label": "Action Type",
+   "options": "Save as Draft\nSubmit",
+   "reqd": 1
+  },
+  {
+   "description": "Optional override for all Material Issue posting dates. Otherwise BOQ Settings rule applies.",
+   "fieldname": "posting_date_override",
+   "fieldtype": "Date",
+   "label": "Posting Date Override"
+  },
+  {
+   "default": "0",
+   "description": "When unchecked, rows with zero available stock in all checked warehouses are hidden.",
+   "fieldname": "show_zero_stock_rows",
+   "fieldtype": "Check",
+   "label": "Show Zero Stock Rows"
+  },
+  {
+   "fieldname": "section_break_rows",
+   "fieldtype": "Section Break",
+   "label": "Eligible Items"
+  },
+  {
+   "fieldname": "fetch_eligible_sources",
+   "fieldtype": "Button",
+   "label": "Fetch Eligible Sources"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Bulk Material Issue Tool Detail"
+  },
+  {
+   "fieldname": "section_break_actions",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "create_material_issues",
+   "fieldtype": "Button",
+   "label": "Create Material Issues"
+  }
+ ],
+ "idx": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-07-08 12:00:00",
+ "modified_by": "Administrator",
+ "module": "Construction Management",
+ "name": "Bulk Material Issue Tool",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Construction Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Stock Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Stock User",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -95,27 +95,11 @@ def is_subcontractor_purchase(doc, purchase_order=None):
 
 
 def get_purchase_deduction_percentages(doc, po_doc):
-	"""Use PO retention/advance %, falling back to the linked Project."""
-	retention_pct = flt(po_doc.get("custom_retention_"))
-	advance_pct = flt(po_doc.get("custom_advance_"))
-
-	project = doc.get("project") or po_doc.get("project")
-	if not project:
-		return retention_pct, advance_pct
-
-	project_values = frappe.db.get_value(
-		"Project",
-		project,
-		["retention_percentage", "advance_deduction"],
-		as_dict=True,
-	) or {}
-
-	if retention_pct <= 0:
-		retention_pct = flt(project_values.get("retention_percentage"))
-	if advance_pct <= 0:
-		advance_pct = flt(project_values.get("advance_deduction"))
-
-	return retention_pct, advance_pct
+	"""Use PO retention/advance % only. Project defaults must not override explicit PO values."""
+	return (
+		flt(po_doc.get("custom_retention_")),
+		flt(po_doc.get("custom_advance_")),
+	)
 
 
 @frappe.whitelist()

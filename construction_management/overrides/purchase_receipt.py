@@ -206,13 +206,7 @@ def apply_purchase_deductions(doc):
 	retention_pct, advance_pct = get_purchase_deduction_percentages(doc, po_doc)
 
 	if retention_pct <= 0 and advance_pct <= 0:
-		return
-
-	# Check if deductions already present
-	has_retention = any(item.item_code == "RETENTION-DEDUCTION" for item in doc.items)
-	has_advance = any(item.item_code == "ADVANCE-DEDUCTION" for item in doc.items)
-
-	if has_retention and has_advance:
+		_remove_purchase_deduction_items(doc)
 		return
 
 	# Calculate total billable amount (exclude deduction items)
@@ -231,19 +225,11 @@ def apply_purchase_deductions(doc):
 	default_expense_account = frappe.db.get_value("Company", doc.company, "default_expense_account")
 	default_cost_center = doc.cost_center or frappe.db.get_value("Company", doc.company, "cost_center")
 
-	boq_settings = frappe.db.get_value(
-		"BOQ Settings",
-		doc.company,
-		["purchase_retention_account", "purchase_advance_account", "default_warehouse"],
-		as_dict=True
-	) or {}
-	retention_account = boq_settings.get("purchase_retention_account") or default_expense_account
-	advance_account = boq_settings.get("purchase_advance_account") or default_expense_account
-
 	conversion_rate = flt(doc.get("conversion_rate") or 1.0)
 
-	# Add Retention Deduction
-	if retention_pct > 0 and not has_retention:
+	if retention_pct <= 0:
+		_remove_purchase_deduction_items(doc, item_codes={"RETENTION-DEDUCTION"})
+	elif not any(item.item_code == "RETENTION-DEDUCTION" for item in doc.items):
 		retention_amount = flt(total_billable * retention_pct / 100, 2)
 		if retention_amount > 0:
 			doc.append("items", {
@@ -263,9 +249,20 @@ def apply_purchase_deductions(doc):
 				"stock_uom": "Nos",
 				"conversion_factor": 1.0,
 			})
+	else:
+		for item in doc.items:
+			if item.item_code == "RETENTION-DEDUCTION":
+				retention_amount = flt(total_billable * retention_pct / 100, 2)
+				item.rate = -retention_amount
+				item.amount = -retention_amount
+				item.base_rate = -retention_amount * conversion_rate
+				item.base_amount = -retention_amount * conversion_rate
+				item.description = f"Retention deduction ({retention_pct}%)"
+				break
 
-	# Add Advance Deduction
-	if advance_pct > 0 and not has_advance:
+	if advance_pct <= 0:
+		_remove_purchase_deduction_items(doc, item_codes={"ADVANCE-DEDUCTION"})
+	elif not any(item.item_code == "ADVANCE-DEDUCTION" for item in doc.items):
 		advance_amount = flt(total_billable * advance_pct / 100, 2)
 		if advance_amount > 0:
 			doc.append("items", {
@@ -285,6 +282,16 @@ def apply_purchase_deductions(doc):
 				"stock_uom": "Nos",
 				"conversion_factor": 1.0,
 			})
+	else:
+		for item in doc.items:
+			if item.item_code == "ADVANCE-DEDUCTION":
+				advance_amount = flt(total_billable * advance_pct / 100, 2)
+				item.rate = -advance_amount
+				item.amount = -advance_amount
+				item.base_rate = -advance_amount * conversion_rate
+				item.base_amount = -advance_amount * conversion_rate
+				item.description = f"Advance deduction ({advance_pct}%)"
+				break
 
 	# Always sweep to ensure deduction rows use the default expense account and mandatory fields are populated
 	default_expense_account = frappe.db.get_value("Company", doc.company, "default_expense_account")
@@ -307,6 +314,14 @@ def apply_purchase_deductions(doc):
 			if not item.get("base_amount"):
 				item.base_amount = flt(item.amount) * conversion_rate
 
+
+def _remove_purchase_deduction_items(doc, item_codes=None):
+	"""Remove auto-added retention/advance deduction rows from Purchase Receipt."""
+	item_codes = item_codes or DEDUCTION_ITEM_CODES
+	doc.set(
+		"items",
+		[item for item in doc.get("items", []) if item.item_code not in item_codes],
+	)
 
 
 def ensure_item_projects(doc, make_mandatory=False):

@@ -45,7 +45,11 @@
   "salary_labor_account",
   "asset_cost_credit",
   "expenses_account",
-  "overhead_account"
+  "overhead_account",
+  "section_break_bulk_material_issue",
+  "bulk_material_issue_posting_date_rule",
+  "column_break_bulk_material_issue",
+  "bulk_material_issue_default_stock_entry_type"
  ],
  "fields": [
   {
@@ -293,6 +297,30 @@
    "label": "Varience Deduction Item",
    "options": "Item",
    "reqd": 0
+  },
+  {
+   "fieldname": "section_break_bulk_material_issue",
+   "fieldtype": "Section Break",
+   "label": "Bulk Material Issue Settings"
+  },
+  {
+   "default": "Same as Source Document",
+   "description": "Posting date for bulk Material Issue Stock Entries created from Purchase Receipts or Material Transfers",
+   "fieldname": "bulk_material_issue_posting_date_rule",
+   "fieldtype": "Select",
+   "label": "Bulk Material Issue Posting Date",
+   "options": "Same as Source Document\nEnd of Month"
+  },
+  {
+   "fieldname": "column_break_bulk_material_issue",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Material Issue",
+   "fieldname": "bulk_material_issue_default_stock_entry_type",
+   "fieldtype": "Link",
+   "label": "Default Stock Entry Type",
+   "options": "Stock Entry Type"
   }
  ],
  "index_web_pages_for_search": 1,

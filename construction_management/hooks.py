@@ -30,6 +30,7 @@ app_license = "mit"
 app_include_js = [
 	"/assets/construction_management/js/accounting_dimension_filters.js",
 	"/assets/construction_management/js/combined_sales_invoice_from_so.js",
+	"/assets/construction_management/js/bulk_material_issue.js",
 ]
 
 # include js, css files in header of web template
@@ -67,6 +68,8 @@ doctype_js = {
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 doctype_list_js = {
 	"Sales Order": "public/js/sales_order_list.js",
+	"Purchase Receipt": "public/js/purchase_receipt_list.js",
+	"Stock Entry": "public/js/stock_entry_list.js",
 }
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -216,7 +219,10 @@ doc_events = {
 	},
 	"Item Price": {
 		"after_insert": "construction_management.tasks.delete_special_item_price_on_insert"
-	}
+	},
+	"Stock Entry": {
+		"on_cancel": "construction_management.overrides.stock_entry.on_cancel",
+	},
 }
 
 # Scheduled Tasks
