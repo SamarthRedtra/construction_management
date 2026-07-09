@@ -3,7 +3,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import flt, today
+from frappe.utils import flt, getdate, today
 from construction_management.api.boq_ledger import create_ledger_entry, recalculate_ledger_for_item
 from construction_management.overrides.unearned_revenue import create_so_unearned_revenue_jv
 
@@ -56,8 +56,120 @@ def on_update_after_submit(doc, method=None):
 	"""
 	Handle revisions to submitted Sales Order.
 	"""
-	# calculate_retention_and_net_amount(doc)
 	update_ledger_entries_on_revision(doc)
+
+	before = doc.get_doc_before_save()
+	if before and _sales_order_dates_changed(before, doc):
+		sync_sales_order_related_dates(doc)
+
+
+def _sales_order_dates_changed(before_doc, doc):
+	def _read_date(source, fieldname):
+		value = source.get(fieldname) if hasattr(source, "get") else getattr(source, fieldname, None)
+		return getdate(value) if value else None
+
+	before_txn = _read_date(before_doc, "transaction_date")
+	current_txn = _read_date(doc, "transaction_date")
+	before_delivery = _read_date(before_doc, "delivery_date")
+	current_delivery = _read_date(doc, "delivery_date")
+	return before_txn != current_txn or before_delivery != current_delivery
+
+
+def sync_sales_order_related_dates(doc):
+	"""Keep linked BOQ ledger and unearned revenue JVs aligned with SO dates."""
+	posting_date = doc.transaction_date or today()
+
+	if frappe.db.exists("DocType", "BOQ Progress Ledger"):
+		for ledger in frappe.get_all(
+			"BOQ Progress Ledger",
+			filters={"reference_doctype": "Sales Order", "reference_name": doc.name},
+			pluck="name",
+		):
+			frappe.db.set_value(
+				"BOQ Progress Ledger",
+				ledger,
+				"posting_date",
+				posting_date,
+				update_modified=False,
+			)
+
+	if frappe.db.has_column("Journal Entry", "custom_sales_order"):
+		for jv in frappe.get_all(
+			"Journal Entry",
+			filters={"custom_sales_order": doc.name, "docstatus": 1},
+			pluck="name",
+		):
+			frappe.db.set_value(
+				"Journal Entry",
+				jv,
+				"posting_date",
+				posting_date,
+				update_modified=False,
+			)
+
+
+@frappe.whitelist()
+def update_sales_order_dates(
+	sales_order,
+	transaction_date=None,
+	delivery_date=None,
+	update_item_dates=1,
+):
+	"""Update transaction/delivery dates on a submitted Sales Order."""
+	if not sales_order:
+		frappe.throw(_("Sales Order is required"))
+
+	doc = frappe.get_doc("Sales Order", sales_order)
+	if doc.docstatus != 1:
+		frappe.throw(_("Only submitted Sales Orders can be updated"))
+
+	doc.check_permission("write")
+
+	changes = {}
+	if transaction_date:
+		changes["transaction_date"] = getdate(transaction_date)
+	if delivery_date:
+		changes["delivery_date"] = getdate(delivery_date)
+
+	if not changes:
+		frappe.throw(_("Please provide Transaction Date and/or Delivery Date"))
+
+	new_txn = changes.get("transaction_date", doc.transaction_date)
+	new_delivery = changes.get("delivery_date", doc.delivery_date)
+	if new_txn and new_delivery and getdate(new_txn) > getdate(new_delivery):
+		frappe.throw(_("Transaction Date cannot be after Delivery Date"))
+
+	for field, value in changes.items():
+		doc.db_set(field, value, update_modified=True)
+
+	if int(update_item_dates):
+		if "transaction_date" in changes:
+			for item in doc.items:
+				frappe.db.set_value(
+					"Sales Order Item",
+					item.name,
+					"transaction_date",
+					changes["transaction_date"],
+					update_modified=False,
+				)
+		if "delivery_date" in changes:
+			for item in doc.items:
+				frappe.db.set_value(
+					"Sales Order Item",
+					item.name,
+					"delivery_date",
+					changes["delivery_date"],
+					update_modified=False,
+				)
+
+	doc.reload()
+	sync_sales_order_related_dates(doc)
+
+	return {
+		"transaction_date": str(doc.transaction_date),
+		"delivery_date": str(doc.delivery_date or ""),
+		"message": _("Sales Order dates updated"),
+	}
 
 
 def calculate_retention_and_net_amount(doc):

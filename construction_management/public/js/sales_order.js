@@ -74,6 +74,16 @@ frappe.ui.form.on('Sales Order', {
 		// Render Unearned Revenue JV summary widget
 		if (frm.doc.docstatus === 1) {
 			cm_render_so_jv_summary(frm);
+
+			if (frm.has_perm('write')) {
+				frm.add_custom_button(
+					__('Update Date'),
+					function () {
+						construction_management.sales_order_dates.open_update_dialog(frm);
+					},
+					__('Actions')
+				);
+			}
 		}
 	}
 });
@@ -184,3 +194,71 @@ frappe.ui.form.on('Sales Order Item', {
 
 
 /* Per-BOQ retention/advance: use Actions → Recalculate Retention & Advance after editing lines. */
+
+frappe.provide('construction_management.sales_order_dates');
+
+construction_management.sales_order_dates.open_update_dialog = function (frm) {
+	const fields = [
+		{
+			fieldname: 'transaction_date',
+			label: __('Transaction Date'),
+			fieldtype: 'Date',
+			reqd: 1,
+			default: frm.doc.transaction_date,
+		},
+		{
+			fieldname: 'delivery_date',
+			label: __('Delivery Date'),
+			fieldtype: 'Date',
+			default: frm.doc.delivery_date,
+		},
+		{
+			fieldname: 'update_item_dates',
+			label: __('Update item row dates too'),
+			fieldtype: 'Check',
+			default: 1,
+		},
+	];
+
+	const dialog = new frappe.ui.Dialog({
+		title: __('Update Sales Order Date'),
+		fields,
+		primary_action_label: __('Update'),
+		primary_action(values) {
+			if (
+				values.delivery_date &&
+				values.transaction_date &&
+				frappe.datetime.str_to_obj(values.transaction_date) >
+					frappe.datetime.str_to_obj(values.delivery_date)
+			) {
+				frappe.msgprint(__('Transaction Date cannot be after Delivery Date'));
+				return;
+			}
+
+			frappe.call({
+				method:
+					'construction_management.overrides.sales_order.update_sales_order_dates',
+				args: {
+					sales_order: frm.doc.name,
+					transaction_date: values.transaction_date,
+					delivery_date: values.delivery_date,
+					update_item_dates: values.update_item_dates ? 1 : 0,
+				},
+				freeze: true,
+				freeze_message: __('Updating dates...'),
+				callback(r) {
+					if (!r.exc) {
+						dialog.hide();
+						frappe.show_alert({
+							message: r.message?.message || __('Dates updated'),
+							indicator: 'green',
+						});
+						frm.reload_doc();
+					}
+				},
+			});
+		},
+	});
+
+	dialog.show();
+};
