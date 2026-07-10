@@ -13,6 +13,7 @@ TAB_FIELDNAMES = {
 	"Costing": "costing_tab",
 	"Progress": "monitor_progress_tab",
 	"Project SOA": "project_soa_tab",
+	"Project Commission": "project_commission_tab",
 	"Dashboard": "custom_dashboard",
 	"More Info": "more_info_tab",
 }

@@ -15,7 +15,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Project Tab",
-   "options": "Details\nConnections\nConstruction\nCosting\nProgress\nProject SOA\nDashboard\nMore Info",
+   "options": "Details\nConnections\nConstruction\nCosting\nProgress\nProject SOA\nProject Commission\nDashboard\nMore Info",
    "reqd": 1
   },
   {

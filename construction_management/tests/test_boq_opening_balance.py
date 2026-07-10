@@ -215,6 +215,16 @@ class TestBOQOpeningBalance(unittest.TestCase):
 		self.assertGreaterEqual(flt(summary["total_retained"]), amount)
 		self.assertGreaterEqual(flt(summary["retention_balance"]), amount)
 
+	def test_boq_invoice_retention_summary_includes_opening_je(self):
+		amount = 1800
+		self._create_opening_journal_entry(self.retention_account, amount)
+
+		from construction_management.api.boq_invoice import get_retention_summary as invoice_retention_summary
+
+		summary = invoice_retention_summary(self.project)
+		self.assertGreaterEqual(flt(summary["opening_retained"]), amount)
+		self.assertGreaterEqual(flt(summary["retention_balance"]), amount)
+
 	def test_non_opening_je_does_not_sync(self):
 		amount = 1500
 		je = self._create_opening_journal_entry(self.advance_account, amount, is_opening=False)

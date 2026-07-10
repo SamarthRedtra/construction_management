@@ -5,7 +5,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, today, getdate
 from construction_management.api.boq_ledger import create_ledger_entry, recalculate_ledger_for_item
-from construction_management.api.boq_tree import get_boq_kpi
+from construction_management.api.boq_tree import get_boq_kpi, get_retention_summary as _get_retention_summary
 from erpnext.controllers.accounts_controller import get_default_taxes_and_charges
 
 
@@ -1393,36 +1393,8 @@ def get_deduction_details(
 
 @frappe.whitelist()
 def get_retention_summary(project: str) -> dict:
-	"""Get retention summary for a project"""
-	# Get total retention deducted
-	total_retention = frappe.db.sql("""
-		SELECT COALESCE(SUM(ABS(sii.amount)), 0) as total
-		FROM `tabSales Invoice Item` sii
-		JOIN `tabSales Invoice` si ON si.name = sii.parent
-		WHERE si.project = %s 
-		AND si.docstatus = 1
-		AND sii.item_code = 'RETENTION-DEDUCTION'
-	""", project, as_dict=True)
-	
-	total_retained = flt(total_retention[0].total) if total_retention else 0
-	
-	# Get retention released (if any retention release invoices exist)
-	total_released = frappe.db.sql("""
-		SELECT COALESCE(SUM(sii.amount), 0) as total
-		FROM `tabSales Invoice Item` sii
-		JOIN `tabSales Invoice` si ON si.name = sii.parent
-		WHERE si.project = %s 
-		AND si.docstatus = 1
-		AND sii.item_code = 'RETENTION-RELEASE'
-	""", project, as_dict=True)
-	
-	released = flt(total_released[0].total) if total_released else 0
-	
-	return {
-		"total_retained": total_retained,
-		"total_released": released,
-		"retention_balance": total_retained - released
-	}
+	"""Get retention summary for a project (includes opening JE balance on retention account)."""
+	return _get_retention_summary(project)
 
 
 @frappe.whitelist()

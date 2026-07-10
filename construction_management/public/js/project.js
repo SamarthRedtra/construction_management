@@ -22,6 +22,9 @@ frappe.ui.form.on('Project', {
 				frm.add_custom_button(__('View Full SOA'), () => {
 					frappe.set_route('project-soa', frm.doc.name);
 				}, __('Construction'));
+				frm.add_custom_button(__('View Full Commission'), () => {
+					frappe.set_route('project-commission', frm.doc.name);
+				}, __('Construction'));
 			}
 		}
 
@@ -31,6 +34,7 @@ frappe.ui.form.on('Project', {
 		render_payment_terms_interface(frm);
 
 		construction_management.project_tab_access.apply(frm);
+		render_project_commission_embed(frm);
 	},
 
 	enable_progressive_boq(frm) {
@@ -63,6 +67,27 @@ function render_project_soa_embed(frm) {
 	frm._project_soa_project = frm.doc.name;
 	frm._project_soa_rendered = true;
 	render_project_soa_dashboard(container, frm.doc.name, { embedded: true });
+}
+
+function render_project_commission_embed(frm) {
+	const wrapper = frm.fields_dict.project_commission_html?.$wrapper;
+	if (!wrapper || !wrapper.length) {
+		return;
+	}
+
+	if (!frm.doc.name) {
+		wrapper.html(`<p class="text-muted">${__('Save the project to view Commission statement.')}</p>`);
+		return;
+	}
+
+	const container = wrapper[0];
+	if (frm._project_commission_project === frm.doc.name && frm._project_commission_rendered) {
+		return;
+	}
+
+	frm._project_commission_project = frm.doc.name;
+	frm._project_commission_rendered = true;
+	render_project_commission_dashboard(container, frm.doc.name, { embedded: true });
 }
 
 // Set up protection to prevent dashboard from disappearing
