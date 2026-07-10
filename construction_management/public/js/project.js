@@ -29,6 +29,8 @@ frappe.ui.form.on('Project', {
 
 		// Render payment terms interface
 		render_payment_terms_interface(frm);
+
+		construction_management.project_tab_access.apply(frm);
 	},
 
 	enable_progressive_boq(frm) {

@@ -1,0 +1,75 @@
+{
+ "actions": [],
+ "creation": "2026-07-10 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "section_break_help",
+  "help_html",
+  "section_break_rules",
+  "rules"
+ ],
+ "fields": [
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enable Project Tab Access Control"
+  },
+  {
+   "fieldname": "section_break_help",
+   "fieldtype": "Section Break",
+   "label": "How It Works"
+  },
+  {
+   "fieldname": "help_html",
+   "fieldtype": "HTML",
+   "options": "<div class=\"text-muted\" style=\"line-height:1.6;\"><p>Add one row per <b>Tab + Role</b> or <b>Tab + User</b> combination.</p><ul><li>If a tab has <b>no rows</b>, everyone can see it.</li><li>If a tab has rows, only matching roles/users can see it.</li><li><b>Administrator</b> and <b>System Manager</b> always see all tabs.</li></ul><p>Example: To show <b>Project SOA</b> only to Accounts Manager, add one row with Tab = Project SOA and Role = Accounts Manager.</p></div>"
+  },
+  {
+   "fieldname": "section_break_rules",
+   "fieldtype": "Section Break",
+   "label": "Tab Access Rules"
+  },
+  {
+   "fieldname": "rules",
+   "fieldtype": "Table",
+   "label": "Rules",
+   "options": "Project Tab Access Rule"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-07-10 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Construction Management",
+ "name": "Project Tab Access",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Projects Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

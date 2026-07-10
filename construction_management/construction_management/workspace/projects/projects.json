@@ -216,6 +216,16 @@
   {
    "hidden": 0,
    "is_query_report": 0,
+   "label": "Project Tab Access",
+   "link_count": 0,
+   "link_to": "Project Tab Access",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
    "label": "Project SOA Follow Up",
    "link_count": 0,
    "link_to": "Project SOA Follow Up",

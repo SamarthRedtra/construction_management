@@ -1,0 +1,47 @@
+{
+ "actions": [],
+ "creation": "2026-07-10 00:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "tab",
+  "role",
+  "user"
+ ],
+ "fields": [
+  {
+   "fieldname": "tab",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Project Tab",
+   "options": "Details\nConnections\nConstruction\nCosting\nProgress\nProject SOA\nDashboard\nMore Info",
+   "reqd": 1
+  },
+  {
+   "fieldname": "role",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Role",
+   "options": "Role"
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "User",
+   "options": "User"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-10 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Construction Management",
+ "name": "Project Tab Access Rule",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
