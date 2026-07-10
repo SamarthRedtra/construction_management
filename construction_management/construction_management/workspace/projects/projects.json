@@ -41,6 +41,28 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
+   "label": "Member Home",
+   "link_count": 0,
+   "link_to": "project-process-home",
+   "link_type": "Page",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Project SOA",
+   "link_count": 0,
+   "link_to": "project-soa",
+   "link_type": "Page",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
    "label": "Task",
    "link_count": 0,
    "link_to": "Task",
@@ -187,6 +209,16 @@
    "label": "Project Asset Billing",
    "link_count": 0,
    "link_to": "Project Asset Billing",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Project SOA Follow Up",
+   "link_count": 0,
+   "link_to": "Project SOA Follow Up",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -459,6 +491,12 @@
  "roles": [],
  "sequence_id": 11.0,
  "shortcuts": [
+  {
+   "color": "Green",
+   "label": "Member Home",
+   "link_to": "project-process-home",
+   "type": "Page"
+  },
   {
    "color": "Blue",
    "format": "{} Assigned",

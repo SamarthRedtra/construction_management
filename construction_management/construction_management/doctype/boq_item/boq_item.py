@@ -577,8 +577,9 @@ class BOQItem(Document):
 		}
 
 	def log_rate_change(self):
-		check_rate_history_table()
-		
+		if not rate_history_table_exists():
+			return
+
 		# Check if rate changed
 		is_changed = False
 		if self.is_new():
@@ -715,7 +716,15 @@ def update_parent_totals(doc, method=None):
 			pass
 
 
+def rate_history_table_exists() -> bool:
+	return frappe.db.table_exists("BOQ Rate History")
+
+
 def check_rate_history_table():
+	"""Create BOQ Rate History table. Safe to call from patches/migrate only."""
+	if rate_history_table_exists():
+		return
+
 	frappe.db.sql("""
 		CREATE TABLE IF NOT EXISTS `tabBOQ Rate History` (
 			name VARCHAR(140) PRIMARY KEY,
@@ -735,15 +744,15 @@ def check_rate_history_table():
 
 @frappe.whitelist()
 def get_rate_history(boq_item):
-	check_rate_history_table()
-	
-	history = frappe.db.sql("""
-		SELECT changed_date as posting_date, changed_by, rate, amount
-		FROM `tabBOQ Rate History`
-		WHERE parent = %s
-		ORDER BY changed_date DESC
-	""", boq_item, as_dict=True)
-	
+	history = []
+	if rate_history_table_exists():
+		history = frappe.db.sql("""
+			SELECT changed_date as posting_date, changed_by, rate, amount
+			FROM `tabBOQ Rate History`
+			WHERE parent = %s
+			ORDER BY changed_date DESC
+		""", boq_item, as_dict=True)
+
 	if not history:
 		# Fallback to current state
 		creation, rate, amount, owner = frappe.db.get_value(
@@ -757,11 +766,11 @@ def get_rate_history(boq_item):
 			"rate": flt(rate),
 			"amount": flt(amount)
 		}]
-		
+
 	for h in history:
 		full_name = frappe.db.get_value("User", h.get("changed_by"), "full_name")
 		h["user_name"] = full_name or h.get("changed_by")
-		
+
 	return history
 
 
@@ -770,7 +779,6 @@ def get_rate_split_summary(boq_item):
 	"""Return per-invoice billing tiers, remaining balance and rate history."""
 	from construction_management.api.boq_ledger import get_previous_amount, get_previous_qty
 
-	check_rate_history_table()
 	item = frappe.get_doc("BOQ Item", boq_item)
 	current_rate = flt(item.rate)
 	total_qty = flt(item.total_qty)

@@ -45,14 +45,16 @@ app_include_js = [
 # webform_include_css = {"doctype": "public/css/doctype.css"}
 
 # include js in page
-# page_js = {"page" : "public/js/file.js"}
+page_js = {
+	"project-soa": "public/js/project_soa_dashboard.js",
+}
 
 # include js in doctype views
 doctype_js = {
 	"BOQ": "public/js/boq.js",
 	"Bid": "public/js/bid.js",
 	"Interim Payment Certificate": "public/js/ipc.js",
-	"Project": ["public/js/boq_management_table.js", "public/js/boq_fullscreen_manager.js", "public/js/sticky_columns_manager.js", "public/js/profit_loss_indicator.js", "public/js/bill_financial_summary_widget.js", "public/js/project.js"],
+	"Project": ["public/js/boq_management_table.js", "public/js/boq_fullscreen_manager.js", "public/js/sticky_columns_manager.js", "public/js/profit_loss_indicator.js", "public/js/bill_financial_summary_widget.js", "public/js/project_soa_dashboard.js", "public/js/project.js"],
 	"Daily Progress Record": "public/js/daily_progress_record.js",
 	"Daily Roster": "public/js/daily_roster.js",
 	"Purchase Receipt": "public/js/purchase_receipt.js",

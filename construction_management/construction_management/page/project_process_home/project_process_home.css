@@ -1,0 +1,250 @@
+/* Copyright (c) 2026, Construction Management */
+/* License: MIT */
+
+.project-process-home-layout {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	padding: 16px 20px;
+	background: #f5f6f8;
+	color: #2b303b;
+}
+
+.pph-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 16px;
+	background: #fff;
+	border: 1px solid #d1d8e0;
+	border-radius: 6px;
+	padding: 12px 16px;
+}
+
+.pph-status-filters {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+}
+
+.pph-company-filter {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.pph-company-filter label {
+	margin: 0;
+	font-weight: 500;
+}
+
+.pph-search-filter {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex: 1;
+	min-width: 260px;
+	max-width: 420px;
+}
+
+.pph-search-filter label {
+	margin: 0;
+	font-weight: 500;
+	white-space: nowrap;
+}
+
+.pph-search-input-wrap {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex: 1;
+}
+
+.pph-search-input-wrap input {
+	min-width: 200px;
+	flex: 1;
+}
+
+.pph-search-clear {
+	min-width: 28px;
+	padding: 2px 8px;
+	line-height: 1.2;
+}
+
+.pph-status-filters label {
+	margin: 0;
+	font-weight: 500;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.pph-toolbar-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.pph-table-controls {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 10px;
+	gap: 12px;
+}
+
+.pph-table-controls .entries-control {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.pph-table-wrapper {
+	background: #fff;
+	border: 1px solid #d1d8e0;
+	border-radius: 4px;
+	overflow-x: auto;
+}
+
+.pph-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 13px;
+}
+
+.pph-table thead tr.pph-parent-header th {
+	background: #1e5aa8;
+	color: #fff;
+	font-weight: 600;
+	padding: 10px 12px;
+	text-align: left;
+	border: 1px solid #174a8c;
+	white-space: nowrap;
+}
+
+.pph-table thead tr.pph-child-header th {
+	background: #e8c89a;
+	color: #1a1a1a;
+	font-weight: 600;
+	padding: 8px 12px;
+	text-align: left;
+	border: 1px solid #d4b07a;
+}
+
+.pph-table tbody td {
+	padding: 8px 12px;
+	border: 1px solid #e2e8f0;
+	vertical-align: middle;
+}
+
+.pph-table tbody tr.pph-project-row {
+	background: #f8fafc;
+	cursor: pointer;
+}
+
+.pph-table tbody tr.pph-project-row:nth-child(4n+1) {
+	background: #eef2f7;
+}
+
+.pph-table tbody tr.pph-project-row:hover {
+	background: #e8f0fe;
+}
+
+.pph-table tbody tr.pph-process-row {
+	background: #fff;
+}
+
+.pph-table tbody tr.pph-process-row td {
+	font-size: 12px;
+}
+
+.pph-expand-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	border: 1px solid #c53030;
+	background: #fff;
+	color: #c53030;
+	font-weight: 700;
+	font-size: 14px;
+	line-height: 1;
+	cursor: pointer;
+	margin-right: 8px;
+	border-radius: 2px;
+}
+
+.pph-expand-btn.expanded {
+	color: #2f855a;
+	border-color: #2f855a;
+}
+
+.pph-project-no {
+	color: #c53030;
+	font-weight: 600;
+}
+
+.pph-project-no:hover {
+	text-decoration: underline;
+}
+
+.pph-action-link {
+	color: #1e5aa8;
+	cursor: pointer;
+	font-weight: 500;
+}
+
+.pph-action-link:hover {
+	text-decoration: underline;
+}
+
+.pph-loading-row td {
+	text-align: center;
+	color: #718096;
+	padding: 16px;
+}
+
+.pph-empty-row td {
+	text-align: center;
+	color: #718096;
+	padding: 24px;
+}
+
+.pph-pagination {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-top: 12px;
+	font-size: 13px;
+	color: #4a5568;
+}
+
+.pph-pagination .btn-group {
+	display: flex;
+	gap: 4px;
+}
+
+.pph-not-assigned {
+	color: #c53030;
+	font-weight: 600;
+}
+
+.pph-empty-boq p {
+	margin-bottom: 8px;
+}
+
+.pph-empty-actions {
+	display: flex;
+	justify-content: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.pph-boq-source-note td {
+	background: #fffbeb;
+	color: #744210;
+	font-size: 12px;
+	padding: 6px 12px;
+}

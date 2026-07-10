@@ -17,7 +17,15 @@ frappe.ui.form.on('Project', {
 			if (frm.doc.site_location) {
 				add_site_stock_button(frm);
 			}
+
+			if (frm.doc.name) {
+				frm.add_custom_button(__('View Full SOA'), () => {
+					frappe.set_route('project-soa', frm.doc.name);
+				}, __('Construction'));
+			}
 		}
+
+		render_project_soa_embed(frm);
 
 		// Render payment terms interface
 		render_payment_terms_interface(frm);
@@ -33,6 +41,27 @@ frappe.ui.form.on('Project', {
 		}
 	}
 });
+
+function render_project_soa_embed(frm) {
+	const wrapper = frm.fields_dict.project_soa_html?.$wrapper;
+	if (!wrapper || !wrapper.length) {
+		return;
+	}
+
+	if (!frm.doc.name) {
+		wrapper.html(`<p class="text-muted">${__('Save the project to view Statement of Account.')}</p>`);
+		return;
+	}
+
+	const container = wrapper[0];
+	if (frm._project_soa_project === frm.doc.name && frm._project_soa_rendered) {
+		return;
+	}
+
+	frm._project_soa_project = frm.doc.name;
+	frm._project_soa_rendered = true;
+	render_project_soa_dashboard(container, frm.doc.name, { embedded: true });
+}
 
 // Set up protection to prevent dashboard from disappearing
 function setup_dashboard_protection() {
