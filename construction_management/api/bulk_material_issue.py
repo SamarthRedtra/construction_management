@@ -198,6 +198,20 @@ def _resolve_pr_item_warehouse(pr_item, pr_doc, boq_settings, item_code=None):
 	return candidates[0] if candidates else None
 
 
+def _resolve_issue_project(row, company=None):
+	project = row.get("project")
+	if project:
+		return project
+
+	warehouse = row.get("warehouse")
+	if warehouse:
+		from construction_management.api.purchase_receipt_utils import get_warehouse_project
+
+		return get_warehouse_project(warehouse, company=company or row.get("company"))
+
+	return None
+
+
 def _apply_stock_cap(row, available_pool=None):
 	remaining_qty = flt(row.get("remaining_qty") or row.get("qty_to_issue"))
 	warehouse = row.get("warehouse")
@@ -285,7 +299,7 @@ def _get_material_transfer_rows(filters, selected_sources=None):
 			sed.t_warehouse AS warehouse,
 			sed.qty AS source_qty,
 			IFNULL(sed.custom_material_issued_qty, 0) AS issued_qty,
-			sed.project,
+			IFNULL(sed.project, se.project) AS project,
 			sed.boq_item,
 			sed.bill_no
 		FROM `tabStock Entry` se
@@ -562,7 +576,13 @@ def _create_material_issue_for_source(source_rows, submit=True, posting_date_ove
 	if not source_rows:
 		return None
 
-	first = source_rows[0]
+	resolved_rows = []
+	for row in source_rows:
+		resolved = dict(row)
+		resolved["project"] = _resolve_issue_project(row, row.get("company"))
+		resolved_rows.append(resolved)
+
+	first = resolved_rows[0]
 	company = first["company"]
 	settings = get_boq_bulk_issue_settings(company)
 	stock_entry_type = settings.get("bulk_material_issue_default_stock_entry_type") or MATERIAL_ISSUE_TYPE
@@ -585,7 +605,7 @@ def _create_material_issue_for_source(source_rows, submit=True, posting_date_ove
 	if se.meta.has_field("custom_bulk_issue_source_name"):
 		se.custom_bulk_issue_source_name = first["source_name"]
 
-	for row in source_rows:
+	for row in resolved_rows:
 		qty = flt(row.get("qty_to_issue") or row.get("qty"))
 		if qty <= 0:
 			continue

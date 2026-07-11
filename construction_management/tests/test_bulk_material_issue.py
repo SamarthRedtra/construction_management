@@ -124,6 +124,8 @@ class TestBulkMaterialIssueOperations(FrappeTestCase):
 
 			issue_se = frappe.get_doc("Stock Entry", results[0]["stock_entry"])
 			self.assertEqual(issue_se.stock_entry_type, "Material Issue")
+			self.assertEqual(issue_se.project, self.project)
+			self.assertEqual(issue_se.items[0].project, self.project)
 			self.assertEqual(issue_se.items[0].s_warehouse, self.site_wh)
 			self.assertEqual(flt(get_issued_qty("Stock Entry Detail", mt_line)), 10)
 
@@ -132,6 +134,33 @@ class TestBulkMaterialIssueOperations(FrappeTestCase):
 			self.assertEqual(flt(get_issued_qty("Stock Entry Detail", mt_line)), 0)
 		finally:
 			_cancel_stock_entries(created_entries)
+
+	def test_material_transfer_project_from_header_when_line_blank(self):
+		from construction_management.api.bulk_material_issue import _create_material_issue_for_source
+
+		mt = _create_material_transfer(
+			self.company,
+			self.item_code,
+			self.source_wh,
+			self.site_wh,
+			5,
+		)
+		frappe.db.set_value("Stock Entry", mt.name, "project", self.project)
+		frappe.db.set_value("Stock Entry Detail", mt.items[0].name, "project", None)
+		mt.reload()
+
+		rows = get_eligible_sources(
+			company=self.company,
+			source_type="Material Transfer",
+			selected_sources=[{"doctype": "Stock Entry", "name": mt.name}],
+		)
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["project"], self.project)
+
+		issue_se = _create_material_issue_for_source([rows[0]], submit=0)
+		self.assertEqual(issue_se.project, self.project)
+		self.assertEqual(issue_se.items[0].project, self.project)
+		issue_se.delete()
 
 	def test_material_issue_posting_date_uses_source_document_not_today(self):
 		from construction_management.api.bulk_material_issue import _create_material_issue_for_source

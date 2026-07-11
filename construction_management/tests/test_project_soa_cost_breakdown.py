@@ -68,8 +68,11 @@ class TestProjectSOACostBreakdown(FrappeTestCase):
 		self.assertEqual(flt(groups[0]["amount"]), 50)
 		self.assertEqual(len(groups[0]["lines"]), 1)
 		self.assertEqual(groups[0]["lines"][0]["label"], "Rebar 12mm")
+		self.assertEqual(flt(groups[0]["lines"][0]["rate"]), 5)
 		self.assertEqual(len(groups[0]["lines"][0]["sources"]), 1)
 		self.assertEqual(groups[0]["lines"][0]["sources"][0]["document"], "DPR-TEST-001")
+		self.assertEqual(flt(groups[0]["lines"][0]["sources"][0]["rate"]), 5)
+		self.assertEqual(flt(groups[0]["lines"][0]["sources"][0]["qty"]), 10)
 
 	def test_build_expenses_has_category_keys(self):
 		project = create_test_project("TEST-SOA-COST-KEYS")

@@ -419,8 +419,21 @@ construction_management.project_soa.bind_expense_expand_events = function ($cont
 	});
 };
 
+construction_management.project_soa.build_qty_rate_meta = function (qty, uom, rate) {
+	const fmt = construction_management.project_soa.format_num;
+	const parts = [];
+	if (qty != null && flt(qty) !== 0) {
+		parts.push(`${frappe.format(qty, { fieldtype: 'Float', precision: 2 })} ${uom || ''}`.trim());
+	}
+	if (rate != null && flt(rate) !== 0) {
+		parts.push(fmt(rate, 'Currency'));
+	}
+	return parts.join(' · ');
+};
+
 construction_management.project_soa.build_expense_breakdown_html = function (data) {
 	const fmt = construction_management.project_soa.format_num;
+	const qtyRateMeta = construction_management.project_soa.build_qty_rate_meta;
 	const groups = data.groups || [];
 
 	if (!groups.length) {
@@ -434,31 +447,38 @@ construction_management.project_soa.build_expense_breakdown_html = function (dat
 				<div class="expense-group-row" data-level="group">
 					<span class="expense-tree-chevron">▸</span>
 					<span class="expense-tree-label">${frappe.utils.escape_html(group.label)}</span>
+					<span class="expense-tree-meta"></span>
 					<span class="expense-tree-amount">${fmt(group.amount, 'Currency')}</span>
 				</div>
 				<div class="expense-group-children" style="display:none;">
 		`;
 		(group.lines || []).forEach(function (line) {
-			const meta = [];
-			if (line.qty) {
-				meta.push(`${frappe.format(line.qty, { fieldtype: 'Float', precision: 2 })} ${line.uom || ''}`);
-			}
-			if (line.rate) {
-				meta.push(fmt(line.rate, 'Currency'));
-			}
-			const meta_html = meta.length ? `<span class="expense-line-meta">${meta.join(' · ')}</span>` : '';
+			const line_meta = qtyRateMeta(line.qty, line.uom, line.rate);
+			const line_meta_html = line_meta
+				? `<span class="expense-line-meta">${line_meta}</span>`
+				: '';
 
 			html += `
 				<div class="expense-line-block">
 					<div class="expense-line-row" data-level="line">
 						<span class="expense-tree-chevron">▸</span>
-						<span class="expense-tree-label">${frappe.utils.escape_html(line.label)}${meta_html}</span>
+						<span class="expense-tree-label">${frappe.utils.escape_html(line.label)}</span>
+						<span class="expense-tree-meta">${line_meta_html}</span>
 						<span class="expense-tree-amount">${fmt(line.amount, 'Currency')}</span>
 					</div>
 					<div class="expense-line-children" style="display:none;">
 			`;
 			(line.sources || []).forEach(function (source) {
 				const date_disp = source.date ? frappe.datetime.str_to_user(source.date) : '';
+				const source_qty_rate = qtyRateMeta(source.qty, source.uom, source.rate);
+				const source_meta_parts = [];
+				if (source_qty_rate) {
+					source_meta_parts.push(source_qty_rate);
+				}
+				if (date_disp) {
+					source_meta_parts.push(date_disp);
+				}
+				const source_meta_html = source_meta_parts.join(' · ');
 				const unalloc = source.unallocated ? ` <span class="expense-unallocated-badge">${__('Unallocated')}</span>` : '';
 				html += `
 					<div class="expense-source-row" data-level="source">
@@ -468,7 +488,7 @@ construction_management.project_soa.build_expense_breakdown_html = function (dat
 							<span class="expense-source-type">${frappe.utils.escape_html(source.doctype || '')}</span>
 							${unalloc}
 						</span>
-						<span class="expense-tree-meta">${date_disp}</span>
+						<span class="expense-tree-meta">${frappe.utils.escape_html(source_meta_html)}</span>
 						<span class="expense-tree-amount">${fmt(source.amount, 'Currency')}</span>
 					</div>
 				`;

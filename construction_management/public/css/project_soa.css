@@ -471,13 +471,14 @@
 	font-size: 11px;
 	color: #718096;
 	text-align: right;
+	min-width: 120px;
+	white-space: nowrap;
 }
 
 .expense-line-meta {
-	display: block;
 	font-size: 11px;
-	font-weight: 400;
-	color: #718096;
+	font-weight: 500;
+	color: #4a5568;
 }
 
 .expense-source-type {

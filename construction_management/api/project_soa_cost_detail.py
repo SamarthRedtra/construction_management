@@ -250,22 +250,37 @@ def _build_tree_from_atoms(atoms: list[dict]) -> list[dict]:
 		group["amount"] += flt(atom.get("amount"))
 
 		lines = group["lines"]
-		line = lines.setdefault(line_key, {
-			"key": line_key,
-			"label": line_label,
-			"amount": 0.0,
-			"qty": atom.get("qty"),
-			"uom": atom.get("uom"),
-			"rate": atom.get("rate"),
-			"sources": [],
-		})
+		line = lines.get(line_key)
+		if not line:
+			line = {
+				"key": line_key,
+				"label": line_label,
+				"amount": 0.0,
+				"qty": None,
+				"uom": atom.get("uom"),
+				"rate": None,
+				"sources": [],
+			}
+			lines[line_key] = line
+
 		line["amount"] += flt(atom.get("amount"))
+		atom_qty = flt(atom.get("qty"))
+		if atom_qty:
+			line["qty"] = flt(line.get("qty") or 0) + atom_qty
+			if atom.get("uom"):
+				line["uom"] = atom.get("uom")
+			line["rate"] = flt(line["amount"]) / flt(line["qty"]) if line["qty"] else flt(atom.get("rate"))
+		elif line.get("rate") is None and atom.get("rate"):
+			line["rate"] = flt(atom.get("rate"))
 
 		source = {
 			"doctype": atom.get("source_doctype") or atom.get("voucher_type"),
 			"document": atom.get("source_document") or atom.get("voucher_no"),
 			"date": atom.get("date") or atom.get("posting_date"),
 			"amount": flt(atom.get("amount")),
+			"qty": flt(atom.get("qty")) or None,
+			"uom": atom.get("uom"),
+			"rate": flt(atom.get("rate")) or None,
 			"remarks": atom.get("remarks") or "",
 			"link": atom.get("link") or _doc_link(
 				atom.get("source_doctype") or atom.get("voucher_type"),
@@ -400,6 +415,7 @@ def _build_labor_atoms(project: str, gl_atoms: list[dict]) -> list[dict]:
 	for row in frappe.db.sql(
 		"""
 		SELECT de.employee, de.employee_name, de.designation, de.amount,
+			de.hours, de.rate_per_day,
 			dpr.name AS dpr_name, dpr.date, dpr.boq_item
 		FROM `tabDPR Employee` de
 		INNER JOIN `tabDaily Progress Record` dpr ON dpr.name = de.parent
@@ -413,12 +429,17 @@ def _build_labor_atoms(project: str, gl_atoms: list[dict]) -> list[dict]:
 		remarks = row.boq_item or ""
 		for je_name in sorted(dpr_journal_entries.get(row.dpr_name, set())):
 			remarks = _append_linked_voucher_remark(remarks, _("Journal Entry"), je_name)
+		hours = flt(row.hours)
+		rate = flt(row.rate_per_day) or (flt(row.amount) / hours if hours else 0)
 		atoms.append({
 			"amount": flt(row.amount),
 			"group_key": designation,
 			"group_label": designation,
 			"line_key": row.employee or row.employee_name,
 			"line_label": row.employee_name or row.employee,
+			"qty": hours or None,
+			"uom": _("Hrs") if hours else None,
+			"rate": rate or None,
 			"source_doctype": "Daily Progress Record",
 			"source_document": row.dpr_name,
 			"date": row.date,
