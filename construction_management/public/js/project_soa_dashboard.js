@@ -62,6 +62,7 @@ construction_management.project_soa.render_dashboard = function (container, proj
 			if (r.message) {
 				$container.html(construction_management.project_soa.build_dashboard_html(r.message, options, project));
 				construction_management.project_soa.bind_follow_up_events($container, project);
+				construction_management.project_soa.bind_expense_expand_events($container, project);
 			} else {
 				$container.html(`
 					<div class="soa-error-state">
@@ -194,13 +195,28 @@ construction_management.project_soa.build_dashboard_html = function (data, optio
 	let expenses_html = '';
 	data.expenses.forEach(function (row) {
 		const row_class = row.is_total ? 'expenses-total-row font-bold' : '';
+		const expandable = row.expandable && row.category_key;
+		const chevron = expandable
+			? `<span class="expense-chevron" data-category="${frappe.utils.escape_html(row.category_key)}">▸</span>`
+			: '<span class="expense-chevron-spacer"></span>';
 		expenses_html += `
-			<tr class="${row_class}">
+			<tr class="expense-category-row ${row_class}${expandable ? ' expense-expandable' : ''}"
+				data-category="${expandable ? frappe.utils.escape_html(row.category_key) : ''}"
+				data-expandable="${expandable ? '1' : '0'}">
 				<td class="text-center">${row.idx}</td>
-				<td>${row.category}</td>
+				<td class="expense-category-cell">${chevron}${frappe.utils.escape_html(row.category)}</td>
 				<td class="text-right font-semibold">${fmt(row.cost, 'Currency')}</td>
 			</tr>
 		`;
+		if (expandable) {
+			expenses_html += `
+				<tr class="expense-detail-row" data-category="${frappe.utils.escape_html(row.category_key)}" style="display:none;">
+					<td colspan="3" class="expense-detail-cell">
+						<div class="expense-detail-placeholder text-muted">${__('Click to load breakdown')}</div>
+					</td>
+				</tr>
+			`;
+		}
 	});
 
 	const profit_loss_class = data.profit_loss >= 0 ? 'profit-positive' : 'profit-negative';
@@ -343,6 +359,149 @@ construction_management.project_soa._route_for_doctype = function (doctype) {
 		'Proforma Invoice': 'proforma-invoice',
 	};
 	return routes[doctype] || 'Form';
+};
+
+construction_management.project_soa._expense_breakdown_cache = {};
+
+construction_management.project_soa.bind_expense_expand_events = function ($container, project) {
+	const me = this;
+	me._expense_breakdown_cache = {};
+
+	$container.off('click.soa-expense').on('click.soa-expense', '.expense-expandable .expense-category-cell, .expense-expandable .expense-chevron', function (e) {
+		e.preventDefault();
+		const $row = $(this).closest('.expense-category-row');
+		const category = $row.data('category');
+		if (!category) {
+			return;
+		}
+		const $detail = $container.find(`.expense-detail-row[data-category="${category}"]`);
+		const is_open = $row.hasClass('expanded');
+
+		if (is_open) {
+			$row.removeClass('expanded');
+			$row.find('.expense-chevron').text('▸');
+			$detail.hide();
+			return;
+		}
+
+		$row.addClass('expanded');
+		$row.find('.expense-chevron').text('▾');
+		$detail.show();
+
+		if (me._expense_breakdown_cache[category]) {
+			$detail.find('.expense-detail-cell').html(me._expense_breakdown_cache[category]);
+			me.bind_expense_tree_events($detail);
+			return;
+		}
+
+		$detail.find('.expense-detail-cell').html(`
+			<div class="expense-detail-loading">
+				<div class="soa-spinner" style="width:24px;height:24px;margin:10px auto;"></div>
+				<p class="text-muted text-center">${__('Loading breakdown...')}</p>
+			</div>
+		`);
+
+		frappe.call({
+			method: 'construction_management.construction_management.page.project_soa.project_soa.get_soa_expense_breakdown',
+			args: { project, category },
+			callback(r) {
+				const html = me.build_expense_breakdown_html(r.message || {});
+				me._expense_breakdown_cache[category] = html;
+				$detail.find('.expense-detail-cell').html(html);
+				me.bind_expense_tree_events($detail);
+			},
+			error() {
+				$detail.find('.expense-detail-cell').html(
+					`<div class="text-muted">${__('Failed to load expense breakdown.')}</div>`
+				);
+			},
+		});
+	});
+};
+
+construction_management.project_soa.build_expense_breakdown_html = function (data) {
+	const fmt = construction_management.project_soa.format_num;
+	const groups = data.groups || [];
+
+	if (!groups.length) {
+		return `<div class="expense-detail-empty text-muted">${__('No breakdown available for this category.')}</div>`;
+	}
+
+	let html = '<div class="expense-breakdown-tree">';
+	groups.forEach(function (group) {
+		html += `
+			<div class="expense-group-block">
+				<div class="expense-group-row" data-level="group">
+					<span class="expense-tree-chevron">▸</span>
+					<span class="expense-tree-label">${frappe.utils.escape_html(group.label)}</span>
+					<span class="expense-tree-amount">${fmt(group.amount, 'Currency')}</span>
+				</div>
+				<div class="expense-group-children" style="display:none;">
+		`;
+		(group.lines || []).forEach(function (line) {
+			const meta = [];
+			if (line.qty) {
+				meta.push(`${frappe.format(line.qty, { fieldtype: 'Float', precision: 2 })} ${line.uom || ''}`);
+			}
+			if (line.rate) {
+				meta.push(fmt(line.rate, 'Currency'));
+			}
+			const meta_html = meta.length ? `<span class="expense-line-meta">${meta.join(' · ')}</span>` : '';
+
+			html += `
+				<div class="expense-line-block">
+					<div class="expense-line-row" data-level="line">
+						<span class="expense-tree-chevron">▸</span>
+						<span class="expense-tree-label">${frappe.utils.escape_html(line.label)}${meta_html}</span>
+						<span class="expense-tree-amount">${fmt(line.amount, 'Currency')}</span>
+					</div>
+					<div class="expense-line-children" style="display:none;">
+			`;
+			(line.sources || []).forEach(function (source) {
+				const date_disp = source.date ? frappe.datetime.str_to_user(source.date) : '';
+				const unalloc = source.unallocated ? ` <span class="expense-unallocated-badge">${__('Unallocated')}</span>` : '';
+				html += `
+					<div class="expense-source-row" data-level="source">
+						<span class="expense-tree-chevron-spacer"></span>
+						<span class="expense-tree-label">
+							<a href="${source.link}" target="_blank">${frappe.utils.escape_html(source.document || '')}</a>
+							<span class="expense-source-type">${frappe.utils.escape_html(source.doctype || '')}</span>
+							${unalloc}
+						</span>
+						<span class="expense-tree-meta">${date_disp}</span>
+						<span class="expense-tree-amount">${fmt(source.amount, 'Currency')}</span>
+					</div>
+				`;
+				if (source.remarks) {
+					html += `<div class="expense-source-remarks">${frappe.utils.escape_html(source.remarks)}</div>`;
+				}
+			});
+			html += '</div></div>';
+		});
+		html += '</div></div>';
+	});
+	html += '</div>';
+	return html;
+};
+
+construction_management.project_soa.bind_expense_tree_events = function ($container) {
+	$container.off('click.soa-expense-tree').on('click.soa-expense-tree', '.expense-group-row, .expense-line-row', function (e) {
+		e.stopPropagation();
+		const $row = $(this);
+		const is_group = $row.hasClass('expense-group-row');
+		const $children = is_group ? $row.next('.expense-group-children') : $row.next('.expense-line-children');
+		const is_open = $row.hasClass('expanded');
+
+		if (is_open) {
+			$row.removeClass('expanded');
+			$row.find('.expense-tree-chevron').first().text('▸');
+			$children.slideUp(150);
+		} else {
+			$row.addClass('expanded');
+			$row.find('.expense-tree-chevron').first().text('▾');
+			$children.slideDown(150);
+		}
+	});
 };
 
 construction_management.project_soa.bind_follow_up_events = function ($container, project) {

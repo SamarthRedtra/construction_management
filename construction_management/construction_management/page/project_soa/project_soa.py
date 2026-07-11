@@ -353,16 +353,33 @@ def _build_expenses(project: str) -> list[dict]:
 	subcontractor_cost = flt(gl_breakdown.get("subcontractor", 0.0))
 	commission = flt(gl_breakdown.get("commission", 0.0))
 	other_cost = flt(gl_breakdown.get("other", 0.0)) + flt(gl_breakdown.get("unallocated", 0.0))
-	total_project_cost = material_cost + labor_cost + subcontractor_cost + commission + other_cost
+	# Use summary total — unallocated is already included in category rows (e.g. subcontractor)
+	total_project_cost = flt(gl_breakdown.get("total", 0.0))
+
+	def _expense_row(idx, label, cost, category_key):
+		return {
+			"idx": idx,
+			"category": label,
+			"cost": cost,
+			"category_key": category_key,
+			"expandable": cost > 0,
+		}
 
 	return [
-		{"idx": 1, "category": _("Material Cost"), "cost": material_cost},
-		{"idx": 2, "category": _("Labour Cost"), "cost": labor_cost},
-		{"idx": 3, "category": _("Subcontractor Cost"), "cost": subcontractor_cost},
-		{"idx": 4, "category": _("Commission"), "cost": commission},
-		{"idx": 5, "category": _("Other/Unallocated Cost"), "cost": other_cost},
-		{"idx": 6, "category": _("Total Project Cost"), "cost": total_project_cost, "is_total": True},
+		_expense_row(1, _("Material Cost"), material_cost, "material"),
+		_expense_row(2, _("Labour Cost"), labor_cost, "labor"),
+		_expense_row(3, _("Subcontractor Cost"), subcontractor_cost, "subcontractor"),
+		_expense_row(4, _("Commission"), commission, "commission"),
+		_expense_row(5, _("Other/Unallocated Cost"), other_cost, "other"),
+		{"idx": 6, "category": _("Total Project Cost"), "cost": total_project_cost, "is_total": True, "expandable": False},
 	]
+
+
+@frappe.whitelist()
+def get_soa_expense_breakdown(project: str, category: str) -> dict:
+	from construction_management.api.project_soa_cost_detail import get_soa_expense_breakdown as _get_breakdown
+
+	return _get_breakdown(project, category)
 
 
 @frappe.whitelist()

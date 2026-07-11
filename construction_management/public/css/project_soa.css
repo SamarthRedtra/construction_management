@@ -372,6 +372,145 @@
 	color: #c53030 !important;
 }
 
+/* Expense expandable breakdown */
+.expense-expandable {
+	cursor: pointer;
+}
+
+.expense-expandable:hover {
+	background-color: #f7fafc;
+}
+
+.expense-category-cell {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.expense-chevron,
+.expense-tree-chevron {
+	display: inline-block;
+	width: 14px;
+	color: #718096;
+	font-size: 12px;
+	flex-shrink: 0;
+}
+
+.expense-chevron-spacer,
+.expense-tree-chevron-spacer {
+	display: inline-block;
+	width: 14px;
+	flex-shrink: 0;
+}
+
+.expense-detail-cell {
+	padding: 0 !important;
+	background: #f8fafc;
+	border-top: none !important;
+}
+
+.expense-detail-placeholder,
+.expense-detail-empty,
+.expense-detail-loading {
+	padding: 12px 16px;
+	font-size: 13px;
+}
+
+.expense-breakdown-tree {
+	padding: 8px 12px 12px;
+}
+
+.expense-group-block {
+	margin-bottom: 4px;
+}
+
+.expense-group-row,
+.expense-line-row,
+.expense-source-row {
+	display: grid;
+	grid-template-columns: 16px 1fr auto auto;
+	gap: 8px;
+	align-items: center;
+	padding: 6px 8px;
+	border-radius: 4px;
+	font-size: 13px;
+}
+
+.expense-group-row {
+	background: #edf2f7;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.expense-line-row {
+	margin-left: 16px;
+	background: #fff;
+	border: 1px solid #e2e8f0;
+	cursor: pointer;
+}
+
+.expense-source-row {
+	margin-left: 32px;
+	background: #fff;
+	border-left: 2px solid #cbd5e0;
+	padding-left: 10px;
+}
+
+.expense-tree-label {
+	min-width: 0;
+	word-break: break-word;
+}
+
+.expense-tree-amount {
+	font-weight: 600;
+	text-align: right;
+	white-space: nowrap;
+}
+
+.expense-tree-meta {
+	font-size: 11px;
+	color: #718096;
+	text-align: right;
+}
+
+.expense-line-meta {
+	display: block;
+	font-size: 11px;
+	font-weight: 400;
+	color: #718096;
+}
+
+.expense-source-type {
+	font-size: 11px;
+	color: #a0aec0;
+	margin-left: 6px;
+}
+
+.expense-source-remarks {
+	margin-left: 54px;
+	margin-bottom: 4px;
+	font-size: 11px;
+	color: #718096;
+}
+
+.expense-unallocated-badge {
+	font-size: 10px;
+	background: #fef3c7;
+	color: #92400e;
+	padding: 1px 6px;
+	border-radius: 4px;
+	margin-left: 4px;
+}
+
+.expense-group-row.expanded,
+.expense-line-row.expanded {
+	background-color: #e6fffa;
+}
+
+.project-soa-embedded .expense-breakdown-tree {
+	font-size: 12px;
+}
+
 /* Profit Loss Card Layout */
 .profit-loss-card {
 	background-color: #ffffff;
