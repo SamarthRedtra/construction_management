@@ -74,6 +74,17 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
+   "label": "Collection Manager",
+   "link_count": 0,
+   "link_to": "project-collection",
+   "link_type": "Page",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
    "label": "Task",
    "link_count": 0,
    "link_to": "Task",

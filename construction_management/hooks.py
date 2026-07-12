@@ -48,6 +48,7 @@ app_include_js = [
 page_js = {
 	"project-soa": "public/js/project_soa_dashboard.js",
 	"project-commission": "public/js/project_commission_dashboard.js",
+	"project-collection": "public/js/project_collection_dashboard.js",
 }
 
 # include js in doctype views

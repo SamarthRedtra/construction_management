@@ -25,6 +25,9 @@ frappe.ui.form.on('Project', {
 				frm.add_custom_button(__('View Full Commission'), () => {
 					frappe.set_route('project-commission', frm.doc.name);
 				}, __('Construction'));
+				frm.add_custom_button(__('Collection Manager'), () => {
+					frappe.set_route('project-collection', frm.doc.name);
+				}, __('Construction'));
 			}
 		}
 

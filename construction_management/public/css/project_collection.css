@@ -1,0 +1,350 @@
+/* Copyright (c) 2026, Construction Management */
+/* License: MIT */
+
+.project-collection-layout {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	padding: 20px;
+	background-color: #fafbfc;
+	color: #2b303b;
+}
+
+.project-collection-header-row {
+	margin-bottom: 16px;
+	background: #ffffff;
+	padding: 15px 25px;
+	border: 1px solid #e2e8f0;
+	border-radius: 8px;
+}
+
+.collection-title-main {
+	font-size: 24px;
+	font-weight: 700;
+	color: #1a202c;
+	margin: 0;
+	text-transform: uppercase;
+}
+
+.project-collection-filters-row {
+	display: flex;
+	gap: 16px;
+	align-items: flex-end;
+	margin-bottom: 24px;
+	background: #ffffff;
+	padding: 15px 25px;
+	border: 1px solid #e2e8f0;
+	border-radius: 8px;
+}
+
+.project-collection-filters-row > div {
+	flex: 1;
+	min-width: 0;
+	max-width: 360px;
+}
+
+.project-collection-filters-row .form-group {
+	margin-bottom: 0 !important;
+}
+
+.project-collection-filters-row .control-label {
+	display: block !important;
+	font-size: 12px;
+	font-weight: 600;
+	color: #4a5568;
+	margin-bottom: 6px;
+}
+
+.collection-empty-state,
+.collection-loading-state,
+.collection-error-state {
+	background: #ffffff;
+	border: 1px solid #e2e8f0;
+	border-radius: 8px;
+	padding: 48px 24px;
+	text-align: center;
+}
+
+.collection-spinner {
+	width: 32px;
+	height: 32px;
+	border: 3px solid #e2e8f0;
+	border-top-color: #3182ce;
+	border-radius: 50%;
+	animation: collection-spin 0.8s linear infinite;
+	margin: 0 auto 12px;
+}
+
+@keyframes collection-spin {
+	to { transform: rotate(360deg); }
+}
+
+.project-collection-dashboard {
+	background: #ffffff;
+	border: 1px solid #e2e8f0;
+	border-radius: 8px;
+	padding: 20px;
+}
+
+.collection-section-title {
+	font-size: 16px;
+	font-weight: 700;
+	color: #1a202c;
+	margin: 0 0 8px;
+}
+
+.collection-section-sub {
+	font-size: 13px;
+	color: #718096;
+	margin: 0 0 16px;
+}
+
+.collection-project-header {
+	margin-bottom: 20px;
+}
+
+.collection-project-title {
+	font-size: 20px;
+	font-weight: 700;
+	margin: 0 0 4px;
+}
+
+.collection-project-meta {
+	font-size: 13px;
+	color: #718096;
+	margin: 0;
+}
+
+.collection-kpi-row {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+	gap: 12px;
+	margin-bottom: 24px;
+}
+
+.collection-kpi-card {
+	background: #f7fafc;
+	border: 1px solid #e2e8f0;
+	border-radius: 8px;
+	padding: 12px 16px;
+}
+
+.collection-kpi-card .kpi-label {
+	display: block;
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	color: #718096;
+	margin-bottom: 4px;
+}
+
+.collection-kpi-card .kpi-value {
+	display: block;
+	font-size: 18px;
+	font-weight: 700;
+	color: #1a202c;
+}
+
+.collection-kpi-card .kpi-sub {
+	display: block;
+	font-size: 11px;
+	color: #a0aec0;
+	margin-top: 2px;
+}
+
+.collection-kpi-card.kpi-success .kpi-value { color: #276749; }
+.collection-kpi-card.kpi-warning .kpi-value { color: #c05621; }
+.collection-kpi-card.kpi-danger .kpi-value { color: #c53030; }
+
+.collection-grid-scroll {
+	overflow-x: auto;
+	-webkit-overflow-scrolling: touch;
+}
+
+.collection-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 12px;
+	white-space: nowrap;
+}
+
+.collection-table.border-table th,
+.collection-table.border-table td {
+	border: 1px solid #e2e8f0;
+	padding: 8px 10px;
+	vertical-align: middle;
+}
+
+.collection-table thead th {
+	position: sticky;
+	top: 0;
+	background: #edf2f7;
+	font-weight: 600;
+	color: #2d3748;
+	z-index: 1;
+}
+
+.collection-table .text-right {
+	text-align: right;
+}
+
+.collection-table .text-center {
+	text-align: center;
+}
+
+.collection-portfolio-row {
+	cursor: pointer;
+}
+
+.collection-portfolio-row:hover {
+	background: #ebf8ff;
+}
+
+.collection-billing-grid td:nth-child(6),
+.collection-billing-grid td:nth-child(9),
+.collection-billing-grid td:nth-child(11) {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+
+.collection-num {
+	font-variant-numeric: tabular-nums;
+}
+
+.badge-status {
+	display: inline-block;
+	font-size: 10px;
+	font-weight: 600;
+	padding: 2px 6px;
+	border-radius: 4px;
+	margin-left: 0;
+	margin-top: 2px;
+	text-transform: uppercase;
+}
+
+.badge-status.proforma { background: #ebf8ff; color: #2b6cb0; }
+.badge-status.pc-pending { background: #fefcbf; color: #975a16; }
+.badge-status.unpaid { background: #feebc8; color: #c05621; }
+.badge-status.ti-issued { background: #e9d8fd; color: #6b46c1; }
+.badge-status.paid { background: #c6f6d5; color: #276749; }
+.badge-status.overdue { background: #fed7d7; color: #c53030; }
+
+.collection-invoice-cell {
+	white-space: normal;
+	min-width: 150px;
+}
+
+.collection-invoice-link {
+	margin-bottom: 4px;
+}
+
+.collection-category-filters {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 14px;
+}
+
+.collection-filter-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 12px;
+	border: 1px solid #e2e8f0;
+	border-radius: 20px;
+	background: #fff;
+	font-size: 12px;
+	cursor: pointer;
+	transition: all 0.15s ease;
+}
+
+.collection-filter-chip:hover,
+.collection-filter-chip.active {
+	border-color: #3182ce;
+	background: #ebf8ff;
+}
+
+.collection-filter-chip .chip-count {
+	font-weight: 700;
+	color: #2d3748;
+}
+
+.collection-filter-chip .chip-amount {
+	color: #718096;
+	font-size: 11px;
+}
+
+.collection-category-header td {
+	background: #f7fafc;
+	font-weight: 700;
+	color: #2d3748;
+	padding: 10px 12px !important;
+	border-top: 2px solid #cbd5e0;
+}
+
+.collection-category-header .category-meta {
+	margin-left: 10px;
+	font-size: 11px;
+	font-weight: 500;
+	color: #718096;
+}
+
+.collection-billing-row[data-category="paid"] {
+	background: #f0fff4;
+}
+
+.collection-billing-row[data-category="unpaid"],
+.collection-billing-row[data-category="overdue"] {
+	background: #fffaf0;
+}
+
+.collection-billing-row[data-category="proforma"] {
+	background: #ebf8ff22;
+}
+
+.badge-type {
+	display: inline-block;
+	font-size: 10px;
+	padding: 2px 6px;
+	border-radius: 4px;
+	background: #edf2f7;
+	color: #4a5568;
+}
+
+.collection-row-actions {
+	margin-top: 4px;
+}
+
+.collection-action-link {
+	font-size: 11px;
+	color: #3182ce;
+	cursor: pointer;
+	margin-right: 8px;
+}
+
+.collection-action-link:hover {
+	text-decoration: underline;
+}
+
+.collection-follow-up-section {
+	margin-top: 24px;
+}
+
+.collection-follow-up-table {
+	white-space: normal;
+}
+
+.document-link {
+	color: #3182ce;
+	font-weight: 500;
+}
+
+.document-link:hover {
+	text-decoration: underline;
+}
+
+.font-medium {
+	font-weight: 600;
+}
+
+.text-muted {
+	color: #a0aec0;
+}
