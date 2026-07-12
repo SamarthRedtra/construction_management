@@ -154,6 +154,7 @@ frappe.ui.form.on('Purchase Invoice', {
 	},
 
 	refresh: function (frm) {
+		ensure_additional_discount_fields(frm);
 		setup_po_line_progress_columns(frm);
 		apply_item_liability_account_all_rows(frm);
 		// Re-setup on refresh to ensure filters are applied after form loads
@@ -184,6 +185,17 @@ frappe.ui.form.on('Purchase Invoice', {
 		});
 	}
 });
+
+function ensure_additional_discount_fields(frm) {
+	if (!frm || frm.doc.docstatus !== 0) return;
+
+	const fields = ["section_break_44", "apply_discount_on", "additional_discount_percentage", "discount_amount"];
+	for (const fieldname of fields) {
+		if (!frm.fields_dict[fieldname]) continue;
+		frm.set_df_property(fieldname, "hidden", 0);
+		frm.set_df_property(fieldname, "read_only", 0);
+	}
+}
 
 frappe.ui.form.on('Purchase Invoice Item', {
 	items_add: function (frm, cdt, cdn) {

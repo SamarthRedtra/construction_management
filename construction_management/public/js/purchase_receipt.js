@@ -13,6 +13,7 @@ frappe.ui.form.on('Purchase Receipt', {
 	},
 
 	refresh: function (frm) {
+		ensure_additional_discount_fields(frm);
 		// Re-setup dimension filters on refresh
 		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
 			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
@@ -340,3 +341,14 @@ frappe.ui.form.on('Purchase Receipt Extra Entry', {
 		frappe.model.set_value(cdt, cdn, 'party', '');
 	}
 });
+
+function ensure_additional_discount_fields(frm) {
+	if (!frm || frm.doc.docstatus !== 0) return;
+
+	const fields = ["section_break_42", "apply_discount_on", "additional_discount_percentage", "discount_amount"];
+	for (const fieldname of fields) {
+		if (!frm.fields_dict[fieldname]) continue;
+		frm.set_df_property(fieldname, "hidden", 0);
+		frm.set_df_property(fieldname, "read_only", 0);
+	}
+}

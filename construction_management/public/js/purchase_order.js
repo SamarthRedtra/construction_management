@@ -97,7 +97,7 @@ function ensure_additional_discount_fields(frm) {
 	// For Purchase Order drafts, keep ERPNext standard behavior: user can set additional discount.
 	if (!frm || frm.doc.docstatus !== 0) return;
 
-	const fields = ["apply_discount_on", "additional_discount_percentage", "discount_amount"];
+	const fields = ["discount_section", "apply_discount_on", "additional_discount_percentage", "discount_amount"];
 	for (const f of fields) {
 		if (!frm.fields_dict[f]) continue;
 		frm.set_df_property(f, "hidden", 0);
