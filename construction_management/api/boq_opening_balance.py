@@ -24,8 +24,12 @@ def get_boq_sales_accounts(company: str) -> dict:
 	) or {}
 
 
-def get_row_collected_amount(row) -> float:
+def get_row_collected_amount(row, *, opening_entry: bool = False) -> float:
 	"""Net amount that increases advance/retention pool for this JE account row."""
+	if opening_entry:
+		# Opening entries may debit or credit BOQ accounts depending on ERPNext workflow.
+		return abs(flt(row.debit) - flt(row.credit))
+
 	root_type = frappe.db.get_value("Account", row.account, "root_type")
 	if root_type in ("Liability", "Equity", "Income"):
 		return flt(row.credit) - flt(row.debit)
@@ -85,7 +89,7 @@ def sync_opening_journal_entry(doc, method=None):
 		if row.account != advance_account or not row.project:
 			continue
 
-		amount = get_row_collected_amount(row)
+		amount = get_row_collected_amount(row, opening_entry=True)
 		if amount <= 0:
 			continue
 
@@ -131,12 +135,7 @@ def get_opening_retention_balance(project: str, company: Optional[str] = None) -
 
 	result = frappe.db.sql(
 		"""
-		SELECT COALESCE(SUM(
-			CASE
-				WHEN acc.root_type IN ('Liability', 'Equity', 'Income') THEN gle.credit - gle.debit
-				ELSE gle.debit - gle.credit
-			END
-		), 0) AS total
+		SELECT COALESCE(SUM(ABS(gle.debit - gle.credit)), 0) AS total
 		FROM `tabGL Entry` gle
 		INNER JOIN `tabJournal Entry` je
 			ON je.name = gle.voucher_no AND gle.voucher_type = 'Journal Entry'

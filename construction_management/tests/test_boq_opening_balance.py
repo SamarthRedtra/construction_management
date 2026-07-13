@@ -206,6 +206,43 @@ class TestBOQOpeningBalance(unittest.TestCase):
 		self.assertGreaterEqual(flt(summary["total_collected"]), amount)
 		self.assertGreaterEqual(flt(summary["balance"]), amount)
 
+	def test_opening_je_advance_debit_side_creates_boq_advance_payment(self):
+		"""Opening JEs that debit the advance liability account (common in ERPNext opening workflow)."""
+		amount = 4200
+		je = frappe.new_doc("Journal Entry")
+		je.company = self.company
+		je.posting_date = today()
+		je.is_opening = "Yes"
+		je.voucher_type = "Opening Entry"
+		je.append(
+			"accounts",
+			{
+				"account": self.advance_account,
+				"debit_in_account_currency": amount,
+				"project": self.project,
+				"cost_center": self.cost_center,
+			},
+		)
+		je.append(
+			"accounts",
+			{
+				"account": self.temp_opening,
+				"credit_in_account_currency": amount,
+				"cost_center": self.cost_center,
+			},
+		)
+		je.insert()
+		je.submit()
+
+		bap = frappe.db.get_value(
+			"BOQ Advance Payment",
+			{"reference": f"{je.name}::{self.project}", "docstatus": 1},
+			["amount", "project"],
+			as_dict=True,
+		)
+		self.assertIsNotNone(bap)
+		self.assertEqual(flt(bap.amount), amount)
+
 	def test_opening_je_retention_in_summary(self):
 		amount = 2500
 		self._create_opening_journal_entry(self.retention_account, amount)
