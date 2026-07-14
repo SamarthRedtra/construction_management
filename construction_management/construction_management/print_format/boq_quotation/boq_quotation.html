@@ -1,0 +1,272 @@
+{% set q = doc.get_boq_quotation_print_context() %}
+{% macro cur(v) -%}{{ frappe.format_value(v, {"fieldtype": "Currency", "options": q.currency}) }}{%- endmacro %}
+{% macro qty(v) -%}{{ frappe.format_value(v, {"fieldtype": "Float", "precision": 2}) }}{%- endmacro %}
+
+<style>
+	@page {
+		size: A4;
+		margin: 22mm 12mm 18mm 12mm;
+		@top-right {
+			content: element(boq-running-header);
+			font-size: 10px;
+		}
+	}
+
+	.boq-quote {
+		font-family: Arial, Helvetica, sans-serif;
+		font-size: 11px;
+		color: #000;
+		width: 100%;
+	}
+	.boq-quote .running-header {
+		position: running(boq-running-header);
+		text-align: right;
+		font-size: 10px;
+		line-height: 1.4;
+		color: #000;
+	}
+	.boq-quote .running-header .qt-title {
+		font-size: 14px;
+		font-weight: bold;
+		letter-spacing: 1px;
+	}
+	.boq-quote .top-bar {
+		width: 100%;
+		border-collapse: collapse;
+		margin-bottom: 10px;
+	}
+	.boq-quote .top-bar td {
+		vertical-align: top;
+		border: none;
+		padding: 0;
+	}
+	.boq-quote .logo img {
+		max-height: 72px;
+		max-width: 220px;
+	}
+	.boq-quote .title-block {
+		text-align: right;
+	}
+	.boq-quote .title-block .qt-title {
+		font-size: 20px;
+		font-weight: bold;
+		letter-spacing: 1px;
+		margin: 0 0 6px;
+	}
+	.boq-quote .title-block .ref {
+		font-size: 12px;
+		line-height: 1.5;
+	}
+	.boq-quote .meta {
+		width: 100%;
+		border-collapse: collapse;
+		margin-bottom: 12px;
+	}
+	.boq-quote .meta td {
+		border: 1px solid #000;
+		padding: 5px 8px;
+		vertical-align: top;
+	}
+	.boq-quote .meta .lbl {
+		font-weight: bold;
+		width: 14%;
+		background: #ececec;
+		white-space: nowrap;
+	}
+	.boq-quote .boq-label {
+		font-weight: bold;
+		margin: 8px 0 4px;
+		font-size: 11px;
+	}
+	.boq-quote .items {
+		width: 100%;
+		border-collapse: collapse;
+		margin-bottom: 10px;
+	}
+	.boq-quote .items th,
+	.boq-quote .items td {
+		border: 1px solid #333;
+		padding: 5px 6px;
+		vertical-align: top;
+	}
+	.boq-quote .items th {
+		background: #c0c0c0;
+		text-align: center;
+		font-weight: bold;
+	}
+	.boq-quote .items .sl { width: 7%; text-align: center; }
+	.boq-quote .items .desc { width: 48%; text-align: left; }
+	.boq-quote .items .unit { width: 8%; text-align: center; }
+	.boq-quote .items .num {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+	}
+	.boq-quote .section-row td {
+		font-weight: bold;
+		text-transform: uppercase;
+		background: #d9d9d9;
+		text-align: left;
+	}
+	.boq-quote .parent-row .desc { font-weight: bold; }
+	.boq-quote .sub-row .desc { padding-left: 16px; }
+	.boq-quote .totals {
+		width: 50%;
+		margin-left: auto;
+		border-collapse: collapse;
+		margin: 8px 0 16px;
+	}
+	.boq-quote .totals td {
+		border: 1px solid #333;
+		padding: 6px 8px;
+	}
+	.boq-quote .totals .lbl {
+		font-weight: bold;
+		text-align: right;
+		width: 65%;
+		background: #f5f5f5;
+	}
+	.boq-quote .totals .num {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+		background: #f5f5f5;
+		font-weight: bold;
+	}
+	.boq-quote .terms {
+		margin-top: 14px;
+		font-size: 10px;
+		line-height: 1.45;
+	}
+</style>
+
+<div class="boq-quote">
+	<div class="running-header">
+		<div class="qt-title">QUOTATION</div>
+		<div><strong>Quotation No.:</strong> {{ q.header.quotation_ref }}</div>
+	</div>
+
+	<table class="top-bar">
+		<tr>
+			<td style="width: 55%;">
+				{% if q.logo_url %}
+				<div class="logo"><img src="{{ q.logo_url }}" alt="Company Logo"></div>
+				{% elif q.letter_head and q.letter_head.header %}
+				{{ q.letter_head.header }}
+				{% else %}
+				<div style="font-size:16px;font-weight:bold;">{{ q.header.company_name }}</div>
+				{% endif %}
+			</td>
+			<td class="title-block">
+				<div class="qt-title">QUOTATION</div>
+				<div class="ref"><strong>Quotation No.:</strong> {{ q.header.quotation_ref }}</div>
+				<div class="ref"><strong>Quotation Date:</strong> {{ q.header.date }}</div>
+				{% if q.header.company_trn %}
+				<div class="ref"><strong>TRN:</strong> {{ q.header.company_trn }}</div>
+				{% endif %}
+			</td>
+		</tr>
+	</table>
+
+	<table class="meta">
+		<tr>
+			<td class="lbl">Main Contractor</td>
+			<td>{{ q.header.main_contractor }}</td>
+			<td class="lbl">Project</td>
+			<td>{{ q.header.project_title }}</td>
+		</tr>
+		<tr>
+			<td class="lbl">Address</td>
+			<td>{{ q.header.site_address }}</td>
+			<td class="lbl">Location</td>
+			<td>{{ q.header.site_location }}</td>
+		</tr>
+		<tr>
+			<td class="lbl">Contact</td>
+			<td>{{ q.header.contact }}</td>
+			<td class="lbl">Client</td>
+			<td>{{ q.header.client_name }}</td>
+		</tr>
+		<tr>
+			<td class="lbl">Attn.</td>
+			<td>{{ q.header.attention }}</td>
+			<td class="lbl">Consultant</td>
+			<td>{{ q.header.consultant }}</td>
+		</tr>
+	</table>
+
+	<div class="boq-label">Bill of Quantity:</div>
+
+	<table class="items">
+		<thead>
+			<tr>
+				<th class="sl">SL No.</th>
+				<th class="desc">Description of Works</th>
+				<th class="unit">Unit</th>
+				<th class="num">Approx. QTY.</th>
+				<th class="num">Rate {{ q.currency }}</th>
+				<th class="num">Amount {{ q.currency }}</th>
+			</tr>
+		</thead>
+		<tbody>
+			{% if q.sections %}
+				{% for section in q.sections %}
+					{% if section.title %}
+					<tr class="section-row">
+						<td></td>
+						<td colspan="5">{{ section.title }}</td>
+					</tr>
+					{% endif %}
+					{% for parent in section.parents %}
+					<tr class="parent-row">
+						<td class="sl">{% if parent.no %}{{ parent.no }}-{% endif %}</td>
+						<td class="desc" colspan="5">{{ parent.description }}</td>
+					</tr>
+					{% for sub in parent.subs %}
+					<tr class="sub-row">
+						<td class="sl">{% if sub.sub_no %}{{ sub.sub_no }}.{% endif %}</td>
+						<td class="desc">{{ sub.description }}</td>
+						<td class="unit">{{ sub.uom }}</td>
+						<td class="num">{% if sub.qty %}{{ qty(sub.qty) }}{% endif %}</td>
+						<td class="num">
+							{% if sub.rate_display == "-" %}-{% else %}{{ cur(sub.rate) }}{% endif %}
+						</td>
+						<td class="num">
+							{% if sub.amount_display == "N/A" %}N/A
+							{% elif sub.amount_display == "Rate only" %}Rate only
+							{% else %}{{ cur(sub.amount) }}{% endif %}
+						</td>
+					</tr>
+					{% endfor %}
+					{% endfor %}
+				{% endfor %}
+			{% elif q.boq_html %}
+				<tr><td colspan="6">{{ q.boq_html }}</td></tr>
+			{% else %}
+				<tr><td colspan="6" style="text-align:center;">No BOQ lines entered</td></tr>
+			{% endif %}
+		</tbody>
+	</table>
+
+	{% if q.sections %}
+	<table class="totals">
+		<tr>
+			<td class="lbl">Total Amount Excl. VAT</td>
+			<td class="num">{{ cur(q.totals.total_excl_vat) }}</td>
+		</tr>
+		<tr>
+			<td class="lbl">{{ q.totals.vat_label }}</td>
+			<td class="num">{{ cur(q.totals.vat_amount) }}</td>
+		</tr>
+		<tr>
+			<td class="lbl">Total Amount Incl. VAT</td>
+			<td class="num">{{ cur(q.totals.total_incl_vat) }}</td>
+		</tr>
+	</table>
+	{% endif %}
+
+	{% if q.terms_html %}
+	<div class="terms">
+		{{ q.terms_html }}
+	</div>
+	{% endif %}
+</div>

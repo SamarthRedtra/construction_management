@@ -66,7 +66,9 @@ doctype_js = {
 	"Sales Order": ["public/js/accounting_dimension_filters.js", "public/js/deduction_summary.js", "public/js/sales_order.js"],
 	"Stock Entry": ["public/js/accounting_dimension_filters.js", "public/js/stock_entry.js"],
 	"Journal Entry": ["public/js/accounting_dimension_filters.js", "public/js/journal_entry.js"],
-	"Material Request": ["public/js/accounting_dimension_filters.js", "public/js/material_request.js"]
+	"Material Request": ["public/js/accounting_dimension_filters.js", "public/js/material_request.js"],
+	"Quotation": "public/js/quotation.js",
+	"Project Tab Access": "public/js/project_tab_access.js",
 }
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
@@ -138,13 +140,13 @@ after_migrate = "construction_management.setup.install.after_migrate"
 # -----------
 # Permissions evaluated in scripted ways
 
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
-#
-# has_permission = {
-# 	"Event": "frappe.desk.doctype.event.event.has_permission",
-# }
+permission_query_conditions = {
+	"Project": "construction_management.permissions.project.get_project_permission_query_conditions",
+}
+
+has_permission = {
+	"Project": "construction_management.permissions.project.has_project_permission",
+}
 
 # DocType Class
 # ---------------
@@ -156,6 +158,7 @@ override_doctype_class = {
 	"Purchase Receipt": "construction_management.overrides.purchase_receipt_class.PurchaseReceiptOverride",
 	"Process Statement Of Accounts": "construction_management.overrides.process_statement_of_accounts.ProcessStatementOfAccountsOverride",
 	"GL Entry": "construction_management.overrides.gl_entry.GLEntryOverride",
+	"Quotation": "construction_management.overrides.quotation.QuotationOverride",
 }
 
 # Monkey Patches
@@ -363,5 +366,14 @@ fixtures = [
 	{
 		"dt": "Property Setter",
 		"filters": [["doc_type", "=", "Process Statement Of Accounts"]]
-	}
+	},
+	{
+		"dt": "Print Format",
+		"filters": [["name", "in", [
+			"BOQ Quotation",
+			"Daily Roster",
+			"Payment Certificate Payable",
+			"Project Completion Report",
+		]]]
+	},
 ]

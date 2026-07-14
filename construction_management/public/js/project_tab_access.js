@@ -76,7 +76,92 @@ construction_management.project_tab_access.apply = function (frm) {
 	});
 };
 
+construction_management.project_tab_access.patch_rule_row_docfields = function (docfields) {
+	(docfields || []).forEach((df) => {
+		if (df.fieldname === 'tabs') {
+			df.fieldtype = 'MultiSelect';
+		}
+		if (df.fieldname === 'allowed_projects') {
+			df.fieldtype = 'MultiSelectList';
+			df.placeholder = __('Leave empty for all projects');
+			df.options = 'Project';
+			df.get_data = function (txt) {
+				return frappe.db.get_link_options('Project', txt);
+			};
+		}
+	});
+};
+
+construction_management.project_tab_access.enhance_allowed_projects_control = function (row) {
+	const field = row.grid_form?.fields_dict?.allowed_projects;
+	if (!field || field._cm_allowed_projects_enhanced) {
+		return;
+	}
+	field._cm_allowed_projects_enhanced = true;
+
+	field.parse_validate_and_set_in_model = function () {
+		const serialized = (this.values || []).join(', ');
+		return this.validate_and_set_in_model(serialized);
+	};
+
+	field.set_input = function (value) {
+		this.last_value = this.value;
+		this.value = value;
+		const values = value
+			? String(value).split(',').map((item) => item.trim()).filter(Boolean)
+			: [];
+		return this.set_options().then(() => this.set_value(values));
+	};
+
+	if (row.doc.allowed_projects) {
+		field.set_input(row.doc.allowed_projects);
+	}
+};
+
+construction_management.project_tab_access.patch_rule_grid_row = function (row) {
+	if (!row || row._tab_access_rule_row_ready) {
+		return;
+	}
+	row._tab_access_rule_row_ready = true;
+
+	construction_management.project_tab_access.patch_rule_row_docfields(row.docfields);
+
+	const original_show_form = row.show_form.bind(row);
+	row.show_form = function () {
+		construction_management.project_tab_access.patch_rule_row_docfields(row.docfields);
+		original_show_form();
+		construction_management.project_tab_access.enhance_allowed_projects_control(row);
+	};
+};
+
+construction_management.project_tab_access.setup_rule_grid = function (frm) {
+	const grid = frm.fields_dict.rules?.grid;
+	if (!grid) {
+		return;
+	}
+
+	construction_management.project_tab_access.patch_rule_row_docfields(grid.docfields);
+	(grid.grid_rows || []).forEach((row) => {
+		construction_management.project_tab_access.patch_rule_grid_row(row);
+	});
+
+	if (grid._tab_access_rule_grid_ready) {
+		return;
+	}
+	grid._tab_access_rule_grid_ready = true;
+
+	const original_add_new_row = grid.add_new_row.bind(grid);
+	grid.add_new_row = function (...args) {
+		const row = original_add_new_row(...args);
+		construction_management.project_tab_access.patch_rule_grid_row(row);
+		return row;
+	};
+};
+
 frappe.ui.form.on('Project Tab Access', {
+	refresh(frm) {
+		construction_management.project_tab_access.setup_rule_grid(frm);
+	},
 	after_save() {
 		construction_management.project_tab_access._config_cache = null;
 	},

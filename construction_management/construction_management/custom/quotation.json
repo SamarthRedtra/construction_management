@@ -1,0 +1,652 @@
+{
+ "custom_fields": [
+  {
+   "fieldname": "custom_boq_tab",
+   "fieldtype": "Tab Break",
+   "insert_after": "items",
+   "label": "BOQ Details",
+   "dt": "Quotation",
+   "name": "Quotation-custom_boq_tab"
+  },
+  {
+   "fieldname": "custom_boq_header_section",
+   "fieldtype": "Section Break",
+   "insert_after": "custom_boq_tab",
+   "label": "Quotation Header",
+   "dt": "Quotation",
+   "name": "Quotation-custom_boq_header_section"
+  },
+  {
+   "fieldname": "custom_quotation_ref",
+   "fieldtype": "Data",
+   "insert_after": "custom_boq_header_section",
+   "label": "Quotation Ref",
+   "dt": "Quotation",
+   "name": "Quotation-custom_quotation_ref"
+  },
+  {
+   "fieldname": "custom_boq_col_break_1",
+   "fieldtype": "Column Break",
+   "insert_after": "custom_quotation_ref",
+   "dt": "Quotation",
+   "name": "Quotation-custom_boq_col_break_1"
+  },
+  {
+   "fieldname": "custom_main_contractor",
+   "fieldtype": "Data",
+   "insert_after": "custom_boq_col_break_1",
+   "label": "Main Contractor",
+   "dt": "Quotation",
+   "name": "Quotation-custom_main_contractor"
+  },
+  {
+   "fieldname": "custom_project_title",
+   "fieldtype": "Small Text",
+   "insert_after": "custom_main_contractor",
+   "label": "Project Title",
+   "dt": "Quotation",
+   "name": "Quotation-custom_project_title"
+  },
+  {
+   "fieldname": "custom_site_address",
+   "fieldtype": "Small Text",
+   "insert_after": "custom_project_title",
+   "label": "Site Address",
+   "dt": "Quotation",
+   "name": "Quotation-custom_site_address"
+  },
+  {
+   "fieldname": "custom_boq_col_break_2",
+   "fieldtype": "Column Break",
+   "insert_after": "custom_site_address",
+   "dt": "Quotation",
+   "name": "Quotation-custom_boq_col_break_2"
+  },
+  {
+   "fieldname": "custom_site_location",
+   "fieldtype": "Small Text",
+   "insert_after": "custom_boq_col_break_2",
+   "label": "Site Location",
+   "dt": "Quotation",
+   "name": "Quotation-custom_site_location"
+  },
+  {
+   "fieldname": "custom_contact",
+   "fieldtype": "Data",
+   "insert_after": "custom_site_location",
+   "label": "Contact",
+   "dt": "Quotation",
+   "name": "Quotation-custom_contact"
+  },
+  {
+   "fieldname": "custom_client_name",
+   "fieldtype": "Data",
+   "insert_after": "custom_contact",
+   "label": "Client Name",
+   "dt": "Quotation",
+   "name": "Quotation-custom_client_name"
+  },
+  {
+   "fieldname": "custom_attention",
+   "fieldtype": "Data",
+   "insert_after": "custom_client_name",
+   "label": "Attention",
+   "dt": "Quotation",
+   "name": "Quotation-custom_attention"
+  },
+  {
+   "fieldname": "custom_consultant",
+   "fieldtype": "Data",
+   "insert_after": "custom_attention",
+   "label": "Consultant",
+   "dt": "Quotation",
+   "name": "Quotation-custom_consultant"
+  },
+  {
+   "fieldname": "custom_project",
+   "fieldtype": "Link",
+   "insert_after": "custom_consultant",
+   "label": "Project",
+   "options": "Project",
+   "dt": "Quotation",
+   "name": "Quotation-custom_project"
+  },
+  {
+   "fieldname": "custom_boq_html_section",
+   "fieldtype": "Section Break",
+   "insert_after": "custom_project",
+   "label": "Bill of Quantity",
+   "dt": "Quotation",
+   "name": "Quotation-custom_boq_html_section"
+  },
+  {
+   "fieldname": "custom_boq_lines",
+   "fieldtype": "Table",
+   "insert_after": "custom_boq_html_section",
+   "label": "BOQ Lines",
+   "options": "Quotation BOQ Line",
+   "hidden": 0,
+   "dt": "Quotation",
+   "name": "Quotation-custom_boq_lines"
+  },
+  {
+   "fieldname": "custom_boq_html",
+   "fieldtype": "Text Editor",
+   "insert_after": "custom_boq_lines",
+   "label": "BOQ Content (Print)",
+   "hidden": 1,
+   "description": "Auto-generated from BOQ Lines for print. Do not edit manually.",
+   "dt": "Quotation",
+   "name": "Quotation-custom_boq_html"
+  }
+ ],
+ "custom_perms": [],
+ "doctype": "Quotation",
+ "links": [],
+ "property_setters": [
+  {
+   "doctype_or_field": "DocType",
+   "doc_type": "Quotation",
+   "property": "default_print_format",
+   "property_type": "Data",
+   "value": "BOQ Quotation",
+   "name": "Quotation-main-default_print_format"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "items_section",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-items_section-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "scan_barcode",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-scan_barcode-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "last_scanned_warehouse",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-last_scanned_warehouse-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "items",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-items-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "sec_break23",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-sec_break23-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "total_qty",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-total_qty-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "total_net_weight",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-total_net_weight-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "column_break_28",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-column_break_28-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "base_total",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-base_total-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "base_net_total",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-base_net_total-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "column_break_31",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-column_break_31-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "total",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-total-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "net_total",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-net_total-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "taxes_section",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-taxes_section-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "tax_category",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-tax_category-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "taxes_and_charges",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-taxes_and_charges-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "column_break_36",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-column_break_36-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "shipping_rule",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-shipping_rule-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "column_break_34",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-column_break_34-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "incoterm",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-incoterm-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "named_place",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-named_place-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "section_break_36",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-section_break_36-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "taxes",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-taxes-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "section_break_39",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-section_break_39-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "base_total_taxes_and_charges",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-base_total_taxes_and_charges-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "column_break_42",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-column_break_42-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "total_taxes_and_charges",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-total_taxes_and_charges-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "totals_section",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-totals_section-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "grand_total",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-grand_total-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "in_words",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-in_words-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "column_break_vyhp",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-column_break_vyhp-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "rounded_total",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-rounded_total-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "rounding_adjustment",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-rounding_adjustment-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "disable_rounded_total",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-disable_rounded_total-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "base_totals_section",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-base_totals_section-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "base_grand_total",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-base_grand_total-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "base_in_words",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-base_in_words-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "column_break_bffp",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-column_break_bffp-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "base_rounded_total",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-base_rounded_total-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "base_rounding_adjustment",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-base_rounding_adjustment-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "additional_discount_section",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-additional_discount_section-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "apply_discount_on",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-apply_discount_on-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "base_discount_amount",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-base_discount_amount-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "coupon_code",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-coupon_code-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "column_break_46",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-column_break_46-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "additional_discount_percentage",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-additional_discount_percentage-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "discount_amount",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-discount_amount-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "referral_sales_partner",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-referral_sales_partner-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "sec_tax_breakup",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-sec_tax_breakup-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "other_charges_calculation",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-other_charges_calculation-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "item_wise_tax_details",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-item_wise_tax_details-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "bundle_items_section",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-bundle_items_section-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "packed_items",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-packed_items-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "pricing_rule_details",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-pricing_rule_details-hidden"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "pricing_rules",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1",
+   "name": "Quotation-pricing_rules-hidden"
+  }
+ ],
+ "sync_on_migrate": 1
+}

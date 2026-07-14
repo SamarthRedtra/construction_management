@@ -2,19 +2,20 @@
  "actions": [],
  "creation": "2026-07-10 00:00:00",
  "doctype": "DocType",
- "editable_grid": 1,
+ "editable_grid": 0,
  "engine": "InnoDB",
  "field_order": [
-  "tab",
+  "tabs",
   "role",
-  "user"
+  "user",
+  "allowed_projects"
  ],
  "fields": [
   {
-   "fieldname": "tab",
-   "fieldtype": "Select",
+   "fieldname": "tabs",
+   "fieldtype": "Small Text",
    "in_list_view": 1,
-   "label": "Project Tab",
+   "label": "Project Tabs",
    "options": "Details\nConnections\nConstruction\nCosting\nProgress\nProject SOA\nProject Commission\nDashboard\nMore Info",
    "reqd": 1
   },
@@ -31,11 +32,17 @@
    "in_list_view": 1,
    "label": "User",
    "options": "User"
+  },
+  {
+   "description": "Select projects to restrict access. Leave empty to allow all projects.",
+   "fieldname": "allowed_projects",
+   "fieldtype": "Small Text",
+   "label": "Allowed Projects"
   }
  ],
  "istable": 1,
  "links": [],
- "modified": "2026-07-10 00:00:00",
+ "modified": "2026-07-14 17:00:00",
  "modified_by": "Administrator",
  "module": "Construction Management",
  "name": "Project Tab Access Rule",

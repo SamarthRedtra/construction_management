@@ -1,0 +1,108 @@
+{
+ "actions": [],
+ "creation": "2026-07-14 12:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "line_type",
+  "section_title",
+  "parent_no",
+  "sub_no",
+  "description",
+  "uom",
+  "qty",
+  "rate",
+  "amount",
+  "display_mode"
+ ],
+ "fields": [
+  {
+   "default": "Parent",
+   "fieldname": "line_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Line Type",
+   "options": "Section\nParent\nSub",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.line_type != 'Sub'",
+   "fieldname": "section_title",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Section Title"
+  },
+  {
+   "depends_on": "eval:['Parent','Sub'].includes(doc.line_type)",
+   "fieldname": "parent_no",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Parent No."
+  },
+  {
+   "depends_on": "eval:doc.line_type == 'Sub'",
+   "fieldname": "sub_no",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sub No."
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Description"
+  },
+  {
+   "depends_on": "eval:doc.line_type == 'Sub'",
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Unit",
+   "options": "UOM"
+  },
+  {
+   "depends_on": "eval:doc.line_type == 'Sub'",
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Approx. Qty",
+   "non_negative": 1
+  },
+  {
+   "depends_on": "eval:doc.line_type == 'Sub'",
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Rate",
+   "non_negative": 1
+  },
+  {
+   "depends_on": "eval:doc.line_type == 'Sub'",
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "read_only": 1
+  },
+  {
+   "default": "Normal",
+   "depends_on": "eval:doc.line_type == 'Sub'",
+   "fieldname": "display_mode",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Display Mode",
+   "options": "Normal\nN/A\nRate Only"
+  }
+ ],
+ "istable": 1,
+ "modified": "2026-07-14 12:00:00",
+ "modified_by": "Administrator",
+ "module": "Construction Management",
+ "name": "Quotation BOQ Line",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
