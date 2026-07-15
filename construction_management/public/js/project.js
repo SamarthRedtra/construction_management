@@ -40,6 +40,10 @@ frappe.ui.form.on('Project', {
 			construction_management.project_approved_materials.render(frm);
 		}
 
+		if (construction_management.project_team_allocation?.render) {
+			construction_management.project_team_allocation.render(frm);
+		}
+
 		construction_management.project_tab_access.apply(frm);
 		render_project_commission_embed(frm);
 	},

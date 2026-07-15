@@ -6,6 +6,7 @@ from frappe import _
 from frappe.utils import cint, flt
 
 from construction_management.api.boq_tasks import create_boq_item_with_task
+from construction_management.overrides.project import get_project_contractor_name
 
 
 STATUS_FILTERS = {
@@ -61,6 +62,7 @@ def get_project_process_home_data(
 			"custom_project_no",
 			"custom_sales_engineer",
 			"custom_project_engineer",
+			"customer",
 			"contractor",
 			"project_name",
 			"custom_location",
@@ -74,9 +76,12 @@ def get_project_process_home_data(
 	employee_ids = {
 		p.custom_sales_engineer for p in projects if p.custom_sales_engineer
 	} | {p.custom_project_engineer for p in projects if p.custom_project_engineer}
-	contractor_ids = {p.contractor for p in projects if p.contractor}
 	employee_names = _get_employee_names(list(employee_ids))
-	contractor_names = _get_supplier_names(list(contractor_ids))
+	contractor_names = {
+		p.name: get_project_contractor_name(p)
+		for p in projects
+		if getattr(p, "customer", None) or getattr(p, "contractor", None)
+	}
 
 	if search:
 		needle = search.strip().lower()
@@ -98,7 +103,7 @@ def get_project_process_home_data(
 				"project_no": project.custom_project_no or project.name,
 				"sales_person": employee_names.get(project.custom_sales_engineer, ""),
 				"assign_to": employee_names.get(project.custom_project_engineer, _("!Not Assign")),
-				"contractor": contractor_names.get(project.contractor, ""),
+				"contractor": contractor_names.get(project.name, ""),
 				"project_name": project.project_name,
 				"location": project.custom_location or "",
 				"emirates": project.custom_emirates or "",
@@ -142,10 +147,11 @@ def _project_matches_search(project, needle: str, employee_names: dict, contract
 		project.custom_emirates,
 		project.custom_sales_engineer,
 		project.custom_project_engineer,
+		project.customer,
 		project.contractor,
 		employee_names.get(project.custom_sales_engineer),
 		employee_names.get(project.custom_project_engineer),
-		contractor_names.get(project.contractor),
+		contractor_names.get(project.name),
 	]
 	return any(needle in (value or "").lower() for value in search_values)
 

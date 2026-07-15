@@ -43,11 +43,14 @@ construction_management.project_approved_materials.render_table = function (wrap
 		<style>
 			.approved-materials-wrap {
 				font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-				padding: 10px 12px;
+				padding: 10px 12px 200px;
+				min-height: 360px;
 				background: #fff;
 				border: 1px solid #e5e7eb;
 				border-radius: 8px;
 				margin: 8px 0;
+				overflow: visible;
+				position: relative;
 			}
 			.approved-materials-toolbar {
 				display: flex;
@@ -62,6 +65,10 @@ construction_management.project_approved_materials.render_table = function (wrap
 				font-weight: 700;
 				color: #111827;
 			}
+			.approved-materials-table-wrap {
+				overflow: visible !important;
+				min-height: 240px;
+			}
 			.approved-materials-table {
 				width: 100%;
 				border-collapse: collapse;
@@ -72,6 +79,8 @@ construction_management.project_approved_materials.render_table = function (wrap
 				border: 1px solid #e5e7eb;
 				padding: 6px 8px;
 				vertical-align: top;
+				overflow: visible;
+				position: relative;
 			}
 			.approved-materials-table th {
 				background: #f9fafb;
@@ -91,10 +100,45 @@ construction_management.project_approved_materials.render_table = function (wrap
 				min-height: 42px;
 				resize: vertical;
 			}
+			.approved-materials-table .boq-item-link {
+				position: relative;
+				z-index: 2;
+			}
+			.approved-materials-wrap .awesomplete {
+				position: relative;
+				display: block;
+				width: 100%;
+			}
+			.approved-materials-wrap .awesomplete > ul {
+				position: absolute;
+				top: calc(100% + 2px);
+				left: 0;
+				right: 0;
+				z-index: 2000;
+				max-height: 240px;
+				overflow-y: auto;
+				background: #fff;
+				border: 1px solid #d1d5db;
+				border-radius: 6px;
+				box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+				margin: 0;
+				padding: 4px 0;
+			}
+			.approved-materials-wrap .awesomplete > ul > li {
+				padding: 6px 10px;
+				font-size: 12px;
+				white-space: normal;
+				line-height: 1.35;
+			}
+			.approved-materials-wrap .awesomplete > ul > li:hover,
+			.approved-materials-wrap .awesomplete > ul > li[aria-selected="true"] {
+				background: #eef2ff;
+			}
 			.approved-materials-empty {
 				color: #6b7280;
 				font-size: 12px;
 				padding: 8px 0;
+				min-height: 120px;
 			}
 		</style>
 		<div class="approved-materials-wrap">
@@ -110,7 +154,7 @@ construction_management.project_approved_materials.render_table = function (wrap
 			</div>
 			${
 				(materials || []).length
-					? `<div class="table-responsive">
+					? `<div class="approved-materials-table-wrap">
 						<table class="approved-materials-table">
 							<thead>
 								<tr>
@@ -135,6 +179,8 @@ construction_management.project_approved_materials.render_table = function (wrap
 	`;
 
 	wrapper.html(html);
+	wrapper.css({ overflow: "visible", "min-height": "380px" });
+	wrapper.closest(".form-section, .tab-pane, .form-page").css("overflow", "visible");
 	construction_management.project_approved_materials.bind_events(wrapper, frm, materials, read_only);
 };
 
@@ -244,9 +290,11 @@ construction_management.project_approved_materials.bind_events = function (wrapp
 				}));
 				input._boq_awesomplete = new Awesomplete(input, {
 					minChars: 0,
-					maxItems: 20,
+					maxItems: 50,
+					autoFirst: true,
 					list: items,
 				});
+				input._boq_awesomplete.open();
 			},
 		});
 	});

@@ -61,9 +61,9 @@ def fetch_project_data(project):
 		frappe.throw(_("Project is required"))
 
 	project_doc = frappe.get_doc("Project", project)
-	contractor_name = ""
-	if getattr(project_doc, "contractor", None):
-		contractor_name = frappe.db.get_value("Supplier", project_doc.contractor, "supplier_name") or ""
+	from construction_management.overrides.project import get_project_contractor_name
+
+	contractor_name = get_project_contractor_name(project_doc)
 	engineer_name = ""
 	if getattr(project_doc, "custom_project_engineer", None):
 		engineer_name = (

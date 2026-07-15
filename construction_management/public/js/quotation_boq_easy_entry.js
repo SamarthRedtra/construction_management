@@ -164,12 +164,14 @@ construction_management.quotation_boq_easy_entry.open_dialog = function (frm) {
 				fieldname: "section_title",
 				label: __("Section Title"),
 				description: __("Optional. Used as BOQ section header."),
+				depends_on: 'eval:doc.entry_mode == "Quick Add Parent + Subs"',
 			},
 			{
 				fieldtype: "Small Text",
 				fieldname: "parent_description",
 				label: __("Parent Description"),
-				reqd: 1,
+				mandatory_depends_on: 'eval:doc.entry_mode == "Quick Add Parent + Subs"',
+				depends_on: 'eval:doc.entry_mode == "Quick Add Parent + Subs"',
 			},
 			{
 				fieldtype: "HTML",
@@ -187,6 +189,7 @@ construction_management.quotation_boq_easy_entry.open_dialog = function (frm) {
 				fieldtype: "Table",
 				fieldname: "sub_rows",
 				label: __("Sub Items"),
+				depends_on: 'eval:doc.entry_mode == "Quick Add Parent + Subs"',
 				fields: [
 					{
 						fieldtype: "Small Text",
@@ -261,6 +264,7 @@ A\tHorizontally to Raft Slab\tm2\t2184\t62.00</pre>
 				fieldname: "paste_text",
 				label: __("Paste Data"),
 				options: "Text",
+				mandatory_depends_on: 'eval:doc.entry_mode == "Paste from Excel"',
 				depends_on: 'eval:doc.entry_mode == "Paste from Excel"',
 			},
 			{
@@ -299,6 +303,7 @@ A\tHorizontally to Raft Slab\tm2\t2184\t62.00</pre>
 				fieldtype: "Attach",
 				fieldname: "excel_file",
 				label: __("Select Excel File"),
+				mandatory_depends_on: 'eval:doc.entry_mode == "Import Excel File"',
 				depends_on: 'eval:doc.entry_mode == "Import Excel File"',
 				options: {
 					restrictions: {
@@ -323,15 +328,28 @@ A\tHorizontally to Raft Slab\tm2\t2184\t62.00</pre>
 		construction_management.quotation_boq_easy_entry.download_example_excel(frm);
 	});
 
-	// Start with 3 blank sub rows for faster entry
-	if (!(d.get_value("sub_rows") || []).length) {
-		for (let i = 0; i < 3; i++) {
-			const row = d.fields_dict.sub_rows.grid.add_new_row();
-			row.uom = "Nos";
-			row.display_mode = "Normal";
-		}
-		d.fields_dict.sub_rows.grid.refresh();
+	d.fields_dict.entry_mode.$input.on("change", () => {
+		construction_management.quotation_boq_easy_entry.on_entry_mode_change(d);
+	});
+
+	construction_management.quotation_boq_easy_entry.on_entry_mode_change(d);
+};
+
+construction_management.quotation_boq_easy_entry.on_entry_mode_change = function (dialog) {
+	const mode = dialog.get_value("entry_mode");
+	if (mode !== "Quick Add Parent + Subs") {
+		return;
 	}
+	const grid = dialog.fields_dict.sub_rows?.grid;
+	if (!grid || (dialog.get_value("sub_rows") || []).length) {
+		return;
+	}
+	for (let i = 0; i < 3; i++) {
+		const row = grid.add_new_row();
+		row.uom = "Nos";
+		row.display_mode = "Normal";
+	}
+	grid.refresh();
 };
 
 construction_management.quotation_boq_easy_entry.load_example = function (dialog, frm) {
@@ -382,12 +400,21 @@ construction_management.quotation_boq_easy_entry.download_example_excel = functi
 construction_management.quotation_boq_easy_entry.apply_dialog = function (frm, dialog, values) {
 	const mode = values.entry_mode;
 
+	const finish_import = (lines) => {
+		if (!lines.length) {
+			frappe.msgprint(__("No BOQ rows could be parsed."));
+			return;
+		}
+		construction_management.quotation_boq_easy_entry.append_lines(frm, lines, dialog);
+	};
+
 	if (mode === "Import Excel File") {
 		if (!values.excel_file) {
 			frappe.msgprint(__("Select an Excel file first, or download the example template."));
 			return;
 		}
 
+		dialog.disable_primary_action();
 		frappe.call({
 			method: "construction_management.api.quotation_boq.import_boq_lines_from_excel",
 			args: {
@@ -396,12 +423,13 @@ construction_management.quotation_boq_easy_entry.apply_dialog = function (frm, d
 			},
 			freeze: true,
 			callback(r) {
-				const lines = r.message || [];
-				if (!lines.length) {
-					frappe.msgprint(__("No BOQ rows could be parsed from the Excel file."));
-					return;
-				}
-				construction_management.quotation_boq_easy_entry.append_lines(frm, lines, dialog);
+				dialog.enable_primary_action();
+				frappe.dom.unfreeze();
+				finish_import(r.message || []);
+			},
+			error() {
+				dialog.enable_primary_action();
+				frappe.dom.unfreeze();
 			},
 		});
 		return;
@@ -413,6 +441,7 @@ construction_management.quotation_boq_easy_entry.apply_dialog = function (frm, d
 			return;
 		}
 
+		dialog.disable_primary_action();
 		frappe.call({
 			method: "construction_management.api.quotation_boq.parse_pasted_boq_text",
 			args: {
@@ -421,12 +450,13 @@ construction_management.quotation_boq_easy_entry.apply_dialog = function (frm, d
 			},
 			freeze: true,
 			callback(r) {
-				const lines = r.message || [];
-				if (!lines.length) {
-					frappe.msgprint(__("No BOQ rows could be parsed from pasted data."));
-					return;
-				}
-				construction_management.quotation_boq_easy_entry.append_lines(frm, lines, dialog);
+				dialog.enable_primary_action();
+				frappe.dom.unfreeze();
+				finish_import(r.message || []);
+			},
+			error() {
+				dialog.enable_primary_action();
+				frappe.dom.unfreeze();
 			},
 		});
 		return;
@@ -437,6 +467,7 @@ construction_management.quotation_boq_easy_entry.apply_dialog = function (frm, d
 		return;
 	}
 
+	dialog.disable_primary_action();
 	frappe.call({
 		method: "construction_management.api.quotation_boq.build_quick_boq_lines",
 		args: {
@@ -448,17 +479,31 @@ construction_management.quotation_boq_easy_entry.apply_dialog = function (frm, d
 		},
 		freeze: true,
 		callback(r) {
-			const lines = r.message || [];
-			if (!lines.length) {
-				frappe.msgprint(__("Add at least one sub item row."));
-				return;
-			}
-			construction_management.quotation_boq_easy_entry.append_lines(frm, lines, dialog);
+			dialog.enable_primary_action();
+			frappe.dom.unfreeze();
+			finish_import(r.message || []);
+		},
+		error() {
+			dialog.enable_primary_action();
+			frappe.dom.unfreeze();
 		},
 	});
 };
 
 construction_management.quotation_boq_easy_entry.append_lines = function (frm, lines, dialog) {
+	const close_dialog = () => {
+		frappe.dom.unfreeze();
+		if (!dialog) {
+			return;
+		}
+		// Defer hide so frappe.confirm modal can dismiss first.
+		setTimeout(() => {
+			if (dialog.$wrapper && dialog.$wrapper.is(":visible")) {
+				dialog.hide();
+			}
+		}, 0);
+	};
+
 	const apply = () => {
 		lines.forEach((line) => {
 			const row = frm.add_child("custom_boq_lines");
@@ -466,16 +511,21 @@ construction_management.quotation_boq_easy_entry.append_lines = function (frm, l
 		});
 		frm.refresh_field("custom_boq_lines");
 		construction_management.quotation_boq_easy_entry.render_total(frm);
+		close_dialog();
 		frappe.show_alert({
 			message: __("Added {0} BOQ rows", [lines.length]),
 			indicator: "green",
 		});
-		dialog.hide();
 	};
 
 	if ((frm.doc.custom_boq_lines || []).length) {
-		frappe.confirm(__("Append {0} rows to existing BOQ lines?", [lines.length]), apply);
-	} else {
-		apply();
+		frappe.confirm(
+			__("Append {0} rows to existing BOQ lines?", [lines.length]),
+			() => apply(),
+			() => frappe.dom.unfreeze()
+		);
+		return;
 	}
+
+	apply();
 };

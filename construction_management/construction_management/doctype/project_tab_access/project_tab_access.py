@@ -10,6 +10,7 @@ TAB_FIELDNAMES = {
 	"Details": "__details",
 	"Connections": "connections_tab",
 	"Construction": "construction_tab",
+	"Approved Materials": "custom_approved_materials_tab",
 	"Costing": "costing_tab",
 	"Progress": "monitor_progress_tab",
 	"Project SOA": "project_soa_tab",

@@ -5,35 +5,19 @@
 <style>
 	@page {
 		size: A4;
-		margin: 22mm 12mm 18mm 12mm;
-		@top-right {
-			content: element(boq-running-header);
-			font-size: 10px;
-		}
+		margin: 18mm 12mm 16mm 12mm;
 	}
 
 	.boq-quote {
 		font-family: Arial, Helvetica, sans-serif;
 		font-size: 11px;
-		color: #000;
+		color: #1f2937;
 		width: 100%;
-	}
-	.boq-quote .running-header {
-		position: running(boq-running-header);
-		text-align: right;
-		font-size: 10px;
-		line-height: 1.4;
-		color: #000;
-	}
-	.boq-quote .running-header .qt-title {
-		font-size: 14px;
-		font-weight: bold;
-		letter-spacing: 1px;
 	}
 	.boq-quote .top-bar {
 		width: 100%;
 		border-collapse: collapse;
-		margin-bottom: 10px;
+		margin-bottom: 12px;
 	}
 	.boq-quote .top-bar td {
 		vertical-align: top;
@@ -46,51 +30,67 @@
 	}
 	.boq-quote .title-block {
 		text-align: right;
+		background: #e8f0fe;
+		color: #1e3a5f;
+		padding: 12px 14px;
+		border-radius: 6px;
+		border: 1px solid #cbd5e1;
 	}
 	.boq-quote .title-block .qt-title {
-		font-size: 20px;
+		font-size: 22px;
 		font-weight: bold;
 		letter-spacing: 1px;
-		margin: 0 0 6px;
+		margin: 0 0 8px;
+		color: #1e3a5f;
 	}
 	.boq-quote .title-block .ref {
-		font-size: 12px;
-		line-height: 1.5;
+		font-size: 11px;
+		line-height: 1.55;
+		color: #334155;
+	}
+	.boq-quote .title-block .ref strong {
+		color: #1e3a5f;
 	}
 	.boq-quote .meta {
 		width: 100%;
 		border-collapse: collapse;
-		margin-bottom: 12px;
+		margin-bottom: 14px;
 	}
 	.boq-quote .meta td {
-		border: 1px solid #000;
-		padding: 5px 8px;
+		border: 1px solid #cbd5e1;
+		padding: 6px 8px;
 		vertical-align: top;
 	}
 	.boq-quote .meta .lbl {
 		font-weight: bold;
 		width: 14%;
-		background: #ececec;
+		background: #e8f0fe;
+		color: #1e3a5f;
 		white-space: nowrap;
 	}
-	.boq-quote .boq-label {
+	.boq-quote .boq-label,
+	.boq-quote .section-label {
 		font-weight: bold;
-		margin: 8px 0 4px;
-		font-size: 11px;
+		margin: 10px 0 6px;
+		font-size: 12px;
+		color: #1e3a5f;
+		border-left: 4px solid #2563eb;
+		padding-left: 8px;
 	}
 	.boq-quote .items {
 		width: 100%;
 		border-collapse: collapse;
-		margin-bottom: 10px;
+		margin-bottom: 12px;
 	}
 	.boq-quote .items th,
 	.boq-quote .items td {
-		border: 1px solid #333;
+		border: 1px solid #94a3b8;
 		padding: 5px 6px;
 		vertical-align: top;
 	}
 	.boq-quote .items th {
-		background: #c0c0c0;
+		background: #e8f0fe;
+		color: #000;
 		text-align: center;
 		font-weight: bold;
 	}
@@ -105,46 +105,76 @@
 	.boq-quote .section-row td {
 		font-weight: bold;
 		text-transform: uppercase;
-		background: #d9d9d9;
+		background: #dbeafe;
+		color: #1e3a5f;
 		text-align: left;
 	}
-	.boq-quote .parent-row .desc { font-weight: bold; }
+	.boq-quote .parent-row .desc { font-weight: bold; background: #f8fafc; }
 	.boq-quote .sub-row .desc { padding-left: 16px; }
-	.boq-quote .totals {
-		width: 50%;
+	.boq-quote .totals-wrap {
+		width: 100%;
+		margin: 10px 0 18px;
+	}
+	.boq-quote .totals-wrap table {
 		margin-left: auto;
+		margin-right: 0;
+	}
+	.boq-quote .totals {
+		width: 46%;
+		min-width: 300px;
 		border-collapse: collapse;
-		margin: 8px 0 16px;
 	}
 	.boq-quote .totals td {
-		border: 1px solid #333;
-		padding: 6px 8px;
+		border: 1px solid #94a3b8;
+		padding: 7px 10px;
 	}
 	.boq-quote .totals .lbl {
 		font-weight: bold;
 		text-align: right;
-		width: 65%;
-		background: #f5f5f5;
+		width: 62%;
+		background: #f1f5f9;
+		color: #334155;
 	}
 	.boq-quote .totals .num {
 		text-align: right;
 		font-variant-numeric: tabular-nums;
-		background: #f5f5f5;
-		font-weight: bold;
+		background: #fff;
+		font-weight: 600;
+		color: #1e3a5f;
+		white-space: nowrap;
+	}
+	.boq-quote .totals .grand .lbl,
+	.boq-quote .totals .grand .num {
+		background: #1e3a5f;
+		color: #fff;
+		font-size: 12px;
 	}
 	.boq-quote .terms {
-		margin-top: 14px;
+		margin-top: 4px;
+		margin-bottom: 12px;
 		font-size: 10px;
-		line-height: 1.45;
+		line-height: 1.5;
+		color: #334155;
+	}
+	.boq-quote .terms-body {
+		border: 1px solid #cbd5e1;
+		background: #f8fafc;
+		padding: 10px 12px;
+	}
+	.boq-quote .terms-body p {
+		margin: 0 0 6px;
+	}
+	.boq-quote .terms-body ul,
+	.boq-quote .terms-body ol {
+		margin: 4px 0 8px 18px;
+		padding: 0;
+	}
+	.boq-quote .terms-body li {
+		margin-bottom: 4px;
 	}
 </style>
 
 <div class="boq-quote">
-	<div class="running-header">
-		<div class="qt-title">QUOTATION</div>
-		<div><strong>Quotation No.:</strong> {{ q.header.quotation_ref }}</div>
-	</div>
-
 	<table class="top-bar">
 		<tr>
 			<td style="width: 55%;">
@@ -153,16 +183,18 @@
 				{% elif q.letter_head and q.letter_head.header %}
 				{{ q.letter_head.header }}
 				{% else %}
-				<div style="font-size:16px;font-weight:bold;">{{ q.header.company_name }}</div>
+				<div style="font-size:16px;font-weight:bold;color:#1e3a5f;">{{ q.header.company_name }}</div>
 				{% endif %}
 			</td>
-			<td class="title-block">
-				<div class="qt-title">QUOTATION</div>
-				<div class="ref"><strong>Quotation No.:</strong> {{ q.header.quotation_ref }}</div>
-				<div class="ref"><strong>Quotation Date:</strong> {{ q.header.date }}</div>
-				{% if q.header.company_trn %}
-				<div class="ref"><strong>TRN:</strong> {{ q.header.company_trn }}</div>
-				{% endif %}
+			<td style="width: 45%;">
+				<div class="title-block">
+					<div class="qt-title">QUOTATION</div>
+					<div class="ref"><strong>Quotation No.:</strong> {{ q.header.quotation_ref }}</div>
+					<div class="ref"><strong>Quotation Date:</strong> {{ q.header.date }}</div>
+					{% if q.header.company_trn %}
+					<div class="ref"><strong>TRN:</strong> {{ q.header.company_trn }}</div>
+					{% endif %}
+				</div>
 			</td>
 		</tr>
 	</table>
@@ -194,7 +226,7 @@
 		</tr>
 	</table>
 
-	<div class="boq-label">Bill of Quantity:</div>
+	<div class="boq-label">Bill of Quantity</div>
 
 	<table class="items">
 		<thead>
@@ -248,25 +280,30 @@
 	</table>
 
 	{% if q.sections %}
-	<table class="totals">
-		<tr>
-			<td class="lbl">Total Amount Excl. VAT</td>
-			<td class="num">{{ cur(q.totals.total_excl_vat) }}</td>
-		</tr>
-		<tr>
-			<td class="lbl">{{ q.totals.vat_label }}</td>
-			<td class="num">{{ cur(q.totals.vat_amount) }}</td>
-		</tr>
-		<tr>
-			<td class="lbl">Total Amount Incl. VAT</td>
-			<td class="num">{{ cur(q.totals.total_incl_vat) }}</td>
-		</tr>
-	</table>
+	<div class="totals-wrap">
+		<table class="totals">
+			<tr>
+				<td class="lbl">Total Amount Excl. VAT</td>
+				<td class="num">{{ cur(q.totals.total_excl_vat) }}</td>
+			</tr>
+			<tr>
+				<td class="lbl">{{ q.totals.vat_label }}</td>
+				<td class="num">{{ cur(q.totals.vat_amount) }}</td>
+			</tr>
+			<tr class="grand">
+				<td class="lbl">Total Amount Incl. VAT</td>
+				<td class="num">{{ cur(q.totals.total_incl_vat) }}</td>
+			</tr>
+		</table>
+	</div>
 	{% endif %}
 
 	{% if q.terms_html %}
 	<div class="terms">
-		{{ q.terms_html }}
+		<div class="section-label">Terms and Conditions</div>
+		<div class="terms-body">
+			{{ q.terms_html }}
+		</div>
 	</div>
 	{% endif %}
 </div>
