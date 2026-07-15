@@ -3,6 +3,8 @@
  */
 
 const QUOTATION_BOQ_ITEM = "QUOTATION-BOQ";
+const HIERARCHY_TWO_LEVEL = "2 Level (Parent + Sub)";
+const HIERARCHY_THREE_LEVEL = "3 Level (Section + Parent + Sub)";
 
 frappe.ui.form.on("Quotation", {
 	onload(frm) {
@@ -14,6 +16,10 @@ frappe.ui.form.on("Quotation", {
 		setup_boq_buttons(frm);
 		setup_boq_grid(frm);
 		setup_print_hint(frm);
+	},
+
+	company(frm) {
+		setup_boq_buttons(frm);
 	},
 
 	validate(frm) {
@@ -82,18 +88,37 @@ function setup_boq_buttons(frm) {
 		return;
 	}
 
-	frm.add_custom_button(__("Add Section"), () => add_boq_row(frm, "Section"), __("BOQ"));
-	frm.add_custom_button(__("Add Parent"), () => add_boq_row(frm, "Parent"), __("BOQ"));
-	frm.add_custom_button(__("Add Sub"), () => add_boq_row(frm, "Sub"), __("BOQ"));
+	const company = frm.doc.company;
+	const render_buttons = (hierarchy) => {
+		if (frm.doc.company !== company) {
+			return;
+		}
+		const two_level = hierarchy === HIERARCHY_TWO_LEVEL;
 
-	const estimation = frm.doc.custom_project_estimation;
-	if (estimation) {
-		frm.add_custom_button(
-			__("Import from Estimation"),
-			() => import_boq_lines_from_estimation(frm, estimation),
-			__("BOQ")
-		);
+		if (!two_level) {
+			frm.add_custom_button(__("Add Section"), () => add_boq_row(frm, "Section"), __("BOQ"));
+		}
+		frm.add_custom_button(__("Add Parent"), () => add_boq_row(frm, "Parent"), __("BOQ"));
+		frm.add_custom_button(__("Add Sub"), () => add_boq_row(frm, "Sub"), __("BOQ"));
+
+		const estimation = frm.doc.custom_project_estimation;
+		if (estimation) {
+			frm.add_custom_button(
+				__("Import from Estimation"),
+				() => import_boq_lines_from_estimation(frm, estimation),
+				__("BOQ")
+			);
+		}
+	};
+
+	if (!company) {
+		render_buttons(HIERARCHY_THREE_LEVEL);
+		return;
 	}
+
+	frappe.db.get_value("BOQ Settings", company, "quotation_boq_hierarchy", (r) => {
+		render_buttons((r && r.message && r.message.quotation_boq_hierarchy) || HIERARCHY_THREE_LEVEL);
+	});
 }
 
 function add_boq_row(frm, line_type) {
@@ -200,6 +225,7 @@ function toggle_boq_row_fields(grid_row) {
 	const show_parent = line_type === "Parent";
 
 	grid_row.toggle_editable("section_title", show_section || show_parent);
+	grid_row.toggle_display("section_title", show_section || show_parent);
 	grid_row.toggle_editable("parent_no", show_parent || show_for_sub);
 	grid_row.toggle_editable("sub_no", show_for_sub);
 	grid_row.toggle_editable("uom", show_for_sub);

@@ -11,6 +11,7 @@
   "section_break_2",
   "mandatory_site_location",
   "bulk_dpr_help_video_url",
+  "quotation_boq_hierarchy",
   "default_warehouse",
   "column_break_5",
   "auto_create_warehouse",
@@ -79,6 +80,14 @@
    "fieldname": "bulk_dpr_help_video_url",
    "fieldtype": "Data",
    "label": "Bulk DPR Help Video URL"
+  },
+  {
+   "default": "3 Level (Section + Parent + Sub)",
+   "description": "Controls Quotation BOQ entry buttons and print grouping",
+   "fieldname": "quotation_boq_hierarchy",
+   "fieldtype": "Select",
+   "label": "Quotation BOQ Hierarchy",
+   "options": "3 Level (Section + Parent + Sub)\n2 Level (Parent + Sub)"
   },
   {
    "description": "Default warehouse for projects without site location",

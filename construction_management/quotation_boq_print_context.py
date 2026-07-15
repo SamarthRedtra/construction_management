@@ -8,6 +8,11 @@ from __future__ import annotations
 import frappe
 from frappe.utils import flt, formatdate, get_url
 
+from construction_management.quotation_boq_hierarchy import (
+	HIERARCHY_TWO_LEVEL,
+	resolve_hierarchy_mode,
+)
+
 
 def build_boq_quotation_print_context(doc) -> dict:
 	"""Return header meta, structured BOQ rows, totals, and terms for Jinja print."""
@@ -41,7 +46,11 @@ def build_boq_quotation_print_context(doc) -> dict:
 		logo_url = get_url(company.company_logo)
 
 	letter_head = _get_letter_head(doc, company.get("default_letter_head"))
-	sections, total_excl = _group_boq_lines(doc.get("custom_boq_lines") or [])
+	hierarchy_mode = resolve_hierarchy_mode(doc.company, doc.get("custom_boq_lines") or [])
+	sections, total_excl = _group_boq_lines(
+		doc.get("custom_boq_lines") or [],
+		hierarchy_mode=hierarchy_mode,
+	)
 	vat_amount, vat_label = _vat_from_doc(doc, total_excl)
 
 	boq_html = doc.get("custom_boq_html") or ""
@@ -54,6 +63,7 @@ def build_boq_quotation_print_context(doc) -> dict:
 		"header": header,
 		"logo_url": logo_url,
 		"letter_head": letter_head,
+		"hierarchy_mode": hierarchy_mode,
 		"sections": sections,
 		"totals": {
 			"total_excl_vat": total_excl,
@@ -78,8 +88,9 @@ def _get_letter_head(doc, default_letter_head: str | None) -> dict | None:
 	return get_letter_head(lh_doc, 0)
 
 
-def _group_boq_lines(lines: list) -> tuple[list[dict], float]:
+def _group_boq_lines(lines: list, hierarchy_mode: str | None = None) -> tuple[list[dict], float]:
 	ordered = sorted(lines, key=lambda row: row.idx or 0)
+	two_level = hierarchy_mode == HIERARCHY_TWO_LEVEL
 	sections: list[dict] = []
 	current_section: dict | None = None
 	current_parent: dict | None = None
@@ -89,6 +100,8 @@ def _group_boq_lines(lines: list) -> tuple[list[dict], float]:
 		line_type = row.get("line_type") or "Parent"
 
 		if line_type == "Section":
+			if two_level:
+				continue
 			title = (row.get("section_title") or row.get("description") or "").strip()
 			current_section = {"title": title, "parents": []}
 			sections.append(current_section)
@@ -100,6 +113,12 @@ def _group_boq_lines(lines: list) -> tuple[list[dict], float]:
 			sections.append(current_section)
 
 		if line_type == "Parent":
+			section_title = (row.get("section_title") or "").strip()
+			if two_level and section_title and section_title != current_section.get("title"):
+				current_section = {"title": section_title, "parents": []}
+				sections.append(current_section)
+				current_parent = None
+
 			current_parent = {
 				"no": row.get("parent_no") or "",
 				"description": row.get("description") or "",
@@ -109,7 +128,19 @@ def _group_boq_lines(lines: list) -> tuple[list[dict], float]:
 			continue
 
 		if line_type == "Sub":
-			if not current_parent:
+			parent_no = row.get("parent_no")
+			if parent_no:
+				matched_parent = _find_parent_in_section(current_section, parent_no)
+				if matched_parent:
+					current_parent = matched_parent
+				else:
+					current_parent = {
+						"no": parent_no,
+						"description": "",
+						"subs": [],
+					}
+					current_section["parents"].append(current_parent)
+			elif not current_parent:
 				current_parent = {
 					"no": row.get("parent_no") or "",
 					"description": "",
@@ -123,6 +154,16 @@ def _group_boq_lines(lines: list) -> tuple[list[dict], float]:
 				total_excl += flt(sub["amount"])
 
 	return sections, total_excl
+
+
+def _find_parent_in_section(section: dict, parent_no) -> dict | None:
+	target = str(parent_no or "").strip()
+	if not target:
+		return None
+	for parent in section.get("parents") or []:
+		if str(parent.get("no") or "").strip() == target:
+			return parent
+	return None
 
 
 def _format_sub_row(row) -> dict:

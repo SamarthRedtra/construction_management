@@ -40,7 +40,7 @@ class QuotationOverride(Quotation):
 
 		from construction_management.api.quotation_boq import lines_to_boq_html
 
-		self.custom_boq_html = lines_to_boq_html(lines, include_totals=True)
+		self.custom_boq_html = lines_to_boq_html(lines, include_totals=True, company=self.company)
 
 	def _boq_total(self) -> float:
 		return sum(

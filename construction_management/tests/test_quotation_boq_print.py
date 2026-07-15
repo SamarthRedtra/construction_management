@@ -45,6 +45,97 @@ class TestQuotationBOQPrint(FrappeTestCase):
 		self.assertIn("A.", html)
 		self.assertIn("1,000.00", html)
 
+	def test_print_context_two_level_parent_sub_only(self):
+		doc = frappe._dict(
+			{
+				"name": "QTN-TEST-0002",
+				"company": self.company,
+				"transaction_date": today(),
+				"currency": "AED",
+				"custom_boq_html": "",
+				"custom_boq_lines": [
+					frappe._dict(
+						idx=1,
+						line_type="Parent",
+						parent_no="1",
+						description="Waterproofing membrane",
+					),
+					frappe._dict(
+						idx=2,
+						line_type="Sub",
+						parent_no="1",
+						sub_no="A",
+						description="Horizontal",
+						uom="m2",
+						qty=10,
+						rate=50,
+						amount=500,
+						display_mode="Normal",
+					),
+					frappe._dict(
+						idx=3,
+						line_type="Parent",
+						parent_no="2",
+						description="Bituminous coating",
+					),
+					frappe._dict(
+						idx=4,
+						line_type="Sub",
+						parent_no="2",
+						sub_no="A",
+						description="Vertical",
+						uom="m2",
+						qty=20,
+						rate=30,
+						amount=600,
+						display_mode="Normal",
+					),
+				],
+				"terms": "",
+			}
+		)
+		ctx = build_boq_quotation_print_context(doc)
+		self.assertEqual(ctx["hierarchy_mode"], "2 Level (Parent + Sub)")
+		self.assertEqual(len(ctx["sections"]), 1)
+		self.assertEqual(len(ctx["sections"][0]["parents"]), 2)
+		self.assertEqual(ctx["totals"]["total_excl_vat"], 1100)
+		self.assertIn("Waterproofing membrane", ctx["boq_html"])
+		self.assertIn("1,100.00", ctx["boq_html"])
+
+	def test_sub_attaches_by_parent_no_not_row_order(self):
+		lines = [
+			frappe._dict(idx=1, line_type="Parent", parent_no="1", description="Parent One"),
+			frappe._dict(idx=2, line_type="Parent", parent_no="2", description="Parent Two"),
+			frappe._dict(
+				idx=3,
+				line_type="Sub",
+				parent_no="1",
+				sub_no="A",
+				description="Belongs to one",
+				uom="m2",
+				qty=5,
+				rate=10,
+				amount=50,
+				display_mode="Normal",
+			),
+		]
+		ctx = build_boq_quotation_print_context(
+			frappe._dict(
+				name="QTN-TEST",
+				company=self.company,
+				transaction_date=today(),
+				currency="AED",
+				custom_boq_lines=lines,
+				terms="",
+			)
+		)
+		parent_one = ctx["sections"][0]["parents"][0]
+		parent_two = ctx["sections"][0]["parents"][1]
+		self.assertEqual(parent_one["description"], "Parent One")
+		self.assertEqual(len(parent_one["subs"]), 1)
+		self.assertEqual(parent_one["subs"][0]["description"], "Belongs to one")
+		self.assertEqual(len(parent_two["subs"]), 0)
+
 	def test_print_context_falls_back_to_lines(self):
 		doc = frappe._dict(
 			{

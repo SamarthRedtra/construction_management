@@ -27,6 +27,14 @@ def get_boq_html_template() -> str:
 
 
 @frappe.whitelist()
+def get_quotation_boq_hierarchy(company: str | None = None) -> str:
+	"""Return configured Quotation BOQ hierarchy for a company."""
+	from construction_management.quotation_boq_hierarchy import get_quotation_boq_hierarchy as _get_hierarchy
+
+	return _get_hierarchy(company)
+
+
+@frappe.whitelist()
 def import_boq_lines_from_estimation(estimation_name: str) -> list[dict]:
 	"""Build Quotation BOQ Line rows from Project Estimation (grouped by task)."""
 	if not estimation_name:
@@ -37,6 +45,7 @@ def import_boq_lines_from_estimation(estimation_name: str) -> list[dict]:
 
 	estimation = frappe.get_doc("Project Estimation", estimation_name)
 	source_items = _get_estimation_source_items(estimation)
+	two_level = _is_two_level_import(estimation.company)
 
 	lines: list[dict] = []
 	parent_counter = 0
@@ -46,26 +55,33 @@ def import_boq_lines_from_estimation(estimation_name: str) -> list[dict]:
 		task_name = (item.get("task") or item.get("activity_type") or "General").strip()
 		if task_name != current_task:
 			current_task = task_name
-			lines.append(
-				{
-					"line_type": "Section",
-					"section_title": task_name,
-					"description": task_name,
-				}
-			)
+			if not two_level:
+				lines.append(
+					{
+						"line_type": "Section",
+						"section_title": task_name,
+						"description": task_name,
+					}
+				)
 			parent_counter = 0
 
 		parent_counter += 1
-		lines.append(
-			{
-				"line_type": "Parent",
-				"section_title": task_name,
-				"parent_no": str(parent_counter),
-				"description": _estimation_item_description(item),
-			}
-		)
+		parent_row = {
+			"line_type": "Parent",
+			"parent_no": str(parent_counter),
+			"description": _estimation_item_description(item),
+		}
+		if two_level:
+			parent_row["section_title"] = task_name
+		lines.append(parent_row)
 
 	return lines
+
+
+def _is_two_level_import(company: str | None) -> bool:
+	from construction_management.quotation_boq_hierarchy import is_two_level_hierarchy
+
+	return is_two_level_hierarchy(company)
 
 
 @frappe.whitelist()
@@ -75,50 +91,43 @@ def import_boq_html_from_estimation(estimation_name: str) -> str:
 	return lines_to_boq_html(lines, include_totals=True)
 
 
-def lines_to_boq_html(lines: list, include_totals: bool = True) -> str:
+def lines_to_boq_html(lines: list, include_totals: bool = True, company: str | None = None) -> str:
 	"""Convert Quotation BOQ Line child rows to print HTML."""
-	ordered = sorted(lines, key=lambda row: getattr(row, "idx", None) or row.get("idx") or 0)
-	rows: list[dict] = []
-	total_excl = 0.0
+	from construction_management.quotation_boq_hierarchy import resolve_hierarchy_mode
+	from construction_management.quotation_boq_print_context import _group_boq_lines
 
-	for row in ordered:
-		line_type = row.get("line_type") if isinstance(row, dict) else getattr(row, "line_type", None)
-		if line_type == "Section":
-			title = (row.get("section_title") or row.get("description") or "").strip()
-			rows.append({"kind": "section", "title": title})
-		elif line_type == "Parent":
+	line_dicts = [
+		row if isinstance(row, dict) else row.as_dict() if hasattr(row, "as_dict") else row.__dict__
+		for row in lines
+	]
+	hierarchy_mode = resolve_hierarchy_mode(company, line_dicts)
+	sections, total_excl = _group_boq_lines(line_dicts, hierarchy_mode=hierarchy_mode)
+
+	rows: list[dict] = []
+	for section in sections:
+		if section.get("title"):
+			rows.append({"kind": "section", "title": section["title"]})
+		for parent in section.get("parents") or []:
 			rows.append(
 				{
 					"kind": "parent",
-					"parent_no": row.get("parent_no") or getattr(row, "parent_no", ""),
-					"description": row.get("description") or getattr(row, "description", ""),
+					"parent_no": parent.get("no") or "",
+					"description": parent.get("description") or "",
 				}
 			)
-		elif line_type == "Sub":
-			display_mode = (
-				row.get("display_mode")
-				if isinstance(row, dict)
-				else getattr(row, "display_mode", "Normal")
-			) or "Normal"
-			amount = flt(row.get("amount") if isinstance(row, dict) else getattr(row, "amount", 0))
-			qty = flt(row.get("qty") if isinstance(row, dict) else getattr(row, "qty", 0))
-			rate = flt(row.get("rate") if isinstance(row, dict) else getattr(row, "rate", 0))
-			if display_mode == "Normal" and not amount:
-				amount = qty * rate
-			if display_mode == "Normal":
-				total_excl += amount
-			rows.append(
-				{
-					"kind": "sub",
-					"sub_no": row.get("sub_no") or getattr(row, "sub_no", ""),
-					"description": row.get("description") or getattr(row, "description", ""),
-					"uom": row.get("uom") or getattr(row, "uom", ""),
-					"qty": qty,
-					"rate": rate if display_mode != "N/A" else "-",
-					"amount": amount,
-					"display_mode": display_mode,
-				}
-			)
+			for sub in parent.get("subs") or []:
+				rows.append(
+					{
+						"kind": "sub",
+						"sub_no": sub.get("sub_no") or "",
+						"description": sub.get("description") or "",
+						"uom": sub.get("uom") or "",
+						"qty": sub.get("qty"),
+						"rate": sub.get("rate_display"),
+						"amount": sub.get("amount_display"),
+						"display_mode": sub.get("display_mode") or "Normal",
+					}
+				)
 
 	return _render_boq_html(rows, include_totals=include_totals, total_excl=total_excl)
 
