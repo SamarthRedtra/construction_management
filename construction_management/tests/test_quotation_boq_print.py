@@ -6,8 +6,13 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import today
 
 from construction_management.api.quotation_boq import (
+	build_quick_boq_lines,
+	download_quotation_boq_example_template,
+	get_quotation_boq_excel_format,
 	import_boq_lines_from_estimation,
 	lines_to_boq_html,
+	parse_pasted_boq_text,
+	_parse_excel_boq_rows,
 )
 from construction_management.quotation_boq_print_context import build_boq_quotation_print_context
 
@@ -199,6 +204,49 @@ class TestQuotationBOQPrint(FrappeTestCase):
 		self.assertEqual(lines[1]["line_type"], "Parent")
 
 		estimation.delete(ignore_permissions=True)
+
+	def test_parse_pasted_boq_text_parent_and_subs(self):
+		text = """# THERMAL PROTECTION
+1\tParent item one
+A\tSub one\tm2\t100\t50
+B\tSub two\tm2\t200\t60
+2\tParent item two
+A\tAnother sub\tnos\t5\t1000"""
+
+		lines = parse_pasted_boq_text(text, self.company)
+		types = [row["line_type"] for row in lines]
+		self.assertIn("Section", types)
+		self.assertEqual(types.count("Parent"), 2)
+		self.assertEqual(types.count("Sub"), 3)
+		self.assertEqual(lines[-1]["rate"], 1000)
+
+	def test_build_quick_boq_lines(self):
+		lines = build_quick_boq_lines(
+			self.company,
+			"Parent description",
+			sub_rows=[
+				{"description": "Sub A", "uom": "m2", "qty": 10, "rate": 25},
+				{"description": "Sub B", "uom": "nos", "qty": 2, "rate": 100},
+			],
+			section_title="SECTION ONE",
+		)
+		self.assertGreaterEqual(len(lines), 3)
+		self.assertEqual(lines[-1]["line_type"], "Sub")
+		self.assertEqual(lines[-1]["amount"], 200)
+
+	def test_parse_excel_boq_rows_with_sample_format(self):
+		sample = get_quotation_boq_excel_format()["sample_rows"]
+		lines = _parse_excel_boq_rows(sample, self.company)
+		types = [row["line_type"] for row in lines]
+		self.assertIn("Section", types)
+		self.assertEqual(types.count("Parent"), 2)
+		self.assertEqual(types.count("Sub"), 4)
+		self.assertEqual(lines[-1]["rate"], 75)
+
+	def test_download_quotation_boq_example_template(self):
+		url = download_quotation_boq_example_template(self.company)
+		self.assertTrue(url)
+		self.assertIn(".xlsx", url)
 
 	def _ensure_customer(self):
 		name = "_Test BOQ Quotation Customer"

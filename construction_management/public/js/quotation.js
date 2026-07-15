@@ -16,6 +16,9 @@ frappe.ui.form.on("Quotation", {
 		setup_boq_buttons(frm);
 		setup_boq_grid(frm);
 		setup_print_hint(frm);
+		if (typeof construction_management !== "undefined" && construction_management.quotation_boq_easy_entry) {
+			construction_management.quotation_boq_easy_entry.setup(frm);
+		}
 	},
 
 	company(frm) {
@@ -76,10 +79,16 @@ frappe.ui.form.on("Quotation BOQ Line", {
 
 	qty(frm, cdt, cdn) {
 		update_boq_row_amount(frm, cdt, cdn);
+		if (typeof construction_management !== "undefined" && construction_management.quotation_boq_easy_entry) {
+			construction_management.quotation_boq_easy_entry.render_total(frm);
+		}
 	},
 
 	rate(frm, cdt, cdn) {
 		update_boq_row_amount(frm, cdt, cdn);
+		if (typeof construction_management !== "undefined" && construction_management.quotation_boq_easy_entry) {
+			construction_management.quotation_boq_easy_entry.render_total(frm);
+		}
 	},
 });
 
@@ -309,16 +318,27 @@ function ensure_placeholder_item(frm) {
 	// Sync path first so mandatory check never sees empty Item Name / UOM
 	apply_placeholder_row(frm, null, total);
 
-	return frappe.db
-		.get_value("Item", QUOTATION_BOQ_ITEM, ["name", "item_name", "stock_uom", "description"])
+	return frappe
+		.call({
+			method:
+				"construction_management.overrides.quotation.ensure_quotation_boq_placeholder_item",
+			args: { company: frm.doc.company },
+		})
+		.then((r) => {
+			const item_code = (r && r.message) || QUOTATION_BOQ_ITEM;
+			return frappe.db.get_value("Item", item_code, [
+				"name",
+				"item_name",
+				"stock_uom",
+				"description",
+			]);
+		})
 		.then((r) => {
 			const meta = (r && r.message) || {};
-			if (meta.name || meta.item_name) {
-				apply_placeholder_row(frm, meta, total);
-			}
+			apply_placeholder_row(frm, meta, total);
 		})
 		.catch(() => {
-			/* server will create QUOTATION-BOQ if missing */
+			apply_placeholder_row(frm, null, total);
 		});
 }
 

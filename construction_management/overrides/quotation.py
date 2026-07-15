@@ -9,11 +9,28 @@ PLACEHOLDER_ITEM_CODE = "QUOTATION-BOQ"
 
 
 class QuotationOverride(Quotation):
+	def insert(self, *args, **kwargs):
+		self._prepare_boq_before_link_validation()
+		return super().insert(*args, **kwargs)
+
+	def save(self, *args, **kwargs):
+		self._prepare_boq_before_link_validation()
+		return super().save(*args, **kwargs)
+
 	def validate(self):
 		self._update_boq_line_amounts()
 		self._sync_boq_html_from_lines()
 		self._ensure_boq_placeholder_item()
 		super().validate()
+
+	def _prepare_boq_before_link_validation(self):
+		"""Create placeholder Item before Frappe _validate_links (runs before validate)."""
+		if not self.get("custom_boq_lines"):
+			return
+
+		_get_or_create_placeholder_item(self.company)
+		self._update_boq_line_amounts()
+		self._ensure_boq_placeholder_item()
 
 	def get_boq_quotation_print_context(self):
 		"""Build dict for BOQ Quotation Jinja print format."""
@@ -136,3 +153,9 @@ def _get_or_create_placeholder_item(company: str | None) -> str:
 	)
 	doc.insert(ignore_permissions=True)
 	return PLACEHOLDER_ITEM_CODE
+
+
+@frappe.whitelist()
+def ensure_quotation_boq_placeholder_item(company=None):
+	"""Ensure QUOTATION-BOQ Item exists (callable from Quotation form before save)."""
+	return _get_or_create_placeholder_item(company)

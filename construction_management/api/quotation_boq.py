@@ -91,6 +91,634 @@ def import_boq_html_from_estimation(estimation_name: str) -> str:
 	return lines_to_boq_html(lines, include_totals=True)
 
 
+@frappe.whitelist()
+def parse_pasted_boq_text(text: str, company: str | None = None) -> list[dict]:
+	"""Parse Excel/clipboard text into Quotation BOQ Line dicts."""
+	return _parse_pasted_boq_text(text, company)
+
+
+QUOTATION_BOQ_EXCEL_COLUMNS = [
+	"type",
+	"section",
+	"no",
+	"description",
+	"unit",
+	"qty",
+	"rate",
+	"display",
+]
+
+QUOTATION_BOQ_EXCEL_SAMPLE_ROWS = [
+	{
+		"type": "Section",
+		"section": "",
+		"no": "",
+		"description": "THERMAL AND MOISTURE PROTECTION",
+		"unit": "",
+		"qty": "",
+		"rate": "",
+		"display": "",
+	},
+	{
+		"type": "Parent",
+		"section": "",
+		"no": "1",
+		"description": "1000 gauge polythene sheets; all in accordance with drawings and specification",
+		"unit": "",
+		"qty": "",
+		"rate": "",
+		"display": "",
+	},
+	{
+		"type": "Sub",
+		"section": "",
+		"no": "A",
+		"description": "To Raft Slab",
+		"unit": "m2",
+		"qty": 2259,
+		"rate": "",
+		"display": "N/A",
+	},
+	{
+		"type": "Sub",
+		"section": "",
+		"no": "B",
+		"description": "Below Grade Slab",
+		"unit": "m2",
+		"qty": 1800,
+		"rate": "",
+		"display": "N/A",
+	},
+	{
+		"type": "Parent",
+		"section": "",
+		"no": "2",
+		"description": "2 layers of 4mm SBS waterproofing membrane 180gm/m2 from Awazel or Equivalent",
+		"unit": "",
+		"qty": "",
+		"rate": "",
+		"display": "",
+	},
+	{
+		"type": "Sub",
+		"section": "",
+		"no": "A",
+		"description": "Horizontally to Raft Slab",
+		"unit": "m2",
+		"qty": 2184,
+		"rate": 62,
+		"display": "Normal",
+	},
+	{
+		"type": "Sub",
+		"section": "",
+		"no": "B",
+		"description": "Vertically to Retaining Wall",
+		"unit": "m2",
+		"qty": 450,
+		"rate": 75,
+		"display": "Normal",
+	},
+]
+
+
+@frappe.whitelist()
+def get_quotation_boq_excel_format() -> dict:
+	"""Return column definitions and sample rows for Quotation BOQ Excel import."""
+	return {
+		"columns": [
+			{"key": "type", "label": "Type", "required": True, "values": "Section / Parent / Sub"},
+			{"key": "section", "label": "Section", "required": False, "values": "Optional section title for 2-level BOQ"},
+			{"key": "no", "label": "No", "required": False, "values": "Parent: 1, 2... | Sub: A, B..."},
+			{"key": "description", "label": "Description", "required": True, "values": "Work description"},
+			{"key": "unit", "label": "Unit", "required": False, "values": "m2, nos, etc."},
+			{"key": "qty", "label": "Qty", "required": False, "values": "Quantity"},
+			{"key": "rate", "label": "Rate", "required": False, "values": "Unit rate (leave blank for N/A)"},
+			{"key": "display", "label": "Display", "required": False, "values": "Normal / N/A / Rate Only"},
+		],
+		"sample_rows": QUOTATION_BOQ_EXCEL_SAMPLE_ROWS,
+		"notes": [
+			"Use one row per Section, Parent, or Sub line.",
+			"For 3-level BOQ, add Section rows. For 2-level BOQ, Section column on Parent is optional.",
+			"You can also paste tab-separated data in Paste from Excel mode using #, 1, A patterns.",
+		],
+	}
+
+
+@frappe.whitelist()
+def download_quotation_boq_example_template(company: str | None = None) -> str:
+	"""Generate downloadable example Excel template for Quotation BOQ import."""
+	try:
+		import openpyxl
+		from io import BytesIO
+		from openpyxl.styles import Font, PatternFill
+	except ImportError:
+		frappe.throw("openpyxl is required for Excel template download.")
+
+	wb = openpyxl.Workbook()
+	ws = wb.active
+	ws.title = "BOQ Import"
+
+	header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+	header_font = Font(color="FFFFFF", bold=True)
+
+	headers = [col.replace("_", " ").title() for col in QUOTATION_BOQ_EXCEL_COLUMNS]
+	for col_idx, header in enumerate(headers, 1):
+		cell = ws.cell(row=1, column=col_idx, value=header)
+		cell.fill = header_fill
+		cell.font = header_font
+
+	for row_idx, row_data in enumerate(QUOTATION_BOQ_EXCEL_SAMPLE_ROWS, 2):
+		for col_idx, key in enumerate(QUOTATION_BOQ_EXCEL_COLUMNS, 1):
+			ws.cell(row=row_idx, column=col_idx, value=row_data.get(key, ""))
+
+	for col in ws.columns:
+		max_length = 12
+		column = col[0].column_letter
+		for cell in col:
+			value = str(cell.value or "")
+			max_length = max(max_length, min(len(value) + 2, 60))
+		ws.column_dimensions[column].width = max_length
+
+	help_ws = wb.create_sheet("Instructions")
+	help_ws["A1"] = "Quotation BOQ Excel Import Format"
+	help_ws["A1"].font = Font(bold=True, size=12)
+	instructions = [
+		"",
+		"Required columns: Type, Description",
+		"Type values: Section, Parent, Sub",
+		"Parent No: 1, 2, 3...",
+		"Sub No: A, B, C...",
+		"Display: Normal (default), N/A, Rate Only",
+		"",
+		"Fill rows in BOQ Import sheet, save file, then use Import Excel File in Easy BOQ Entry.",
+	]
+	for idx, line in enumerate(instructions, 2):
+		help_ws.cell(row=idx, column=1, value=line)
+
+	output = BytesIO()
+	wb.save(output)
+	output.seek(0)
+
+	file_doc = frappe.get_doc(
+		{
+			"doctype": "File",
+			"file_name": "quotation_boq_import_example.xlsx",
+			"content": output.getvalue(),
+			"is_private": 0,
+		}
+	)
+	file_doc.insert(ignore_permissions=True)
+	return file_doc.file_url
+
+
+@frappe.whitelist()
+def import_boq_lines_from_excel(file_url: str, company: str | None = None) -> list[dict]:
+	"""Parse uploaded Excel file into Quotation BOQ Line dicts."""
+	rows = _read_quotation_boq_excel_rows(file_url)
+	return _parse_excel_boq_rows(rows, company)
+
+
+def _read_quotation_boq_excel_rows(file_url: str) -> list[dict]:
+	if not file_url:
+		frappe.throw("Excel file is required")
+
+	try:
+		import openpyxl
+		from io import BytesIO
+	except ImportError:
+		frappe.throw("openpyxl is required for Excel import.")
+
+	file_doc = frappe.get_doc("File", {"file_url": file_url})
+	content = file_doc.get_content()
+	wb = openpyxl.load_workbook(BytesIO(content), data_only=True)
+	ws = wb.active
+
+	headers: list[str] = []
+	for cell in ws[1]:
+		headers.append(_normalize_excel_header(cell.value))
+
+	if not headers or not any(headers):
+		frappe.throw("Excel file has no header row.")
+
+	rows: list[dict] = []
+	for row in ws.iter_rows(min_row=2, values_only=True):
+		if not row or not any(cell not in (None, "") for cell in row):
+			continue
+		row_data = {}
+		for idx, header in enumerate(headers):
+			if not header:
+				continue
+			value = row[idx] if idx < len(row) else ""
+			row_data[header] = value
+		if any(str(v).strip() for v in row_data.values() if v is not None):
+			rows.append(row_data)
+
+	if not rows:
+		frappe.throw("No data rows found in Excel file.")
+
+	return rows
+
+
+def _normalize_excel_header(value) -> str:
+	label = str(value or "").strip().lower()
+	mapping = {
+		"type": "type",
+		"row type": "type",
+		"line type": "type",
+		"section": "section",
+		"section title": "section",
+		"no": "no",
+		"no.": "no",
+		"number": "no",
+		"sl no": "no",
+		"description": "description",
+		"description of works": "description",
+		"unit": "unit",
+		"uom": "unit",
+		"qty": "qty",
+		"quantity": "qty",
+		"approx. qty": "qty",
+		"approx qty": "qty",
+		"rate": "rate",
+		"rate aed": "rate",
+		"display": "display",
+		"display mode": "display",
+	}
+	return mapping.get(label, label.replace(" ", "_"))
+
+
+def _parse_excel_boq_rows(rows: list[dict], company: str | None = None) -> list[dict]:
+	two_level = _is_two_level_import(company)
+	lines: list[dict] = []
+	current_section = ""
+	parent_counter = 0
+	sub_counters: dict[str, int] = {}
+	letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+	for row in rows:
+		row_type = _excel_row_type(row)
+		description = _excel_cell_text(row.get("description"))
+		section_value = _excel_cell_text(row.get("section"))
+		no_value = _excel_cell_text(row.get("no"))
+
+		if row_type == "section":
+			title = description or section_value or no_value
+			if title.startswith("#"):
+				title = title.lstrip("#").strip()
+			current_section = title
+			if title and not two_level:
+				lines.append(
+					{
+						"line_type": "Section",
+						"section_title": title,
+						"description": title,
+					}
+				)
+			continue
+
+		if row_type == "parent":
+			parent_no = no_value or str(_next_parent_no(parent_counter))
+			parent_counter = int(parent_no) if parent_no.isdigit() else parent_counter + 1
+			sub_counters[str(parent_counter)] = 0
+			parent_row = {
+				"line_type": "Parent",
+				"parent_no": str(parent_counter),
+				"description": description,
+			}
+			section_for_parent = section_value or current_section
+			if two_level and section_for_parent:
+				parent_row["section_title"] = section_for_parent
+			lines.append(parent_row)
+			continue
+
+		# Sub row (explicit or inferred)
+		if parent_counter == 0:
+			parent_counter = 1
+			sub_counters["1"] = 0
+			parent_row = {
+				"line_type": "Parent",
+				"parent_no": "1",
+				"description": "General",
+			}
+			if two_level and current_section:
+				parent_row["section_title"] = current_section
+			lines.append(parent_row)
+
+		parent_key = str(parent_counter)
+		sub_counters.setdefault(parent_key, 0)
+		sub_no = no_value.upper() if no_value and len(no_value) == 1 and no_value.isalpha() else ""
+		if not sub_no:
+			sub_no = letters[sub_counters[parent_key] % len(letters)]
+		sub_counters[parent_key] += 1
+
+		uom = _excel_cell_text(row.get("unit")) or "Nos"
+		qty = flt(row.get("qty"))
+		rate = flt(row.get("rate"))
+		display_mode = _excel_display_mode(row.get("display"), rate, qty)
+
+		lines.append(
+			{
+				"line_type": "Sub",
+				"parent_no": parent_key,
+				"sub_no": sub_no,
+				"description": description,
+				"uom": uom,
+				"qty": qty,
+				"rate": rate,
+				"amount": qty * rate if display_mode == "Normal" else 0,
+				"display_mode": display_mode,
+			}
+		)
+
+	return lines
+
+
+def _excel_row_type(row: dict) -> str:
+	raw_type = _excel_cell_text(row.get("type")).lower()
+	if raw_type in {"section", "parent", "sub"}:
+		return raw_type
+
+	no_value = _excel_cell_text(row.get("no"))
+	description = _excel_cell_text(row.get("description"))
+	if description.startswith("#") or raw_type in {"#", "section header"}:
+		return "section"
+	if no_value.isdigit() or raw_type in {"1", "parent"}:
+		return "parent"
+	if (len(no_value) == 1 and no_value.isalpha()) or raw_type in {"a", "sub"}:
+		return "sub"
+
+	# Infer from qty/rate columns when type is blank
+	if row.get("unit") or row.get("qty") or row.get("rate"):
+		return "sub"
+	if description and not no_value:
+		return "parent"
+	return "sub"
+
+
+def _excel_display_mode(display_value, rate: float, qty: float) -> str:
+	display = _excel_cell_text(display_value)
+	if display.lower() in {"n/a", "na"}:
+		return "N/A"
+	if display.lower() in {"rate only", "rateonly"}:
+		return "Rate Only"
+	if display.lower() == "normal":
+		return "Normal"
+	if rate == 0 and qty > 0:
+		return "N/A"
+	return "Normal"
+
+
+def _excel_cell_text(value) -> str:
+	if value is None:
+		return ""
+	return str(value).strip()
+
+
+def _next_parent_no(current: int) -> int:
+	return current + 1 if current else 1
+
+@frappe.whitelist()
+def build_quick_boq_lines(
+	company: str | None,
+	parent_description: str,
+	sub_rows: str | list | None = None,
+	section_title: str | None = None,
+	parent_no: str | None = None,
+) -> list[dict]:
+	"""Build BOQ lines for one parent and optional section with multiple sub rows."""
+	import json
+
+	if isinstance(sub_rows, str):
+		sub_rows = json.loads(sub_rows) if sub_rows else []
+
+	two_level = _is_two_level_import(company)
+	lines: list[dict] = []
+	section_title = (section_title or "").strip()
+	parent_description = (parent_description or "").strip()
+
+	if section_title and not two_level:
+		lines.append(
+			{
+				"line_type": "Section",
+				"section_title": section_title,
+				"description": section_title,
+			}
+		)
+
+	parent_row = {
+		"line_type": "Parent",
+		"parent_no": (parent_no or "1").strip(),
+		"description": parent_description,
+	}
+	if two_level and section_title:
+		parent_row["section_title"] = section_title
+	lines.append(parent_row)
+
+	letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	for idx, row in enumerate(sub_rows or []):
+		if isinstance(row, dict):
+			row_data = row
+		else:
+			continue
+
+		description = (row_data.get("description") or "").strip()
+		if not description:
+			continue
+
+		sub_no = (row_data.get("sub_no") or "").strip() or letters[idx % len(letters)]
+		lines.append(
+			{
+				"line_type": "Sub",
+				"parent_no": parent_row["parent_no"],
+				"sub_no": sub_no,
+				"description": description,
+				"uom": row_data.get("uom") or "Nos",
+				"qty": flt(row_data.get("qty")),
+				"rate": flt(row_data.get("rate")),
+				"amount": flt(row_data.get("qty")) * flt(row_data.get("rate")),
+				"display_mode": row_data.get("display_mode") or "Normal",
+			}
+		)
+
+	return lines
+
+
+def _parse_pasted_boq_text(text: str, company: str | None = None) -> list[dict]:
+	"""Parse clipboard rows into Section / Parent / Sub BOQ lines."""
+	if not text or not str(text).strip():
+		return []
+
+	two_level = _is_two_level_import(company)
+	lines: list[dict] = []
+	current_section = ""
+	parent_counter = 0
+	sub_counters: dict[str, int] = {}
+	letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+	for raw_line in str(text).splitlines():
+		line = raw_line.strip()
+		if not line:
+			continue
+
+		cells = [_clean_paste_cell(c) for c in _split_paste_line(line)]
+		cells = [c for c in cells if c != ""]
+		if not cells:
+			continue
+
+		if _is_section_paste_row(cells):
+			current_section = _section_title_from_cells(cells)
+			if not two_level:
+				lines.append(
+					{
+						"line_type": "Section",
+						"section_title": current_section,
+						"description": current_section,
+					}
+				)
+			continue
+
+		parent_no = _parse_parent_no(cells[0])
+		if parent_no and len(cells) <= 3 and not _looks_like_sub_row(cells):
+			parent_counter = int(parent_no)
+			sub_counters[parent_no] = 0
+			description = cells[1] if len(cells) > 1 else cells[0]
+			parent_row = {
+				"line_type": "Parent",
+				"parent_no": str(parent_counter),
+				"description": description,
+			}
+			if two_level and current_section:
+				parent_row["section_title"] = current_section
+			lines.append(parent_row)
+			continue
+
+		sub_no = _parse_sub_no(cells[0])
+		desc_idx = 1 if sub_no and len(cells) > 1 else 0
+		description = cells[desc_idx] if len(cells) > desc_idx else cells[0]
+		rest = cells[desc_idx + 1 :] if len(cells) > desc_idx + 1 else []
+
+		if not sub_no and parent_counter == 0:
+			parent_counter = 1
+			sub_counters["1"] = 0
+			parent_row = {
+				"line_type": "Parent",
+				"parent_no": "1",
+				"description": "General",
+			}
+			if two_level and current_section:
+				parent_row["section_title"] = current_section
+			lines.append(parent_row)
+
+		parent_key = str(parent_counter or 1)
+		sub_counters.setdefault(parent_key, 0)
+		if not sub_no:
+			sub_no = letters[sub_counters[parent_key] % len(letters)]
+		sub_counters[parent_key] += 1
+
+		uom, qty, rate = _parse_qty_rate_cells(rest)
+		display_mode = "Normal"
+		if rate == 0 and qty > 0:
+			display_mode = "Rate Only"
+		if "n/a" in " ".join(rest).lower():
+			display_mode = "N/A"
+
+		lines.append(
+			{
+				"line_type": "Sub",
+				"parent_no": parent_key,
+				"sub_no": sub_no,
+				"description": description,
+				"uom": uom or "Nos",
+				"qty": qty,
+				"rate": rate,
+				"amount": qty * rate if display_mode == "Normal" else 0,
+				"display_mode": display_mode,
+			}
+		)
+
+	return lines
+
+
+def _split_paste_line(line: str) -> list[str]:
+	if "\t" in line:
+		return line.split("\t")
+	if "|" in line:
+		return [part.strip() for part in line.split("|")]
+	return [part.strip() for part in line.split(",")]
+
+
+def _clean_paste_cell(value: str) -> str:
+	return (value or "").strip().strip(".").strip("-")
+
+
+def _is_section_paste_row(cells: list[str]) -> bool:
+	first = (cells[0] or "").upper()
+	if first.startswith("#") or first.startswith("SECTION"):
+		return True
+	if len(cells) == 1 and first.isupper() and len(first) > 8:
+		return True
+	return False
+
+
+def _section_title_from_cells(cells: list[str]) -> str:
+	title = cells[0]
+	if title.upper().startswith("SECTION"):
+		title = title.split(":", 1)[-1].strip()
+	return title.lstrip("#").strip()
+
+
+def _parse_parent_no(value: str) -> str | None:
+	value = _clean_paste_cell(value)
+	if value.isdigit():
+		return value
+	if value.endswith("-") and value[:-1].isdigit():
+		return value[:-1]
+	return None
+
+
+def _parse_sub_no(value: str) -> str | None:
+	value = _clean_paste_cell(value)
+	if len(value) == 1 and value.isalpha():
+		return value.upper()
+	return None
+
+
+def _looks_like_sub_row(cells: list[str]) -> bool:
+	if len(cells) < 3:
+		return False
+	uom, qty, rate = _parse_qty_rate_cells(cells[1:])
+	return bool(qty or rate or uom)
+
+
+def _parse_qty_rate_cells(cells: list[str]) -> tuple[str, float, float]:
+	if not cells:
+		return "", 0.0, 0.0
+
+	if len(cells) >= 3:
+		uom = cells[0]
+		qty = _parse_number(cells[1])
+		rate = _parse_number(cells[2])
+		return uom, qty, rate
+
+	if len(cells) == 2:
+		if _parse_number(cells[0]) and not _parse_number(cells[1]):
+			return cells[1], _parse_number(cells[0]), 0.0
+		return cells[0], _parse_number(cells[1]), 0.0
+
+	return "", _parse_number(cells[0]), 0.0
+
+
+def _parse_number(value: str) -> float:
+	value = (value or "").strip().replace(",", "")
+	if not value or value.lower() in {"-", "n/a", "na"}:
+		return 0.0
+	try:
+		return flt(value)
+	except Exception:
+		return 0.0
+
+
 def lines_to_boq_html(lines: list, include_totals: bool = True, company: str | None = None) -> str:
 	"""Convert Quotation BOQ Line child rows to print HTML."""
 	from construction_management.quotation_boq_hierarchy import resolve_hierarchy_mode

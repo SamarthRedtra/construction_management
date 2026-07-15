@@ -36,6 +36,10 @@ frappe.ui.form.on('Project', {
 		// Render payment terms interface
 		render_payment_terms_interface(frm);
 
+		if (construction_management.project_approved_materials?.render) {
+			construction_management.project_approved_materials.render(frm);
+		}
+
 		construction_management.project_tab_access.apply(frm);
 		render_project_commission_embed(frm);
 	},
