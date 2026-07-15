@@ -256,6 +256,8 @@ function render_item_row(item, frm) {
 	}
 
 	const skipAdvance = cint(item.skip_advance_deduction);
+	const isLumpSum = item.pricing_entry_mode === 'Lump Sum Total';
+	const lumpSumTotal = flt(item.lump_sum_total || ledgerAmount.total || 0);
 
 	return `
 		<tr class="item-row ${isFullyBilled ? 'fully-billed' : ''} ${rowStatusClass} ${skipAdvance ? 'skip-advance-row' : ''}" data-item="${item.name}" role="row">
@@ -293,15 +295,26 @@ function render_item_row(item, frm) {
 				<div class="rate-input-container" style="display: flex; align-items: center; gap: 2px; width: 100%;">
 					<input type="number" class="boq-rate-input" value="${ledgerAmount.rate || 0}" 
 						data-item="${item.name}" step="0.01" min="0" 
-						aria-label="Rate" tabindex="0" style="text-align: right; width: 100%; min-width: 0; flex: 1; padding: 4px;">
-					<span class="rate-history-toggle-icon" onclick="toggleRateHistory('${item.name}', this); event.stopPropagation();" title="View rate history" style="cursor: pointer; color: var(--primary-color, #1b8beb); display: inline-flex; align-items: center; justify-content: center; font-size: 14px; padding: 2px; flex-shrink: 0;">
-						<i class="fa fa-info-circle"></i>
+						aria-label="Rate" tabindex="0" style="text-align: right; width: 100%; min-width: 0; flex: 1; padding: 4px;"
+						${isLumpSum ? 'readonly title="Rate is derived from lump sum total"' : ''}>
+					<span class="rate-history-toggle-icon" onclick="toggleRateHistory('${item.name}', this); event.stopPropagation();" title="${__('View rate history')}" style="cursor: pointer; color: var(--primary-color, #1b8beb); display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 2px; flex-shrink: 0;">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+							<circle cx="12" cy="12" r="10"></circle>
+							<line x1="12" y1="16" x2="12" y2="12"></line>
+							<line x1="12" y1="8" x2="12.01" y2="8"></line>
+						</svg>
 					</span>
 				</div>
 			</td>
 			<td class="col-amount sticky-col sticky-col-last">
 				<div style="display:flex;align-items:center;justify-content:space-between;gap:4px;">
-					<span>${format_currency(ledgerAmount.total || 0)}</span>
+					${isLumpSum
+			? `<input type="number" class="boq-total-input" value="${lumpSumTotal}"
+						data-item="${item.name}" step="0.01" min="0"
+						aria-label="Lump sum total" tabindex="0"
+						style="text-align:right;width:100%;padding:4px;"
+						title="${__('Lump Sum Total — rate is derived')}">`
+			: `<span class="boq-total-display">${format_currency(ledgerAmount.total || 0)}</span>`}
 					${(flt(item.retention_amount || 0) || flt(item.advance_amount || 0) || flt(item.tax_amount || 0))
 						? `<span class="amount-breakdown-toggle" onclick="toggleAmountBreakdown('${item.name}', this); event.stopPropagation();" title="Financial breakdown" style="cursor:pointer;color:var(--primary-color,#1b8beb);font-size:13px;display:inline-flex;align-items:center;"><i class="fa fa-caret-down"></i></span>`
 						: ''}
@@ -493,8 +506,10 @@ function sync_row_ledger_from_server(row, ledger) {
 	row.find('.prev-value-cell').text(format_currency(amt.prev || 0));
 	row.find('.curr-value-cell').text(format_currency(amt.current || 0));
 	row.find('.accum-value-cell').text(format_currency(amt.to_date || 0));
-	
-	row.find('.col-amount').text(format_currency(amt.total || 0));
+
+	row.find('.boq-rate-input').val(amt.rate || 0);
+	row.find('.boq-total-input').val(amt.total || 0);
+	row.find('.boq-total-display').text(format_currency(amt.total || 0));
 }
 
 // Dismiss rate history dropdown when clicking outside
@@ -586,6 +601,9 @@ window.toggleRateHistory = function(itemName, btn) {
 				history.forEach(row => {
 					let rate = flt(row.rate);
 					let amount = flt(row.amount);
+					if (!amount && rate && split.total_qty) {
+						amount = rate * flt(split.total_qty);
+					}
 					let user_name = row.user_name || row.changed_by || '';
 					html += `
 						<tr style="border-bottom: 1px solid #f0f0f0;">
@@ -799,6 +817,9 @@ function attach_table_events(container, frm) {
 	// Handle BOQ Rate input change
 	container.find('.boq-rate-input').on('change', function () {
 		const input = $(this);
+		if (input.prop('readonly')) {
+			return;
+		}
 		const itemName = input.data('item');
 		const newRate = flt(input.val());
 
@@ -813,6 +834,30 @@ function attach_table_events(container, frm) {
 					frappe.show_alert({ message: __('Rate updated'), indicator: 'green' });
 					const row = input.closest('tr');
 					row.find('.current-qty-input, .current-value-input').data('rate', newRate);
+					sync_row_ledger_from_server(row, r.message);
+				}
+			}
+		});
+	});
+
+	// Handle BOQ Lump Sum Total input change
+	container.find('.boq-total-input').on('change', function () {
+		const input = $(this);
+		const itemName = input.data('item');
+		const newTotal = flt(input.val());
+
+		frappe.call({
+			method: 'construction_management.api.boq_tree.update_boq_item_base',
+			args: {
+				boq_item: itemName,
+				lump_sum_total: newTotal,
+				pricing_entry_mode: 'Lump Sum Total'
+			},
+			callback: function (r) {
+				if (r.message) {
+					frappe.show_alert({ message: __('Lump sum total updated'), indicator: 'green' });
+					const row = input.closest('tr');
+					row.find('.current-qty-input, .current-value-input').data('rate', r.message.amount.rate || 0);
 					sync_row_ledger_from_server(row, r.message);
 				}
 			}
@@ -3770,7 +3815,7 @@ function get_table_styles() {
 		.btn-frappe:hover svg { stroke: var(--boq-primary); }
 		
 		/* Inline Inputs */
-		.boq-qty-input, .boq-rate-input {
+		.boq-qty-input, .boq-rate-input, .boq-total-input {
 			width: 100% !important;
 			height: 28px !important;
 			padding: 2px 6px !important;
@@ -3782,16 +3827,27 @@ function get_table_styles() {
 			transition: all 0.2s !important;
 		}
 		
-		.boq-qty-input:hover, .boq-rate-input:hover {
+		.boq-qty-input:hover, .boq-rate-input:hover, .boq-total-input:hover {
 			border-color: var(--boq-border) !important;
 			background: #fff !important;
 		}
 		
-		.boq-qty-input:focus, .boq-rate-input:focus {
+		.boq-qty-input:focus, .boq-rate-input:focus, .boq-total-input:focus {
 			border-color: var(--boq-primary) !important;
 			background: #fff !important;
 			outline: none !important;
 			box-shadow: 0 0 0 2px rgba(36, 144, 239, 0.1) !important;
+		}
+
+		.rate-history-toggle-icon {
+			opacity: 1 !important;
+			visibility: visible !important;
+		}
+
+		.rate-history-toggle-icon:hover {
+			color: var(--boq-primary) !important;
+			background: rgba(36, 144, 239, 0.08);
+			border-radius: 4px;
 		}
 		
 		/* Remove arrows from number inputs */

@@ -33,7 +33,8 @@ def get_initial_data(project: str, date: str = None, start: int = 0, page_length
 			"overhead_accounts": get_overhead_accounts(company),
 			"existing_dprs": [],
 			"total_dprs": 0,
-			"day_totals": {"labour_cost": 0, "material_cost": 0, "asset_cost": 0, "overhead_cost": 0, "total_cost": 0}
+			"day_totals": {"labour_cost": 0, "material_cost": 0, "asset_cost": 0, "overhead_cost": 0, "total_cost": 0},
+			"help_video_url": ""
 		}
 
 	project_company = frappe.db.get_value("Project", project, "company")
@@ -48,7 +49,8 @@ def get_initial_data(project: str, date: str = None, start: int = 0, page_length
 			"overhead_accounts": get_overhead_accounts(company),
 			"existing_dprs": [],
 			"total_dprs": 0,
-			"day_totals": {"labour_cost": 0, "material_cost": 0, "asset_cost": 0, "overhead_cost": 0, "total_cost": 0}
+			"day_totals": {"labour_cost": 0, "material_cost": 0, "asset_cost": 0, "overhead_cost": 0, "total_cost": 0},
+			"help_video_url": ""
 		}
 
 	existing_dprs_data = get_existing_dprs(project, date, start, page_length, company)
@@ -67,6 +69,10 @@ def get_initial_data(project: str, date: str = None, start: int = 0, page_length
 	)
 
 	project_company = project_company or frappe.db.get_value("Project", project, "company")  # for overhead filter
+	help_video_url = None
+	if project_company:
+		help_video_url = frappe.db.get_value("BOQ Settings", project_company, "bulk_dpr_help_video_url")
+
 	return {
 		"project": frappe.get_doc("Project", project).as_dict(),
 		"boq_items": get_boq_items_with_balance(project),
@@ -77,7 +83,8 @@ def get_initial_data(project: str, date: str = None, start: int = 0, page_length
 		"overhead_accounts": get_overhead_accounts(project_company),
 		"existing_dprs": existing_dprs_data["dprs"],
 		"total_dprs": existing_dprs_data["total"],
-		"day_totals": total_costs
+		"day_totals": total_costs,
+		"help_video_url": help_video_url or "",
 	}
 
 def get_boq_items_with_balance(project: str) -> list:
@@ -325,6 +332,52 @@ def cancel_bulk_dpr(names: list | str):
 			cancelled.append(name)
 	
 	return cancelled
+
+
+@frappe.whitelist()
+def delete_bulk_dpr(names: list | str):
+	"""Delete draft DPR records from bulk entry."""
+	if isinstance(names, str):
+		names = json.loads(names)
+
+	deleted = []
+	errors = []
+	for name in names:
+		try:
+			doc = frappe.get_doc("Daily Progress Record", name)
+			if doc.docstatus != 0:
+				errors.append(f"{name}: {_('Only draft DPRs can be deleted')}")
+				continue
+			frappe.delete_doc("Daily Progress Record", name, force=1)
+			deleted.append(name)
+		except Exception as e:
+			errors.append(f"{name}: {str(e)}")
+
+	return {"deleted": deleted, "errors": errors}
+
+
+@frappe.whitelist()
+def create_quick_project_site(project: str, site_name: str) -> dict:
+	"""Create a Project Site from Bulk DPR entry."""
+	site_name = (site_name or "").strip()
+	if not project:
+		frappe.throw(_("Project is required"))
+	if not site_name:
+		frappe.throw(_("Site name is required"))
+
+	existing = frappe.db.exists("Project Sites", {"project": project, "site_name": site_name})
+	if existing:
+		return {"name": existing, "site_name": site_name, "created": False}
+
+	site = frappe.get_doc({
+		"doctype": "Project Sites",
+		"project": project,
+		"site_name": site_name,
+	})
+	site.insert(ignore_permissions=True)
+	frappe.db.commit()
+
+	return {"name": site.name, "site_name": site.site_name, "created": True}
 
 @frappe.whitelist()
 def save_bulk_dpr(project: str, date: str, rows: list | str, submit: bool = False):

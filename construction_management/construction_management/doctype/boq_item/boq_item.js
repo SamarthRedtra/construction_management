@@ -153,6 +153,9 @@ frappe.ui.form.on("BOQ Item", {
 					r.message.forEach(row => {
 						let rate = flt(row.rate);
 						let amount = flt(row.amount);
+						if (!amount && rate && frm.doc.total_qty) {
+							amount = rate * flt(frm.doc.total_qty);
+						}
 						let user_name = row.user_name || row.changed_by || '';
 						html += `
 							<tr>

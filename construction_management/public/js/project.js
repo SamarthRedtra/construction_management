@@ -1090,6 +1090,11 @@ window.add_boq_item = function (bill_name, project) {
 			{ fieldtype: 'Section Break' },
 			{ fieldname: 'description', label: 'Description', fieldtype: 'Small Text', reqd: 1 },
 			{ fieldtype: 'Column Break' },
+			{
+				fieldname: 'pricing_entry_mode', label: 'Pricing Entry Mode', fieldtype: 'Select',
+				options: 'Unit Rate\nLump Sum Total', default: 'Unit Rate'
+			},
+			{ fieldtype: 'Section Break' },
 			{ fieldname: 'rate', label: 'Rate', fieldtype: 'Currency', reqd: 1 },
 			{ fieldtype: 'Column Break' },
 			{ fieldname: 'total_amount', label: 'Total Amount', fieldtype: 'Currency', read_only: 1 },
@@ -1100,6 +1105,12 @@ window.add_boq_item = function (bill_name, project) {
 
 			// Estimated Costs Section
 			{ fieldtype: 'Section Break', label: 'Estimated Costs', collapsible: 1 },
+			{
+				fieldname: 'cost_entry_mode', label: 'Cost Entry Mode', fieldtype: 'Select',
+				options: 'Unit Rate\nLump Sum Total', default: 'Unit Rate',
+				description: 'Lump Sum: enter each cost total separately; per-unit rates are derived from qty'
+			},
+			{ fieldtype: 'Section Break' },
 			{
 				fieldname: 'estimated_material_cost_per_unit', label: 'Material Cost / Unit', fieldtype: 'Currency'
 			},
@@ -1168,6 +1179,9 @@ window.add_boq_item = function (bill_name, project) {
 					unit: values.unit,
 					total_qty: values.total_qty,
 					rate: values.rate,
+					pricing_entry_mode: values.pricing_entry_mode || 'Unit Rate',
+					lump_sum_total: values.pricing_entry_mode === 'Lump Sum Total'
+						? (values.total_amount || 0) : 0,
 					is_task: values.is_task ? 1 : 0,
 					start_date: values.start_date,
 					end_date: values.end_date,
@@ -1349,23 +1363,147 @@ window.add_boq_item = function (bill_name, project) {
 
 	function updateMaterialCost() {
 		const total = materialsData.reduce((sum, m) => sum + (m.amount || 0), 0);
-		if (d.get_value('cost_entry_mode') === 'Breakdown') {
+		if ((d.get_value('cost_entry_mode') || 'Unit Rate') === 'Lump Sum Total') {
 			d.set_value('estimated_material_cost', total);
+			applyCostEntryMode();
+			return;
+		}
+		const qty = d.get_value('total_qty') || 0;
+		if (qty > 0) {
+			d.set_value('estimated_material_cost_per_unit', total / qty);
+			updateUnitBasedTotal();
 		}
 	}
 
-	// Set up change handlers after dialog is created
-	d.fields_dict.total_qty.$input.on('change', function () {
-		let qty = d.get_value('total_qty') || 0;
-		let rate = d.get_value('rate') || 0;
-		d.set_value('total_amount', qty * rate);
-	});
+	// Toggle pricing entry mode fields
+	function applyPricingEntryMode() {
+		const mode = d.get_value('pricing_entry_mode') || 'Unit Rate';
+		const isLumpSum = mode === 'Lump Sum Total';
+		const qty = d.get_value('total_qty') || 0;
 
-	d.fields_dict.rate.$input.on('change', function () {
-		let qty = d.get_value('total_qty') || 0;
-		let rate = d.get_value('rate') || 0;
-		d.set_value('total_amount', qty * rate);
-	});
+		if (isLumpSum) {
+			d.set_df_property('rate', 'read_only', 1);
+			d.set_df_property('total_amount', 'read_only', 0);
+			const total = d.get_value('total_amount') || 0;
+			if (qty > 0 && total > 0) {
+				d.set_value('rate', total / qty);
+			}
+		} else {
+			d.set_df_property('rate', 'read_only', 0);
+			d.set_df_property('total_amount', 'read_only', 1);
+			const rate = d.get_value('rate') || 0;
+			d.set_value('total_amount', qty * rate);
+		}
+
+		d.refresh_field('rate');
+		d.refresh_field('total_amount');
+	}
+
+	function bindDialogFieldChange(fieldname, handler) {
+		const field = d.fields_dict[fieldname];
+		if (!field) {
+			return;
+		}
+		if (field.$input && field.$input.on) {
+			field.$input.off('change.lump-sum').on('change.lump-sum', handler);
+			return;
+		}
+		if (field.$wrapper) {
+			field.$wrapper.off('change.lump-sum').on('change.lump-sum', 'input, select, textarea', handler);
+		}
+	}
+
+	function setupPricingHandlers() {
+		bindDialogFieldChange('pricing_entry_mode', applyPricingEntryMode);
+		bindDialogFieldChange('total_qty', onQtyOrPricingChange);
+		bindDialogFieldChange('rate', function () {
+			if ((d.get_value('pricing_entry_mode') || 'Unit Rate') !== 'Unit Rate') {
+				return;
+			}
+			const qty = d.get_value('total_qty') || 0;
+			const rate = d.get_value('rate') || 0;
+			d.set_value('total_amount', qty * rate);
+		});
+		bindDialogFieldChange('total_amount', function () {
+			if ((d.get_value('pricing_entry_mode') || 'Unit Rate') !== 'Lump Sum Total') {
+				return;
+			}
+			const qty = d.get_value('total_qty') || 0;
+			const total = d.get_value('total_amount') || 0;
+			if (qty > 0) {
+				d.set_value('rate', total / qty);
+			}
+		});
+	}
+
+	function applyCostEntryMode() {
+		const mode = d.get_value('cost_entry_mode') || 'Unit Rate';
+		const isLumpSum = mode === 'Lump Sum Total';
+		const qty = d.get_value('total_qty') || 0;
+
+		const lumpSumCostFields = [
+			'estimated_material_cost', 'estimated_labour_cost', 'estimated_subcontract_cost',
+			'estimated_asset_cost', 'estimated_other_cost'
+		];
+		const unitCostFields = [
+			'estimated_material_cost_per_unit', 'estimated_labour_cost_per_unit',
+			'estimated_subcontract_cost_per_unit', 'estimated_asset_cost_per_unit',
+			'estimated_other_cost_per_unit'
+		];
+
+		lumpSumCostFields.forEach((fieldname) => {
+			d.set_df_property(fieldname, 'read_only', isLumpSum ? 0 : 1);
+		});
+		unitCostFields.forEach((fieldname) => {
+			d.set_df_property(fieldname, 'read_only', isLumpSum ? 1 : 0);
+		});
+
+		if (isLumpSum && qty > 0) {
+			lumpSumCostFields.forEach((totalField, idx) => {
+				const total = d.get_value(totalField) || 0;
+				d.set_value(unitCostFields[idx], total / qty);
+			});
+		} else if (!isLumpSum) {
+			updateUnitBasedTotal();
+		}
+
+		lumpSumCostFields.concat(unitCostFields).forEach((fieldname) => d.refresh_field(fieldname));
+		updateGrandEstimatedCost();
+	}
+
+	function updateGrandEstimatedCost() {
+		const grandTotal = (d.get_value('estimated_material_cost') || 0) +
+			(d.get_value('estimated_labour_cost') || 0) +
+			(d.get_value('estimated_subcontract_cost') || 0) +
+			(d.get_value('estimated_asset_cost') || 0) +
+			(d.get_value('estimated_other_cost') || 0);
+		d.set_value('total_estimated_cost', grandTotal);
+	}
+
+	function setupCostHandlers() {
+		bindDialogFieldChange('cost_entry_mode', applyCostEntryMode);
+		[
+			'estimated_material_cost', 'estimated_labour_cost', 'estimated_subcontract_cost',
+			'estimated_asset_cost', 'estimated_other_cost'
+		].forEach(function (fieldname) {
+			bindDialogFieldChange(fieldname, function () {
+				if ((d.get_value('cost_entry_mode') || 'Unit Rate') !== 'Lump Sum Total') {
+					return;
+				}
+				applyCostEntryMode();
+			});
+		});
+		['estimated_material_cost_per_unit', 'estimated_labour_cost_per_unit',
+			'estimated_subcontract_cost_per_unit', 'estimated_asset_cost_per_unit',
+			'estimated_other_cost_per_unit'].forEach(function (fieldname) {
+			bindDialogFieldChange(fieldname, function () {
+				if ((d.get_value('cost_entry_mode') || 'Unit Rate') === 'Lump Sum Total') {
+					return;
+				}
+				updateUnitBasedTotal();
+			});
+		});
+	}
 
 	// Auto-calculate total estimated cost from itemized unit costs
 	const updateUnitBasedTotal = function () {
@@ -1377,35 +1515,35 @@ window.add_boq_item = function (bill_name, project) {
 		d.set_value('estimated_asset_cost', (d.get_value('estimated_asset_cost_per_unit') || 0) * qty);
 		d.set_value('estimated_other_cost', (d.get_value('estimated_other_cost_per_unit') || 0) * qty);
 
-		let grandTotal = (d.get_value('estimated_material_cost') || 0) +
-			(d.get_value('estimated_labour_cost') || 0) +
-			(d.get_value('estimated_subcontract_cost') || 0) +
-			(d.get_value('estimated_asset_cost') || 0) +
-			(d.get_value('estimated_other_cost') || 0);
-
-		d.set_value('total_estimated_cost', grandTotal);
+		updateGrandEstimatedCost();
 	};
 
-	['estimated_material_cost_per_unit', 'estimated_labour_cost_per_unit',
-		'estimated_subcontract_cost_per_unit', 'estimated_asset_cost_per_unit',
-		'estimated_other_cost_per_unit', 'total_qty'].forEach(function (fieldname) {
-			if (d.fields_dict[fieldname] && d.fields_dict[fieldname].$input) {
-				d.fields_dict[fieldname].$input.on('change', updateUnitBasedTotal);
-			}
-		});
-
+	function onQtyOrPricingChange() {
+		applyPricingEntryMode();
+		if ((d.get_value('cost_entry_mode') || 'Unit Rate') === 'Lump Sum Total') {
+			applyCostEntryMode();
+		} else {
+			updateUnitBasedTotal();
+		}
+	}
 
 	d.show();
 
-	// Render materials section after dialog is shown
-	renderMaterialsSection();
+	// Bind handlers after dialog fields are rendered
+	setTimeout(function () {
+		setupPricingHandlers();
+		setupCostHandlers();
+		applyPricingEntryMode();
+		applyCostEntryMode();
+		renderMaterialsSection();
+	}, 100);
 
 	// Fix date picker z-index issue-ensure datepicker appears above modal
 	setTimeout(function () {
 		d.$wrapper.find('.datepicker').css('z-index', '2000');
 		// Also fix the flatpickr calendar if used
 		$('.flatpickr-calendar').css('z-index', '2100');
-	}, 100);
+	}, 150);
 };
 
 window.edit_boq_item = function (item_name) { frappe.set_route('Form', 'BOQ Item', item_name); };
@@ -5029,7 +5167,10 @@ class BulkDPRManager {
 								</div>
 							</th>
 							<th style="width: 120px;">
-								${__('Site Location')}
+								<div class="dpr-grid-header-cell">
+									<span>${__('Site Location')}</span>
+									<button class="dpr-add-btn dpr-add-site-btn" title="${__('Add Site')}">+</button>
+								</div>
 								<span class="dpr-site-required" style="color:red; display:none">*</span>
 							</th>
 							<th style="width: 100px;">${__('BOQ Progress')}</th>
@@ -5051,7 +5192,8 @@ class BulkDPRManager {
 		});
 
 		// Add Event Listener for the + button in table header
-		container.find('.dpr-add-btn').on('click', () => this.show_add_item_dialog());
+		container.find('.dpr-add-btn').not('.dpr-add-site-btn').on('click', () => this.show_add_item_dialog());
+		container.find('.dpr-add-site-btn').on('click', () => this.show_add_site_dialog());
 
 		this.update_grand_total();
 
@@ -5062,6 +5204,86 @@ class BulkDPRManager {
 					container.find('.dpr-site-required').show();
 				}
 			});
+		}
+	}
+
+	show_add_site_dialog(idx = null) {
+		const me = this;
+		const dlg = new frappe.ui.Dialog({
+			title: __('Add Project Site'),
+			fields: [
+				{
+					fieldname: 'site_name',
+					label: __('Site Name'),
+					fieldtype: 'Data',
+					reqd: 1
+				}
+			],
+			primary_action_label: __('Create Site'),
+			primary_action(values) {
+				frappe.call({
+					method: 'construction_management.construction_management.page.bulk_dpr_entry.bulk_dpr_entry.create_quick_project_site',
+					args: { project: me.project, site_name: values.site_name },
+					callback(r) {
+						const site = r.message || {};
+						if (!site.name) return;
+						me.sites_cache = me.sites_cache || [];
+						if (!me.sites_cache.some(s => s.name === site.name)) {
+							me.sites_cache.unshift({ name: site.name, site_name: site.site_name || values.site_name });
+						}
+						if (idx !== null && me.items[idx]) {
+							me.update_item_field(idx, 'project_sites', site.name);
+						}
+						me.render();
+						frappe.show_alert({ message: site.created ? __('Site created') : __('Site already exists'), indicator: 'green' });
+						dlg.hide();
+					}
+				});
+			}
+		});
+		dlg.show();
+	}
+
+	show_help_video() {
+		const company = (typeof cur_frm !== 'undefined' && cur_frm.doc.company) ? cur_frm.doc.company : null;
+		const show_dialog = (videoUrl) => {
+			const embed = (url) => {
+				if (!url) return '';
+				if (url.includes('youtube.com/watch')) {
+					const id = new URL(url, window.location.origin).searchParams.get('v');
+					return id ? `https://www.youtube.com/embed/${id}` : url;
+				}
+				if (url.includes('youtu.be/')) {
+					const id = url.split('youtu.be/')[1]?.split(/[?&]/)[0];
+					return id ? `https://www.youtube.com/embed/${id}` : url;
+				}
+				return url;
+			};
+			const embedUrl = embed(videoUrl);
+			const steps = `<ol style="margin:0;padding-left:18px;line-height:1.6;">
+				<li>${__('Select date and add BOQ items with the + button.')}</li>
+				<li>${__('Choose or add a Site for each row.')}</li>
+				<li>${__('Enter area covered and attach Labour / Materials / Costs.')}</li>
+				<li>${__('Submit records when complete.')}</li>
+			</ol>`;
+			const videoHtml = embedUrl
+				? `<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:8px;margin-top:12px;">
+					<iframe src="${embedUrl}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;" allowfullscreen></iframe></div>`
+				: `<p class="text-muted" style="margin-top:12px;">${__('Set Bulk DPR Help Video URL in BOQ Settings.')}</p>`;
+			const dlg = new frappe.ui.Dialog({
+				title: __('How to Create Bulk DPR'),
+				size: 'large',
+				fields: [{ fieldtype: 'HTML', fieldname: 'help_html' }]
+			});
+			dlg.fields_dict.help_html.$wrapper.html(steps + videoHtml);
+			dlg.show();
+		};
+		if (company) {
+			frappe.db.get_value('BOQ Settings', company, 'bulk_dpr_help_video_url', (r) => {
+				show_dialog(r?.message?.bulk_dpr_help_video_url || '');
+			});
+		} else {
+			show_dialog('');
 		}
 	}
 
@@ -5092,7 +5314,7 @@ class BulkDPRManager {
 					<div class="dpr-grid-text" title="${item.boq_item}">${item.boq_item}</div>
 					<div class="dpr-grid-subtext">${item.bill_no || '-'}</div>
 				</td>
-				<td><select class="dpr-grid-input dpr-site-select" style="text-align: left;"></select></td>
+				<td><div class="d-flex gap-1 align-items-center"><select class="dpr-grid-input dpr-site-select" style="text-align: left; flex:1;"></select><button class="dpr-grid-btn dpr-row-add-site" title="${__('Add Site')}">+</button></div></td>
 				<td>
 					<div style="display:flex; flex-direction:column; gap:2px;">
 						<div style="display:flex; align-items:center; gap:2px;">
@@ -5112,15 +5334,19 @@ class BulkDPRManager {
 					</div>
 				</td>
 				<td class="dpr-grid-total dpr-row-total">${format_currency(this.calculate_row_total(idx))}</td>
-				<td style="text-align:center;"><i class="fa fa-times dpr-remove-row"></i></td>
+				<td style="text-align:center;">
+					<button class="dpr-grid-btn dpr-remove-row" title="${__('Delete row')}" style="color:#dc2626;border-color:#fecaca;">
+						<i class="fa fa-trash"></i>
+					</button>
+				</td>
 			</tr>
 		`);
 
 		// Setup Site Select
 		const $select = $row.find('.dpr-site-select');
 		const populate_sites = (sites) => {
-			$select.append(`<option value="">${__('Select Site')}</option>`);
-			sites.forEach(s => $select.append(`<option value="${s.name}" ${s.name === data.project_sites ? 'selected' : ''}>${s.name}</option>`));
+			$select.empty().append(`<option value="">${__('Select Site')}</option>`);
+			sites.forEach(s => $select.append(`<option value="${s.name}" ${s.name === data.project_sites ? 'selected' : ''}>${s.site_name || s.name}</option>`));
 		};
 
 		if (this.sites_cache) {
@@ -5155,13 +5381,16 @@ class BulkDPRManager {
 
 		// Events
 		$select.on('change', (e) => this.update_item_field(idx, 'project_sites', $(e.target).val()));
+		$row.find('.dpr-row-add-site').on('click', () => this.show_add_site_dialog(idx));
 		$row.find('.dpr-area-covered').on('input', (e) => {
 			const val = flt($(e.target).val());
 			this.update_item_field(idx, 'area_covered', val);
 			const total = this.boq_qty_cache[item.boq_item] || 0;
 			this.update_row_balance($row, idx, total);
 		});
-		$row.find('.dpr-remove-row').on('click', () => this.remove_item(idx));
+		$row.find('.dpr-remove-row').on('click', () => {
+			frappe.confirm(__('Delete this row?'), () => this.remove_item(idx));
+		});
 		$row.find('.dpr-res-btn').on('click', (e) => this.open_resource_manager($(e.currentTarget).data('type'), idx));
 		$row.find('.dpr-subcon-btn').on('click', () => {
 			frappe.prompt([{ fieldname: 'cost', label: 'Subcontract Cost', fieldtype: 'Currency', default: data.subcontract_cost }], (v) => {
@@ -5403,6 +5632,8 @@ window.show_dpr_dialog_enhanced = function (project, is_bulk = false) {
 	});
 
 	d.manager = new BulkDPRManager(project, d);
+
+	d.add_custom_action(__('How to Create DPR'), () => d.manager.show_help_video(), __('Help'));
 
 	if (!is_bulk) {
 		frappe.call({

@@ -20,9 +20,11 @@
   "section_description",
   "description",
   "section_quantity",
+  "pricing_entry_mode",
   "unit",
   "total_qty",
   "rate",
+  "lump_sum_total",
   "total_amount",
   "skip_advance_deduction",
   "rate_history_html",
@@ -168,6 +170,13 @@
    "label": "Quantity & Rate"
   },
   {
+   "default": "Unit Rate",
+   "fieldname": "pricing_entry_mode",
+   "fieldtype": "Select",
+   "label": "Pricing Entry Mode",
+   "options": "Unit Rate\nLump Sum Total"
+  },
+  {
    "fieldname": "unit",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -189,6 +198,12 @@
    "in_list_view": 1,
    "label": "Rate",
    "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.pricing_entry_mode=='Lump Sum Total'",
+   "fieldname": "lump_sum_total",
+   "fieldtype": "Currency",
+   "label": "Lump Sum Total"
   },
   {
    "fieldname": "total_amount",

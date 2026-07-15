@@ -130,9 +130,17 @@ class BOQItem(Document):
 		if is_boq_locked(self.project_boq):
 			old_doc = self.get_doc_before_save()
 			if old_doc:
+				is_lump_sum = getattr(self, "pricing_entry_mode", "Unit Rate") == "Lump Sum Total"
+				lump_sum_changed = flt(getattr(old_doc, "lump_sum_total", 0)) != flt(
+					getattr(self, "lump_sum_total", 0)
+				)
+				qty_changed = flt(old_doc.total_qty) != flt(self.total_qty)
+
+				if is_lump_sum and (lump_sum_changed or qty_changed):
+					return
+
 				# Only allow current_qty changes on locked BOQ
-				if (flt(old_doc.total_qty) != flt(self.total_qty) or 
-					flt(old_doc.rate) != flt(self.rate)):
+				if qty_changed or flt(old_doc.rate) != flt(self.rate):
 					frappe.throw(
 						_("Cannot modify quantity or rate. The parent BOQ is locked."),
 						title=_("BOQ Locked")
@@ -159,8 +167,37 @@ class BOQItem(Document):
 					title=_("Over-Billing Error")
 				)
 	
+	def _derive_rate_from_lump_sum(self):
+		"""Derive unit rate from lump-sum contract total when in Lump Sum entry mode."""
+		if getattr(self, "pricing_entry_mode", "Unit Rate") != "Lump Sum Total":
+			return
+		if flt(self.lump_sum_total) <= 0:
+			return
+
+		lump_sum = flt(self.lump_sum_total)
+
+		if not self.is_new():
+			gross_billed = self._get_gross_billed_amount()
+			if gross_billed:
+				billed_qty = flt(gross_billed.get("qty", 0))
+				billed_amount = flt(gross_billed.get("amount", 0))
+			else:
+				from construction_management.api.boq_ledger import get_previous_amount, get_previous_qty
+
+				billed_qty = get_previous_qty(self.name)
+				billed_amount = get_previous_amount(self.name)
+
+			remaining_qty = flt(self.total_qty) - billed_qty
+			if remaining_qty > 0:
+				self.rate = (lump_sum - billed_amount) / remaining_qty
+			elif flt(self.total_qty) > 0:
+				self.rate = lump_sum / flt(self.total_qty)
+		elif flt(self.total_qty) > 0:
+			self.rate = lump_sum / flt(self.total_qty)
+
 	def calculate_amounts(self):
 		"""Calculate all amount fields"""
+		self._derive_rate_from_lump_sum()
 		# Get ledger values if not new
 		if not self.is_new():
 			from construction_management.api.boq_ledger import (
@@ -770,6 +807,13 @@ def get_rate_history(boq_item):
 	for h in history:
 		full_name = frappe.db.get_value("User", h.get("changed_by"), "full_name")
 		h["user_name"] = full_name or h.get("changed_by")
+		if not flt(h.get("amount")):
+			item_values = frappe.db.get_value(
+				"BOQ Item", boq_item, ["total_qty", "total_amount"], as_dict=True
+			) or {}
+			h["amount"] = flt(item_values.get("total_amount")) or (
+				flt(h.get("rate")) * flt(item_values.get("total_qty"))
+			)
 
 	return history
 
@@ -824,6 +868,7 @@ def get_rate_split_summary(boq_item):
 		"current_rate": current_rate,
 		"balance_value": balance_value,
 		"total_amount": total_amount,
+		"total_qty": total_qty,
 		"rate_history": get_rate_history(boq_item),
 	}
 

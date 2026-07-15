@@ -593,6 +593,7 @@ def get_boq_items(bill_name: str) -> list:
 		fields=[
 			"name", "item_code", "description", "unit",
 			"total_qty", "rate", "total_amount",
+			"pricing_entry_mode", "lump_sum_total",
 			"billing_status",
 			"estimated_material_cost", "estimated_labour_cost",
 			"estimated_subcontract_cost", "estimated_asset_cost",
@@ -1848,28 +1849,45 @@ def bulk_delete_items(item_names: list or str):
 
 
 @frappe.whitelist()
-def update_boq_item_base(boq_item: str, total_qty: float = None, rate: float = None) -> dict:
+def update_boq_item_base(
+	boq_item: str,
+	total_qty: float = None,
+	rate: float = None,
+	lump_sum_total: float = None,
+	pricing_entry_mode: str = None,
+) -> dict:
 	"""
-	Update base fields (total_qty, rate) for a BOQ item.
+	Update base fields (total_qty, rate, lump_sum_total) for a BOQ item.
 	
 	Args:
 		boq_item: BOQ Item name
 		total_qty: New total quantity
-		rate: New rate
+		rate: New rate (switches to Unit Rate mode)
+		lump_sum_total: Contract total for Lump Sum entry mode
+		pricing_entry_mode: Unit Rate or Lump Sum Total
 		
 	Returns:
 		dict with updated values
 	"""
 	item = frappe.get_doc("BOQ Item", boq_item)
-	
+
+	if pricing_entry_mode:
+		item.pricing_entry_mode = pricing_entry_mode
+
+	if lump_sum_total is not None:
+		item.pricing_entry_mode = "Lump Sum Total"
+		item.lump_sum_total = flt(lump_sum_total)
+
 	if total_qty is not None:
 		item.total_qty = flt(total_qty)
-		
+
 	if rate is not None:
+		item.pricing_entry_mode = "Unit Rate"
 		item.rate = flt(rate)
-		
+		item.lump_sum_total = 0
+
 	item.save()
-	
+
 	return get_item_ledger_values(boq_item)
 
 

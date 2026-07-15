@@ -495,6 +495,137 @@ class BulkDPREntry {
 					});
 				};
 
+				const deleteSelected = async () => {
+					const selected = rows.value.filter(r => r.selected && (r.docstatus === 0 || !r.name));
+					if (selected.length === 0) {
+						frappe.msgprint(__('Please select draft rows to delete.'));
+						return;
+					}
+
+					const named = selected.filter(r => r.name).map(r => r.name);
+					const unnamed = selected.filter(r => !r.name);
+
+					frappe.confirm(__('Delete {0} selected row(s)?', [selected.length]), async () => {
+						if (named.length) {
+							loading.value = true;
+							try {
+								const res = await frappe.call({
+									method: 'construction_management.construction_management.page.bulk_dpr_entry.bulk_dpr_entry.delete_bulk_dpr',
+									args: { names: named }
+								});
+								const deleted = res.message?.deleted || [];
+								const errors = res.message?.errors || [];
+								if (deleted.length) {
+									frappe.show_alert({ message: __('{0} DPR(s) deleted', [deleted.length]), indicator: 'green' });
+								}
+								if (errors.length) {
+									frappe.msgprint({ title: __('Delete errors'), message: errors.join('<br>'), indicator: 'orange' });
+								}
+							} catch (e) {
+								console.error(e);
+							} finally {
+								loading.value = false;
+							}
+						}
+
+						if (unnamed.length) {
+							rows.value = rows.value.filter(r => !(r.selected && !r.name));
+						}
+						fetchData(currentPage.value);
+					});
+				};
+
+				const toEmbedVideoUrl = (url) => {
+					if (!url) return '';
+					if (url.includes('youtube.com/watch')) {
+						const id = new URL(url, window.location.origin).searchParams.get('v');
+						return id ? `https://www.youtube.com/embed/${id}` : url;
+					}
+					if (url.includes('youtu.be/')) {
+						const id = url.split('youtu.be/')[1]?.split(/[?&]/)[0];
+						return id ? `https://www.youtube.com/embed/${id}` : url;
+					}
+					return url;
+				};
+
+				const showHelpVideo = () => {
+					const videoUrl = toEmbedVideoUrl(masterData.value.help_video_url || '');
+					const steps = `
+						<ol style="margin: 0; padding-left: 18px; line-height: 1.6;">
+							<li>${__('Select Company and Project, then choose the DPR date.')}</li>
+							<li>${__('Click Add Row and pick a BOQ Item.')}</li>
+							<li>${__('Select or add a Site, enter Area covered.')}</li>
+							<li>${__('Add Employees, Materials, and Overheads as needed.')}</li>
+							<li>${__('Save drafts, then Submit Selected when ready.')}</li>
+						</ol>
+					`;
+					const videoHtml = videoUrl
+						? `<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:8px;margin-top:12px;">
+							<iframe src="${videoUrl}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;" allowfullscreen></iframe>
+						</div>`
+						: `<p class="text-muted" style="margin-top:12px;">${__('No help video configured. Set Bulk DPR Help Video URL in BOQ Settings for your company.')}</p>`;
+
+					const dlg = new frappe.ui.Dialog({
+						title: __('How to Create Bulk DPR'),
+						size: 'large',
+						fields: [{ fieldtype: 'HTML', fieldname: 'help_html' }]
+					});
+					dlg.fields_dict.help_html.$wrapper.html(`<div>${steps}${videoHtml}</div>`);
+					dlg.show();
+				};
+
+				const showAddSiteDialog = (rowIdx = null) => {
+					if (!project.value) {
+						frappe.msgprint(__('Please select a project first.'));
+						return;
+					}
+					const dlg = new frappe.ui.Dialog({
+						title: __('Add Project Site'),
+						fields: [
+							{
+								fieldname: 'site_name',
+								label: __('Site Name'),
+								fieldtype: 'Data',
+								reqd: 1,
+								description: __('Creates a new site under the selected project')
+							}
+						],
+						primary_action_label: __('Create Site'),
+						primary_action: async (values) => {
+							loading.value = true;
+							try {
+								const res = await frappe.call({
+									method: 'construction_management.construction_management.page.bulk_dpr_entry.bulk_dpr_entry.create_quick_project_site',
+									args: { project: project.value, site_name: values.site_name }
+								});
+								const site = res.message || {};
+								if (site.name) {
+									const exists = (masterData.value.sites || []).some(s => s.name === site.name);
+									if (!exists) {
+										masterData.value.sites = [
+											{ name: site.name, site_name: site.site_name || values.site_name },
+											...(masterData.value.sites || [])
+										];
+									}
+									if (rowIdx !== null && rows.value[rowIdx]) {
+										rows.value[rowIdx].site = site.name;
+									}
+									frappe.show_alert({
+										message: site.created ? __('Site created') : __('Site already exists'),
+										indicator: 'green'
+									});
+									dlg.hide();
+								}
+							} catch (e) {
+								console.error(e);
+							} finally {
+								loading.value = false;
+							}
+						}
+					});
+					dlg.show();
+				};
+
 				watch(project, () => {
 					if (!project.value) {
 						rows.value = [];
@@ -594,7 +725,10 @@ class BulkDPREntry {
 
 					// Setup Page Actions
 					me.page.set_primary_action('Save', () => save(false));
+					me.page.add_inner_button(__('How to Create DPR'), showHelpVideo);
+					me.page.add_inner_button(__('Add Site'), () => showAddSiteDialog());
 					me.page.add_inner_button('Submit Selected', submitSelected);
+					me.page.add_inner_button('Delete Selected', deleteSelected);
 					me.page.add_inner_button('Cancel Selected', cancelSelected);
 				});
 
@@ -628,6 +762,9 @@ class BulkDPREntry {
 					fetchFromRoster,
 					submitSelected,
 					cancelSelected,
+					deleteSelected,
+					showHelpVideo,
+					showAddSiteDialog,
 					changePageSize
 				};
 			},
@@ -695,9 +832,18 @@ class BulkDPREntry {
 								<div class="col-md-2">
 									<input type="date" class="form-control compact-date" v-model="date" @change="fetchData(1)">
 								</div>
-								<div class="col-md-5 text-right d-flex justify-content-end gap-2 align-items-center">
+								<div class="col-md-5 text-right d-flex justify-content-end gap-2 align-items-center flex-wrap">
+									<button class="btn btn-outline-secondary btn-sm px-3" @click="showHelpVideo" title="${__('Watch how to create DPR')}">
+										<i class="fa fa-play-circle mr-1"></i> ${__('How To')}
+									</button>
+									<button class="btn btn-outline-secondary btn-sm px-3" @click="showAddSiteDialog()" :disabled="!project">
+										<i class="fa fa-map-marker mr-1"></i> ${__('Add Site')}
+									</button>
 									<button class="btn btn-secondary-modern btn-sm px-3" @click="addRow">
 										<i class="fa fa-plus mr-1"></i> Add Row
+									</button>
+									<button class="btn btn-outline-danger btn-sm px-3" @click="deleteSelected" :disabled="!hasDraftSelection">
+										<i class="fa fa-trash mr-1"></i> Delete Selected
 									</button>
 									<button class="btn btn-primary-modern btn-sm px-4" @click="save(false)">
 										<i class="fa fa-save mr-1"></i> Save
@@ -758,12 +904,15 @@ class BulkDPREntry {
 									<td>
 										<label class="small text-muted mb-1">Site <span class="text-danger font-weight-bold">*</span></label>
 										<div class="site-area-scroll" style="display: flex;gap: 10px; flex-direction: column;">
+											<div class="d-flex gap-1 align-items-center">
 											 <select class="form-control" v-model="row.site" :disabled="row.docstatus > 0" :class="{'border-danger': !row.site && row.docstatus === 0}">
 												<option value="">Select Site</option>
 												<option v-for="site in masterData.sites" :key="site.name" :value="site.name">
-													{{ site.site_name }}
+													{{ site.site_name || site.name }}
 												</option>
 											</select>
+											<button class="btn btn-outline-secondary btn-xs px-2" @click="showAddSiteDialog(idx)" :disabled="!project || row.docstatus > 0" title="${__('Add new site')}">+</button>
+											</div>
 											<div>
 											<label>Area : </label>
 											<input type="number" class="form-control text-center area-input" v-model.number="row.area_covered" step="0.01" :disabled="row.docstatus > 0" placeholder="Area">
@@ -848,8 +997,8 @@ class BulkDPREntry {
 											<a v-if="row.name" :href="'/app/daily-progress-record/' + row.name" target="_blank" class="btn btn-outline-secondary btn-sm" title="View Detail">
 												<i class="fa fa-external-link"></i>
 											</a>
-                                        	<button v-if="row.docstatus === 0 || !row.name" class="btn btn-outline-danger btn-sm" @click="removeRow(idx)" title="Delete">
-                                            	<i class="fa fa-trash"></i>
+                                        	<button v-if="row.docstatus === 0" class="btn btn-outline-danger btn-sm" @click="removeRow(idx)" title="${__('Delete row')}">
+                                            	<i class="fa fa-trash mr-1"></i>${__('Delete')}
                                         	</button>
 										</div>
                                     </td>

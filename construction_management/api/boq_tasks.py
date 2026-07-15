@@ -344,7 +344,9 @@ def create_boq_item_with_task(
 	estimated_subcontract_cost_per_unit: float = 0,
 	estimated_asset_cost_per_unit: float = 0,
 	estimated_other_cost_per_unit: float = 0,
-	materials: str | list = None
+	materials: str | list = None,
+	pricing_entry_mode: str = "Unit Rate",
+	lump_sum_total: float = 0,
 ) -> dict:
 	"""
 	Create a BOQ Item and optionally create a linked Group Task.
@@ -388,7 +390,13 @@ def create_boq_item_with_task(
 	boq_item.description = description
 	boq_item.unit = unit
 	boq_item.total_qty = flt(total_qty)
-	boq_item.rate = flt(rate)
+	boq_item.pricing_entry_mode = pricing_entry_mode or "Unit Rate"
+	if boq_item.pricing_entry_mode == "Lump Sum Total" and flt(lump_sum_total) > 0:
+		boq_item.lump_sum_total = flt(lump_sum_total)
+		if flt(total_qty) > 0:
+			boq_item.rate = flt(lump_sum_total) / flt(total_qty)
+	else:
+		boq_item.rate = flt(rate)
 	
 	# Set unit costs
 	boq_item.estimated_material_cost_per_unit = flt(estimated_material_cost_per_unit)
