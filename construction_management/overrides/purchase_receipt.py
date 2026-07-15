@@ -324,6 +324,29 @@ def _remove_purchase_deduction_items(doc, item_codes=None):
 	)
 
 
+def _resolve_purchase_receipt_item_project(doc, row):
+	"""Resolve project for a PR item. PO-linked rows must keep the PO item project."""
+	if row.get("purchase_order_item"):
+		po_item_project = frappe.db.get_value(
+			"Purchase Order Item", row.purchase_order_item, "project"
+		)
+		if po_item_project:
+			return po_item_project
+
+	project = row.get("project")
+
+	if not project and row.get("warehouse"):
+		project = get_warehouse_project(row.warehouse, company=doc.company)
+	if not project and row.get("rejected_warehouse"):
+		project = get_warehouse_project(row.rejected_warehouse, company=doc.company)
+	if not project:
+		project = doc.get("project")
+	if not project and row.get("purchase_order"):
+		project = frappe.db.get_value("Purchase Order", row.purchase_order, "project")
+
+	return project
+
+
 def ensure_item_projects(doc, make_mandatory=False):
 	"""
 	Ensure each item has project set by pulling from the row or linked warehouses.
@@ -334,13 +357,7 @@ def ensure_item_projects(doc, make_mandatory=False):
 		if row.item_code in DEDUCTION_ITEM_CODES:
 			continue
 
-		project = row.get("project")
-
-		# Try accepted warehouse first, then rejected warehouse
-		if not project and row.get("warehouse"):
-			project = get_warehouse_project(row.warehouse, company=doc.company)
-		if not project and row.get("rejected_warehouse"):
-			project = get_warehouse_project(row.rejected_warehouse, company=doc.company)
+		project = _resolve_purchase_receipt_item_project(doc, row)
 
 		if project:
 			# Validate company alignment early to give clearer errors

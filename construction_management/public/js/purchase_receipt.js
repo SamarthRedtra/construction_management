@@ -104,10 +104,12 @@ frappe.ui.form.on('Purchase Receipt Item', {
 		const row = frappe.get_doc(cdt, cdn);
 		const warehouse = row.warehouse;
 
-		// Always clear the row's project first; we only set it when a match is found
-		frappe.model.set_value(cdt, cdn, 'project', '');
-
 		if (!warehouse) return;
+
+		// PO-linked rows: warehouse may differ, but project must stay as PO item project.
+		if (row.purchase_order_item) {
+			return;
+		}
 
 		frappe.call({
 			method: 'construction_management.api.purchase_receipt_utils.get_warehouse_project',
