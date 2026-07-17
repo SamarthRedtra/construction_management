@@ -166,6 +166,15 @@ class TestProjectProcessHome(FrappeTestCase):
 		if project_company:
 			self.assertIn(project_company, company_names)
 
+	def test_projects_sorted_by_project_no_ascending(self):
+		result = get_project_process_home_data(status_filter="all", search="990")
+		project_nos = [
+			row["project_no"]
+			for row in result["projects"]
+			if str(row.get("project_no") or "").startswith("990")
+		]
+		self.assertEqual(project_nos, sorted(project_nos))
+
 	@classmethod
 	def _create_boq_items(cls, project: str) -> tuple[str, str]:
 		_, bill_name, boq_item = create_test_boq_structure(project, total_qty=100, rate=20)

@@ -7,9 +7,23 @@ frappe.provide('boq_management');
 // BOQ_QTY_PRECISION / BOQ_QTY_STEP are defined in boq_management_table.js (loads before this file on Project).
 
 frappe.ui.form.on('Project', {
+	onload(frm) {
+		hide_project_naming_series(frm);
+		if (frm.is_new()) {
+			ensure_project_company(frm);
+			autofill_project_number(frm, { force: false });
+		}
+	},
+
 	refresh(frm) {
+		hide_project_naming_series(frm);
 		hide_project_construction_clutter(frm);
 		hide_project_costing_progress_tabs(frm);
+
+		if (frm.is_new()) {
+			ensure_project_company(frm);
+			autofill_project_number(frm, { force: false });
+		}
 
 		if (frm.doc.enable_progressive_boq) {
 			render_construction_dashboard(frm);
@@ -57,6 +71,12 @@ frappe.ui.form.on('Project', {
 		render_project_commission_embed(frm);
 	},
 
+	company(frm) {
+		if (frm.is_new()) {
+			autofill_project_number(frm, { force: true });
+		}
+	},
+
 	enable_progressive_boq(frm) {
 		if (frm.doc.enable_progressive_boq) {
 			render_construction_dashboard(frm);
@@ -73,11 +93,9 @@ frappe.ui.form.on('Project', {
 
 const CM_CONSTRUCTION_HIDDEN_FIELDS = [
 	'construction_details_section',
-	'company',
 	'project_type_construction',
 	'consultant',
 	'column_break_construction',
-	'site_location',
 	'budget_control_section',
 	'budget_enforcement_level',
 	'budget_mode',
@@ -109,6 +127,50 @@ const CM_PAYMENT_TERMS_FIELDS = [
 	'custom_payment_terms_html',
 ];
 
+function hide_project_naming_series(frm) {
+	if (frm.fields_dict.naming_series) {
+		frm.set_df_property('naming_series', 'hidden', 1);
+	}
+}
+
+function ensure_project_company(frm) {
+	if (frm.doc.company) {
+		return;
+	}
+	const default_company = frappe.defaults.get_user_default('Company');
+	if (default_company) {
+		frm.set_value('company', default_company);
+	}
+}
+
+function autofill_project_number(frm, opts) {
+	opts = opts || {};
+	if (!frm.is_new()) {
+		return;
+	}
+	if (!frm.doc.company) {
+		return;
+	}
+	if (!opts.force && (frm.doc.custom_project_no || '').trim()) {
+		return;
+	}
+
+	frappe.call({
+		method: 'construction_management.api.project_numbering.get_next_project_number',
+		args: { company: frm.doc.company },
+		freeze: false,
+		callback: function (r) {
+			if (!r.message) {
+				return;
+			}
+			if (!frm.is_new()) {
+				return;
+			}
+			frm.set_value('custom_project_no', r.message);
+		},
+	});
+}
+
 function hide_project_construction_clutter(frm) {
 	CM_CONSTRUCTION_HIDDEN_FIELDS.forEach((fieldname) => {
 		if (frm.fields_dict[fieldname]) {
@@ -121,6 +183,14 @@ function hide_project_construction_clutter(frm) {
 			frm.set_df_property(fieldname, 'hidden', fieldname === 'custom_payment_terms_data' ? 1 : 0);
 		}
 	});
+	// Project warehouse + company stay visible at project level.
+	if (frm.fields_dict.site_location) {
+		frm.set_df_property('site_location', 'hidden', 0);
+	}
+	if (frm.fields_dict.company) {
+		frm.set_df_property('company', 'hidden', 0);
+	}
+	hide_project_naming_series(frm);
 }
 
 function hide_project_costing_progress_tabs(frm) {

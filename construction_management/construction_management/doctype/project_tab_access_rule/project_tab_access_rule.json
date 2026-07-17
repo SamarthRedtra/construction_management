@@ -14,11 +14,11 @@
  ],
  "fields": [
   {
+   "description": "Use the checkbox picker in the row form to choose tabs.",
    "fieldname": "tabs",
    "fieldtype": "Small Text",
    "in_list_view": 1,
    "label": "Project Tabs",
-   "options": "Details\nConnections\nConstruction\nApproved Materials\nAccounting\nCosting\nProgress\nProject SOA\nProject Commission\nCommission\nDashboard\nMore Info",
    "reqd": 1
   },
   {
@@ -53,7 +53,7 @@
    "options": "Role"
   },
   {
-   "description": "Select projects to restrict access. Leave empty to allow all projects.",
+   "description": "Leave empty for all projects. Use the searchable checkbox picker in the row form.",
    "fieldname": "allowed_projects",
    "fieldtype": "Small Text",
    "label": "Allowed Projects"

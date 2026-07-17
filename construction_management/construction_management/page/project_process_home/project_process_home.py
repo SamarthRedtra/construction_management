@@ -70,7 +70,7 @@ def get_project_process_home_data(
 			"status",
 			"enable_progressive_boq",
 		],
-		order_by="custom_project_no desc, name desc",
+		order_by="custom_project_no asc, name asc",
 	)
 
 	employee_ids = {

@@ -10,13 +10,12 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_field
 
 
 # Construction keeps only BOQ dashboard; these stay on the tab but are hidden.
+# site_location (Project Warehouse) and company stay visible on Details.
 CONSTRUCTION_HIDDEN_FIELDS = [
 	"construction_details_section",
-	"company",
 	"project_type_construction",
 	"consultant",
 	"column_break_construction",
-	"site_location",
 	"budget_control_section",
 	"budget_enforcement_level",
 	"budget_mode",
@@ -67,6 +66,8 @@ PROJECT_FIELD_ORDER = [
 	"column_break_5",
 	"priority",
 	"department",
+	"company",
+	"site_location",
 	"custom_payment_terms_summary_section",
 	"advance_deduction",
 	"enable_progressive_boq",
@@ -83,11 +84,9 @@ PROJECT_FIELD_ORDER = [
 	"construction_dashboard_section",
 	"construction_dashboard",
 	"construction_details_section",
-	"company",
 	"project_type_construction",
 	"consultant",
 	"column_break_construction",
-	"site_location",
 	"budget_control_section",
 	"budget_enforcement_level",
 	"budget_mode",
@@ -239,6 +238,14 @@ def _hide_construction_clutter():
 	_set_hidden("custom_payment_terms", 0)
 	_set_hidden("custom_payment_terms_html", 0)
 	_set_hidden("custom_payment_terms_data", 1)
+
+	# Project warehouse + company visible on Details.
+	_set_hidden("site_location", 0)
+	_set_label("site_location", "Project Warehouse")
+	_set_hidden("company", 0)
+
+	# Hide series UI only (field retained on DocType).
+	_set_hidden("naming_series", 1)
 
 
 def _hide_costing_and_progress_tabs():
