@@ -93,16 +93,14 @@ def create_boq_custom_fields():
 			"label": "BOQ Management",
 			"fieldtype": "Section Break",
 			"insert_after": "notes",
-			"collapsible": 0,
-			"depends_on": "eval:doc.enable_progressive_boq"
+			"collapsible": 0
 		},
 		{
 			"dt": "Project",
 			"fieldname": "construction_dashboard",
 			"label": "BOQ Dashboard",
 			"fieldtype": "HTML",
-			"insert_after": "construction_dashboard_section",
-			"depends_on": "eval:doc.enable_progressive_boq"
+			"insert_after": "construction_dashboard_section"
 		}
 	]
 	

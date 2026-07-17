@@ -18,10 +18,8 @@ def get_boq_tree_data(project: str, start: int = 0, page_length: int = 20) -> di
 	Returns:
 		dict with kpi and bills data
 	"""
-	# Check if progressive BOQ is enabled
-	if not is_progressive_boq_enabled(project):
-		return {"error": "Progressive BOQ is not enabled for this project"}
-	
+	# BOQ Management is available whenever the user can open Construction.
+	# Progressive Payment is no longer required just to view / manage BOQ.
 	# Get Project BOQ
 	project_boq = frappe.db.get_value(
 		"Project BOQ",

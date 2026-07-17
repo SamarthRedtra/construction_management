@@ -25,12 +25,15 @@ frappe.ui.form.on('Project', {
 			autofill_project_number(frm, { force: false });
 		}
 
-		if (frm.doc.enable_progressive_boq) {
+		// Construction tab access ⇒ always show BOQ Management (not gated by Progressive Payment).
+		ensure_boq_management_visible(frm);
+		if (!frm.is_new()) {
 			render_construction_dashboard(frm);
-			render_accounting_kpi_dashboard(frm);
-
-			// Set up a mutation observer to watch for dashboard changes
 			setup_dashboard_protection();
+		}
+
+		if (frm.doc.enable_progressive_boq) {
+			render_accounting_kpi_dashboard(frm);
 
 			if (frm.doc.site_location) {
 				add_site_stock_button(frm);
@@ -78,18 +81,33 @@ frappe.ui.form.on('Project', {
 	},
 
 	enable_progressive_boq(frm) {
-		if (frm.doc.enable_progressive_boq) {
+		ensure_boq_management_visible(frm);
+		if (!frm.is_new()) {
 			render_construction_dashboard(frm);
-			render_accounting_kpi_dashboard(frm);
 			setup_dashboard_protection();
+		}
+		if (frm.doc.enable_progressive_boq) {
+			render_accounting_kpi_dashboard(frm);
 		} else {
-			const wrapper = frm.fields_dict.construction_dashboard?.$wrapper;
-			if (wrapper) wrapper.html('');
 			const accounting_wrapper = frm.fields_dict.accounting_kpi_html?.$wrapper;
 			if (accounting_wrapper) accounting_wrapper.html('');
 		}
 	}
 });
+
+function ensure_boq_management_visible(frm) {
+	['construction_dashboard_section', 'construction_dashboard'].forEach((fieldname) => {
+		if (!frm.fields_dict[fieldname]) {
+			return;
+		}
+		frm.set_df_property(fieldname, 'hidden', 0);
+		const df = frm.get_docfield(fieldname);
+		if (df) {
+			df.depends_on = '';
+		}
+		frm.toggle_display(fieldname, true);
+	});
+}
 
 const CM_CONSTRUCTION_HIDDEN_FIELDS = [
 	'construction_details_section',
