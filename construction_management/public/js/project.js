@@ -8,8 +8,12 @@ frappe.provide('boq_management');
 
 frappe.ui.form.on('Project', {
 	refresh(frm) {
+		hide_project_construction_clutter(frm);
+		hide_project_costing_progress_tabs(frm);
+
 		if (frm.doc.enable_progressive_boq) {
 			render_construction_dashboard(frm);
+			render_accounting_kpi_dashboard(frm);
 
 			// Set up a mutation observer to watch for dashboard changes
 			setup_dashboard_protection();
@@ -28,6 +32,11 @@ frappe.ui.form.on('Project', {
 				frm.add_custom_button(__('Collection Manager'), () => {
 					frappe.set_route('project-collection', frm.doc.name);
 				}, __('Construction'));
+			}
+		} else {
+			const accounting_wrapper = frm.fields_dict.accounting_kpi_html?.$wrapper;
+			if (accounting_wrapper) {
+				accounting_wrapper.html('');
 			}
 		}
 
@@ -51,13 +60,128 @@ frappe.ui.form.on('Project', {
 	enable_progressive_boq(frm) {
 		if (frm.doc.enable_progressive_boq) {
 			render_construction_dashboard(frm);
+			render_accounting_kpi_dashboard(frm);
 			setup_dashboard_protection();
 		} else {
 			const wrapper = frm.fields_dict.construction_dashboard?.$wrapper;
 			if (wrapper) wrapper.html('');
+			const accounting_wrapper = frm.fields_dict.accounting_kpi_html?.$wrapper;
+			if (accounting_wrapper) accounting_wrapper.html('');
 		}
 	}
 });
+
+const CM_CONSTRUCTION_HIDDEN_FIELDS = [
+	'construction_details_section',
+	'company',
+	'project_type_construction',
+	'consultant',
+	'column_break_construction',
+	'site_location',
+	'budget_control_section',
+	'budget_enforcement_level',
+	'budget_mode',
+	'budget_threshold_percent',
+	'financial_section_break',
+	'total_revenue',
+	'total_estimated_cost',
+	'total_actual_cost',
+	'total_estimated_gp',
+	'project_gp_percentage',
+	'financial_column_break',
+	'total_retention_retained',
+	'total_retention_released',
+	'total_retention_balance',
+	'total_advance_given',
+	'total_advance_utilized',
+	'total_advance_available',
+	'project_net_receivable',
+	'section_break_18',
+	'actual_start_date',
+	'actual_time',
+	'column_break_20',
+	'actual_end_date',
+];
+
+const CM_PAYMENT_TERMS_FIELDS = [
+	'custom_payment_terms',
+	'custom_payment_terms_data',
+	'custom_payment_terms_html',
+];
+
+function hide_project_construction_clutter(frm) {
+	CM_CONSTRUCTION_HIDDEN_FIELDS.forEach((fieldname) => {
+		if (frm.fields_dict[fieldname]) {
+			frm.set_df_property(fieldname, 'hidden', 1);
+		}
+	});
+	// Payment terms HTML must stay visible on Construction.
+	CM_PAYMENT_TERMS_FIELDS.forEach((fieldname) => {
+		if (frm.fields_dict[fieldname]) {
+			frm.set_df_property(fieldname, 'hidden', fieldname === 'custom_payment_terms_data' ? 1 : 0);
+		}
+	});
+}
+
+function hide_project_costing_progress_tabs(frm) {
+	if (construction_management.project_tab_access?.is_bypass_user?.()) {
+		return;
+	}
+	['costing_tab', 'monitor_progress_tab'].forEach((fieldname) => {
+		if (construction_management.project_tab_access?.hide_tab) {
+			construction_management.project_tab_access.hide_tab(frm, fieldname);
+		} else if (frm.fields_dict[fieldname]) {
+			frm.set_df_property(fieldname, 'hidden', 1);
+		}
+	});
+}
+
+function render_accounting_kpi_dashboard(frm) {
+	const wrapper = frm.fields_dict.accounting_kpi_html?.$wrapper;
+	if (!wrapper || !wrapper.length) {
+		return;
+	}
+
+	if (!frm.doc.name) {
+		wrapper.html(`<p class="text-muted">${__('Save the project to view accounting KPIs.')}</p>`);
+		return;
+	}
+
+	wrapper.html(`
+		<div class="boq-dashboard-loading">
+			<div class="loading-spinner"></div>
+			<p>${__('Loading Accounting KPIs...')}</p>
+		</div>
+		${get_dashboard_styles()}
+		${typeof get_modern_styles === 'function' ? get_modern_styles() : ''}
+	`);
+
+	frappe.call({
+		method: 'construction_management.api.boq_tree.get_boq_kpi',
+		args: { project: frm.doc.name },
+		callback: function (r) {
+			const kpi = r.message || {};
+			const progress = kpi.total_boq_value > 0 ? ((kpi.total_billed / kpi.total_boq_value) * 100).toFixed(1) : 0;
+			const collectionRate = kpi.total_billed > 0 ? ((kpi.total_collected / kpi.total_billed) * 100).toFixed(1) : 0;
+			wrapper.html(`
+				${get_dashboard_styles()}
+				${typeof get_modern_styles === 'function' ? get_modern_styles() : ''}
+				<div class="boq-dashboard-modern">
+					<div class="dashboard-header">
+						<div class="header-left">
+							<h2 class="dashboard-title">${__('Accounting')}</h2>
+						</div>
+					</div>
+					<div class="kpi-grid" id="accounting-kpi-grid"></div>
+				</div>
+			`);
+			render_kpi_grid(wrapper.find('#accounting-kpi-grid'), kpi, progress, collectionRate, frm);
+		},
+		error: function () {
+			wrapper.html(`<p class="text-muted">${__('Unable to load accounting KPIs.')}</p>`);
+		},
+	});
+}
 
 function render_project_soa_embed(frm) {
 	const wrapper = frm.fields_dict.project_soa_html?.$wrapper;
@@ -405,9 +529,11 @@ function render_empty_state(wrapper, frm) {
 }
 
 function render_modern_dashboard(wrapper, frm, data) {
-	const kpi = data.kpi || {};
-	const progress = kpi.total_boq_value > 0 ? ((kpi.total_billed / kpi.total_boq_value) * 100).toFixed(1) : 0;
-	const collectionRate = kpi.total_billed > 0 ? ((kpi.total_collected / kpi.total_billed) * 100).toFixed(1) : 0;
+	const bills = data.bills || [];
+	const billCount = data.total_bills != null ? data.total_bills : bills.length;
+	const itemCount = data.total_items != null
+		? data.total_items
+		: bills.reduce((sum, bill) => sum + ((bill.items && bill.items.length) || 0), 0);
 
 	wrapper.html(`
 		${get_dashboard_styles()}
@@ -423,6 +549,8 @@ function render_modern_dashboard(wrapper, frm, data) {
 						Bill of Quantities
 					</h2>
 					<span class="boq-status-badge status-${(data.project_boq?.status || 'Draft').toLowerCase()}">${data.project_boq?.status || 'Draft'}</span>
+					<span class="boq-count-badge" title="${__('Total bills in this BOQ')}">${billCount} ${__('Bills')}</span>
+					<span class="boq-count-badge boq-count-items" title="${__('Total BOQ items across bills')}">${itemCount} ${__('Items')}</span>
 				</div>
 				<div class="header-actions">
 					<button class="btn-modern btn-outline" onclick="window.open('/app/project-boq/${data.project_boq?.name}', '_blank')">
@@ -436,15 +564,17 @@ function render_modern_dashboard(wrapper, frm, data) {
 				</div>
 			</div>
 			
-			<div class="kpi-grid" id="kpi-grid"></div>
 			<div class="action-bar" id="action-bar"></div>
 			<div class="bills-container" id="bills-container"></div>
 		</div>
 	`);
 
-	render_kpi_grid(wrapper.find('#kpi-grid'), kpi, progress, collectionRate, frm);
 	render_action_bar(wrapper.find('#action-bar'), frm);
-	render_boq_management_table(wrapper.find('#bills-container'), frm, data.bills);
+	render_boq_management_table(wrapper.find('#bills-container'), frm, bills, {
+		bill_count: billCount,
+		item_count: itemCount,
+	});
+	render_accounting_kpi_dashboard(frm);
 
 	// Store the dashboard HTML for restoration if needed
 	setTimeout(() => {
@@ -972,7 +1102,10 @@ function update_boq_item_current(itemName, newQty, frm) {
 							const kpi = kpiRes.message;
 							const progress = kpi.total_boq_value > 0 ? ((kpi.total_billed / kpi.total_boq_value) * 100).toFixed(1) : 0;
 							const collectionRate = kpi.total_billed > 0 ? ((kpi.total_collected / kpi.total_billed) * 100).toFixed(1) : 0;
-							render_kpi_grid($('#kpi-grid'), kpi, progress, collectionRate, frm);
+							const $grid = $('#accounting-kpi-grid');
+							if ($grid.length) {
+								render_kpi_grid($grid, kpi, progress, collectionRate, frm);
+							}
 						}
 					}
 				});
@@ -4348,6 +4481,20 @@ function get_modern_styles() {
 		.dashboard-title { font-size: 20px; font-weight: 600; color: #1a1a2e; margin: 0; display: flex; align-items: center; gap: 10px; }
 		.dashboard-title svg { color: #5e64ff; }
 		.boq-status-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+		.boq-count-badge {
+			padding: 4px 12px;
+			border-radius: 20px;
+			font-size: 12px;
+			font-weight: 700;
+			background: #eff6ff;
+			color: #1d4ed8;
+			border: 1px solid #bfdbfe;
+		}
+		.boq-count-badge.boq-count-items {
+			background: #ecfdf5;
+			color: #047857;
+			border-color: #a7f3d0;
+		}
 		.status-draft { background: #e3e8ef; color: #4a5568; }
 		.status-approved { background: #c6f6d5; color: #22543d; }
 		.status-closed { background: #fed7d7; color: #742a2a; }
@@ -7987,6 +8134,20 @@ function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
 				gap: 10px;
 				flex: 1;
 			}
+			.boq-term-srno {
+				display: inline-flex;
+				align-items: center;
+				justify-content: center;
+				min-width: 24px;
+				height: 24px;
+				padding: 0 6px;
+				border-radius: 6px;
+				background: #eff6ff;
+				color: #1d4ed8;
+				font-size: 11px;
+				font-weight: 700;
+				flex-shrink: 0;
+			}
 			.boq-term-content {
 				margin-top: 14px;
 				transition: all 0.3s ease;
@@ -8227,15 +8388,17 @@ function renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData) {
 		return;
 	}
 
-	Object.keys(paymentTermsData).forEach(boqItemName => {
+	Object.keys(paymentTermsData).forEach((boqItemName, cardIdx) => {
 		const terms = paymentTermsData[boqItemName];
 		const boqLabel = boqItems.find(b => b.name === boqItemName)?.label || boqItemName;
 		const isExpanded = expandedItems.includes(boqItemName);
+		const srNo = cardIdx + 1;
 
 		const cardHtml = `
 			<div class="boq-term-card ${isExpanded ? '' : 'collapsed'}" data-boq-item="${boqItemName}">
 				<div class="boq-term-header">
 					<div class="boq-term-header-left">
+						<span class="boq-term-srno" title="${__('Sr. No.')}">${srNo}</span>
 						<svg class="chevron-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<polyline points="6 9 12 15 18 9"></polyline>
 						</svg>
@@ -8249,8 +8412,9 @@ function renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData) {
 					<table class="payment-terms-table">
 						<thead>
 							<tr>
-								<th style="width: 55%;">Payment Milestone</th>
-								<th style="width: 30%;" class="text-right">Percentage (%)</th>
+								<th style="width: 8%;">${__('Sr. No.')}</th>
+								<th style="width: 50%;">Payment Milestone</th>
+								<th style="width: 27%;" class="text-right">Percentage (%)</th>
 								<th style="width: 15%; text-align: center;">Actions</th>
 							</tr>
 						</thead>
@@ -8357,6 +8521,7 @@ function renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData) {
 function addTermRow(tbody, term, idx, boqItemName) {
 	const rowHtml = `
 		<tr data-idx="${idx}">
+			<td class="text-center" style="text-align:center;font-weight:600;color:#6b7280;">${idx + 1}</td>
 			<td><input type="text" value="${term.milestone || ''}" data-field="milestone" placeholder="e.g., After Installation"></td>
 			<td class="text-right"><input type="number" value="${term.percentage || 0}" data-field="percentage" min="0" max="100" step="0.01"></td>
 			<td style="text-align: center;">

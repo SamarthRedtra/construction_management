@@ -11,13 +11,21 @@ TAB_FIELDNAMES = {
 	"Connections": "connections_tab",
 	"Construction": "construction_tab",
 	"Approved Materials": "custom_approved_materials_tab",
+	"Accounting": "custom_more_information",
+	"More Information": "custom_more_information",
 	"Costing": "costing_tab",
 	"Progress": "monitor_progress_tab",
 	"Project SOA": "project_soa_tab",
 	"Project Commission": "project_commission_tab",
+	"Commission": "project_commission_tab",
 	"Dashboard": "custom_dashboard",
 	"More Info": "more_info_tab",
 }
+
+# Always hidden on Project form regardless of access rules.
+ALWAYS_HIDDEN_TABS = ("costing_tab", "monitor_progress_tab")
+
+COMMISSION_SPECIFIC_ROLE = "Sales Manager"
 
 
 class ProjectTabAccess(Document):
@@ -27,6 +35,15 @@ class ProjectTabAccess(Document):
 				frappe.throw(_("Row {0}: Select at least one tab").format(row.idx))
 			if not row.role and not row.user:
 				frappe.throw(_("Row {0}: Set either Role or User").format(row.idx))
+
+			access_mode = (getattr(row, "access_mode", None) or "Y").strip().upper()
+			if access_mode not in ("Y", "S"):
+				frappe.throw(_("Row {0}: Access Mode must be Y or S").format(row.idx))
+			row.access_mode = access_mode
+
+			if access_mode == "S" and not getattr(row, "required_role", None):
+				# Default specific gate for Commission-style rules
+				row.required_role = COMMISSION_SPECIFIC_ROLE
 
 			for project in parse_allowed_projects(row.allowed_projects):
 				if not frappe.db.exists("Project", project):
@@ -102,23 +119,37 @@ def get_project_tab_access_config() -> dict:
 	"""Return tab access rules for the Project form."""
 	settings = frappe.get_single("Project Tab Access")
 	if not settings.enabled:
-		return {"enabled": False, "restricted_tabs": {}}
+		return {
+			"enabled": False,
+			"restricted_tabs": {},
+			"always_hidden_tabs": list(ALWAYS_HIDDEN_TABS),
+		}
 
 	restricted_tabs: dict[str, list[dict]] = {}
 	for row in settings.rules or []:
+		access_mode = (getattr(row, "access_mode", None) or "Y").strip().upper()
+		required_role = getattr(row, "required_role", None) or ""
+		if access_mode == "S" and not required_role:
+			required_role = COMMISSION_SPECIFIC_ROLE
+
 		for tab_label in parse_tabs(row.tabs):
 			fieldname = TAB_FIELDNAMES.get(tab_label)
 			if not fieldname:
+				continue
+			if fieldname in ALWAYS_HIDDEN_TABS:
 				continue
 			restricted_tabs.setdefault(fieldname, []).append(
 				{
 					"tab": tab_label,
 					"role": row.role or "",
 					"user": row.user or "",
+					"access_mode": access_mode,
+					"required_role": required_role,
 				}
 			)
 
 	return {
 		"enabled": True,
 		"restricted_tabs": restricted_tabs,
+		"always_hidden_tabs": list(ALWAYS_HIDDEN_TABS),
 	}

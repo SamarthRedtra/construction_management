@@ -12,6 +12,7 @@ class StickyColumnsManager {
 		this.stickyColumns = [
 			{ name: 'expand', width: 40, selector: '.col-expand' },
 			{ name: 'checkbox', width: 40, selector: '.col-checkbox' },
+			{ name: 'srno', width: 52, selector: '.col-srno' },
 			{ name: 'desc', width: 250, selector: '.col-desc' },
 			{ name: 'unit', width: 60, selector: '.col-unit' },
 			{ name: 'total-qty', width: 100, selector: '.col-total-qty' },

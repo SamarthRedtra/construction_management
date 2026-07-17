@@ -22,15 +22,25 @@ const BOQ_QTY_STEP = '0.00000001';
  * Render comprehensive BOQ management table
  * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6
  */
-function render_boq_management_table(container, frm, bills) {
+function render_boq_management_table(container, frm, bills, options) {
+	options = options || {};
 	if (!bills || bills.length === 0) {
 		container.html('<div class="no-bills-message">No bills found. Click "Add Bill" to get started.</div>');
 		return;
 	}
 
+	const billCount = options.bill_count != null ? options.bill_count : bills.length;
+	const itemCount = options.item_count != null
+		? options.item_count
+		: bills.reduce((sum, bill) => sum + ((bill.items && bill.items.length) || 0), 0);
+
 	let html = '<div class="boq-management-table-container">';
 	html += `
 		<div class="boq-management-topbar">
+			<div class="boq-summary-counts">
+				<span class="boq-summary-pill">${billCount} ${__('Bills')}</span>
+				<span class="boq-summary-pill boq-summary-items">${itemCount} ${__('BOQ Items')}</span>
+			</div>
 			<div class="boq-search-container">
 				<input type="text" class="form-control boq-search-input" placeholder="Search items or bills..." aria-label="Search BOQ items">
 				<svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -53,7 +63,7 @@ function render_boq_management_table(container, frm, bills) {
 	// Render each bill as a collapsible section
 	bills.forEach((bill, idx) => {
 		const isExpanded = idx === 0;
-		html += render_bill_section(bill, frm, isExpanded);
+		html += render_bill_section(bill, frm, isExpanded, idx + 1);
 	});
 
 	html += '</div>';
@@ -67,16 +77,18 @@ function render_boq_management_table(container, frm, bills) {
  * Render a single bill section with header and items table
  * Requirements: 7.5 - Bill-level financial summary display
  */
-function render_bill_section(bill, frm, isExpanded) {
+function render_bill_section(bill, frm, isExpanded, billSrNo) {
 	const totals = bill.totals || {};
 	const revenue = totals.revenue || {};
 	const actual = totals.actual_costs || {};
 	const profitability = totals.profitability || {};
+	const srLabel = billSrNo != null ? billSrNo : '';
 
 	return `
 		<div class="bill-section ${isExpanded ? 'expanded' : ''}" data-bill="${bill.name}">
 			<div class="bill-header-row" onclick="toggleBillSection(this)">
 				<div class="bill-header-left">
+					${srLabel ? `<span class="bill-srno" title="${__('Sr. No.')}">${srLabel}</span>` : ''}
 					<svg class="chevron-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<polyline points="6 9 12 15 18 9"></polyline>
 					</svg>
@@ -138,6 +150,7 @@ function render_comprehensive_items_table(items, frm) {
 					<tr class="header-row-main">
 						<th rowspan="2" class="col-expand sticky-col"></th>
 						<th rowspan="2" class="col-checkbox sticky-col"><input type="checkbox" class="select-all-items"></th>
+						<th rowspan="2" class="col-srno sticky-col">${__('Sr. No.')}</th>
 						<th rowspan="2" class="col-desc sticky-col">Description</th>
 						<th rowspan="2" class="col-unit sticky-col">Unit</th>
 						<th rowspan="2" class="col-total-qty sticky-col">Qty</th>
@@ -202,8 +215,8 @@ function render_comprehensive_items_table(items, frm) {
 				<tbody>
 	`;
 
-	items.forEach(item => {
-		html += render_item_row(item, frm);
+	items.forEach((item, idx) => {
+		html += render_item_row(item, frm, idx + 1);
 	});
 
 	html += `
@@ -220,7 +233,7 @@ function render_comprehensive_items_table(items, frm) {
  * Render a single item row with all columns
  * Requirements: 1.3 - Data cells aligned with reordered headers (Qty before Value)
  */
-function render_item_row(item, frm) {
+function render_item_row(item, frm, srNo) {
 	const revenue = item.revenue || {};
 	const ledgerQty = item.qty || {};
 	const ledgerAmount = item.amount || {};
@@ -269,6 +282,7 @@ function render_item_row(item, frm) {
 				</button>
 			</td>
 			<td class="col-checkbox sticky-col"><input type="checkbox" class="item-checkbox" data-item="${item.name}" aria-label="Select item ${item.description || item.name}" tabindex="0"></td>
+			<td class="col-srno sticky-col">${srNo || ''}</td>
 			<td class="col-desc sticky-col">
 				<div class="item-desc-wrapper">
 					${rowStatusIcon ? `<span class="row-status-icon" title="${rowStatusTooltip}">${rowStatusIcon}</span>` : ''}
@@ -3711,7 +3725,39 @@ function get_table_styles() {
 		}
 		
 		.boq-management-table-container { display: flex; flex-direction: column; gap: 12px; }
-		.boq-management-topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+		.boq-management-topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+		.boq-summary-counts { display: flex; align-items: center; gap: 8px; }
+		.boq-summary-pill {
+			display: inline-flex;
+			align-items: center;
+			padding: 4px 10px;
+			border-radius: 999px;
+			background: #eff6ff;
+			color: #1d4ed8;
+			font-size: 12px;
+			font-weight: 700;
+			border: 1px solid #bfdbfe;
+			white-space: nowrap;
+		}
+		.boq-summary-pill.boq-summary-items {
+			background: #ecfdf5;
+			color: #047857;
+			border-color: #a7f3d0;
+		}
+		.bill-srno {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			min-width: 28px;
+			height: 28px;
+			padding: 0 8px;
+			border-radius: 8px;
+			background: #f1f5f9;
+			color: #334155;
+			font-size: 12px;
+			font-weight: 700;
+			flex-shrink: 0;
+		}
 		
 		.boq-search-container {
 			position: relative;
@@ -3934,6 +3980,7 @@ function get_table_styles() {
 		/* Column Widths - Requirements: 4.2, 4.3 */
 		.col-expand { width: 36px; min-width: 36px; text-align: center; }
 		.col-checkbox { width: 32px; min-width: 32px; text-align: center; }
+		.col-srno { width: 52px; min-width: 52px; text-align: center; font-weight: 600; color: #64748b; }
 		.col-desc { width: 180px; min-width: 160px; max-width: 200px; text-align: left; word-wrap: break-word; }
 		.col-unit { width: 50px; min-width: 50px; text-align: center; }
 		.col-rate { width: 120px; min-width: 120px; text-align: right; }
@@ -3947,15 +3994,15 @@ function get_table_styles() {
 		.comprehensive-items-table th.sticky-col { background: #f7f7f7; z-index: 3; }
 		.comprehensive-items-table tr:hover .sticky-col { background: #fafbfc; }
 		
-		/* Sticky column left offsets - Recalculated for fixed widths */
-		/* Expand (36) + Checkbox (32) + Desc (180) + Unit (50) + Total Qty (100) + Rate (120) */
+		/* Sticky column left offsets - Expand(36) + Checkbox(32) + SrNo(52) + Desc(180) + Unit(50) + Qty(100) + Rate(120) */
 		.col-expand.sticky-col { left: 0; }
 		.col-checkbox.sticky-col { left: 36px; }
-		.col-desc.sticky-col { left: 68px; }      /* 36 + 32 */
-		.col-unit.sticky-col { left: 247px; }     /* 68 + 180 */
-		.col-total-qty.sticky-col { left: 297px; } /* 248 + 50 */
-		.col-rate.sticky-col { left: 397px; }     /* 297 + 100 */
-		.col-amount.sticky-col { left: 517px; }   /* 397 + 120 */
+		.col-srno.sticky-col { left: 68px; }
+		.col-desc.sticky-col { left: 120px; }
+		.col-unit.sticky-col { left: 300px; }
+		.col-total-qty.sticky-col { left: 350px; }
+		.col-rate.sticky-col { left: 450px; }
+		.col-amount.sticky-col { left: 570px; }
 		
 		/* Visual separation for last sticky column - Requirements: 2.1, 2.2, 2.3, 2.4 */
 		.sticky-col-last { 

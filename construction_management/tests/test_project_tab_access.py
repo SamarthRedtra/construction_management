@@ -43,16 +43,36 @@ class TestProjectTabAccess(FrappeTestCase):
 		doc.enabled = 1
 		doc.append(
 			"rules",
-			{"tabs": "Project SOA, Costing", "role": "Accounts Manager"},
+			{"tabs": "Project SOA, Accounting", "role": "Accounts Manager", "access_mode": "Y"},
 		)
 		doc.save(ignore_permissions=True)
 
 		config = get_project_tab_access_config()
 		self.assertTrue(config["enabled"])
 		self.assertIn(TAB_FIELDNAMES["Project SOA"], config["restricted_tabs"])
-		self.assertIn(TAB_FIELDNAMES["Costing"], config["restricted_tabs"])
+		self.assertIn(TAB_FIELDNAMES["Accounting"], config["restricted_tabs"])
 		self.assertEqual(len(config["restricted_tabs"][TAB_FIELDNAMES["Project SOA"]]), 1)
-		self.assertEqual(len(config["restricted_tabs"][TAB_FIELDNAMES["Costing"]]), 1)
+		self.assertEqual(len(config["restricted_tabs"][TAB_FIELDNAMES["Accounting"]]), 1)
+		self.assertIn("costing_tab", config["always_hidden_tabs"])
+
+	def test_commission_specific_requires_sales_manager(self):
+		doc = frappe.get_single("Project Tab Access")
+		doc.enabled = 1
+		doc.append(
+			"rules",
+			{
+				"tabs": "Commission",
+				"user": "taqreeb@mrggroup.ae",
+				"access_mode": "S",
+				"required_role": "Sales Manager",
+			},
+		)
+		doc.save(ignore_permissions=True)
+
+		config = get_project_tab_access_config()
+		rules = config["restricted_tabs"][TAB_FIELDNAMES["Commission"]]
+		self.assertEqual(rules[0]["access_mode"], "S")
+		self.assertEqual(rules[0]["required_role"], "Sales Manager")
 
 	def test_parse_tabs_splits_comma_separated_values(self):
 		self.assertEqual(parse_tabs("Details, Construction, Progress"), [

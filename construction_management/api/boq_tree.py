@@ -38,6 +38,7 @@ def get_boq_tree_data(project: str, start: int = 0, page_length: int = 20) -> di
 	
 	# Get total bills count for pagination
 	total_bills = frappe.db.count("BOQ Bill", {"project_boq": project_boq.name})
+	total_items = frappe.db.count("BOQ Item", {"project": project})
 
 	# Get bills with items (paginated)
 	bills = get_bills_with_items(project_boq.name, start, page_length)
@@ -48,6 +49,7 @@ def get_boq_tree_data(project: str, start: int = 0, page_length: int = 20) -> di
 		"bills": bills,
 		"has_boq": True,
 		"total_bills": total_bills,
+		"total_items": total_items,
 		"page_length": int(page_length),
 		"start": int(start)
 	}

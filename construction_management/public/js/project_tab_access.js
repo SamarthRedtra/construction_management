@@ -7,6 +7,8 @@ construction_management.project_tab_access._config_cache = null;
 
 construction_management.project_tab_access.BYPASS_ROLES = ['Administrator', 'System Manager'];
 
+construction_management.project_tab_access.ALWAYS_HIDDEN_TABS = ['costing_tab', 'monitor_progress_tab'];
+
 construction_management.project_tab_access.fetch_config = function (force) {
 	if (!force && construction_management.project_tab_access._config_cache) {
 		return Promise.resolve(construction_management.project_tab_access._config_cache);
@@ -16,7 +18,11 @@ construction_management.project_tab_access.fetch_config = function (force) {
 		method: 'construction_management.construction_management.doctype.project_tab_access.project_tab_access.get_project_tab_access_config',
 		freeze: false,
 	}).then((r) => {
-		construction_management.project_tab_access._config_cache = r.message || { enabled: false, restricted_tabs: {} };
+		construction_management.project_tab_access._config_cache = r.message || {
+			enabled: false,
+			restricted_tabs: {},
+			always_hidden_tabs: construction_management.project_tab_access.ALWAYS_HIDDEN_TABS,
+		};
 		return construction_management.project_tab_access._config_cache;
 	});
 };
@@ -30,13 +36,21 @@ construction_management.project_tab_access.user_can_access_tab = function (rules
 	const roles = frappe.user_roles || [];
 
 	return rules.some((rule) => {
+		const mode = String(rule.access_mode || 'Y').toUpperCase();
+		let matches = false;
 		if (rule.user && rule.user === user) {
-			return true;
+			matches = true;
+		} else if (rule.role && roles.includes(rule.role)) {
+			matches = true;
 		}
-		if (rule.role && roles.includes(rule.role)) {
-			return true;
+		if (!matches) {
+			return false;
 		}
-		return false;
+		if (mode === 'S') {
+			const required = rule.required_role || 'Sales Manager';
+			return roles.includes(required);
+		}
+		return true;
 	});
 };
 
@@ -51,17 +65,46 @@ construction_management.project_tab_access.hide_tab = function (frm, fieldname) 
 	}
 };
 
-construction_management.project_tab_access.apply = function (frm) {
+construction_management.project_tab_access.show_tab = function (frm, fieldname) {
+	if (fieldname && fieldname !== '__details' && frm.fields_dict[fieldname]) {
+		frm.set_df_property(fieldname, 'hidden', 0);
+	}
+
+	const tab = (frm.layout?.tabs || []).find((t) => t.df?.fieldname === fieldname);
+	if (tab) {
+		tab.show();
+	}
+};
+
+construction_management.project_tab_access.is_bypass_user = function () {
 	const roles = frappe.user_roles || [];
-	if (
+	return (
 		frappe.session.user === 'Administrator'
 		|| roles.includes('Administrator')
 		|| roles.includes('System Manager')
-	) {
+	);
+};
+
+construction_management.project_tab_access.apply = function (frm) {
+	// Administrator and System Manager see every tab, including Costing/Progress.
+	if (construction_management.project_tab_access.is_bypass_user()) {
+		const always_hidden = construction_management.project_tab_access.ALWAYS_HIDDEN_TABS || [];
+		always_hidden.forEach((fieldname) => {
+			construction_management.project_tab_access.show_tab(frm, fieldname);
+		});
 		return;
 	}
 
+	const always_hidden = construction_management.project_tab_access.ALWAYS_HIDDEN_TABS || [];
+	always_hidden.forEach((fieldname) => {
+		construction_management.project_tab_access.hide_tab(frm, fieldname);
+	});
+
 	construction_management.project_tab_access.fetch_config().then((config) => {
+		(config.always_hidden_tabs || always_hidden).forEach((fieldname) => {
+			construction_management.project_tab_access.hide_tab(frm, fieldname);
+		});
+
 		if (!config.enabled) {
 			return;
 		}
@@ -80,6 +123,7 @@ construction_management.project_tab_access.patch_rule_row_docfields = function (
 	(docfields || []).forEach((df) => {
 		if (df.fieldname === 'tabs') {
 			df.fieldtype = 'MultiSelect';
+			df.options = 'Details\nConnections\nConstruction\nApproved Materials\nAccounting\nProject SOA\nProject Commission\nCommission\nDashboard\nMore Info';
 		}
 		if (df.fieldname === 'allowed_projects') {
 			df.fieldtype = 'MultiSelectList';

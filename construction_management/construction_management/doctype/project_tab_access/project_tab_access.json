@@ -25,7 +25,7 @@
   {
    "fieldname": "help_html",
    "fieldtype": "HTML",
-   "options": "<div class=\"text-muted\" style=\"line-height:1.6;\"><p>Add one row per <b>Role</b> or <b>User</b>. Click a row to edit it.</p><ul><li><b>Project Tabs</b>: multiselect picker for tabs.</li><li><b>Allowed Projects</b>: multiselect project picker, or leave empty for all projects.</li><li>If a tab has <b>no rows</b>, everyone can see it.</li><li>If a tab has rows, only matching roles/users can see it.</li><li><b>Administrator</b> and <b>System Manager</b> always see all tabs and projects.</li></ul></div>"
+   "options": "<div class=\"text-muted\" style=\"line-height:1.6;\"><p>Add one row per <b>Role</b> or <b>User</b>. Click a row to edit it.</p><ul><li><b>Project Tabs</b>: multiselect picker for tabs.</li><li><b>Access Mode</b>: <code>Y</code> = allow when user/role matches; <code>S</code> = also require <b>Required Role</b> (e.g. Sales Manager for Commission).</li><li><b>Allowed Projects</b>: multiselect project picker, or leave empty for all projects.</li><li>If a tab has <b>no rows</b>, everyone can see it.</li><li>If a tab has rows, only matching roles/users can see it.</li><li><b>Costing</b> and <b>Progress</b> are hidden for normal users.</li><li><b>Administrator</b> and <b>System Manager</b> always see <b>all</b> tabs (including Costing and Progress) and all projects.</li></ul></div>"
   },
   {
    "fieldname": "section_break_rules",
