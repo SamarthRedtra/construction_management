@@ -56,3 +56,4 @@ construction_management.patches.project_accounting_tab_layout #reapply-after-jso
 construction_management.patches.show_boq_without_progressive_flag
 construction_management.patches.seed_project_tab_access_from_redtra
 construction_management.patches.transfer_stock_1156_1157_to_1145
+construction_management.patches.consume_ssr_to_excel_balance #dry-run only on migrate

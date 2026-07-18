@@ -336,6 +336,16 @@
   },
   {
    "hidden": 0,
+   "is_query_report": 1,
+   "label": "Site Material Movement",
+   "link_count": 0,
+   "link_to": "Site Material Movement",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
    "is_query_report": 0,
    "label": "Settings",
    "link_count": 2,

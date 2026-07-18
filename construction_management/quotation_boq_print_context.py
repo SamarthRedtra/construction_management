@@ -73,6 +73,9 @@ def build_boq_quotation_print_context(doc) -> dict:
 		},
 		"boq_html": boq_html,
 		"terms_html": doc.get("terms") or "",
+		"payment_terms": doc.get("custom_payment_terms") or "",
+		"exclusion": doc.get("custom_exclusion") or "",
+		"validity": doc.get("custom_validity") or "",
 		"currency": doc.currency or "AED",
 	}
 

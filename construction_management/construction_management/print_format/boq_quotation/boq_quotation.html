@@ -298,11 +298,38 @@
 	</div>
 	{% endif %}
 
+	{% if q.payment_terms %}
+	<div class="terms">
+		<div class="section-label">Payment Terms</div>
+		<div class="terms-body">
+			{{ q.payment_terms }}
+		</div>
+	</div>
+	{% endif %}
+
+	{% if q.exclusion %}
+	<div class="terms">
+		<div class="section-label">Exclusions</div>
+		<div class="terms-body">
+			{{ q.exclusion }}
+		</div>
+	</div>
+	{% endif %}
+
 	{% if q.terms_html %}
 	<div class="terms">
 		<div class="section-label">Terms and Conditions</div>
 		<div class="terms-body">
 			{{ q.terms_html }}
+		</div>
+	</div>
+	{% endif %}
+
+	{% if q.validity %}
+	<div class="terms">
+		<div class="section-label">Validity</div>
+		<div class="terms-body">
+			{{ q.validity }}
 		</div>
 	</div>
 	{% endif %}

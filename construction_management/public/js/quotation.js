@@ -50,6 +50,42 @@ frappe.ui.form.on("Quotation", {
 			}
 		});
 	},
+
+	custom_payment_terms_tc(frm) {
+		if (!frm.doc.custom_payment_terms_tc) {
+			frm.set_value("custom_payment_terms", "");
+			return;
+		}
+		frappe.db.get_value("Terms and Conditions", frm.doc.custom_payment_terms_tc, "terms").then((r) => {
+			if (r && r.message && r.message.terms) {
+				frm.set_value("custom_payment_terms", r.message.terms);
+			}
+		});
+	},
+
+	custom_exclusion_tc(frm) {
+		if (!frm.doc.custom_exclusion_tc) {
+			frm.set_value("custom_exclusion", "");
+			return;
+		}
+		frappe.db.get_value("Terms and Conditions", frm.doc.custom_exclusion_tc, "terms").then((r) => {
+			if (r && r.message && r.message.terms) {
+				frm.set_value("custom_exclusion", r.message.terms);
+			}
+		});
+	},
+
+	custom_validity_tc(frm) {
+		if (!frm.doc.custom_validity_tc) {
+			frm.set_value("custom_validity", "");
+			return;
+		}
+		frappe.db.get_value("Terms and Conditions", frm.doc.custom_validity_tc, "terms").then((r) => {
+			if (r && r.message && r.message.terms) {
+				frm.set_value("custom_validity", r.message.terms);
+			}
+		});
+	},
 });
 
 function setup_print_hint(frm) {

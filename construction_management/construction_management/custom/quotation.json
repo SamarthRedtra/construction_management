@@ -138,6 +138,57 @@
    "description": "Auto-generated from BOQ Lines for print. Do not edit manually.",
    "dt": "Quotation",
    "name": "Quotation-custom_boq_html"
+  },
+  {
+   "fieldname": "custom_payment_terms_tc",
+   "fieldtype": "Link",
+   "insert_after": "terms",
+   "label": "Payment Terms Template",
+   "options": "Terms and Conditions",
+   "dt": "Quotation",
+   "name": "Quotation-custom_payment_terms_tc"
+  },
+  {
+   "fieldname": "custom_payment_terms",
+   "fieldtype": "Text Editor",
+   "insert_after": "custom_payment_terms_tc",
+   "label": "Payment Terms",
+   "dt": "Quotation",
+   "name": "Quotation-custom_payment_terms"
+  },
+  {
+   "fieldname": "custom_exclusion_tc",
+   "fieldtype": "Link",
+   "insert_after": "custom_payment_terms",
+   "label": "Exclusions Template",
+   "options": "Terms and Conditions",
+   "dt": "Quotation",
+   "name": "Quotation-custom_exclusion_tc"
+  },
+  {
+   "fieldname": "custom_exclusion",
+   "fieldtype": "Text Editor",
+   "insert_after": "custom_exclusion_tc",
+   "label": "Exclusions",
+   "dt": "Quotation",
+   "name": "Quotation-custom_exclusion"
+  },
+  {
+   "fieldname": "custom_validity_tc",
+   "fieldtype": "Link",
+   "insert_after": "custom_exclusion",
+   "label": "Validity Template",
+   "options": "Terms and Conditions",
+   "dt": "Quotation",
+   "name": "Quotation-custom_validity_tc"
+  },
+  {
+   "fieldname": "custom_validity",
+   "fieldtype": "Text Editor",
+   "insert_after": "custom_validity_tc",
+   "label": "Validity",
+   "dt": "Quotation",
+   "name": "Quotation-custom_validity"
   }
  ],
  "custom_perms": [],
