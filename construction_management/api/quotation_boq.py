@@ -427,6 +427,7 @@ def _parse_excel_boq_rows(rows: list[dict], company: str | None = None) -> list[
 				"qty": qty,
 				"rate": rate,
 				"amount": qty * rate if display_mode == "Normal" else 0,
+				"is_fixed_rate": 1,
 				"display_mode": display_mode,
 			}
 		)
@@ -537,6 +538,7 @@ def build_quick_boq_lines(
 				"qty": flt(row_data.get("qty")),
 				"rate": flt(row_data.get("rate")),
 				"amount": flt(row_data.get("qty")) * flt(row_data.get("rate")),
+				"is_fixed_rate": 1,
 				"display_mode": row_data.get("display_mode") or "Normal",
 			}
 		)
@@ -633,6 +635,7 @@ def _parse_pasted_boq_text(text: str, company: str | None = None) -> list[dict]:
 				"qty": qty,
 				"rate": rate,
 				"amount": qty * rate if display_mode == "Normal" else 0,
+				"is_fixed_rate": 1,
 				"display_mode": display_mode,
 			}
 		)
@@ -753,6 +756,7 @@ def lines_to_boq_html(lines: list, include_totals: bool = True, company: str | N
 						"qty": sub.get("qty"),
 						"rate": sub.get("rate_display"),
 						"amount": sub.get("amount_display"),
+						"is_fixed_rate": sub.get("include_in_total", True),
 						"display_mode": sub.get("display_mode") or "Normal",
 					}
 				)
@@ -893,6 +897,8 @@ def _format_cell(value) -> str:
 
 def _format_amount_cell(row: dict) -> str:
 	display_mode = row.get("display_mode") or "Normal"
+	if row.get("is_fixed_rate") in (0, "0", False):
+		return ""
 	if display_mode == "N/A":
 		return "N/A"
 	if display_mode == "Rate Only":

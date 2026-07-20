@@ -43,6 +43,16 @@ frappe.ui.form.on('Sales Invoice', {
 		}
 
 		if (frm.doc.docstatus === 0 && frm.doc.project) {
+			frm.add_custom_button(__('Add Additional Service'), () => {
+				const row = frm.add_child('items', {
+					qty: 1,
+					project: frm.doc.project,
+					custom_include_in_deductions: 1,
+				});
+				frm.refresh_field('items');
+				frm.fields_dict.items.grid.open_row(row.idx);
+			}, __('Items'));
+
 			frm.add_custom_button(__('Pull Retention'), () => {
 				pull_retention(frm);
 			}, __('Get Deductions'));
@@ -153,6 +163,15 @@ frappe.ui.form.on('Sales Invoice Item', {
 			construction_management.deduction_summary.render(frm);
 			return;
 		}
+		_si_deduction_debounce(frm);
+	},
+
+	item_code: function (frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (row && row.custom_include_in_deductions) _si_deduction_debounce(frm);
+	},
+
+	custom_include_in_deductions: function (frm, cdt, cdn) {
 		_si_deduction_debounce(frm);
 	}
 });
@@ -350,7 +369,10 @@ function recalculate_deductions(frm) {
 	const has_deductions = (frm.doc.items || []).some(
 		i => _DEDUCTION_ITEMS.includes(i.item_code)
 	);
-	if (!has_deductions) return;
+	const has_additional_service = (frm.doc.items || []).some(
+		i => i.custom_include_in_deductions && !i.boq_item && !_DEDUCTION_ITEMS.includes(i.item_code)
+	);
+	if (!has_deductions && !has_additional_service) return;
 
 	// Prevent re-entrant calls
 	if (frm._recalculating_deductions) return;
@@ -372,6 +394,9 @@ function recalculate_deductions(frm) {
 			const retention_pct = flt(r.message.retention_percentage);
 			const advance_pct = flt(r.message.advance_percentage);
 			const skipAdvanceSet = new Set(r.message.skip_advance_boq_items || []);
+			const hasPerItemDeductions = (frm.doc.items || []).some(
+				i => _DEDUCTION_ITEMS.includes(i.item_code) && i.boq_item
+			);
 
 			// Build a map of boq_item -> BOQ item amount (non-deduction items)
 			const boq_amounts = {};
@@ -428,10 +453,65 @@ function recalculate_deductions(frm) {
 			if (changed) {
 				frm.refresh_field('items');
 			}
+			if (hasPerItemDeductions) {
+				sync_additional_service_deductions(frm, r.message);
+			} else if (has_additional_service) {
+				sync_global_deductions(frm, r.message);
+			}
+			frm.refresh_field('items');
 			construction_management.deduction_summary.render(frm);
 		},
 		always: function () {
 			frm._recalculating_deductions = false;
 		}
 	});
+}
+
+function sync_additional_service_deductions(frm, details) {
+	const serviceTotal = (frm.doc.items || []).reduce((total, item) => {
+		if (item.custom_include_in_deductions && !item.boq_item &&
+			!item.custom_service_deduction && !_DEDUCTION_ITEMS.includes(item.item_code)) {
+			return total + flt(item.amount);
+		}
+		return total;
+	}, 0);
+	const retention = Math.max(0, flt(serviceTotal) * flt(details.retention_percentage) / 100);
+	const boqAdvance = (frm.doc.items || []).reduce((total, item) =>
+		total + (item.item_code === 'ADVANCE-DEDUCTION' && item.boq_item && !item.custom_service_deduction
+			? Math.abs(flt(item.amount)) : 0), 0);
+	const advance = Math.max(0, flt(details.suggested_advance) - boqAdvance);
+	sync_deduction_row(frm, 'RETENTION-DEDUCTION', retention,
+		__('Retention deduction ({0}%) for additional services', [details.retention_percentage]), true);
+	sync_deduction_row(frm, 'ADVANCE-DEDUCTION', advance,
+		__('Advance deduction for additional services'), true);
+}
+
+function sync_global_deductions(frm, details) {
+	sync_deduction_row(frm, 'RETENTION-DEDUCTION', flt(details.suggested_retention),
+		__('Retention deduction ({0}%)', [details.retention_percentage]), false);
+	sync_deduction_row(frm, 'ADVANCE-DEDUCTION', flt(details.suggested_advance),
+		__('Deduction from advance payment'), false);
+}
+
+function sync_deduction_row(frm, itemCode, amount, description, isServiceDeduction) {
+	let rows = (frm.doc.items || []).filter(item => item.item_code === itemCode &&
+		Boolean(item.custom_service_deduction) === Boolean(isServiceDeduction));
+	if (amount <= 0) {
+		rows.forEach(row => frappe.model.clear_doc(row.doctype, row.name));
+		frm.doc.items = (frm.doc.items || []).filter(row => !rows.includes(row));
+		return;
+	}
+	let row = rows[0];
+	if (!row) row = frm.add_child('items');
+	frappe.model.set_value(row.doctype, row.name, {
+		item_code: itemCode,
+		qty: 1,
+		rate: -amount,
+		amount: -amount,
+		description,
+		project: frm.doc.project,
+		custom_service_deduction: isServiceDeduction ? 1 : 0,
+	});
+	rows.slice(1).forEach(extra => frappe.model.clear_doc(extra.doctype, extra.name));
+	if (rows.length > 1) frm.doc.items = (frm.doc.items || []).filter(row => !rows.slice(1).includes(row));
 }

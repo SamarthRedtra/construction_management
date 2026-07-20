@@ -2,7 +2,7 @@
 # License: MIT
 
 import frappe
-from frappe.utils import flt
+from frappe.utils import cint, flt
 from erpnext.selling.doctype.quotation.quotation import Quotation
 
 PLACEHOLDER_ITEM_CODE = "QUOTATION-BOQ"
@@ -45,7 +45,7 @@ class QuotationOverride(Quotation):
 				continue
 
 			display_mode = row.get("display_mode") or "Normal"
-			if display_mode == "Normal":
+			if display_mode == "Normal" and _is_fixed_amount_line(row):
 				row.amount = flt(row.qty) * flt(row.rate)
 			else:
 				row.amount = 0
@@ -63,7 +63,9 @@ class QuotationOverride(Quotation):
 		return sum(
 			flt(row.amount)
 			for row in self.get("custom_boq_lines") or []
-			if row.get("line_type") == "Sub" and (row.get("display_mode") or "Normal") == "Normal"
+			if row.get("line_type") == "Sub"
+			and (row.get("display_mode") or "Normal") == "Normal"
+			and _is_fixed_amount_line(row)
 		)
 
 	def _ensure_boq_placeholder_item(self):
@@ -121,6 +123,12 @@ class QuotationOverride(Quotation):
 			)
 
 		self.with_items = 1
+
+
+def _is_fixed_amount_line(row) -> bool:
+	"""Legacy quotation rows did not have the checkbox and remain amount-bearing."""
+	value = row.get("is_fixed_rate")
+	return value is None or bool(cint(value))
 
 
 def _get_or_create_placeholder_item(company: str | None) -> str:

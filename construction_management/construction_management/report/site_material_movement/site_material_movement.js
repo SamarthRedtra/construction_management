@@ -92,6 +92,14 @@ frappe.query_reports["Site Material Movement"] = {
 			}
 		}
 
+		if (
+			(column.fieldname === "qty_consumed" || column.fieldname === "qty_pending") &&
+			data &&
+			flt(data[column.fieldname]) > 0
+		) {
+			value = `<span style="font-weight: 600;">${value}</span>`;
+		}
+
 		return value;
 	},
 };

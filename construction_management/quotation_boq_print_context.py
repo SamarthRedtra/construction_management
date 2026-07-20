@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.utils import flt, formatdate, get_url
+from frappe.utils import cint, flt, formatdate, get_url
 
 from construction_management.quotation_boq_hierarchy import (
 	HIERARCHY_TWO_LEVEL,
@@ -171,16 +171,18 @@ def _find_parent_in_section(section: dict, parent_no) -> dict | None:
 
 def _format_sub_row(row) -> dict:
 	display_mode = row.get("display_mode") or "Normal"
+	is_fixed_rate = row.get("is_fixed_rate")
+	include_in_total = display_mode == "Normal" and (is_fixed_rate is None or cint(is_fixed_rate))
 	qty = flt(row.get("qty"))
 	rate = flt(row.get("rate"))
 	amount = flt(row.get("amount"))
-	if display_mode == "Normal" and not amount:
+	if include_in_total and not amount:
 		amount = qty * rate
 
 	if display_mode == "N/A":
 		rate_display = "-"
 		amount_display = "N/A"
-	elif display_mode == "Rate Only":
+	elif display_mode == "Rate Only" or not include_in_total:
 		rate_display = rate
 		amount_display = "Rate only"
 	else:
@@ -197,7 +199,7 @@ def _format_sub_row(row) -> dict:
 		"display_mode": display_mode,
 		"rate_display": rate_display,
 		"amount_display": amount_display,
-		"include_in_total": display_mode == "Normal",
+		"include_in_total": include_in_total,
 	}
 
 

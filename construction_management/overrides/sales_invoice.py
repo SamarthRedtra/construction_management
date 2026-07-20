@@ -110,7 +110,12 @@ def _consolidate_income_gl_by_boq_item(gl_map, income_accounts, unbilled_revenue
 class SalesInvoiceOverride(SalesInvoice):
 	def validate(self):
 		super().validate()
-		if self.project and not self.custom_is_advanced and self.is_bill_invoice() and self.docstatus == 0:
+		if (
+			self.project
+			and not self.custom_is_advanced
+			and (self.is_bill_invoice() or self.has_additional_service_deduction_items())
+			and self.docstatus == 0
+		):
 			self.apply_automatic_deductions()
 
 	def make_item_gl_entries(self, gl_entries):
@@ -176,6 +181,13 @@ class SalesInvoiceOverride(SalesInvoice):
 				break
 		return is_bill_invoice
 
+	def has_additional_service_deduction_items(self):
+		return any(
+			cint(item.get("custom_include_in_deductions"))
+			and item.item_code not in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION")
+			for item in self.get("items")
+		)
+
 	def get_item_tax_amount(self, item):
 		"""Extract tax amount for a specific item from item_wise_tax_details child table"""
 		if not self.get("item_wise_tax_details"):
@@ -237,6 +249,10 @@ class SalesInvoiceOverride(SalesInvoice):
 		total_boq_amount = 0
 
 		for item in self.items:
+			# These rows reduce an extra service only. They must not be allocated back
+			# across unrelated BOQ rows in the progress ledger.
+			if cint(item.get("custom_service_deduction")):
+				continue
 			is_retention = item.item_code == "RETENTION-DEDUCTION"
 			is_advance = item.item_code == "ADVANCE-DEDUCTION"
 			is_variance = variance_item_code and item.item_code == variance_item_code
@@ -430,6 +446,8 @@ class SalesInvoiceOverride(SalesInvoice):
 					item.amount = -new_advance
 					item.qty = 1
 					item.description = f"Advance deduction ({advance_pct}%)"
+
+			self._apply_additional_service_deductions(details, retention_pct)
 		else:
 			# Global deduction mode (single row for whole invoice)
 			default_income_account = frappe.db.get_value("Company", self.company, "default_income_account")
@@ -495,8 +513,102 @@ class SalesInvoiceOverride(SalesInvoice):
 			else:
 				self.set("items", [item for item in self.items if item.item_code != advance_item])
 
+			# Global deductions already include all invoice rows. Remove service-only rows left
+			# by a prior BOQ invoice layout so they are never counted twice.
+			self._remove_additional_service_deduction_rows()
+
 		# Recalculate totals to handle the updated items
 		self.run_method("calculate_taxes_and_totals")
+
+	def _remove_additional_service_deduction_rows(self):
+		self.set(
+			"items",
+			[
+				item
+				for item in self.items
+				if not cint(item.get("custom_service_deduction"))
+			],
+		)
+
+	def _apply_additional_service_deductions(self, details, retention_pct):
+		"""Add deduction rows for non-BOQ service additions without changing BOQ ledger rows."""
+		service_total = sum(
+			flt(item.amount)
+			for item in self.items
+			if cint(item.get("custom_include_in_deductions"))
+			and not item.get("boq_item")
+			and not cint(item.get("custom_service_deduction"))
+			and item.item_code not in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION")
+		)
+		service_total = max(0.0, service_total)
+
+		# Retention is per additional-service value. Advance is capped by the remaining
+		# project advance pool after BOQ-specific advance rows are recalculated.
+		retention_amount = flt(service_total * retention_pct / 100, 2)
+		boq_advance_amount = sum(
+			abs(flt(item.amount))
+			for item in self.items
+			if item.item_code == "ADVANCE-DEDUCTION"
+			and item.get("boq_item")
+			and not cint(item.get("custom_service_deduction"))
+		)
+		advance_amount = max(0.0, flt(details.get("suggested_advance")) - boq_advance_amount)
+		advance_amount = flt(advance_amount, 2)
+
+		default_income_account = frappe.db.get_value("Company", self.company, "default_income_account")
+		default_cost_center = self.cost_center or frappe.db.get_value("Company", self.company, "cost_center")
+		from construction_management.api.boq_invoice import get_or_create_advance_item, get_or_create_retention_item
+
+		self._sync_additional_service_deduction_row(
+			"RETENTION-DEDUCTION",
+			retention_amount,
+			f"Retention deduction ({retention_pct}%) for additional services",
+			get_or_create_retention_item,
+			default_income_account,
+			default_cost_center,
+		)
+		self._sync_additional_service_deduction_row(
+			"ADVANCE-DEDUCTION",
+			advance_amount,
+			"Advance deduction for additional services",
+			get_or_create_advance_item,
+			default_income_account,
+			default_cost_center,
+		)
+
+	def _sync_additional_service_deduction_row(
+		self, item_code, amount, description, ensure_item, income_account, cost_center
+	):
+		rows = [
+			item
+			for item in self.items
+			if item.item_code == item_code and cint(item.get("custom_service_deduction"))
+		]
+		if amount <= 0:
+			self.set("items", [item for item in self.items if item not in rows])
+			return
+
+		ensure_item()
+		row = rows[0] if rows else None
+		if not row:
+			row = self.append("items", {})
+		row.update(
+			{
+				"item_code": item_code,
+				"item_name": "Retention Deduction" if item_code == "RETENTION-DEDUCTION" else "Advance Deduction",
+				"qty": 1,
+				"rate": -amount,
+				"amount": -amount,
+				"description": description,
+				"project": self.project,
+				"income_account": income_account,
+				"cost_center": cost_center,
+				"uom": "Nos",
+				"conversion_factor": 1.0,
+				"custom_service_deduction": 1,
+			}
+		)
+		self.set("items", [item for item in self.items if item not in rows[1:]])
 
 	def get_gl_entries(self, warehouse_account=None):
 		gl_entries = super().get_gl_entries(warehouse_account)

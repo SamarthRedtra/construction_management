@@ -36,6 +36,7 @@ def get_project_process_home_data(
 	company: str = "",
 	start: int = 0,
 	page_length: int = 25,
+	project_number_sort: str = "asc",
 ) -> dict:
 	"""Return paginated project list for the member home page."""
 	status_filter = (status_filter or "ongoing").lower()
@@ -44,6 +45,9 @@ def get_project_process_home_data(
 
 	start = cint(start)
 	page_length = max(1, min(cint(page_length) or 25, 100))
+	project_number_sort = (project_number_sort or "asc").lower()
+	if project_number_sort not in {"asc", "desc"}:
+		frappe.throw(_("Project number sort must be ascending or descending"))
 
 	filters = _active_project_filters()
 	statuses = STATUS_FILTERS[status_filter]
@@ -70,7 +74,7 @@ def get_project_process_home_data(
 			"status",
 			"enable_progressive_boq",
 		],
-		order_by="custom_project_no asc, name asc",
+		order_by=f"custom_project_no {project_number_sort}, name {project_number_sort}",
 	)
 
 	employee_ids = {

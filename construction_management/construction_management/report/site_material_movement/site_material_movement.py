@@ -108,6 +108,19 @@ def get_columns():
 			"precision": 3,
 		},
 		{
+			"fieldname": "consumption_date",
+			"label": _("Consumption Date"),
+			"fieldtype": "Date",
+			"width": 120,
+		},
+		{
+			"fieldname": "qty_pending",
+			"label": _("Qty Pending at Site"),
+			"fieldtype": "Float",
+			"width": 130,
+			"precision": 3,
+		},
+		{
 			"fieldname": "balance_at_site",
 			"label": _("Balance at Site"),
 			"fieldtype": "Float",
@@ -150,6 +163,7 @@ def get_data(filters):
 		)
 	)
 
+	_apply_consumption_dates(rows)
 	_apply_site_balances(rows, filters)
 
 	consumption_filter = (filters.get("consumption_status") or "").strip()
@@ -178,6 +192,12 @@ def _get_purchase_receipt_rows(filters):
 		conditions.append("pri.warehouse = %(site_warehouse)s")
 		values["site_warehouse"] = filters.site_warehouse
 
+	issued_expr = (
+		"IFNULL(pri.custom_material_issued_qty, 0)"
+		if frappe.db.has_column("Purchase Receipt Item", "custom_material_issued_qty")
+		else "0"
+	)
+
 	sql = f"""
 		SELECT
 			pri.item_code,
@@ -188,10 +208,11 @@ def _get_purchase_receipt_rows(filters):
 			NULL AS transfer_to_site,
 			pri.qty AS qty_in,
 			0 AS qty_out,
-			0 AS qty_consumed,
+			{issued_expr} AS issued_qty,
 			IFNULL(pri.project, pr.project) AS project,
 			pri.warehouse AS site_warehouse,
 			pri.idx,
+			pri.name AS source_line_name,
 			'Purchase Receipt' AS voucher_type
 		FROM `tabPurchase Receipt` pr
 		INNER JOIN `tabPurchase Receipt Item` pri ON pri.parent = pr.name
@@ -200,16 +221,24 @@ def _get_purchase_receipt_rows(filters):
 	"""
 	result = []
 	for row in frappe.db.sql(sql, values, as_dict=True):
+		qty_in = flt(row.qty_in)
+		issued = flt(row.issued_qty)
+		if not qty_in:
+			posted = "N/A"
+		elif issued >= qty_in - 0.0001:
+			posted = "Yes"
+		else:
+			posted = "No"
 		result.append(
 			{
 				**row,
 				"transaction_type": TX_PURCHASE_RECEIPT,
-				"qty_in": flt(row.qty_in),
+				"qty_in": qty_in,
 				"qty_out": None,
-				"qty_consumed": None,
-				"consumption_posted": "N/A",
+				"qty_consumed": issued if issued > 0 else None,
+				"consumption_posted": posted if qty_in else "N/A",
 				"affects_site_balance": 1 if row.site_warehouse else 0,
-				"balance_delta": flt(row.qty_in),
+				"balance_delta": qty_in - issued,
 			}
 		)
 	return result
@@ -263,6 +292,7 @@ def _get_material_transfer_rows(filters):
 			IFNULL(sed.project, se.project) AS project,
 			sed.t_warehouse AS site_warehouse,
 			sed.idx,
+			sed.name AS source_line_name,
 			{issued_expr} AS issued_qty,
 			sed.qty AS transfer_qty,
 			'Stock Entry' AS voucher_type
@@ -286,15 +316,16 @@ def _get_material_transfer_rows(filters):
 				"transaction_type": TX_MATERIAL_TRANSFER,
 				"received_warehouse": row.received_warehouse,
 				"transfer_to_site": row.transfer_to_site,
-				"qty_in": flt(row.qty_in),
-				"qty_out": flt(row.qty_out),
-				"qty_consumed": None,
+				"qty_in": transfer_qty,
+				"qty_out": None,
+				"qty_consumed": issued if issued > 0 else None,
 				"project": row.project,
 				"site_warehouse": row.site_warehouse,
 				"idx": row.idx,
+				"source_line_name": row.source_line_name,
 				"consumption_posted": posted,
 				"affects_site_balance": 1,
-				"balance_delta": flt(row.qty_in),
+				"balance_delta": transfer_qty - issued,
 			}
 		)
 	return result
@@ -308,6 +339,11 @@ def _get_material_issue_rows(filters):
 		"se.posting_date BETWEEN %(from_date)s AND %(to_date)s",
 		"sed.s_warehouse IS NOT NULL",
 	]
+	if frappe.db.has_column("Stock Entry", "custom_bulk_issue_source_doctype"):
+		conditions.append("IFNULL(se.custom_bulk_issue_source_doctype, '') = ''")
+	if frappe.db.has_column("Stock Entry Detail", "custom_bulk_issue_source_line"):
+		conditions.append("IFNULL(sed.custom_bulk_issue_source_line, '') = ''")
+
 	values = {
 		"company": filters.company,
 		"from_date": filters.from_date,
@@ -356,9 +392,116 @@ def _get_material_issue_rows(filters):
 				"consumption_posted": "Yes",
 				"affects_site_balance": 1,
 				"balance_delta": -flt(row.qty_out),
+				"consumption_date": row.posting_date,
 			}
 		)
 	return result
+
+
+def _apply_consumption_dates(rows):
+	"""Set consumption_date on PR/transfer rows from linked Material Issue entries."""
+	source_lines = list(
+		{
+			row.get("source_line_name")
+			for row in rows
+			if row.get("source_line_name") and row.get("transaction_type")
+			in (TX_PURCHASE_RECEIPT, TX_MATERIAL_TRANSFER)
+		}
+	)
+	date_map = _get_consumption_date_by_source_line(source_lines)
+
+	for row in rows:
+		if row.get("transaction_type") == TX_MATERIAL_ISSUE:
+			row["consumption_date"] = row.get("posting_date")
+			continue
+
+		if row.get("transaction_type") in (TX_PURCHASE_RECEIPT, TX_MATERIAL_TRANSFER):
+			line = row.get("source_line_name")
+			row["consumption_date"] = date_map.get(line) if flt(row.get("qty_consumed")) > 0 else None
+		else:
+			row["consumption_date"] = None
+
+
+def _get_consumption_date_by_source_line(source_line_names: list[str]) -> dict[str, str]:
+	if not source_line_names:
+		return {}
+
+	date_map: dict[str, str] = {}
+
+	if frappe.db.has_column("Stock Entry Detail", "custom_bulk_issue_source_line"):
+		for chunk in _chunked(source_line_names, 500):
+			rows = frappe.db.sql(
+				"""
+				SELECT
+					sed_issue.custom_bulk_issue_source_line AS source_line,
+					MAX(se.posting_date) AS consumption_date
+				FROM `tabStock Entry` se
+				INNER JOIN `tabStock Entry Detail` sed_issue ON sed_issue.parent = se.name
+				WHERE se.docstatus = 1
+				  AND se.stock_entry_type = 'Material Issue'
+				  AND sed_issue.custom_bulk_issue_source_line IN %(lines)s
+				GROUP BY sed_issue.custom_bulk_issue_source_line
+				""",
+				{"lines": tuple(chunk)},
+				as_dict=True,
+			)
+			for row in rows:
+				if row.source_line and row.consumption_date:
+					date_map[row.source_line] = row.consumption_date
+
+	# Fallback for PR lines tracked only via linked issue stock entry list
+	if frappe.db.has_column("Purchase Receipt Item", "custom_material_issue_stock_entries"):
+		for chunk in _chunked(source_line_names, 200):
+			pr_rows = frappe.db.sql(
+				"""
+				SELECT name, custom_material_issue_stock_entries
+				FROM `tabPurchase Receipt Item`
+				WHERE name IN %(lines)s
+				  AND IFNULL(custom_material_issue_stock_entries, '') != ''
+				""",
+				{"lines": tuple(chunk)},
+				as_dict=True,
+			)
+			entry_names = set()
+			line_entries: dict[str, list[str]] = {}
+			for pr_row in pr_rows:
+				entries = [
+					e.strip()
+					for e in (pr_row.custom_material_issue_stock_entries or "").split(",")
+					if e.strip()
+				]
+				if entries:
+					line_entries[pr_row.name] = entries
+					entry_names.update(entries)
+
+			if not entry_names:
+				continue
+
+			entry_dates = {
+				r.name: r.posting_date
+				for r in frappe.db.sql(
+					"""
+					SELECT name, posting_date
+					FROM `tabStock Entry`
+					WHERE docstatus = 1
+					  AND stock_entry_type = 'Material Issue'
+					  AND name IN %(entries)s
+					""",
+					{"entries": tuple(entry_names)},
+					as_dict=True,
+				)
+			}
+			for line, entries in line_entries.items():
+				dates = [entry_dates[e] for e in entries if e in entry_dates]
+				if dates:
+					date_map.setdefault(line, max(dates))
+
+	return date_map
+
+
+def _chunked(values, size):
+	for idx in range(0, len(values), size):
+		yield values[idx : idx + size]
 
 
 def _apply_site_balances(rows, filters):
@@ -376,6 +519,15 @@ def _apply_site_balances(rows, filters):
 
 	running = dict(opening)
 	for row in rows:
+		qty_in = flt(row.get("qty_in"))
+		qty_consumed = flt(row.get("qty_consumed"))
+		if row.get("transaction_type") in (TX_PURCHASE_RECEIPT, TX_MATERIAL_TRANSFER):
+			row["qty_pending"] = flt(qty_in - qty_consumed, 3) if qty_in else None
+		elif row.get("transaction_type") == TX_MATERIAL_ISSUE:
+			row["qty_pending"] = None
+		else:
+			row["qty_pending"] = None
+
 		key = (row.get("item_code"), row.get("site_warehouse"))
 		if row.get("affects_site_balance") and key[0] and key[1]:
 			running[key] = flt(running.get(key, 0)) + flt(row.get("balance_delta"))
@@ -388,6 +540,7 @@ def _apply_site_balances(rows, filters):
 		row.pop("balance_delta", None)
 		row.pop("site_warehouse", None)
 		row.pop("idx", None)
+		row.pop("source_line_name", None)
 
 
 def _get_opening_qty(item_code, warehouse, from_date) -> float:

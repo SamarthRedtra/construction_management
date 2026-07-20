@@ -126,6 +126,13 @@ frappe.ui.form.on("Quotation BOQ Line", {
 			construction_management.quotation_boq_easy_entry.render_total(frm);
 		}
 	},
+
+	is_fixed_rate(frm, cdt, cdn) {
+		update_boq_row_amount(frm, cdt, cdn);
+		if (typeof construction_management !== "undefined" && construction_management.quotation_boq_easy_entry) {
+			construction_management.quotation_boq_easy_entry.render_total(frm);
+		}
+	},
 });
 
 function setup_boq_buttons(frm) {
@@ -177,6 +184,7 @@ function add_boq_row(frm, line_type) {
 		values.parent_no = last_parent_no(frm) || "1";
 		values.sub_no = next_sub_no(frm, values.parent_no);
 		values.display_mode = "Normal";
+		values.is_fixed_rate = 1;
 	}
 
 	frm.add_child("custom_boq_lines", values);
@@ -276,6 +284,8 @@ function toggle_boq_row_fields(grid_row) {
 	grid_row.toggle_editable("uom", show_for_sub);
 	grid_row.toggle_editable("qty", show_for_sub);
 	grid_row.toggle_editable("rate", show_for_sub && display_mode !== "N/A");
+	grid_row.toggle_editable("is_fixed_rate", show_for_sub);
+	grid_row.toggle_display("is_fixed_rate", show_for_sub);
 	grid_row.toggle_editable("display_mode", show_for_sub);
 	grid_row.toggle_display("amount", show_for_sub);
 }
@@ -289,11 +299,16 @@ function update_boq_row_amount(frm, cdt, cdn) {
 
 	const display_mode = row.display_mode || "Normal";
 	let amount = 0;
-	if (display_mode === "Normal") {
+	if (display_mode === "Normal" && is_fixed_amount_line(row)) {
 		amount = flt(row.qty) * flt(row.rate);
 	}
 
 	frappe.model.set_value(cdt, cdn, "amount", amount);
+}
+
+function is_fixed_amount_line(row) {
+	// Rows created before this checkbox was introduced are still normal amount rows.
+	return row.is_fixed_rate === undefined || row.is_fixed_rate === null || cint(row.is_fixed_rate) === 1;
 }
 
 function clear_blank_items(frm) {
@@ -316,7 +331,7 @@ function clear_blank_items(frm) {
 function boq_total(frm) {
 	let total = 0;
 	(frm.doc.custom_boq_lines || []).forEach((row) => {
-		if (row.line_type === "Sub" && (row.display_mode || "Normal") === "Normal") {
+		if (row.line_type === "Sub" && (row.display_mode || "Normal") === "Normal" && is_fixed_amount_line(row)) {
 			total += flt(row.qty) * flt(row.rate);
 		}
 	});
