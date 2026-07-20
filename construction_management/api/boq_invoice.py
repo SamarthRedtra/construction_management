@@ -93,6 +93,32 @@ def has_boq_read_permission() -> bool:
 
 
 @frappe.whitelist()
+def get_project_boq_service_details(project: str, boq_item: str) -> dict:
+	"""Return a project BOQ service that can be appended to a draft Sales Invoice."""
+	if not project or not boq_item:
+		frappe.throw(_("Project and BOQ service are required"))
+
+	item = frappe.get_doc("BOQ Item", boq_item)
+	if item.project != project:
+		frappe.throw(_("The selected BOQ service does not belong to this project"))
+	if not item.linked_item or not frappe.db.exists("Item", item.linked_item):
+		frappe.throw(_("This BOQ service has no linked Item and cannot be invoiced"))
+
+	from construction_management.api.boq_ledger import get_to_date_qty
+
+	billed_qty = flt(get_to_date_qty(item.name))
+	return {
+		"boq_item": item.name,
+		"item_code": item.linked_item,
+		"description": item.description or item.label or item.name,
+		"uom": item.unit or "Nos",
+		"rate": flt(item.rate),
+		"bill_no": item.parent_bill,
+		"balance_qty": max(0.0, flt(item.total_qty) - billed_qty),
+	}
+
+
+@frappe.whitelist()
 def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float, 
                                   apply_retention: int = 1, advance_deduction: float = 0,
                                   is_proforma: int = 0) -> dict:

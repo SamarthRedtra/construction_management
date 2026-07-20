@@ -447,6 +447,47 @@ class SalesInvoiceOverride(SalesInvoice):
 					item.qty = 1
 					item.description = f"Advance deduction ({advance_pct}%)"
 
+			# A BOQ service can be added directly to a draft invoice. Create its paired
+			# deduction rows when the invoice already uses the per-BOQ deduction layout.
+			for boq_item, parent_amount in boq_amounts.items():
+				parent = next(
+					(
+						item
+						for item in self.items
+						if item.get("boq_item") == boq_item
+						and item.item_code not in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION")
+					),
+					None,
+				)
+				if not parent:
+					continue
+
+				if retention_pct > 0 and not any(
+					item.item_code == "RETENTION-DEDUCTION" and item.get("boq_item") == boq_item
+					for item in self.items
+				):
+					self._append_boq_deduction_row(
+						"RETENTION-DEDUCTION",
+						flt(parent_amount * retention_pct / 100, 2),
+						f"Retention deduction ({retention_pct}%)",
+						parent,
+					)
+
+				if (
+					advance_pct > 0
+					and boq_item not in skip_advance_set
+					and not any(
+						item.item_code == "ADVANCE-DEDUCTION" and item.get("boq_item") == boq_item
+						for item in self.items
+					)
+				):
+					self._append_boq_deduction_row(
+						"ADVANCE-DEDUCTION",
+						flt(parent_amount * advance_pct / 100, 2),
+						f"Advance deduction ({advance_pct}%)",
+						parent,
+					)
+
 			self._apply_additional_service_deductions(details, retention_pct)
 		else:
 			# Global deduction mode (single row for whole invoice)
@@ -528,6 +569,27 @@ class SalesInvoiceOverride(SalesInvoice):
 				for item in self.items
 				if not cint(item.get("custom_service_deduction"))
 			],
+		)
+
+	def _append_boq_deduction_row(self, item_code, amount, description, parent):
+		if amount <= 0:
+			return
+		self.append(
+			"items",
+			{
+				"item_code": item_code,
+				"item_name": "Retention Deduction" if item_code == "RETENTION-DEDUCTION" else "Advance Deduction",
+				"description": description,
+				"qty": 1,
+				"rate": -amount,
+				"amount": -amount,
+				"uom": parent.uom or "Nos",
+				"project": parent.project or self.project,
+				"boq_item": parent.boq_item,
+				"bill_no": parent.bill_no,
+				"income_account": parent.income_account,
+				"cost_center": parent.cost_center or self.cost_center,
+			},
 		)
 
 	def _apply_additional_service_deductions(self, details, retention_pct):

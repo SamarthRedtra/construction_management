@@ -42,17 +42,17 @@ frappe.ui.form.on('Sales Invoice', {
 			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'items');
 		}
 
-		if (frm.doc.docstatus === 0 && frm.doc.project) {
-			frm.add_custom_button(__('Add Additional Service'), () => {
-				const row = frm.add_child('items', {
-					qty: 1,
-					project: frm.doc.project,
-					custom_include_in_deductions: 1,
-				});
-				frm.refresh_field('items');
-				frm.fields_dict.items.grid.open_row(row.idx);
-			}, __('Items'));
+		if (frm.doc.docstatus === 0) {
+			frm.add_custom_button(__('Add BOQ Service'), () => {
+				if (!frm.doc.project) {
+					frappe.msgprint(__('Please select a Project before adding a BOQ service.'));
+					return;
+				}
+				open_boq_service_picker(frm);
+			});
+		}
 
+		if (frm.doc.docstatus === 0 && frm.doc.project) {
 			frm.add_custom_button(__('Pull Retention'), () => {
 				pull_retention(frm);
 			}, __('Get Deductions'));
@@ -70,6 +70,82 @@ frappe.ui.form.on('Sales Invoice', {
 		}
 	}
 });
+
+function open_boq_service_picker(frm) {
+	const d = new frappe.ui.Dialog({
+		title: __('Add Project BOQ Service'),
+		fields: [
+			{
+				fieldname: 'boq_item', label: __('BOQ Service'), fieldtype: 'Link',
+				options: 'BOQ Item', reqd: 1,
+				description: __('Only BOQ services with a linked Item for this project are available.'),
+			},
+			{ fieldname: 'description', label: __('Description'), fieldtype: 'Small Text', read_only: 1 },
+			{ fieldtype: 'Column Break' },
+			{ fieldname: 'linked_item', label: __('Linked Item'), fieldtype: 'Link', options: 'Item', read_only: 1 },
+			{ fieldname: 'balance_qty', label: __('Available Qty'), fieldtype: 'Float', read_only: 1 },
+			{ fieldname: 'qty', label: __('Invoice Qty'), fieldtype: 'Float', reqd: 1, default: 1 },
+			{ fieldname: 'rate', label: __('Rate'), fieldtype: 'Currency', read_only: 1 },
+		],
+		primary_action_label: __('Add Service'),
+		primary_action(values) {
+			const details = d._boq_service_details;
+			if (!details) {
+				frappe.msgprint(__('Select a BOQ service first.'));
+				return;
+			}
+			if (flt(values.qty) <= 0) {
+				frappe.msgprint(__('Invoice quantity must be greater than zero.'));
+				return;
+			}
+			if (flt(values.qty) > flt(details.balance_qty)) {
+				frappe.msgprint(__('Invoice quantity cannot exceed the available BOQ quantity ({0}).', [details.balance_qty]));
+				return;
+			}
+
+			const row = frm.add_child('items');
+			frappe.model.set_value(row.doctype, row.name, 'item_code', details.item_code).then(() => {
+				frappe.model.set_value(row.doctype, row.name, {
+					item_name: details.description,
+					description: details.description,
+					qty: flt(values.qty),
+					rate: flt(details.rate),
+					amount: flt(values.qty) * flt(details.rate),
+					uom: details.uom,
+					project: frm.doc.project,
+					boq_item: details.boq_item,
+					bill_no: details.bill_no,
+				});
+				frm.refresh_field('items');
+				_si_deduction_debounce(frm);
+			});
+			d.hide();
+		},
+	});
+
+	d.set_query('boq_item', () => ({
+		filters: { project: frm.doc.project, linked_item: ['!=', ''] },
+	}));
+	d.fields_dict.boq_item.df.onchange = () => {
+		const boqItem = d.get_value('boq_item');
+		if (!boqItem) return;
+		frappe.call({
+			method: 'construction_management.api.boq_invoice.get_project_boq_service_details',
+			args: { project: frm.doc.project, boq_item: boqItem },
+			callback(r) {
+				const details = r.message;
+				if (!details) return;
+				d._boq_service_details = details;
+				d.set_value('description', details.description);
+				d.set_value('linked_item', details.item_code);
+				d.set_value('balance_qty', details.balance_qty);
+				d.set_value('rate', details.rate);
+				d.set_value('qty', details.balance_qty > 0 ? details.balance_qty : 1);
+			},
+		});
+	};
+	d.show();
+}
 
 /**
  * Renders a summary card of all Unearned Revenue reversal JVs linked to this Sales Invoice
