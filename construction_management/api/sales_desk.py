@@ -24,7 +24,7 @@ def get_sales_desk_data(company: str | None = None) -> dict:
 	to_date = getdate(today())
 
 	lead_kpis = _lead_kpis(user, company, scope_all=scope_all_pipeline)
-	quotation_kpis = _quotation_kpis(user, company, scope_all=scope_all_pipeline)
+	quotation_kpis = _quotation_kpis(user, sales_person, company, scope_all=scope_all_pipeline)
 	# Projects / commission always employee-scoped when Employee is linked.
 	if employee:
 		projects = _my_projects(employee, company)
@@ -44,6 +44,9 @@ def get_sales_desk_data(company: str | None = None) -> dict:
 		"period": {"from_date": str(from_date), "to_date": str(to_date)},
 		"leads": lead_kpis,
 		"quotations": quotation_kpis,
+		"sales_person_pipeline": _sales_person_pipeline(
+			company, sales_person=None if scope_all_pipeline else sales_person
+		),
 		"projects": projects,
 		"commission": commission,
 	}
@@ -83,12 +86,15 @@ def _lead_kpis(user: str, company: str | None, scope_all: bool) -> dict:
 	}
 
 
-def _quotation_kpis(user: str, company: str | None, scope_all: bool) -> dict:
+def _quotation_kpis(user: str, sales_person: str | None, company: str | None, scope_all: bool) -> dict:
 	filters: dict = {}
 	if company:
 		filters["company"] = company
 	if not scope_all:
-		filters["owner"] = user
+		if sales_person and frappe.db.has_column("Quotation", "custom_sales_person"):
+			filters["custom_sales_person"] = sales_person
+		else:
+			filters["owner"] = user
 
 	draft = frappe.db.count("Quotation", {**filters, "docstatus": 0, "status": "Draft"})
 	open_q = frappe.db.count("Quotation", {**filters, "docstatus": 1, "status": ["in", ["Open", "Replied"]]})
@@ -110,8 +116,12 @@ def _quotation_kpis(user: str, company: str | None, scope_all: bool) -> dict:
 			conditions.append("company = %(company)s")
 			values["company"] = company
 		if not scope_all:
-			conditions.append("owner = %(owner)s")
-			values["owner"] = user
+			if sales_person and frappe.db.has_column("Quotation", "custom_sales_person"):
+				conditions.append("custom_sales_person = %(sales_person)s")
+				values["sales_person"] = sales_person
+			else:
+				conditions.append("owner = %(owner)s")
+				values["owner"] = user
 		where = " AND ".join(conditions)
 		agreed_amount = flt(
 			frappe.db.sql(
@@ -146,6 +156,72 @@ def _quotation_kpis(user: str, company: str | None, scope_all: bool) -> dict:
 		"agreed_amount": agreed_amount,
 		"open_amount": open_amount,
 	}
+
+
+def _sales_person_pipeline(company: str | None, sales_person: str | None = None) -> list[dict]:
+	"""Lead, qualified-lead and quotation counts grouped by the tagged Sales Person."""
+	if not frappe.db.has_column("Quotation", "custom_sales_person"):
+		return []
+
+	quotation_filters = {"docstatus": ["<", 2]}
+	if company:
+		quotation_filters["company"] = company
+	if sales_person:
+		quotation_filters["custom_sales_person"] = sales_person
+
+	result: dict[str, dict] = {}
+	for row in frappe.get_all(
+		"Quotation",
+		filters=quotation_filters,
+		fields=["custom_sales_person", "base_grand_total"],
+	):
+		person = row.custom_sales_person or _("Unassigned")
+		entry = result.setdefault(
+			person,
+			{"sales_person": person, "leads": 0, "qualified": 0, "quotations": 0, "quotation_amount": 0.0},
+		)
+		entry["quotations"] += 1
+		entry["quotation_amount"] += flt(row.base_grand_total)
+
+	lead_filters = {"docstatus": ["<", 2]}
+	if company and frappe.db.has_column("Lead", "company"):
+		lead_filters["company"] = company
+	lead_rows = frappe.get_all("Lead", filters=lead_filters, fields=["lead_owner", "status"])
+	user_sales_people = _sales_people_for_users({row.lead_owner for row in lead_rows if row.lead_owner})
+	for row in lead_rows:
+		person = user_sales_people.get(row.lead_owner) or _("Unassigned")
+		if sales_person and person != sales_person:
+			continue
+		entry = result.setdefault(
+			person,
+			{"sales_person": person, "leads": 0, "qualified": 0, "quotations": 0, "quotation_amount": 0.0},
+		)
+		entry["leads"] += 1
+		if row.status == "Qualified":
+			entry["qualified"] += 1
+
+	return sorted(result.values(), key=lambda row: (row["leads"] + row["quotations"], row["sales_person"]), reverse=True)
+
+
+def _sales_people_for_users(users: set[str]) -> dict[str, str]:
+	if not users:
+		return {}
+	employees = frappe.get_all(
+		"Employee",
+		filters={"user_id": ["in", list(users)], "status": "Active"},
+		fields=["name", "user_id"],
+	)
+	if not employees:
+		return {}
+	person_by_employee = {
+		row.employee: row.name
+		for row in frappe.get_all(
+			"Sales Person",
+			filters={"employee": ["in", [employee.name for employee in employees]], "enabled": 1},
+			fields=["name", "employee"],
+		)
+	}
+	return {employee.user_id: person_by_employee[employee.name] for employee in employees if employee.name in person_by_employee}
 
 
 def _my_projects(employee: str, company: str | None) -> list[dict]:

@@ -427,7 +427,7 @@ def _parse_excel_boq_rows(rows: list[dict], company: str | None = None) -> list[
 				"qty": qty,
 				"rate": rate,
 				"amount": qty * rate if display_mode == "Normal" else 0,
-				"is_fixed_rate": 1,
+				"is_fixed_rate": 0,
 				"display_mode": display_mode,
 			}
 		)
@@ -538,7 +538,7 @@ def build_quick_boq_lines(
 				"qty": flt(row_data.get("qty")),
 				"rate": flt(row_data.get("rate")),
 				"amount": flt(row_data.get("qty")) * flt(row_data.get("rate")),
-				"is_fixed_rate": 1,
+				"is_fixed_rate": 0,
 				"display_mode": row_data.get("display_mode") or "Normal",
 			}
 		)
@@ -635,7 +635,7 @@ def _parse_pasted_boq_text(text: str, company: str | None = None) -> list[dict]:
 				"qty": qty,
 				"rate": rate,
 				"amount": qty * rate if display_mode == "Normal" else 0,
-				"is_fixed_rate": 1,
+				"is_fixed_rate": 0,
 				"display_mode": display_mode,
 			}
 		)
@@ -722,7 +722,12 @@ def _parse_number(value: str) -> float:
 		return 0.0
 
 
-def lines_to_boq_html(lines: list, include_totals: bool = True, company: str | None = None) -> str:
+def lines_to_boq_html(
+	lines: list,
+	include_totals: bool = True,
+	company: str | None = None,
+	include_vat: bool = True,
+) -> str:
 	"""Convert Quotation BOQ Line child rows to print HTML."""
 	from construction_management.quotation_boq_hierarchy import resolve_hierarchy_mode
 	from construction_management.quotation_boq_print_context import _group_boq_lines
@@ -761,7 +766,12 @@ def lines_to_boq_html(lines: list, include_totals: bool = True, company: str | N
 					}
 				)
 
-	return _render_boq_html(rows, include_totals=include_totals, total_excl=total_excl)
+	return _render_boq_html(
+		rows,
+		include_totals=include_totals,
+		total_excl=total_excl,
+		include_vat=include_vat,
+	)
 
 
 def _render_boq_html(
@@ -769,6 +779,7 @@ def _render_boq_html(
 	include_totals: bool = True,
 	template_only: bool = False,
 	total_excl: float = 0.0,
+	include_vat: bool = True,
 ) -> str:
 	if template_only:
 		rows = [
@@ -864,6 +875,18 @@ def _render_boq_html(
 	if not include_totals:
 		return table_html
 
+	if not include_vat:
+		totals_html = f"""
+<table style="width:55%;margin-left:auto;border-collapse:collapse;{BOQ_TABLE_STYLE}">
+	<tr>
+		<td style="{BOQ_CELL_STYLE};font-weight:bold;text-align:right;">Total Amount</td>
+		<td style="{BOQ_NUM_STYLE}">{html.escape(f"{flt(total_excl):,.2f}")}</td>
+	</tr>
+</table>
+<p><br></p>
+""".strip()
+		return f"{table_html}\n{totals_html}"
+
 	vat = flt(total_excl) * 0.05
 	incl = flt(total_excl) + vat
 	totals_html = f"""
@@ -897,8 +920,6 @@ def _format_cell(value) -> str:
 
 def _format_amount_cell(row: dict) -> str:
 	display_mode = row.get("display_mode") or "Normal"
-	if row.get("is_fixed_rate") in (0, "0", False):
-		return ""
 	if display_mode == "N/A":
 		return "N/A"
 	if display_mode == "Rate Only":

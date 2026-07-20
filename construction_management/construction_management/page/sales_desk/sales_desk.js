@@ -102,6 +102,38 @@ construction_management.SalesDesk = class SalesDesk {
 		const L = data.leads || {};
 		const Q = data.quotations || {};
 		const C = data.commission || {};
+		const pipeline = data.sales_person_pipeline || [];
+		const max_pipeline = Math.max(1, ...pipeline.map((row) => Math.max(row.leads || 0, row.quotations || 0, row.qualified || 0)));
+		let pipeline_html = '';
+		pipeline.forEach((row) => {
+			const pct = (value) => Math.max(3, Math.round(((value || 0) / max_pipeline) * 100));
+			pipeline_html += `
+				<tr>
+					<td>${frappe.utils.escape_html(row.sales_person || '')}</td>
+					<td class="text-right">${row.leads || 0}</td>
+					<td class="text-right">${row.qualified || 0}</td>
+					<td class="text-right">${row.quotations || 0}</td>
+					<td class="text-right">${this.fmt(row.quotation_amount)}</td>
+					<td class="sd-bars">
+						<div title="${__('Leads')}: ${row.leads || 0}"><span class="sd-bar sd-bar-leads" style="width:${pct(row.leads)}%"></span></div>
+						<div title="${__('Qualified')}: ${row.qualified || 0}"><span class="sd-bar sd-bar-qualified" style="width:${pct(row.qualified)}%"></span></div>
+						<div title="${__('Quotations')}: ${row.quotations || 0}"><span class="sd-bar sd-bar-quotations" style="width:${pct(row.quotations)}%"></span></div>
+					</td>
+				</tr>`;
+		});
+		if (!pipeline_html) {
+			pipeline_html = `<tr><td colspan="6" class="text-muted text-center">${__('No Sales Person pipeline data')}</td></tr>`;
+		}
+		const team_pipeline_section = data.is_sales_manager ? `
+			<div class="sd-section">
+				<h4>${__('Sales Team Pipeline')}</h4>
+				<p class="text-muted small">${__('Counts are grouped by the Sales Person selected on the Quotation. Qualified is based on Lead status “Qualified”.')}</p>
+				<div class="sd-legend"><span class="sd-bar sd-bar-leads"></span>${__('Leads')} <span class="sd-bar sd-bar-qualified"></span>${__('Qualified')} <span class="sd-bar sd-bar-quotations"></span>${__('Quotations')}</div>
+				<table class="table table-bordered sd-table">
+					<thead><tr><th>${__('Sales Person')}</th><th class="text-right">${__('Leads')}</th><th class="text-right">${__('Qualified')}</th><th class="text-right">${__('Quotations')}</th><th class="text-right">${__('Quotation Value')}</th><th>${__('Graph')}</th></tr></thead>
+					<tbody>${pipeline_html}</tbody>
+				</table>
+			</div>` : '';
 
 		let projects_html = '';
 		(data.projects || []).forEach((p) => {
@@ -170,6 +202,8 @@ construction_management.SalesDesk = class SalesDesk {
 					<button class="btn btn-default btn-sm" data-route="List/Quotation/List">${__('All Quotations')}</button>
 				</div>
 			</div>
+
+			${team_pipeline_section}
 
 			<div class="sd-section">
 				<h4>${__('My Commission')} <span class="text-muted" style="font-size:12px;">(${__('This month')} · ${frappe.utils.escape_html(C.from_date || '')} → ${frappe.utils.escape_html(C.to_date || '')})</span></h4>

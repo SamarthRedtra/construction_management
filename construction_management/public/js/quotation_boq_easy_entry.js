@@ -68,8 +68,8 @@ construction_management.quotation_boq_easy_entry.render_total = function (frm) {
 
 	let total = 0;
 	(frm.doc.custom_boq_lines || []).forEach((row) => {
-		if (row.line_type === "Sub" && (row.display_mode || "Normal") === "Normal" && is_fixed_amount_line(row)) {
-			total += flt(row.qty) * flt(row.rate);
+		if (row.line_type === "Sub" && (row.display_mode || "Normal") === "Normal") {
+			total += is_manual_amount_line(row) ? flt(row.amount) : flt(row.qty) * flt(row.rate);
 		}
 	});
 
@@ -96,7 +96,7 @@ construction_management.quotation_boq_easy_entry.add_sub_to_last_parent = functi
 		parent_no,
 		sub_no: construction_management.quotation_boq_easy_entry.get_next_sub_no(frm, parent_no),
 		display_mode: "Normal",
-		is_fixed_rate: 1,
+		is_fixed_rate: 0,
 		uom: "Nos",
 	});
 	frm.refresh_field("custom_boq_lines");
@@ -113,8 +113,8 @@ construction_management.quotation_boq_easy_entry.get_last_parent_no = function (
 	return "";
 };
 
-function is_fixed_amount_line(row) {
-	return row.is_fixed_rate === undefined || row.is_fixed_rate === null || cint(row.is_fixed_rate) === 1;
+function is_manual_amount_line(row) {
+	return cint(row.is_fixed_rate) === 1;
 }
 
 construction_management.quotation_boq_easy_entry.get_next_parent_no = function (frm) {

@@ -57,7 +57,11 @@ def build_boq_quotation_print_context(doc) -> dict:
 	if not boq_html and sections:
 		from construction_management.api.quotation_boq import lines_to_boq_html
 
-		boq_html = lines_to_boq_html(doc.get("custom_boq_lines") or [], include_totals=True)
+		boq_html = lines_to_boq_html(
+			doc.get("custom_boq_lines") or [],
+			include_totals=True,
+			include_vat=_include_vat(doc),
+		)
 
 	return {
 		"header": header,
@@ -70,6 +74,7 @@ def build_boq_quotation_print_context(doc) -> dict:
 			"vat_amount": vat_amount,
 			"total_incl_vat": total_excl + vat_amount,
 			"vat_label": vat_label,
+			"include_vat": _include_vat(doc),
 		},
 		"boq_html": boq_html,
 		"terms_html": doc.get("terms") or "",
@@ -92,7 +97,7 @@ def _get_letter_head(doc, default_letter_head: str | None) -> dict | None:
 
 
 def _group_boq_lines(lines: list, hierarchy_mode: str | None = None) -> tuple[list[dict], float]:
-	ordered = sorted(lines, key=lambda row: row.idx or 0)
+	ordered = sorted(lines, key=lambda row: row.get("idx") or 0)
 	two_level = hierarchy_mode == HIERARCHY_TWO_LEVEL
 	sections: list[dict] = []
 	current_section: dict | None = None
@@ -171,12 +176,12 @@ def _find_parent_in_section(section: dict, parent_no) -> dict | None:
 
 def _format_sub_row(row) -> dict:
 	display_mode = row.get("display_mode") or "Normal"
-	is_fixed_rate = row.get("is_fixed_rate")
-	include_in_total = display_mode == "Normal" and (is_fixed_rate is None or cint(is_fixed_rate))
+	is_manual_amount = bool(cint(row.get("is_fixed_rate")))
+	include_in_total = display_mode == "Normal"
 	qty = flt(row.get("qty"))
 	rate = flt(row.get("rate"))
 	amount = flt(row.get("amount"))
-	if include_in_total and not amount:
+	if include_in_total and not is_manual_amount:
 		amount = qty * rate
 
 	if display_mode == "N/A":
@@ -204,6 +209,8 @@ def _format_sub_row(row) -> dict:
 
 
 def _vat_from_doc(doc, total_excl: float) -> tuple[float, str]:
+	if not _include_vat(doc):
+		return 0.0, ""
 	vat_amount = flt(doc.get("total_taxes_and_charges"))
 	if not vat_amount and doc.get("taxes"):
 		vat_amount = sum(flt(t.tax_amount) for t in doc.taxes)
@@ -222,3 +229,8 @@ def _vat_from_doc(doc, total_excl: float) -> tuple[float, str]:
 			break
 
 	return vat_amount, vat_label
+
+
+def _include_vat(doc) -> bool:
+	value = doc.get("custom_include_vat")
+	return value is None or bool(cint(value))

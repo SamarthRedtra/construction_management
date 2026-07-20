@@ -120,6 +120,25 @@
    "name": "Quotation-custom_boq_html_section"
   },
   {
+   "default": "1",
+   "fieldname": "custom_include_vat",
+   "fieldtype": "Check",
+   "insert_after": "custom_project",
+   "label": "Include VAT",
+   "dt": "Quotation",
+   "name": "Quotation-custom_include_vat"
+  },
+  {
+   "fieldname": "custom_sales_person",
+   "fieldtype": "Link",
+   "insert_after": "party_name",
+   "label": "Sales Person",
+   "options": "Sales Person",
+   "reqd": 1,
+   "dt": "Quotation",
+   "name": "Quotation-custom_sales_person"
+  },
+  {
    "fieldname": "custom_boq_lines",
    "fieldtype": "Table",
    "insert_after": "custom_boq_html_section",
@@ -138,6 +157,145 @@
    "description": "Auto-generated from BOQ Lines for print. Do not edit manually.",
    "dt": "Quotation",
    "name": "Quotation-custom_boq_html"
+  },
+  {
+   "fieldname": "custom_approval_section",
+   "fieldtype": "Section Break",
+   "insert_after": "valid_till",
+   "label": "Approval",
+   "dt": "Quotation",
+   "name": "Quotation-custom_approval_section"
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "Draft",
+   "fieldname": "custom_approval_status",
+   "fieldtype": "Select",
+   "insert_after": "custom_approval_section",
+   "label": "Approval Status",
+   "options": "Draft\nPending Sales Manager Approval\nPending Director Approval\nApproved\nRejected by Sales Manager\nRejected by Director",
+   "read_only": 1,
+   "dt": "Quotation",
+   "name": "Quotation-custom_approval_status"
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "Pending",
+   "fieldname": "custom_agreement_status",
+   "fieldtype": "Select",
+   "insert_after": "custom_approval_status",
+   "label": "Agreement",
+   "options": "Pending\nAgreed\nNot Agreed",
+   "read_only": 1,
+   "dt": "Quotation",
+   "name": "Quotation-custom_agreement_status"
+  },
+  {
+   "fieldname": "custom_approval_col_break",
+   "fieldtype": "Column Break",
+   "insert_after": "custom_agreement_status",
+   "dt": "Quotation",
+   "name": "Quotation-custom_approval_col_break"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "custom_sales_manager_approver",
+   "fieldtype": "Link",
+   "insert_after": "custom_approval_col_break",
+   "label": "Sales Manager Approver",
+   "options": "User",
+   "read_only": 1,
+   "dt": "Quotation",
+   "name": "Quotation-custom_sales_manager_approver"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "custom_director_approver",
+   "fieldtype": "Link",
+   "insert_after": "custom_sales_manager_approver",
+   "label": "Director Approver",
+   "options": "User",
+   "read_only": 1,
+   "dt": "Quotation",
+   "name": "Quotation-custom_director_approver"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "custom_cost_sheet",
+   "fieldtype": "Attach",
+   "insert_after": "custom_director_approver",
+   "label": "Cost Sheet",
+   "dt": "Quotation",
+   "name": "Quotation-custom_cost_sheet"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "custom_sales_manager_approved_by",
+   "fieldtype": "Link",
+   "insert_after": "custom_cost_sheet",
+   "label": "Sales Manager Approved By",
+   "options": "User",
+   "read_only": 1,
+   "hidden": 1,
+   "dt": "Quotation",
+   "name": "Quotation-custom_sales_manager_approved_by"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "custom_sales_manager_approval_date",
+   "fieldtype": "Datetime",
+   "insert_after": "custom_sales_manager_approved_by",
+   "label": "Sales Manager Approval Date",
+   "read_only": 1,
+   "hidden": 1,
+   "dt": "Quotation",
+   "name": "Quotation-custom_sales_manager_approval_date"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "custom_director_approved_by",
+   "fieldtype": "Link",
+   "insert_after": "custom_sales_manager_approval_date",
+   "label": "Director Approved By",
+   "options": "User",
+   "read_only": 1,
+   "hidden": 1,
+   "dt": "Quotation",
+   "name": "Quotation-custom_director_approved_by"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "custom_director_approval_date",
+   "fieldtype": "Datetime",
+   "insert_after": "custom_director_approved_by",
+   "label": "Director Approval Date",
+   "read_only": 1,
+   "hidden": 1,
+   "dt": "Quotation",
+   "name": "Quotation-custom_director_approval_date"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "custom_agreement_recorded_by",
+   "fieldtype": "Link",
+   "insert_after": "custom_director_approval_date",
+   "label": "Agreement Recorded By",
+   "options": "User",
+   "read_only": 1,
+   "hidden": 1,
+   "dt": "Quotation",
+   "name": "Quotation-custom_agreement_recorded_by"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "custom_agreement_date",
+   "fieldtype": "Datetime",
+   "insert_after": "custom_agreement_recorded_by",
+   "label": "Agreement Date",
+   "read_only": 1,
+   "hidden": 1,
+   "dt": "Quotation",
+   "name": "Quotation-custom_agreement_date"
   },
   {
    "fieldname": "custom_payment_terms_tc",
@@ -202,6 +360,15 @@
    "property_type": "Data",
    "value": "BOQ Quotation",
    "name": "Quotation-main-default_print_format"
+  },
+  {
+   "doctype_or_field": "DocField",
+   "doc_type": "Quotation",
+   "field_name": "status",
+   "property": "options",
+   "property_type": "Text",
+   "value": "Draft\nOpen\nReplied\nPartially Ordered\nOrdered\nLost\nCancelled\nExpired\nPending Sales Manager Approval\nPending Director Approval\nPending Agreement\nApproved\nAgreed\nNot Agreed\nRejected by Sales Manager\nRejected by Director",
+   "name": "Quotation-status-approval-options"
   },
   {
    "doctype_or_field": "DocField",

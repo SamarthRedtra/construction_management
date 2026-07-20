@@ -175,6 +175,37 @@ class TestQuotationBOQPrint(FrappeTestCase):
 		self.assertIn("Waterproofing", ctx["boq_html"])
 		self.assertIn("Horizontal", ctx["boq_html"])
 
+	def test_fixed_amount_uses_entered_amount_not_qty_times_rate(self):
+		doc = frappe._dict(
+			name="QTN-FIXED-AMOUNT",
+			company=self.company,
+			transaction_date=today(),
+			currency="AED",
+			custom_include_vat=0,
+			custom_boq_lines=[
+				frappe._dict(idx=1, line_type="Parent", parent_no="1", description="Lump sum"),
+				frappe._dict(
+					idx=2,
+					line_type="Sub",
+					parent_no="1",
+					sub_no="A",
+					description="Fixed service",
+					uom="Nos",
+					qty=10,
+					rate=100,
+					amount=725,
+					is_fixed_rate=1,
+					display_mode="Normal",
+				),
+			],
+			terms="",
+		)
+		ctx = build_boq_quotation_print_context(doc)
+		self.assertEqual(ctx["totals"]["total_excl_vat"], 725)
+		self.assertEqual(ctx["totals"]["vat_amount"], 0)
+		self.assertFalse(ctx["totals"]["include_vat"])
+		self.assertIn("Total Amount</td>", ctx["boq_html"])
+
 	def test_import_returns_child_table_rows(self):
 		if not frappe.db.exists("DocType", "Project Estimation"):
 			self.skipTest("project_estimation app not installed")

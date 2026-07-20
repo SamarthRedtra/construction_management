@@ -282,18 +282,25 @@
 	{% if q.sections %}
 	<div class="totals-wrap">
 		<table class="totals">
-			<tr>
-				<td class="lbl">Total Amount Excl. VAT</td>
-				<td class="num">{{ cur(q.totals.total_excl_vat) }}</td>
-			</tr>
-			<tr>
-				<td class="lbl">{{ q.totals.vat_label }}</td>
-				<td class="num">{{ cur(q.totals.vat_amount) }}</td>
-			</tr>
-			<tr class="grand">
-				<td class="lbl">Total Amount Incl. VAT</td>
-				<td class="num">{{ cur(q.totals.total_incl_vat) }}</td>
-			</tr>
+			{% if q.totals.include_vat %}
+				<tr>
+					<td class="lbl">Total Amount Excl. VAT</td>
+					<td class="num">{{ cur(q.totals.total_excl_vat) }}</td>
+				</tr>
+				<tr>
+					<td class="lbl">{{ q.totals.vat_label }}</td>
+					<td class="num">{{ cur(q.totals.vat_amount) }}</td>
+				</tr>
+				<tr class="grand">
+					<td class="lbl">Total Amount Incl. VAT</td>
+					<td class="num">{{ cur(q.totals.total_incl_vat) }}</td>
+				</tr>
+			{% else %}
+				<tr class="grand">
+					<td class="lbl">Total Amount</td>
+					<td class="num">{{ cur(q.totals.total_excl_vat) }}</td>
+				</tr>
+			{% endif %}
 		</table>
 	</div>
 	{% endif %}

@@ -13,9 +13,11 @@ frappe.ui.form.on("Quotation", {
 
 	refresh(frm) {
 		clear_blank_items(frm);
+		setup_amendment_action(frm);
 		setup_boq_buttons(frm);
 		setup_boq_grid(frm);
 		setup_print_hint(frm);
+		setup_approval_actions(frm);
 		if (typeof construction_management !== "undefined" && construction_management.quotation_boq_easy_entry) {
 			construction_management.quotation_boq_easy_entry.setup(frm);
 		}
@@ -32,6 +34,12 @@ frappe.ui.form.on("Quotation", {
 
 	custom_project(frm) {
 		prefill_header_from_project(frm);
+	},
+
+	custom_include_vat(frm) {
+		if (typeof construction_management !== "undefined" && construction_management.quotation_boq_easy_entry) {
+			construction_management.quotation_boq_easy_entry.render_total(frm);
+		}
 	},
 
 	party_name(frm) {
@@ -88,6 +96,29 @@ frappe.ui.form.on("Quotation", {
 	},
 });
 
+function setup_amendment_action(frm) {
+	if (frm.doc.docstatus !== 2) {
+		return;
+	}
+
+	const create_amendment = () => frappe.call({
+		method: "construction_management.overrides.quotation.create_quotation_amendment",
+		args: { quotation: frm.doc.name },
+		freeze: true,
+		freeze_message: __("Creating amendment"),
+		callback: (r) => {
+			if (r.message && r.message.name) {
+				frappe.set_route("Form", "Quotation", r.message.name);
+			}
+		},
+	});
+
+	// Override the standard local-copy action. The server draft reliably opens
+	// with Save / Submit actions instead of retaining the cancelled form state.
+	frm.amend_doc = create_amendment;
+	frm.page.set_primary_action(__("Amend"), create_amendment);
+}
+
 function setup_print_hint(frm) {
 	if (frm.is_new()) {
 		return;
@@ -102,6 +133,85 @@ function setup_print_hint(frm) {
 		},
 		__("BOQ")
 	);
+}
+
+function setup_approval_actions(frm) {
+	if (frm.doc.docstatus !== 1) return;
+
+	frappe.call({
+		method: "construction_management.overrides.quotation.get_quotation_approval_access",
+		args: { quotation: frm.doc.name },
+		callback: (r) => setup_approval_buttons(frm, r.message || {}),
+	});
+}
+
+function setup_approval_buttons(frm, access) {
+	const state = frm.doc.custom_approval_status;
+	const can_manage_cost_sheet = access.is_manager || access.is_director;
+	const show_approval_alert = (message) => frm.set_intro(
+		`${__("Approval alert")}: ${message}`,
+		"blue"
+	);
+	frm.set_intro("");
+	frm.set_df_property(
+		"custom_cost_sheet",
+		"read_only",
+		state !== "Pending Sales Manager Approval" || !can_manage_cost_sheet
+	);
+	const call = (method, args = {}) => frappe.call({
+		method: `construction_management.overrides.quotation.${method}`,
+		args: { quotation: frm.doc.name, ...args },
+		freeze: true,
+		callback: () => frm.reload_doc(),
+	});
+	const reject = (method) => frappe.prompt(
+		[{ fieldname: "reason", fieldtype: "Small Text", label: __("Rejection reason"), reqd: 1 }],
+		(values) => call(method, values),
+		__("Reject Quotation"),
+		__("Reject")
+	);
+
+	if (state === "Pending Sales Manager Approval" && access.is_manager) {
+		show_approval_alert(__("Sales Manager action required. Upload the cost sheet, then approve or reject this quotation."));
+		frm.add_custom_button(__("Approve"), () => call("sales_manager_approve_quotation"), __("Approval"));
+		frm.add_custom_button(__("Reject"), () => reject("sales_manager_reject_quotation"), __("Approval"));
+	}
+	if (state === "Pending Sales Manager Approval" && access.is_director) {
+		show_approval_alert(__("Sales Manager approval is pending. You can approve or reject on behalf of the Sales Manager."));
+		frm.add_custom_button(
+			__("Approve on behalf of Sales Manager"),
+			() => call("director_approve_sales_manager_on_behalf"),
+			__("Director Escalation")
+		);
+		frm.add_custom_button(
+			__("Reject on behalf of Sales Manager"),
+			() => reject("director_reject_sales_manager_on_behalf"),
+			__("Director Escalation")
+		);
+	}
+	if (state === "Pending Director Approval" && access.is_director) {
+		show_approval_alert(__("Director action required. Review the cost sheet, then approve or reject this quotation."));
+		frm.add_custom_button(__("Approve"), () => call("director_approve_quotation"), __("Approval"));
+		frm.add_custom_button(__("Reject"), () => reject("director_reject_quotation"), __("Approval"));
+	}
+	if (
+		state === "Approved" &&
+		frm.doc.custom_agreement_status === "Pending" &&
+		(access.is_manager || access.is_director || frm.doc.owner === frappe.session.user)
+	) {
+		show_approval_alert(__("Director approval is complete. Record whether the customer agreed or not agreed."));
+		frm.add_custom_button(__("Mark Agreed"), () => call("set_quotation_agreement", { agreed: 1 }), __("Agreement"));
+		frm.add_custom_button(
+			__("Mark Not Agreed"),
+			() => frappe.prompt(
+				[{ fieldname: "reason", fieldtype: "Small Text", label: __("Reason") }],
+				(values) => call("set_quotation_agreement", { agreed: 0, ...values }),
+				__("Mark Not Agreed"),
+				__("Confirm")
+			),
+			__("Agreement")
+		);
+	}
 }
 
 frappe.ui.form.on("Quotation BOQ Line", {
@@ -129,6 +239,13 @@ frappe.ui.form.on("Quotation BOQ Line", {
 
 	is_fixed_rate(frm, cdt, cdn) {
 		update_boq_row_amount(frm, cdt, cdn);
+		frm.refresh_field("custom_boq_lines");
+		if (typeof construction_management !== "undefined" && construction_management.quotation_boq_easy_entry) {
+			construction_management.quotation_boq_easy_entry.render_total(frm);
+		}
+	},
+
+	amount(frm) {
 		if (typeof construction_management !== "undefined" && construction_management.quotation_boq_easy_entry) {
 			construction_management.quotation_boq_easy_entry.render_total(frm);
 		}
@@ -184,7 +301,7 @@ function add_boq_row(frm, line_type) {
 		values.parent_no = last_parent_no(frm) || "1";
 		values.sub_no = next_sub_no(frm, values.parent_no);
 		values.display_mode = "Normal";
-		values.is_fixed_rate = 1;
+		values.is_fixed_rate = 0;
 	}
 
 	frm.add_child("custom_boq_lines", values);
@@ -283,11 +400,13 @@ function toggle_boq_row_fields(grid_row) {
 	grid_row.toggle_editable("sub_no", show_for_sub);
 	grid_row.toggle_editable("uom", show_for_sub);
 	grid_row.toggle_editable("qty", show_for_sub);
-	grid_row.toggle_editable("rate", show_for_sub && display_mode !== "N/A");
+	const is_manual_amount = cint(grid_row.doc.is_fixed_rate) === 1;
+	grid_row.toggle_editable("rate", show_for_sub && display_mode !== "N/A" && !is_manual_amount);
 	grid_row.toggle_editable("is_fixed_rate", show_for_sub);
 	grid_row.toggle_display("is_fixed_rate", show_for_sub);
 	grid_row.toggle_editable("display_mode", show_for_sub);
 	grid_row.toggle_display("amount", show_for_sub);
+	grid_row.toggle_editable("amount", show_for_sub && display_mode === "Normal" && is_manual_amount);
 }
 
 function update_boq_row_amount(frm, cdt, cdn) {
@@ -299,16 +418,17 @@ function update_boq_row_amount(frm, cdt, cdn) {
 
 	const display_mode = row.display_mode || "Normal";
 	let amount = 0;
-	if (display_mode === "Normal" && is_fixed_amount_line(row)) {
+	if (display_mode === "Normal" && !is_manual_amount_line(row)) {
 		amount = flt(row.qty) * flt(row.rate);
+	} else if (display_mode === "Normal") {
+		amount = flt(row.amount);
 	}
 
 	frappe.model.set_value(cdt, cdn, "amount", amount);
 }
 
-function is_fixed_amount_line(row) {
-	// Rows created before this checkbox was introduced are still normal amount rows.
-	return row.is_fixed_rate === undefined || row.is_fixed_rate === null || cint(row.is_fixed_rate) === 1;
+function is_manual_amount_line(row) {
+	return cint(row.is_fixed_rate) === 1;
 }
 
 function clear_blank_items(frm) {
@@ -331,8 +451,8 @@ function clear_blank_items(frm) {
 function boq_total(frm) {
 	let total = 0;
 	(frm.doc.custom_boq_lines || []).forEach((row) => {
-		if (row.line_type === "Sub" && (row.display_mode || "Normal") === "Normal" && is_fixed_amount_line(row)) {
-			total += flt(row.qty) * flt(row.rate);
+		if (row.line_type === "Sub" && (row.display_mode || "Normal") === "Normal") {
+			total += is_manual_amount_line(row) ? flt(row.amount) : flt(row.qty) * flt(row.rate);
 		}
 	});
 	return total;
