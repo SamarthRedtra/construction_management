@@ -222,6 +222,11 @@
 	color: #6b46c1;
 }
 
+.badge-type.payment-entry {
+	background: #e6fffa;
+	color: #234e52;
+}
+
 .cheque-header,
 .cheque-box {
 	display: flex;
@@ -289,6 +294,33 @@
 
 .project-commission-embedded .commission-section-row {
 	flex-direction: column;
+}
+
+.commission-pay-cell {
+	white-space: nowrap;
+}
+
+.commission-pay-btn {
+	background: #111111;
+	color: #ffffff;
+	border: 1px solid #000000;
+	border-radius: 4px;
+	padding: 4px 12px;
+	font-size: 12px;
+	font-weight: 500;
+	cursor: pointer;
+	line-height: 1.25;
+	font-family: inherit;
+}
+
+.commission-pay-btn:hover {
+	background: #000000;
+	color: #ffffff;
+}
+
+.commission-pay-btn:focus {
+	outline: 2px solid var(--primary, #2490ef);
+	outline-offset: 2px;
 }
 
 @media (max-width: 900px) {

@@ -12,6 +12,9 @@ from construction_management.api.project_boq_scope import fetch_scope_boq_items,
 
 ROW_TYPE_SI = "Sales Invoice"
 ROW_TYPE_JV = "Journal Entry"
+ROW_TYPE_PE = "Payment Entry"
+
+COMMISSION_PAYOUT_REMARK_PREFIX = "Commission payout for Sales Invoice "
 
 
 def build_services(project: str) -> tuple[list[dict], float, str]:
@@ -41,7 +44,8 @@ def build_commission_ledger(project: str) -> tuple[list[dict], dict]:
 
 	si_rows = _build_sales_invoice_commission_rows(project, company)
 	jv_rows = _build_journal_commission_rows(project, company)
-	rows = si_rows + jv_rows
+	pe_rows = _build_commission_payout_payment_rows(project, company)
+	rows = si_rows + jv_rows + pe_rows
 
 	rows.sort(key=lambda row: (
 		getdate(row.get("sort_date") or "1900-01-01"),
@@ -99,7 +103,7 @@ def build_summary(project: str, ledger_rows: list[dict]) -> dict:
 	commission_received_total = sum(
 		flt(row.get("commission_received"))
 		for row in ledger_rows
-		if row["row_type"] == ROW_TYPE_JV
+		if row["row_type"] in (ROW_TYPE_JV, ROW_TYPE_PE)
 	)
 	commission_balance = commission_total - commission_received_total
 
@@ -179,12 +183,29 @@ def _build_sales_invoice_commission_rows(project: str, company: str) -> list[dic
 	}) or []
 
 	rows = []
+	pay_shown_for = set()
+	paid_out_invoices = _get_paid_out_commission_invoices(project)
 	for entry in entries:
 		invoice_name = entry.get("source_name")
 		payments = _get_si_payments(invoice_name)
 		payment_lines = payments or [{"reference_no": "", "posting_date": "", "allocated_amount": 0.0}]
+		commission_amount = flt(entry.get("commission_amount"))
+		employee = entry.get("employee") or ""
+		pay_key = (invoice_name, entry.get("sales_person") or "")
+		already_paid = invoice_name in paid_out_invoices
 
-		for payment in payment_lines:
+		for idx, payment in enumerate(payment_lines):
+			# One Pay action per invoice + sales person (not per customer cheque line).
+			show_pay = (
+				idx == 0
+				and pay_key not in pay_shown_for
+				and commission_amount > 0
+				and bool(employee)
+				and not already_paid
+			)
+			if show_pay:
+				pay_shown_for.add(pay_key)
+
 			rows.append({
 				"row_type": ROW_TYPE_SI,
 				"sort_date": entry.get("posting_date"),
@@ -197,16 +218,184 @@ def _build_sales_invoice_commission_rows(project: str, company: str) -> list[dic
 				"cheque_date": payment.get("posting_date") or "",
 				"cheque_amount": flt(payment.get("allocated_amount")),
 				"commission_pct": flt(entry.get("commission_rate")),
-				"commission_amount": flt(entry.get("commission_amount")),
+				"commission_amount": commission_amount,
 				"commission_received": 0.0,
 				"commission_cheque_no": "",
 				"remarks": "",
 				"sales_person": entry.get("sales_person") or "",
+				"employee": employee,
 				"employee_name": entry.get("employee_name") or "",
+				"company": entry.get("company") or company,
+				"project": project,
+				"show_pay": show_pay,
+				"commission_paid": already_paid,
 				"source_name": invoice_name,
 			})
 
 	return rows
+
+
+def _commission_payout_remark(invoice_no: str) -> str:
+	return f"{COMMISSION_PAYOUT_REMARK_PREFIX}{invoice_no}"
+
+
+def _get_paid_out_commission_invoices(project: str) -> set[str]:
+	"""Invoices that already have a commission Payment Entry (draft or submitted)."""
+	if not project:
+		return set()
+
+	rows = frappe.db.sql(
+		"""
+		SELECT remarks
+		FROM `tabPayment Entry`
+		WHERE project = %s
+		  AND docstatus < 2
+		  AND payment_type = 'Pay'
+		  AND party_type = 'Employee'
+		  AND remarks LIKE %s
+		""",
+		(project, f"{COMMISSION_PAYOUT_REMARK_PREFIX}%"),
+		as_dict=True,
+	)
+	paid = set()
+	prefix = COMMISSION_PAYOUT_REMARK_PREFIX
+	for row in rows:
+		remarks = row.remarks or ""
+		if prefix in remarks:
+			# Take invoice id after prefix (first token / until whitespace end).
+			rest = remarks.split(prefix, 1)[1].strip()
+			invoice = rest.split()[0] if rest else ""
+			if invoice:
+				paid.add(invoice)
+	return paid
+
+
+def _build_commission_payout_payment_rows(project: str, company: str) -> list[dict]:
+	"""Commission payout Payment Entries — shown as Commission Received."""
+	rows = frappe.db.sql(
+		"""
+		SELECT
+			name,
+			posting_date,
+			party AS employee,
+			paid_amount,
+			reference_no,
+			remarks,
+			company
+		FROM `tabPayment Entry`
+		WHERE project = %s
+		  AND company = %s
+		  AND docstatus = 1
+		  AND payment_type = 'Pay'
+		  AND party_type = 'Employee'
+		  AND remarks LIKE %s
+		ORDER BY posting_date ASC, name ASC
+		""",
+		(project, company, f"{COMMISSION_PAYOUT_REMARK_PREFIX}%"),
+		as_dict=True,
+	)
+
+	result = []
+	for pe in rows:
+		employee = pe.employee or ""
+		employee_name = (
+			frappe.db.get_value("Employee", employee, "employee_name") if employee else ""
+		)
+		result.append({
+			"row_type": ROW_TYPE_PE,
+			"sort_date": pe.posting_date,
+			"invoice_date": "",
+			"invoice_serial_no": "",
+			"invoice_no": "",
+			"invoice_type": "",
+			"amount": 0.0,
+			"cheque_no": "",
+			"cheque_date": "",
+			"cheque_amount": 0.0,
+			"commission_pct": 0.0,
+			"commission_amount": flt(pe.paid_amount),
+			"commission_received": flt(pe.paid_amount),
+			"commission_cheque_no": pe.reference_no or "",
+			"remarks": pe.remarks or "",
+			"sales_person": "",
+			"employee": employee,
+			"employee_name": employee_name or "",
+			"company": pe.company or company,
+			"project": project,
+			"show_pay": False,
+			"source_name": pe.name,
+		})
+	return result
+
+
+def get_commission_payment_entry_defaults(
+	project: str,
+	employee: str,
+	commission_amount: float,
+	invoice_no: str,
+	company: str | None = None,
+) -> dict:
+	"""Prefill values for a commission payout Payment Entry."""
+	from erpnext.accounts.doctype.journal_entry.journal_entry import get_default_bank_cash_account
+	from erpnext.accounts.party import get_party_account
+
+	if not project:
+		frappe.throw(_("Project is required"))
+	if not employee:
+		frappe.throw(_("Employee is required"))
+
+	amount = flt(commission_amount)
+	if amount <= 0:
+		frappe.throw(_("Commission amount must be greater than zero"))
+
+	company = company or frappe.db.get_value("Project", project, "company")
+	if not company:
+		frappe.throw(_("Company not found for project {0}").format(project))
+
+	cost_center = frappe.db.get_value("Project", project, "cost_center")
+	if not cost_center:
+		cost_center = frappe.get_cached_value("Company", company, "cost_center")
+
+	bank = get_default_bank_cash_account(company, "Bank") or {}
+	if not bank.get("account"):
+		bank = get_default_bank_cash_account(company, "Cash") or {}
+
+	party_account = get_party_account("Employee", employee, company)
+
+	defaults = {
+		"payment_type": "Pay",
+		"party_type": "Employee",
+		"party": employee,
+		"company": company,
+		"project": project,
+		"paid_amount": amount,
+		"received_amount": amount,
+		"source_exchange_rate": 1,
+		"target_exchange_rate": 1,
+		"remarks": _commission_payout_remark(invoice_no),
+		"reference_no": invoice_no,
+	}
+
+	if cost_center:
+		defaults["cost_center"] = cost_center
+
+	if bank.get("account"):
+		defaults["paid_from"] = bank["account"]
+		if bank.get("account_currency"):
+			defaults["paid_from_account_currency"] = bank["account_currency"]
+
+	if party_account:
+		defaults["paid_to"] = party_account
+
+	mode_of_payment = frappe.db.get_value(
+		"Mode of Payment Account",
+		{"default_account": bank.get("account")},
+		"parent",
+	) if bank.get("account") else None
+	if mode_of_payment:
+		defaults["mode_of_payment"] = mode_of_payment
+
+	return defaults
 
 
 def _build_journal_commission_rows(project: str, company: str) -> list[dict]:
@@ -246,7 +435,11 @@ def _build_journal_commission_rows(project: str, company: str) -> list[dict]:
 			"commission_cheque_no": _get_je_reference_no(jv_name),
 			"remarks": entry.get("user_remark") or "",
 			"sales_person": "",
+			"employee": entry.get("employee") or "",
 			"employee_name": entry.get("employee_name") or "",
+			"company": company,
+			"project": project,
+			"show_pay": False,
 			"source_name": jv_name,
 		})
 

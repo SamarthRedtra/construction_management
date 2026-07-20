@@ -8,6 +8,7 @@ from construction_management.api.project_commission_data import (
 	build_commission_ledger,
 	build_services,
 	build_summary,
+	get_commission_payment_entry_defaults,
 )
 
 
@@ -28,3 +29,20 @@ def get_project_commission_data(project: str) -> dict:
 		"summary": summary,
 		"meta": meta,
 	}
+
+
+@frappe.whitelist()
+def get_commission_pay_defaults(
+	project: str,
+	employee: str,
+	commission_amount: float | str,
+	invoice_no: str,
+	company: str | None = None,
+) -> dict:
+	return get_commission_payment_entry_defaults(
+		project=project,
+		employee=employee,
+		commission_amount=commission_amount,
+		invoice_no=invoice_no,
+		company=company,
+	)

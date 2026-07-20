@@ -7,6 +7,7 @@ construction_management.project_commission.BADGE_SLUGS = {
 	'Tax Invoice': 'tax-invoice',
 	'Proforma Invoice': 'proforma-invoice',
 	'Journal Entry': 'journal-entry',
+	'Payment Entry': 'payment-entry',
 };
 
 construction_management.project_commission.format_num = function (value, fieldtype, options) {
@@ -67,6 +68,7 @@ construction_management.project_commission.render_dashboard = function (containe
 				$container.html(
 					construction_management.project_commission.build_dashboard_html(r.message, options)
 				);
+				construction_management.project_commission.bind_pay_actions($container);
 			} else {
 				$container.html(`<div class="commission-error-state"><p>${__('Could not load commission data.')}</p></div>`);
 			}
@@ -77,6 +79,72 @@ construction_management.project_commission.render_dashboard = function (containe
 	});
 };
 
+construction_management.project_commission.get_pay_cell_html = function (row, can_create_pe) {
+	if (row.row_type !== 'Sales Invoice') {
+		return '';
+	}
+	if (!(flt(row.commission_amount) > 0)) {
+		return '';
+	}
+	if (row.commission_paid) {
+		return `<span class="text-muted">${__('Paid')}</span>`;
+	}
+	if (!row.employee) {
+		return `<span class="text-muted">${__('No Employee')}</span>`;
+	}
+	if (!row.show_pay) {
+		return '';
+	}
+	if (!can_create_pe) {
+		return `<span class="text-muted">${__('No Permission')}</span>`;
+	}
+
+	const attrs = [
+		`data-project="${frappe.utils.escape_html(row.project || '')}"`,
+		`data-employee="${frappe.utils.escape_html(row.employee || '')}"`,
+		`data-company="${frappe.utils.escape_html(row.company || '')}"`,
+		`data-invoice="${frappe.utils.escape_html(row.invoice_no || '')}"`,
+		`data-amount="${flt(row.commission_amount)}"`,
+	].join(' ');
+
+	return `<button type="button" class="commission-pay-btn" ${attrs}>${__('Pay')}</button>`;
+};
+
+construction_management.project_commission.bind_pay_actions = function ($container) {
+	$container.find('.commission-pay-btn').off('click.commissionPay').on('click.commissionPay', function (e) {
+		e.preventDefault();
+		e.stopPropagation();
+
+		const $btn = $(this);
+		if ($btn.prop('disabled')) {
+			return;
+		}
+		$btn.prop('disabled', true);
+
+		frappe.call({
+			method: 'construction_management.construction_management.page.project_commission.project_commission.get_commission_pay_defaults',
+			args: {
+				project: $btn.attr('data-project'),
+				employee: $btn.attr('data-employee'),
+				company: $btn.attr('data-company'),
+				invoice_no: $btn.attr('data-invoice'),
+				commission_amount: $btn.attr('data-amount'),
+			},
+			freeze: true,
+			freeze_message: __('Preparing Payment Entry...'),
+			callback(r) {
+				$btn.prop('disabled', false);
+				if (r.message) {
+					frappe.new_doc('Payment Entry', r.message);
+				}
+			},
+			error() {
+				$btn.prop('disabled', false);
+			},
+		});
+	});
+};
+
 construction_management.project_commission.get_invoice_link = function (row) {
 	if (!row.invoice_no || row.row_type !== 'Sales Invoice') {
 		return '';
@@ -84,11 +152,17 @@ construction_management.project_commission.get_invoice_link = function (row) {
 	return `<a href="/app/sales-invoice/${encodeURIComponent(row.invoice_no)}" target="_blank" class="document-link">${frappe.utils.escape_html(row.invoice_no)}</a>`;
 };
 
-construction_management.project_commission.get_jv_link = function (row) {
-	if (!row.source_name || row.row_type !== 'Journal Entry') {
+construction_management.project_commission.get_voucher_link = function (row) {
+	if (!row.source_name) {
 		return '';
 	}
-	return `<a href="/app/journal-entry/${encodeURIComponent(row.source_name)}" target="_blank" class="document-link">${frappe.utils.escape_html(row.source_name)}</a>`;
+	if (row.row_type === 'Journal Entry') {
+		return `<a href="/app/journal-entry/${encodeURIComponent(row.source_name)}" target="_blank" class="document-link">${frappe.utils.escape_html(row.source_name)}</a>`;
+	}
+	if (row.row_type === 'Payment Entry') {
+		return `<a href="/app/payment-entry/${encodeURIComponent(row.source_name)}" target="_blank" class="document-link">${frappe.utils.escape_html(row.source_name)}</a>`;
+	}
+	return '';
 };
 
 construction_management.project_commission.build_dashboard_html = function (data, options) {
@@ -115,6 +189,7 @@ construction_management.project_commission.build_dashboard_html = function (data
 
 	let ledger_html = '';
 	const ledger = data.ledger || [];
+	const can_create_pe = frappe.model.can_create('Payment Entry');
 	if (ledger.length) {
 		ledger.forEach((row) => {
 			const invoice_date = row.invoice_date ? frappe.datetime.str_to_user(row.invoice_date) : '';
@@ -123,22 +198,28 @@ construction_management.project_commission.build_dashboard_html = function (data
 			const badge_slug = row.invoice_type ? (badge_slugs[row.invoice_type] || '') : '';
 			const type_badge = row.invoice_type
 				? `<span class="badge-type ${badge_slug}">${row.invoice_type}</span>`
-				: (row.row_type === 'Journal Entry' ? `<span class="badge-type journal-entry">${__('Journal Entry')}</span>` : '');
+				: (row.row_type === 'Journal Entry'
+					? `<span class="badge-type journal-entry">${__('Journal Entry')}</span>`
+					: (row.row_type === 'Payment Entry'
+						? `<span class="badge-type payment-entry">${__('Payment Entry')}</span>`
+						: ''));
 			const pct_disp = row.commission_pct > 0
 				? `${frappe.format(row.commission_pct, { fieldtype: 'Float', precision: 2 })}%`
 				: '';
 			const cheque_amt_disp = row.cheque_amount > 0 ? fmt(row.cheque_amount, 'Currency') : '';
 			const comm_recv_disp = row.commission_received > 0 ? fmt(row.commission_received, 'Currency') : '';
+			const voucher_link = construction_management.project_commission.get_voucher_link(row);
 			const remarks_cell = row.remarks
 				? frappe.utils.escape_html(row.remarks)
-				: (row.row_type === 'Journal Entry' ? construction_management.project_commission.get_jv_link(row) : '');
+				: voucher_link;
+			const pay_cell = construction_management.project_commission.get_pay_cell_html(row, can_create_pe);
 
 			ledger_html += `
 				<tr>
 					<td class="text-center">${row.serial_no}</td>
 					<td class="text-center">${invoice_date}</td>
 					<td class="text-center">${row.invoice_serial_no || ''}</td>
-					<td>${invoice_link || (row.row_type === 'Journal Entry' ? construction_management.project_commission.get_jv_link(row) : '')}</td>
+					<td>${invoice_link || voucher_link}</td>
 					<td>${type_badge}</td>
 					<td class="text-right">${row.amount > 0 ? fmt(row.amount, 'Currency') : ''}</td>
 					<td>
@@ -157,6 +238,7 @@ construction_management.project_commission.build_dashboard_html = function (data
 					<td class="text-right">${comm_recv_disp}</td>
 					<td>${frappe.utils.escape_html(row.commission_cheque_no || '')}</td>
 					<td>${remarks_cell}</td>
+					<td class="text-center commission-pay-cell">${pay_cell}</td>
 				</tr>
 			`;
 		});
@@ -167,7 +249,7 @@ construction_management.project_commission.build_dashboard_html = function (data
 		} else if (data.meta && data.meta.commission_account_missing) {
 			empty_msg = __('Configure Sales Person Commission Account in BOQ Settings.');
 		}
-		ledger_html = `<tr><td colspan="12" class="text-center text-muted">${empty_msg}</td></tr>`;
+		ledger_html = `<tr><td colspan="13" class="text-center text-muted">${empty_msg}</td></tr>`;
 	}
 
 	const summary = data.summary || {};
@@ -224,6 +306,7 @@ construction_management.project_commission.build_dashboard_html = function (data
 							<th style="width:130px;" class="text-right">${__('Commission Received')}</th>
 							<th style="width:100px;">${__('Cheque No.')}</th>
 							<th style="width:180px;">${__('Remarks')}</th>
+							<th style="width:90px;" class="text-center">${__('Action')}</th>
 						</tr>
 					</thead>
 					<tbody>${ledger_html}</tbody>
