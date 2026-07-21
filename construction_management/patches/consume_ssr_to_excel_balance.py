@@ -52,8 +52,20 @@ REPORT_CSV_NAME = "ssr_consume_preview.csv"
 
 
 def execute():
-	"""Patch hook — dry-run only so migrate never posts stock."""
-	preview_ssr_consumption(dry_run=1)
+	"""Patch hook — dry-run only so migrate never posts stock.
+
+	The workbook is an operational input and is deliberately not shipped inside
+	the app. A Cloud migration must therefore skip this optional preview when the
+	workbook has not been uploaded to that site.
+	"""
+	xlsx_path = _find_xlsx_path()
+	if not xlsx_path:
+		frappe.logger("construction_management").warning(
+			"SSR consumption preview skipped during migrate: workbook %s is not available.",
+			DEFAULT_XLSX_NAME,
+		)
+		return
+	preview_ssr_consumption(xlsx_path=xlsx_path, dry_run=1)
 
 
 @frappe.whitelist()
@@ -734,9 +746,19 @@ def _log_summary(summary: dict):
 
 
 def _resolve_xlsx_path(xlsx_path: str | None) -> str:
+	path = _find_xlsx_path(xlsx_path)
+	if path:
+		return path
+	frappe.throw(
+		f"SSR Excel not found. Place `{DEFAULT_XLSX_NAME}` in the bench root "
+		f"or pass xlsx_path=..."
+	)
+
+
+def _find_xlsx_path(xlsx_path: str | None = None) -> str | None:
+	"""Return an available workbook path without raising during migration."""
 	if xlsx_path and os.path.exists(xlsx_path):
 		return xlsx_path
-
 	bench_root = Path(frappe.utils.get_bench_path())
 	candidates = [
 		bench_root / DEFAULT_XLSX_NAME,
@@ -747,11 +769,7 @@ def _resolve_xlsx_path(xlsx_path: str | None) -> str:
 	for path in candidates:
 		if path.exists():
 			return str(path)
-
-	frappe.throw(
-		f"SSR Excel not found. Place `{DEFAULT_XLSX_NAME}` in the bench root "
-		f"or pass xlsx_path=..."
-	)
+	return None
 
 
 def _private_files_dir() -> str:
