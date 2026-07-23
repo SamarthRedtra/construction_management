@@ -98,6 +98,7 @@
 	display: flex;
 	gap: 8px;
 	flex-wrap: wrap;
+	margin-top: 12px;
 }
 
 .sd-table {
@@ -109,6 +110,38 @@
 	padding: 40px;
 	text-align: center;
 	color: #718096;
+}
+
+.sd-chart-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+	gap: 16px;
+}
+
+.sd-chart-card {
+	border: 1px solid #edf2f7;
+	border-radius: 8px;
+	padding: 12px;
+	background: #fafbfc;
+	min-height: 300px;
+}
+
+.sd-chart-title {
+	font-size: 13px;
+	font-weight: 600;
+	color: #4a5568;
+	margin-bottom: 8px;
+}
+
+.sd-chart {
+	width: 100%;
+	min-height: 80px;
+}
+
+.sd-chart-empty {
+	padding: 48px 12px;
+	text-align: center;
+	font-size: 13px;
 }
 
 .sd-legend {
@@ -146,3 +179,9 @@
 .sd-bar-leads { background: #4299e1; }
 .sd-bar-qualified { background: #48bb78; }
 .sd-bar-quotations { background: #805ad5; }
+
+@media (max-width: 768px) {
+	.sd-chart-grid {
+		grid-template-columns: 1fr;
+	}
+}

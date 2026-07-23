@@ -19,6 +19,7 @@ construction_management.SalesDesk = class SalesDesk {
 		this.wrapper = $(wrapper);
 		this.page_body = this.wrapper.find('.layout-main-section');
 		this.company = frappe.defaults.get_user_default('Company') || '';
+		this.charts = {};
 		this.render_shell();
 		this.load();
 	}
@@ -69,6 +70,7 @@ construction_management.SalesDesk = class SalesDesk {
 	}
 
 	load() {
+		this.destroy_charts();
 		this.page_body.find('.sd-loading').show();
 		this.page_body.find('.sd-content').hide();
 		frappe.call({
@@ -88,8 +90,102 @@ construction_management.SalesDesk = class SalesDesk {
 		});
 	}
 
+	destroy_charts() {
+		Object.keys(this.charts || {}).forEach((key) => {
+			try {
+				if (this.charts[key] && this.charts[key].destroy) {
+					this.charts[key].destroy();
+				}
+			} catch (e) {
+				// ignore
+			}
+		});
+		this.charts = {};
+	}
+
 	fmt(n) {
 		return frappe.format(n || 0, { fieldtype: 'Currency' });
+	}
+
+	pie_labels_values(rows) {
+		const labels = [];
+		const values = [];
+		(rows || []).forEach((r) => {
+			if (flt(r.value) > 0) {
+				labels.push(r.label);
+				values.push(flt(r.value));
+			}
+		});
+		return { labels, values };
+	}
+
+	render_pie(container_selector, title, rows, colors) {
+		const $el = this.page_body.find(container_selector);
+		if (!$el.length) return;
+		$el.empty();
+		const { labels, values } = this.pie_labels_values(rows);
+		if (!labels.length) {
+			$el.html(`<div class="sd-chart-empty text-muted">${__('No data')}</div>`);
+			return;
+		}
+		try {
+			this.charts[container_selector] = new frappe.Chart($el[0], {
+				title: title,
+				data: { labels, datasets: [{ values }] },
+				type: 'pie',
+				height: 260,
+				colors: colors || ['#4299e1', '#48bb78', '#ed8936', '#9f7aea', '#f56565', '#38b2ac', '#ecc94b'],
+				truncateLegends: true,
+			});
+		} catch (e) {
+			console.error('Sales Desk chart error', e);
+			$el.html(`<div class="sd-chart-empty text-muted">${__('Chart unavailable')}</div>`);
+		}
+	}
+
+	render_bar(container_selector, title, labels, datasets, colors) {
+		const $el = this.page_body.find(container_selector);
+		if (!$el.length) return;
+		$el.empty();
+		if (!labels.length) {
+			$el.html(`<div class="sd-chart-empty text-muted">${__('No data')}</div>`);
+			return;
+		}
+		try {
+			this.charts[container_selector] = new frappe.Chart($el[0], {
+				title: title,
+				data: { labels, datasets },
+				type: 'bar',
+				height: 280,
+				colors: colors || ['#4299e1', '#48bb78', '#805ad5'],
+				barOptions: { stacked: 0, spaceRatio: 0.4 },
+				axisOptions: { xIsSeries: 0 },
+			});
+		} catch (e) {
+			console.error('Sales Desk chart error', e);
+			$el.html(`<div class="sd-chart-empty text-muted">${__('Chart unavailable')}</div>`);
+		}
+	}
+
+	render_percentage_bar(container_selector, title, labels, values, colors) {
+		const $el = this.page_body.find(container_selector);
+		if (!$el.length) return;
+		$el.empty();
+		if (!labels.length) {
+			$el.html(`<div class="sd-chart-empty text-muted">${__('No data')}</div>`);
+			return;
+		}
+		try {
+			this.charts[container_selector] = new frappe.Chart($el[0], {
+				title: title,
+				data: { labels, datasets: [{ values }] },
+				type: 'percentage',
+				height: 80,
+				colors: colors || ['#4299e1', '#48bb78', '#ed8936', '#f56565'],
+			});
+		} catch (e) {
+			$el.html(`<div class="sd-chart-empty text-muted">${__('Chart unavailable')}</div>`);
+		}
 	}
 
 	render(data) {
@@ -102,37 +198,14 @@ construction_management.SalesDesk = class SalesDesk {
 		const L = data.leads || {};
 		const Q = data.quotations || {};
 		const C = data.commission || {};
+		const F = data.funnel || {};
 		const pipeline = data.sales_person_pipeline || [];
-		const max_pipeline = Math.max(1, ...pipeline.map((row) => Math.max(row.leads || 0, row.quotations || 0, row.qualified || 0)));
-		let pipeline_html = '';
-		pipeline.forEach((row) => {
-			const pct = (value) => Math.max(3, Math.round(((value || 0) / max_pipeline) * 100));
-			pipeline_html += `
-				<tr>
-					<td>${frappe.utils.escape_html(row.sales_person || '')}</td>
-					<td class="text-right">${row.leads || 0}</td>
-					<td class="text-right">${row.qualified || 0}</td>
-					<td class="text-right">${row.quotations || 0}</td>
-					<td class="text-right">${this.fmt(row.quotation_amount)}</td>
-					<td class="sd-bars">
-						<div title="${__('Leads')}: ${row.leads || 0}"><span class="sd-bar sd-bar-leads" style="width:${pct(row.leads)}%"></span></div>
-						<div title="${__('Qualified')}: ${row.qualified || 0}"><span class="sd-bar sd-bar-qualified" style="width:${pct(row.qualified)}%"></span></div>
-						<div title="${__('Quotations')}: ${row.quotations || 0}"><span class="sd-bar sd-bar-quotations" style="width:${pct(row.quotations)}%"></span></div>
-					</td>
-				</tr>`;
-		});
-		if (!pipeline_html) {
-			pipeline_html = `<tr><td colspan="6" class="text-muted text-center">${__('No Sales Person pipeline data')}</td></tr>`;
-		}
+
 		const team_pipeline_section = data.is_sales_manager ? `
 			<div class="sd-section">
 				<h4>${__('Sales Team Pipeline')}</h4>
-				<p class="text-muted small">${__('Counts are grouped by the Sales Person selected on the Quotation. Qualified is based on Lead status “Qualified”.')}</p>
-				<div class="sd-legend"><span class="sd-bar sd-bar-leads"></span>${__('Leads')} <span class="sd-bar sd-bar-qualified"></span>${__('Qualified')} <span class="sd-bar sd-bar-quotations"></span>${__('Quotations')}</div>
-				<table class="table table-bordered sd-table">
-					<thead><tr><th>${__('Sales Person')}</th><th class="text-right">${__('Leads')}</th><th class="text-right">${__('Qualified')}</th><th class="text-right">${__('Quotations')}</th><th class="text-right">${__('Quotation Value')}</th><th>${__('Graph')}</th></tr></thead>
-					<tbody>${pipeline_html}</tbody>
-				</table>
+				<p class="text-muted small">${__('Leads and quotations by Sales Person')}</p>
+				<div class="sd-chart" data-chart="team-bar"></div>
 			</div>` : '';
 
 		let projects_html = '';
@@ -172,12 +245,12 @@ construction_management.SalesDesk = class SalesDesk {
 
 		this.page_body.find('.sd-content').html(`
 			<div class="sd-section">
-				<h4>${__('Pipeline')} <span class="text-muted" style="font-size:12px;">(${__('Lead')} → ${__('Quotation')})</span></h4>
+				<h4>${__('Pipeline Snapshot')} <span class="text-muted" style="font-size:12px;">(${__('Lead')} → ${__('Quotation')} → ${__('Agreed')})</span></h4>
 				<div class="sd-kpi-grid">
 					<div class="sd-kpi" data-route="List/Lead/List">
 						<div class="sd-kpi-label">${__('Leads (Open)')}</div>
 						<div class="sd-kpi-value">${L.open || 0}</div>
-						<div class="sd-kpi-sub">${__('Total')}: ${L.total || 0} · ${__('Converted')}: ${L.converted || 0}</div>
+						<div class="sd-kpi-sub">${__('Total')}: ${L.total || 0} · ${__('Agreed')}: ${L.agreed || 0} · ${__('Converted')}: ${L.converted || 0}</div>
 					</div>
 					<div class="sd-kpi" data-route="List/Quotation/List">
 						<div class="sd-kpi-label">${__('Quotations Open')}</div>
@@ -190,16 +263,35 @@ construction_management.SalesDesk = class SalesDesk {
 						<div class="sd-kpi-sub">${this.fmt(Q.agreed_amount)}</div>
 					</div>
 					<div class="sd-kpi sd-kpi-warn" data-route="List/Quotation/List">
-						<div class="sd-kpi-label">${__('Lost / Expired')}</div>
+						<div class="sd-kpi-label">${__('Lost / Not Agreed')}</div>
 						<div class="sd-kpi-value">${(Q.lost || 0) + (Q.expired || 0)}</div>
 						<div class="sd-kpi-sub">${__('Lost')}: ${Q.lost || 0} · ${__('Expired')}: ${Q.expired || 0}</div>
 					</div>
 				</div>
+				<div class="sd-chart" data-chart="funnel-pct"></div>
 				<div class="sd-actions">
 					<button class="btn btn-primary btn-sm" data-route="Form/Lead/new">${__('New Lead')}</button>
 					<button class="btn btn-default btn-sm" data-route="Form/Quotation/new">${__('New Quotation')}</button>
 					<button class="btn btn-default btn-sm" data-route="List/Lead/List">${__('All Leads')}</button>
 					<button class="btn btn-default btn-sm" data-route="List/Quotation/List">${__('All Quotations')}</button>
+				</div>
+			</div>
+
+			<div class="sd-section">
+				<h4>${__('Status Breakdown')}</h4>
+				<div class="sd-chart-grid">
+					<div class="sd-chart-card">
+						<div class="sd-chart-title">${__('Leads by Status')}</div>
+						<div class="sd-chart" data-chart="leads-pie"></div>
+					</div>
+					<div class="sd-chart-card">
+						<div class="sd-chart-title">${__('Quotations by Status')}</div>
+						<div class="sd-chart" data-chart="quotations-pie"></div>
+					</div>
+					<div class="sd-chart-card">
+						<div class="sd-chart-title">${__('Commission by Project')} <span class="text-muted">(${__('This month')})</span></div>
+						<div class="sd-chart" data-chart="commission-pie"></div>
+					</div>
 				</div>
 			</div>
 
@@ -249,5 +341,64 @@ construction_management.SalesDesk = class SalesDesk {
 				</table>
 			</div>
 		`).show();
+
+		// Charts after DOM mount
+		setTimeout(() => {
+			this.render_percentage_bar(
+				'[data-chart="funnel-pct"]',
+				__('Pipeline mix'),
+				[__('Open Leads'), __('Lead Quotation'), __('Lead Agreed'), __('Converted'), __('Q Open'), __('Q Agreed'), __('Q Lost')],
+				[
+					F.leads_open || 0,
+					F.leads_quotation || 0,
+					F.leads_agreed || 0,
+					F.leads_converted || 0,
+					F.quotations_open || 0,
+					F.quotations_agreed || 0,
+					F.quotations_lost || 0,
+				],
+				['#63b3ed', '#4299e1', '#48bb78', '#38a169', '#ed8936', '#9f7aea', '#f56565']
+			);
+
+			this.render_pie(
+				'[data-chart="leads-pie"]',
+				'',
+				L.by_status || [],
+				['#63b3ed', '#4299e1', '#805ad5', '#48bb78', '#38a169', '#f56565', '#a0aec0', '#ed8936']
+			);
+
+			this.render_pie(
+				'[data-chart="quotations-pie"]',
+				'',
+				Q.by_status || [],
+				['#a0aec0', '#4299e1', '#ed8936', '#9f7aea', '#48bb78', '#38a169', '#f56565', '#e53e3e', '#ecc94b']
+			);
+
+			const commission_rows = (C.by_project || []).map((r) => ({
+				label: r.project_name || r.project || __('No Project'),
+				value: flt(r.commission_amount),
+			}));
+			this.render_pie(
+				'[data-chart="commission-pie"]',
+				'',
+				commission_rows,
+				['#38b2ac', '#4299e1', '#9f7aea', '#ed8936', '#48bb78', '#f56565']
+			);
+
+			if (data.is_sales_manager && pipeline.length) {
+				const labels = pipeline.slice(0, 12).map((r) => r.sales_person || __('Unassigned'));
+				this.render_bar(
+					'[data-chart="team-bar"]',
+					__('Team comparison'),
+					labels,
+					[
+						{ name: __('Leads'), values: pipeline.slice(0, 12).map((r) => r.leads || 0) },
+						{ name: __('Qualified'), values: pipeline.slice(0, 12).map((r) => r.qualified || 0) },
+						{ name: __('Quotations'), values: pipeline.slice(0, 12).map((r) => r.quotations || 0) },
+					],
+					['#4299e1', '#48bb78', '#805ad5']
+				);
+			}
+		}, 50);
 	}
 };

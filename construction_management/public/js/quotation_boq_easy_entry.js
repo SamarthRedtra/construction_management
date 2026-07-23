@@ -100,6 +100,9 @@ construction_management.quotation_boq_easy_entry.add_sub_to_last_parent = functi
 		uom: "Nos",
 	});
 	frm.refresh_field("custom_boq_lines");
+	if (construction_management.render_boq_preview) {
+		construction_management.render_boq_preview(frm);
+	}
 	frm.fields_dict.custom_boq_lines.grid.open_row(row.idx);
 };
 
@@ -516,6 +519,9 @@ construction_management.quotation_boq_easy_entry.append_lines = function (frm, l
 		});
 		frm.refresh_field("custom_boq_lines");
 		construction_management.quotation_boq_easy_entry.render_total(frm);
+		if (construction_management.render_boq_preview) {
+			construction_management.render_boq_preview(frm);
+		}
 		close_dialog();
 		frappe.show_alert({
 			message: __("Added {0} BOQ rows", [lines.length]),

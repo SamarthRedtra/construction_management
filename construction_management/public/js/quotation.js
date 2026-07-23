@@ -2,6 +2,8 @@
  * BOQ-style Quotation — simple child-table grid (like BOQ Management)
  */
 
+frappe.provide("construction_management");
+
 const QUOTATION_BOQ_ITEM = "QUOTATION-BOQ";
 const HIERARCHY_TWO_LEVEL = "2 Level (Parent + Sub)";
 const HIERARCHY_THREE_LEVEL = "3 Level (Section + Parent + Sub)";
@@ -17,14 +19,17 @@ frappe.ui.form.on("Quotation", {
 		setup_boq_buttons(frm);
 		setup_boq_grid(frm);
 		setup_print_hint(frm);
+		setup_sales_manager_approver_field(frm);
 		setup_approval_actions(frm);
 		if (typeof construction_management !== "undefined" && construction_management.quotation_boq_easy_entry) {
 			construction_management.quotation_boq_easy_entry.setup(frm);
 		}
+		render_boq_preview(frm);
 	},
 
 	company(frm) {
 		setup_boq_buttons(frm);
+		setup_sales_manager_approver_field(frm);
 	},
 
 	validate(frm) {
@@ -43,9 +48,7 @@ frappe.ui.form.on("Quotation", {
 	},
 
 	party_name(frm) {
-		if (!frm.doc.custom_client_name && frm.doc.customer_name) {
-			frm.set_value("custom_client_name", frm.doc.customer_name);
-		}
+		prefill_header_from_party(frm);
 	},
 
 	tc_name(frm) {
@@ -107,9 +110,23 @@ function setup_amendment_action(frm) {
 		freeze: true,
 		freeze_message: __("Creating amendment"),
 		callback: (r) => {
-			if (r.message && r.message.name) {
-				frappe.set_route("Form", "Quotation", r.message.name);
+			if (!(r.message && r.message.name)) {
+				return;
 			}
+			const name = r.message.name;
+			// Force a clean Form load so Cancel/cancelled toolbar does not stick on the -1 draft.
+			frappe.set_route("Form", "Quotation", name).then(() => {
+				const open = () => {
+					if (cur_frm && cur_frm.doctype === "Quotation" && cur_frm.docname === name) {
+						cur_frm.reload_doc();
+					}
+				};
+				if (cur_frm && cur_frm.docname === name) {
+					open();
+				} else {
+					frappe.after_ajax(open);
+				}
+			});
 		},
 	});
 
@@ -133,6 +150,29 @@ function setup_print_hint(frm) {
 		},
 		__("BOQ")
 	);
+}
+
+function setup_sales_manager_approver_field(frm) {
+	const editable = frm.doc.docstatus === 0;
+	frm.set_df_property("custom_sales_manager_approver", "read_only", editable ? 0 : 1);
+	frm.set_df_property(
+		"custom_sales_manager_approver",
+		"description",
+		__("Only this Sales Manager is assigned on submit. All Quotation Directors are also assigned.")
+	);
+	if (!editable || !frm.doc.company) {
+		return;
+	}
+	frappe.call({
+		method: "construction_management.overrides.quotation.get_quotation_approver_options",
+		args: { company: frm.doc.company },
+		callback: (r) => {
+			const managers = (r.message && r.message.managers) || [];
+			frm.set_query("custom_sales_manager_approver", () => ({
+				filters: { name: ["in", managers.length ? managers : ["__none__"]] },
+			}));
+		},
+	});
 }
 
 function setup_approval_actions(frm) {
@@ -228,6 +268,7 @@ frappe.ui.form.on("Quotation BOQ Line", {
 		if (typeof construction_management !== "undefined" && construction_management.quotation_boq_easy_entry) {
 			construction_management.quotation_boq_easy_entry.render_total(frm);
 		}
+		render_boq_preview(frm);
 	},
 
 	rate(frm, cdt, cdn) {
@@ -235,6 +276,7 @@ frappe.ui.form.on("Quotation BOQ Line", {
 		if (typeof construction_management !== "undefined" && construction_management.quotation_boq_easy_entry) {
 			construction_management.quotation_boq_easy_entry.render_total(frm);
 		}
+		render_boq_preview(frm);
 	},
 
 	is_fixed_rate(frm, cdt, cdn) {
@@ -243,12 +285,26 @@ frappe.ui.form.on("Quotation BOQ Line", {
 		if (typeof construction_management !== "undefined" && construction_management.quotation_boq_easy_entry) {
 			construction_management.quotation_boq_easy_entry.render_total(frm);
 		}
+		render_boq_preview(frm);
 	},
 
 	amount(frm) {
 		if (typeof construction_management !== "undefined" && construction_management.quotation_boq_easy_entry) {
 			construction_management.quotation_boq_easy_entry.render_total(frm);
 		}
+		render_boq_preview(frm);
+	},
+
+	description(frm) {
+		render_boq_preview(frm);
+	},
+
+	parent_no(frm) {
+		render_boq_preview(frm);
+	},
+
+	sub_no(frm) {
+		render_boq_preview(frm);
 	},
 });
 
@@ -306,6 +362,7 @@ function add_boq_row(frm, line_type) {
 
 	frm.add_child("custom_boq_lines", values);
 	frm.refresh_field("custom_boq_lines");
+	render_boq_preview(frm);
 }
 
 function next_parent_no(frm) {
@@ -360,7 +417,9 @@ function import_boq_lines_from_estimation(frm, estimation_name) {
 					const row = frm.add_child("custom_boq_lines");
 					Object.assign(row, line);
 				});
+				backfill_boq_numbering(frm);
 				frm.refresh_field("custom_boq_lines");
+				render_boq_preview(frm);
 				frappe.show_alert({
 					message: __("Imported {0} BOQ rows from Project Estimation", [lines.length]),
 					indicator: "green",
@@ -384,6 +443,103 @@ function setup_boq_grid(frm) {
 
 	grid.wrapper.off("grid-row-render.boq").on("grid-row-render.boq", (_e, grid_row) => {
 		toggle_boq_row_fields(grid_row);
+	});
+	grid.wrapper.off("grid-add-row.boq grid-remove-rows.boq").on(
+		"grid-add-row.boq grid-remove-rows.boq",
+		() => {
+			backfill_boq_numbering(frm);
+			render_boq_preview(frm);
+		}
+	);
+}
+
+function backfill_boq_numbering(frm) {
+	const lines = frm.doc.custom_boq_lines || [];
+	let parent_counter = 0;
+	const sub_counts = {};
+	lines.forEach((row) => {
+		if (row.line_type === "Parent") {
+			if (!row.parent_no) {
+				parent_counter += 1;
+				row.parent_no = String(parent_counter);
+			} else {
+				const n = parseInt(row.parent_no, 10);
+				if (!isNaN(n)) {
+					parent_counter = Math.max(parent_counter, n);
+				}
+			}
+		} else if (row.line_type === "Sub") {
+			if (!row.parent_no) {
+				row.parent_no = last_parent_no(frm) || "1";
+			}
+			if (!row.sub_no) {
+				const key = row.parent_no;
+				const count = sub_counts[key] || 0;
+				row.sub_no = next_sub_letter(count);
+				sub_counts[key] = count + 1;
+			} else {
+				const key = row.parent_no;
+				sub_counts[key] = (sub_counts[key] || 0) + 1;
+			}
+		}
+	});
+}
+
+function next_sub_letter(count) {
+	const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	return letters[count] || String(count + 1);
+}
+
+function render_boq_preview(frm) {
+	construction_management.render_boq_preview = render_boq_preview;
+	const field = frm.fields_dict.custom_boq_lines;
+	if (!field || !field.$wrapper) {
+		return;
+	}
+
+	let $preview = field.$wrapper.find(".boq-live-preview");
+	if (!$preview.length) {
+		$preview = $(`
+			<div class="boq-live-preview" style="margin-top:14px;">
+				<div style="font-weight:600;margin-bottom:8px;">${__("BOQ Table Preview")}</div>
+				<div class="boq-live-preview-body border rounded p-2" style="background:#fff;overflow:auto;"></div>
+			</div>
+		`);
+		field.$wrapper.append($preview);
+	}
+
+	const lines = (frm.doc.custom_boq_lines || []).map((row) => ({
+		idx: row.idx,
+		line_type: row.line_type,
+		section_title: row.section_title,
+		parent_no: row.parent_no,
+		sub_no: row.sub_no,
+		description: row.description,
+		uom: row.uom,
+		qty: row.qty,
+		rate: row.rate,
+		amount: row.amount,
+		display_mode: row.display_mode,
+		is_fixed_rate: row.is_fixed_rate,
+	}));
+
+	if (!lines.length) {
+		$preview.find(".boq-live-preview-body").html(
+			`<p class="text-muted text-center" style="margin:12px 0;">${__("Add BOQ lines to see the table preview.")}</p>`
+		);
+		return;
+	}
+
+	frappe.call({
+		method: "construction_management.api.quotation_boq.preview_boq_html_from_lines",
+		args: {
+			lines: JSON.stringify(lines),
+			company: frm.doc.company,
+			include_vat: frm.doc.custom_include_vat,
+		},
+		callback: (r) => {
+			$preview.find(".boq-live-preview-body").html(r.message || "");
+		},
 	});
 }
 
@@ -513,6 +669,20 @@ function ensure_placeholder_item(frm) {
 		});
 }
 
+function prefill_header_from_party(frm) {
+	const label = frm.doc.customer_name || frm.doc.party_name;
+	if (!label) {
+		return;
+	}
+	if (!frm.doc.custom_client_name) {
+		frm.set_value("custom_client_name", label);
+	}
+	// Main Contractor is the Customer when left blank.
+	if (!frm.doc.custom_main_contractor) {
+		frm.set_value("custom_main_contractor", label);
+	}
+}
+
 function prefill_header_from_project(frm) {
 	if (!frm.doc.custom_project) {
 		return;
@@ -522,10 +692,14 @@ function prefill_header_from_project(frm) {
 		if (!frm.doc.custom_project_title && project.project_name) {
 			frm.set_value("custom_project_title", project.project_name);
 		}
-		if (!frm.doc.custom_client_name && project.customer) {
+		if (project.customer) {
 			frappe.db.get_value("Customer", project.customer, "customer_name").then((r) => {
-				if (r && r.message) {
-					frm.set_value("custom_client_name", r.message.customer_name || project.customer);
+				const label = (r && r.message && r.message.customer_name) || project.customer;
+				if (!frm.doc.custom_client_name) {
+					frm.set_value("custom_client_name", label);
+				}
+				if (!frm.doc.custom_main_contractor) {
+					frm.set_value("custom_main_contractor", label);
 				}
 			});
 		}

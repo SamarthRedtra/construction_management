@@ -37,11 +37,18 @@ class QuotationOverride(Quotation):
 	def on_submit(self):
 		super().on_submit()
 		self._start_approval()
+		# Approval workflow starts immediately; refresh Lead after custom status is applied.
+		_sync_linked_lead_status(self)
 
 	def on_cancel(self):
 		"""A cancelled quotation must not keep approval alerts open."""
 		super().on_cancel()
 		_close_open_quotation_assignments(self)
+		_sync_linked_lead_status(self)
+
+	def update_lead(self):
+		"""Keep Lead status in sync with custom Agreed / Not Agreed quotation flow."""
+		_sync_linked_lead_status(self)
 
 	def copy_attachments_from_amended_from(self):
 		"""Copy usable attachments without letting a missing legacy file block amendment."""
@@ -177,14 +184,16 @@ class QuotationOverride(Quotation):
 					frappe.bold(self.company)
 				)
 			)
-		self.db_set("custom_sales_manager_approver", managers[0], update_modified=False)
+		# One Sales Manager per quotation (not the full Company list) + all Directors.
+		assigned_manager = _resolve_assigned_sales_manager(self, managers)
+		self.db_set("custom_sales_manager_approver", assigned_manager, update_modified=False)
 		self.db_set("custom_director_approver", directors[0], update_modified=False)
 		self.db_set("custom_approval_status", "Pending Sales Manager Approval", update_modified=False)
 		self.db_set("custom_agreement_status", "Pending", update_modified=False)
 		self.db_set("status", "Pending Sales Manager Approval", update_modified=False)
 		_assign_quotation_users(
 			self,
-			managers,
+			[assigned_manager],
 			_("Quotation requires sales-manager approval and cost sheet."),
 		)
 		# Directors are alerted immediately, so they can step in when no manager responds.
@@ -271,6 +280,108 @@ def _visible_quotation_status(approval_status: str | None, agreement_status: str
 	return None
 
 
+def _ensure_lead_agreed_status_option():
+	"""Allow Lead.Status = Agreed (used when Quotation is marked Agreed)."""
+	meta = frappe.get_meta("Lead")
+	field = meta.get_field("status")
+	if not field:
+		return
+	options = [o for o in (field.options or "").split("\n") if o is not None]
+	if "Agreed" in options:
+		return
+	if "Quotation" in options:
+		idx = options.index("Quotation") + 1
+		options.insert(idx, "Agreed")
+	else:
+		options.append("Agreed")
+	new_options = "\n".join(options)
+	existing = frappe.db.exists(
+		"Property Setter",
+		{"doc_type": "Lead", "field_name": "status", "property": "options"},
+	)
+	if existing:
+		frappe.db.set_value("Property Setter", existing, "value", new_options)
+	else:
+		frappe.make_property_setter(
+			{
+				"doctype": "Lead",
+				"fieldname": "status",
+				"property": "options",
+				"value": new_options,
+				"property_type": "Text",
+			},
+			validate_fields_for_doctype=False,
+		)
+	frappe.clear_cache(doctype="Lead")
+
+
+def _sync_linked_lead_status(doc):
+	"""Push Quotation lifecycle onto the linked Lead (Agreed / Not Agreed / Quotation / Lost)."""
+	if getattr(doc, "quotation_to", None) != "Lead" or not doc.get("party_name"):
+		return
+	if not frappe.db.exists("Lead", doc.party_name):
+		return
+
+	_ensure_lead_agreed_status_option()
+
+	# Prefer highest progress across all submitted quotations for this Lead
+	rows = frappe.get_all(
+		"Quotation",
+		filters={
+			"quotation_to": "Lead",
+			"party_name": doc.party_name,
+			"docstatus": 1,
+		},
+		fields=["name", "status", "custom_agreement_status", "custom_approval_status"],
+	)
+
+	lead_status = None
+	statuses = {r.get("status") for r in rows}
+	agreements = {r.get("custom_agreement_status") for r in rows}
+
+	if any(s in {"Ordered", "Partially Ordered"} for s in statuses):
+		# Customer may not exist yet; keep Agreed until Customer converts the Lead
+		lead_status = "Agreed"
+	elif "Agreed" in statuses or "Agreed" in agreements:
+		lead_status = "Agreed"
+	elif any(
+		s
+		and s
+		not in {
+			"Lost",
+			"Not Agreed",
+			"Cancelled",
+			"Rejected by Sales Manager",
+			"Rejected by Director",
+		}
+		for s in statuses
+	):
+		lead_status = "Quotation"
+	elif "Not Agreed" in statuses or "Not Agreed" in agreements or "Lost" in statuses:
+		lead_status = "Lost Quotation"
+	elif rows:
+		lead_status = "Quotation"
+
+	lead = frappe.get_doc("Lead", doc.party_name)
+	# Never downgrade Converted
+	if lead.status == "Converted" or lead.has_customer():
+		lead.set_status(update=True)
+		return
+
+	if not lead_status:
+		lead.set_status(update=True)
+		return
+
+	if lead.status != lead_status:
+		lead.db_set("status", lead_status, update_modified=True)
+		lead.add_comment(
+			"Info",
+			_("Status updated to {0} from Quotation {1}.").format(
+				frappe.bold(lead_status), frappe.bold(doc.name)
+			),
+		)
+
+
 def _get_quotation_approvers(company: str) -> tuple[list[str], list[str]]:
 	if not company:
 		return [], []
@@ -293,6 +404,42 @@ def _approver_users(rows_or_user) -> list[str]:
 		if user and user not in users:
 			users.append(user)
 	return users
+
+
+def _sales_person_user(sales_person: str | None) -> str | None:
+	if not sales_person:
+		return None
+	employee = frappe.db.get_value("Sales Person", sales_person, "employee")
+	if not employee:
+		return None
+	return frappe.db.get_value("Employee", employee, "user_id")
+
+
+def _resolve_assigned_sales_manager(doc, managers: list[str]) -> str:
+	"""Resolve the single Sales Manager for this quotation.
+
+	Company may list several Quotation Sales Managers; only one is assigned
+	per quotation (ToDo / Sales Manager Approver).
+	"""
+	selected = doc.get("custom_sales_manager_approver")
+	if selected in managers:
+		return selected
+
+	from_sales_person = _sales_person_user(doc.get("custom_sales_person"))
+	if from_sales_person in managers:
+		return from_sales_person
+
+	if len(managers) == 1:
+		return managers[0]
+
+	frappe.throw(_("Select the Sales Manager Approver before submitting this quotation."))
+
+
+@frappe.whitelist()
+def get_quotation_approver_options(company: str) -> dict:
+	"""Company-configured manager / director user lists for Quotation form filters."""
+	managers, directors = _get_quotation_approvers(company)
+	return {"managers": managers, "directors": directors}
 
 
 def _assign_quotation_users(doc, users: list[str], description: str, *, cancel_open: bool = True):
@@ -384,7 +531,11 @@ def _require_approver(doc, approval_type: str):
 	if _is_administrator():
 		return
 	managers, directors = _get_quotation_approvers(doc.company)
-	approvers = managers if approval_type == "manager" else directors
+	if approval_type == "manager":
+		assigned = doc.get("custom_sales_manager_approver")
+		approvers = [assigned] if assigned else managers
+	else:
+		approvers = directors
 	if frappe.session.user not in approvers:
 		frappe.throw(_("Only the configured approver can perform this action."), frappe.PermissionError)
 
@@ -402,6 +553,7 @@ def _set_approval_state(doc, state: str, *, comment: str = ""):
 	_close_open_quotation_assignments(doc)
 	if comment:
 		doc.add_comment("Comment", comment)
+	_sync_linked_lead_status(doc)
 
 
 @frappe.whitelist()
@@ -507,21 +659,27 @@ def set_quotation_agreement(quotation: str, agreed: int | str, reason: str | Non
 	doc.db_set("custom_agreement_recorded_by", frappe.session.user, update_modified=False)
 	doc.db_set("custom_agreement_date", now_datetime(), update_modified=False)
 	doc.add_comment("Comment", _("Agreement marked as {0}. {1}").format(agreement, reason or ""))
+	_sync_linked_lead_status(doc)
 	return {"status": agreement}
 
 
 @frappe.whitelist()
 def get_quotation_approval_access(quotation: str) -> dict:
-	"""Form-level access flags for all configured managers and directors."""
+	"""Form-level access flags for the assigned manager and all directors."""
 	doc = frappe.get_doc("Quotation", quotation)
 	doc.check_permission("read")
 	managers, directors = _get_quotation_approvers(doc.company)
 	user = frappe.session.user
 	is_administrator = _is_administrator()
+	assigned_manager = doc.get("custom_sales_manager_approver")
+	is_assigned_manager = bool(assigned_manager and user == assigned_manager)
+	# Draft / legacy rows without an assigned manager: any configured manager.
+	is_manager = is_administrator or is_assigned_manager or (not assigned_manager and user in managers)
 	return {
-		"is_manager": is_administrator or user in managers,
+		"is_manager": is_manager,
 		"is_director": is_administrator or user in directors,
 		"is_administrator": is_administrator,
+		"assigned_manager": assigned_manager,
 		"manager_count": len(managers),
 		"director_count": len(directors),
 	}

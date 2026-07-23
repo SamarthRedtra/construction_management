@@ -107,6 +107,54 @@ class TestQuotationBOQPrint(FrappeTestCase):
 		self.assertIn("Waterproofing membrane", ctx["boq_html"])
 		self.assertIn("1,100.00", ctx["boq_html"])
 
+	def test_print_auto_numbers_missing_parent_and_sub(self):
+		lines = [
+			frappe._dict(idx=1, line_type="Parent", parent_no="", description="Parent blank no"),
+			frappe._dict(
+				idx=2,
+				line_type="Sub",
+				parent_no="",
+				sub_no="",
+				description="Sub blank no",
+				uom="m2",
+				qty=2,
+				rate=10,
+				amount=20,
+				display_mode="Normal",
+			),
+		]
+		html = lines_to_boq_html(lines)
+		self.assertIn("1-", html)
+		self.assertIn("A.", html)
+
+	def test_main_contractor_falls_back_to_customer(self):
+		doc = frappe._dict(
+			{
+				"name": "QTN-TEST-CONTRACTOR",
+				"company": self.company,
+				"transaction_date": today(),
+				"currency": "AED",
+				"customer_name": "Ginco Contracting",
+				"party_name": "Ginco Contracting",
+				"custom_main_contractor": "",
+				"custom_client_name": "",
+				"custom_boq_lines": [],
+				"terms": "",
+			}
+		)
+		ctx = build_boq_quotation_print_context(doc)
+		self.assertEqual(ctx["header"]["main_contractor"], "Ginco Contracting")
+		self.assertEqual(ctx["header"]["client_name"], "Ginco Contracting")
+
+	def test_html_parent_row_has_six_bordered_cells(self):
+		html = lines_to_boq_html(
+			[
+				frappe._dict(idx=1, line_type="Parent", parent_no="1", description="Long parent description"),
+			]
+		)
+		self.assertNotIn('colspan="5"', html)
+		self.assertIn("border:1px solid #333", html)
+
 	def test_sub_attaches_by_parent_no_not_row_order(self):
 		lines = [
 			frappe._dict(idx=1, line_type="Parent", parent_no="1", description="Parent One"),

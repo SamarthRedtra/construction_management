@@ -80,13 +80,15 @@
 	.boq-quote .items {
 		width: 100%;
 		border-collapse: collapse;
+		table-layout: fixed;
 		margin-bottom: 12px;
 	}
 	.boq-quote .items th,
 	.boq-quote .items td {
-		border: 1px solid #94a3b8;
+		border: 1px solid #94a3b8 !important;
 		padding: 5px 6px;
 		vertical-align: top;
+		box-sizing: border-box;
 	}
 	.boq-quote .items th {
 		background: #e8f0fe;
@@ -95,9 +97,16 @@
 		font-weight: bold;
 	}
 	.boq-quote .items .sl { width: 7%; text-align: center; }
-	.boq-quote .items .desc { width: 48%; text-align: left; }
+	.boq-quote .items .desc {
+		width: 48%;
+		text-align: left;
+		word-break: break-word;
+		overflow-wrap: anywhere;
+		white-space: normal;
+	}
 	.boq-quote .items .unit { width: 8%; text-align: center; }
 	.boq-quote .items .num {
+		width: 12.333%;
 		text-align: right;
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
@@ -228,6 +237,7 @@
 
 	<div class="boq-label">Bill of Quantity</div>
 
+	{% if q.sections %}
 	<table class="items">
 		<thead>
 			<tr>
@@ -240,44 +250,62 @@
 			</tr>
 		</thead>
 		<tbody>
-			{% if q.sections %}
-				{% for section in q.sections %}
-					{% if section.title %}
-					<tr class="section-row">
-						<td></td>
-						<td colspan="5">{{ section.title }}</td>
-					</tr>
-					{% endif %}
-					{% for parent in section.parents %}
-					<tr class="parent-row">
-						<td class="sl">{% if parent.no %}{{ parent.no }}-{% endif %}</td>
-						<td class="desc" colspan="5">{{ parent.description }}</td>
-					</tr>
-					{% for sub in parent.subs %}
-					<tr class="sub-row">
-						<td class="sl">{% if sub.sub_no %}{{ sub.sub_no }}.{% endif %}</td>
-						<td class="desc">{{ sub.description }}</td>
-						<td class="unit">{{ sub.uom }}</td>
-						<td class="num">{% if sub.qty %}{{ qty(sub.qty) }}{% endif %}</td>
-						<td class="num">
-							{% if sub.rate_display == "-" %}-{% else %}{{ cur(sub.rate) }}{% endif %}
-						</td>
-						<td class="num">
-							{% if sub.amount_display == "N/A" %}N/A
-							{% elif sub.amount_display == "Rate only" %}Rate only
-							{% else %}{{ cur(sub.amount) }}{% endif %}
-						</td>
-					</tr>
-					{% endfor %}
-					{% endfor %}
+			{% for section in q.sections %}
+				{% if section.title %}
+				<tr class="section-row">
+					<td class="sl"></td>
+					<td class="desc">{{ section.title }}</td>
+					<td class="unit"></td>
+					<td class="num"></td>
+					<td class="num"></td>
+					<td class="num"></td>
+				</tr>
+				{% endif %}
+				{% for parent in section.parents %}
+				<tr class="parent-row">
+					<td class="sl">{% if parent.no %}{{ parent.no }}-{% endif %}</td>
+					<td class="desc">{{ parent.description }}</td>
+					<td class="unit"></td>
+					<td class="num"></td>
+					<td class="num"></td>
+					<td class="num"></td>
+				</tr>
+				{% for sub in parent.subs %}
+				<tr class="sub-row">
+					<td class="sl">{% if sub.sub_no %}{{ sub.sub_no }}.{% endif %}</td>
+					<td class="desc">{{ sub.description }}</td>
+					<td class="unit">{{ sub.uom }}</td>
+					<td class="num">{% if sub.qty %}{{ qty(sub.qty) }}{% endif %}</td>
+					<td class="num">
+						{% if sub.rate_display == "-" %}-{% else %}{{ cur(sub.rate) }}{% endif %}
+					</td>
+					<td class="num">
+						{% if sub.amount_display == "N/A" %}N/A
+						{% elif sub.amount_display == "Rate only" %}Rate only
+						{% else %}{{ cur(sub.amount) }}{% endif %}
+					</td>
+				</tr>
 				{% endfor %}
-			{% elif q.boq_html %}
-				<tr><td colspan="6">{{ q.boq_html }}</td></tr>
-			{% else %}
-				<tr><td colspan="6" style="text-align:center;">No BOQ lines entered</td></tr>
-			{% endif %}
+				{% endfor %}
+			{% endfor %}
 		</tbody>
 	</table>
+	{% elif q.boq_html %}
+	{{ q.boq_html }}
+	{% else %}
+	<table class="items">
+		<tbody>
+			<tr>
+				<td class="sl"></td>
+				<td class="desc" style="text-align:center;">No BOQ lines entered</td>
+				<td class="unit"></td>
+				<td class="num"></td>
+				<td class="num"></td>
+				<td class="num"></td>
+			</tr>
+		</tbody>
+	</table>
+	{% endif %}
 
 	{% if q.sections %}
 	<div class="totals-wrap">

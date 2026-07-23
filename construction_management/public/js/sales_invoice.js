@@ -83,68 +83,217 @@ function open_boq_service_picker(frm) {
 			{ fieldname: 'description', label: __('Description'), fieldtype: 'Small Text', read_only: 1 },
 			{ fieldtype: 'Column Break' },
 			{ fieldname: 'linked_item', label: __('Linked Item'), fieldtype: 'Link', options: 'Item', read_only: 1 },
+			{ fieldname: 'boq_total_qty', label: __('BOQ Total Qty'), fieldtype: 'Float' },
+			{ fieldname: 'billed_qty', label: __('Billed / Ordered Qty'), fieldtype: 'Float', read_only: 1 },
 			{ fieldname: 'balance_qty', label: __('Available Qty'), fieldtype: 'Float', read_only: 1 },
 			{ fieldname: 'qty', label: __('Invoice Qty'), fieldtype: 'Float', reqd: 1, default: 1 },
-			{ fieldname: 'rate', label: __('Rate'), fieldtype: 'Currency', read_only: 1 },
+			{ fieldname: 'rate', label: __('Rate'), fieldtype: 'Currency' },
+			{ fieldname: 'qty_hint', fieldtype: 'HTML' },
 		],
 		primary_action_label: __('Add Service'),
 		primary_action(values) {
-			const details = d._boq_service_details;
-			if (!details) {
-				frappe.msgprint(__('Select a BOQ service first.'));
-				return;
-			}
-			if (flt(values.qty) <= 0) {
-				frappe.msgprint(__('Invoice quantity must be greater than zero.'));
-				return;
-			}
-			if (flt(values.qty) > flt(details.balance_qty)) {
-				frappe.msgprint(__('Invoice quantity cannot exceed the available BOQ quantity ({0}).', [details.balance_qty]));
-				return;
-			}
-
-			const row = frm.add_child('items');
-			frappe.model.set_value(row.doctype, row.name, 'item_code', details.item_code).then(() => {
-				frappe.model.set_value(row.doctype, row.name, {
-					item_name: details.description,
-					description: details.description,
-					qty: flt(values.qty),
-					rate: flt(details.rate),
-					amount: flt(values.qty) * flt(details.rate),
-					uom: details.uom,
-					project: frm.doc.project,
-					boq_item: details.boq_item,
-					bill_no: details.bill_no,
-				});
-				frm.refresh_field('items');
-				_si_deduction_debounce(frm);
-			});
-			d.hide();
+			_add_boq_service_from_dialog(frm, d, values);
 		},
 	});
 
 	d.set_query('boq_item', () => ({
 		filters: { project: frm.doc.project, linked_item: ['!=', ''] },
 	}));
+
+	const refresh_balance_and_hint = () => _refresh_boq_service_dialog_balance(d);
+
 	d.fields_dict.boq_item.df.onchange = () => {
 		const boqItem = d.get_value('boq_item');
 		if (!boqItem) return;
-		frappe.call({
-			method: 'construction_management.api.boq_invoice.get_project_boq_service_details',
-			args: { project: frm.doc.project, boq_item: boqItem },
-			callback(r) {
-				const details = r.message;
-				if (!details) return;
-				d._boq_service_details = details;
-				d.set_value('description', details.description);
-				d.set_value('linked_item', details.item_code);
-				d.set_value('balance_qty', details.balance_qty);
-				d.set_value('rate', details.rate);
-				d.set_value('qty', details.balance_qty > 0 ? details.balance_qty : 1);
-			},
+		_load_boq_service_details(frm, d, boqItem).then(() => {
+			const details = d._boq_service_details;
+			if (!details) return;
+			d.set_value('qty', details.balance_qty > 0 ? details.balance_qty : 1).then(refresh_balance_and_hint);
 		});
 	};
+	d.fields_dict.boq_total_qty.df.onchange = refresh_balance_and_hint;
+	d.fields_dict.qty.df.onchange = refresh_balance_and_hint;
+
 	d.show();
+	_render_boq_qty_hint(d, null);
+}
+
+function _load_boq_service_details(frm, d, boqItem) {
+	return frappe.call({
+		method: 'construction_management.api.boq_invoice.get_project_boq_service_details',
+		args: { project: frm.doc.project, boq_item: boqItem },
+	}).then((r) => {
+		const details = r.message;
+		if (!details) return null;
+		d._boq_service_details = details;
+		d._boq_service_baseline = {
+			total_qty: flt(details.total_qty),
+			rate: flt(details.rate),
+		};
+		const locked = !!details.boq_locked;
+		d.set_df_property('boq_total_qty', 'read_only', locked ? 1 : 0);
+		d.set_df_property('rate', 'read_only', locked ? 1 : 0);
+		return Promise.all([
+			d.set_value('description', details.description),
+			d.set_value('linked_item', details.item_code),
+			d.set_value('boq_total_qty', details.total_qty),
+			d.set_value('billed_qty', details.billed_qty),
+			d.set_value('balance_qty', details.balance_qty),
+			d.set_value('rate', details.rate),
+		]).then(() => {
+			_refresh_boq_service_dialog_balance(d);
+			return details;
+		});
+	});
+}
+
+function _refresh_boq_service_dialog_balance(d) {
+	const details = d._boq_service_details;
+	if (!details) {
+		_render_boq_qty_hint(d, null);
+		return;
+	}
+	const billed = flt(details.billed_qty);
+	const total = flt(d.get_value('boq_total_qty'));
+	const invoice_qty = flt(d.get_value('qty'));
+	const balance = Math.max(0, total - billed);
+	d.set_value('balance_qty', balance);
+
+	const overage = invoice_qty - balance;
+	if (invoice_qty > 0 && overage > 0 && !cint(details.allow_overbilling)) {
+		_render_boq_qty_hint(d, {
+			overage,
+			balance,
+			invoice_qty,
+			suggested_total: billed + invoice_qty,
+			boq_locked: !!details.boq_locked,
+		});
+	} else if (details.boq_locked) {
+		_render_boq_qty_hint(d, { boq_locked: true, info_only: true });
+	} else {
+		_render_boq_qty_hint(d, null);
+	}
+}
+
+function _render_boq_qty_hint(d, hint) {
+	const $wrap = d.fields_dict.qty_hint.$wrapper;
+	$wrap.empty();
+	if (!hint) {
+		return;
+	}
+	if (hint.info_only && hint.boq_locked) {
+		$wrap.html(`
+			<div class="alert alert-warning" style="margin:8px 0 0;">
+				${__('Parent Project BOQ is locked. BOQ Total Qty and Rate cannot be changed here.')}
+			</div>
+		`);
+		return;
+	}
+	if (hint.boq_locked) {
+		$wrap.html(`
+			<div class="alert alert-danger" style="margin:8px 0 0;">
+				${__('Invoice Qty exceeds available qty ({0}) by {1}. Parent Project BOQ is locked, so BOQ Total Qty cannot be increased here.',
+					[hint.balance, hint.overage])}
+			</div>
+		`);
+		return;
+	}
+	const suggested = flt(hint.suggested_total);
+	$wrap.html(`
+		<div class="alert alert-warning" style="margin:8px 0 0;">
+			<p style="margin:0 0 8px;">
+				${__('Invoice Qty ({0}) exceeds available qty ({1}) by {2}.',
+					[hint.invoice_qty, hint.balance, hint.overage])}
+			</p>
+			<p style="margin:0 0 8px;">
+				${__('Suggested BOQ Total Qty to cover this invoice: {0}', [suggested])}
+			</p>
+			<button type="button" class="btn btn-xs btn-primary cm-apply-suggested-boq-qty">
+				${__('Use suggested BOQ qty')}
+			</button>
+		</div>
+	`);
+	$wrap.find('.cm-apply-suggested-boq-qty').on('click', () => {
+		d.set_value('boq_total_qty', suggested).then(() => _refresh_boq_service_dialog_balance(d));
+	});
+}
+
+function _add_boq_service_from_dialog(frm, d, values) {
+	const details = d._boq_service_details;
+	if (!details) {
+		frappe.msgprint(__('Select a BOQ service first.'));
+		return;
+	}
+	const invoice_qty = flt(values.qty);
+	const rate = flt(values.rate);
+	const boq_total_qty = flt(values.boq_total_qty);
+	if (invoice_qty <= 0) {
+		frappe.msgprint(__('Invoice quantity must be greater than zero.'));
+		return;
+	}
+
+	const baseline = d._boq_service_baseline || {};
+	const qty_changed = Math.abs(boq_total_qty - flt(baseline.total_qty)) > 0.000001;
+	const rate_changed = Math.abs(rate - flt(baseline.rate)) > 0.000001;
+	const needs_boq_update = (qty_changed || rate_changed) && !details.boq_locked;
+
+	const append_row = (final_details) => {
+		const billed = flt(final_details.billed_qty);
+		const total = needs_boq_update ? boq_total_qty : flt(final_details.total_qty);
+		const balance = Math.max(0, total - billed);
+		if (invoice_qty > balance && !cint(final_details.allow_overbilling)) {
+			frappe.msgprint(
+				__('Invoice quantity cannot exceed the available BOQ quantity ({0}). Increase BOQ Total Qty or use the suggested value.',
+					[balance])
+			);
+			_refresh_boq_service_dialog_balance(d);
+			return;
+		}
+
+		const row = frm.add_child('items');
+		frappe.model.set_value(row.doctype, row.name, 'item_code', final_details.item_code).then(() => {
+			frappe.model.set_value(row.doctype, row.name, {
+				item_name: final_details.description,
+				description: final_details.description,
+				qty: invoice_qty,
+				rate: rate,
+				amount: invoice_qty * rate,
+				uom: final_details.uom,
+				project: frm.doc.project,
+				boq_item: final_details.boq_item,
+				bill_no: final_details.bill_no,
+			});
+			frm.refresh_field('items');
+			_si_deduction_debounce(frm);
+		});
+		d.hide();
+	};
+
+	if (!needs_boq_update) {
+		append_row(details);
+		return;
+	}
+
+	const update_args = { boq_item: details.boq_item };
+	if (qty_changed) {
+		update_args.total_qty = boq_total_qty;
+	}
+	if (rate_changed) {
+		update_args.rate = rate;
+	}
+
+	frappe.call({
+		method: 'construction_management.api.boq_tree.update_boq_item_base',
+		args: update_args,
+		freeze: true,
+		freeze_message: __('Updating BOQ Item'),
+	}).then(() => _load_boq_service_details(frm, d, details.boq_item)).then((updated) => {
+		if (!updated) {
+			frappe.msgprint(__('Could not refresh BOQ service details after update.'));
+			return;
+		}
+		append_row(updated);
+	});
 }
 
 /**

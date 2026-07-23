@@ -23,19 +23,24 @@ def build_boq_quotation_print_context(doc) -> dict:
 		as_dict=True,
 	) or {}
 
+	customer_label = (
+		doc.get("customer_name")
+		or doc.get("party_name")
+		or ""
+	)
+	# Main Contractor is the Customer when the dedicated field is blank.
 	header = {
 		"quotation_ref": doc.get("custom_quotation_ref") or doc.name,
 		"date": formatdate(doc.transaction_date),
 		"company_trn": company.get("tax_id") or "",
-		"main_contractor": doc.get("custom_main_contractor") or "",
-		"project_title": doc.get("custom_project_title") or "",
+		"main_contractor": doc.get("custom_main_contractor") or customer_label,
+		"project_title": doc.get("custom_project_title")
+		or _project_title(doc.get("custom_project"))
+		or "",
 		"site_address": doc.get("custom_site_address") or "",
 		"site_location": doc.get("custom_site_location") or "",
 		"contact": doc.get("custom_contact") or "",
-		"client_name": doc.get("custom_client_name")
-		or doc.get("customer_name")
-		or doc.get("party_name")
-		or "",
+		"client_name": doc.get("custom_client_name") or customer_label,
 		"attention": doc.get("custom_attention") or "",
 		"consultant": doc.get("custom_consultant") or "",
 		"company_name": company.get("company_name") or doc.company,
@@ -96,13 +101,28 @@ def _get_letter_head(doc, default_letter_head: str | None) -> dict | None:
 	return get_letter_head(lh_doc, 0)
 
 
+def _project_title(project: str | None) -> str:
+	if not project:
+		return ""
+	return frappe.db.get_value("Project", project, "project_name") or ""
+
+
+def _next_letter(count: int) -> str:
+	letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	if 0 <= count < len(letters):
+		return letters[count]
+	return str(count + 1)
+
+
 def _group_boq_lines(lines: list, hierarchy_mode: str | None = None) -> tuple[list[dict], float]:
+	"""Group BOQ lines for print; auto-fill missing parent_no / sub_no for SL column."""
 	ordered = sorted(lines, key=lambda row: row.get("idx") or 0)
 	two_level = hierarchy_mode == HIERARCHY_TWO_LEVEL
 	sections: list[dict] = []
 	current_section: dict | None = None
 	current_parent: dict | None = None
 	total_excl = 0.0
+	parent_counter = 0
 
 	for row in ordered:
 		line_type = row.get("line_type") or "Parent"
@@ -127,8 +147,18 @@ def _group_boq_lines(lines: list, hierarchy_mode: str | None = None) -> tuple[li
 				sections.append(current_section)
 				current_parent = None
 
+			parent_no = str(row.get("parent_no") or "").strip()
+			if not parent_no:
+				parent_counter += 1
+				parent_no = str(parent_counter)
+			else:
+				try:
+					parent_counter = max(parent_counter, int(parent_no))
+				except ValueError:
+					parent_counter += 1
+
 			current_parent = {
-				"no": row.get("parent_no") or "",
+				"no": parent_no,
 				"description": row.get("description") or "",
 				"subs": [],
 			}
@@ -136,7 +166,7 @@ def _group_boq_lines(lines: list, hierarchy_mode: str | None = None) -> tuple[li
 			continue
 
 		if line_type == "Sub":
-			parent_no = row.get("parent_no")
+			parent_no = str(row.get("parent_no") or "").strip()
 			if parent_no:
 				matched_parent = _find_parent_in_section(current_section, parent_no)
 				if matched_parent:
@@ -149,14 +179,16 @@ def _group_boq_lines(lines: list, hierarchy_mode: str | None = None) -> tuple[li
 					}
 					current_section["parents"].append(current_parent)
 			elif not current_parent:
+				parent_counter += 1
+				parent_no = str(parent_counter)
 				current_parent = {
-					"no": row.get("parent_no") or "",
+					"no": parent_no,
 					"description": "",
 					"subs": [],
 				}
 				current_section["parents"].append(current_parent)
 
-			sub = _format_sub_row(row)
+			sub = _format_sub_row(row, current_parent)
 			current_parent["subs"].append(sub)
 			if sub["include_in_total"]:
 				total_excl += flt(sub["amount"])
@@ -174,7 +206,7 @@ def _find_parent_in_section(section: dict, parent_no) -> dict | None:
 	return None
 
 
-def _format_sub_row(row) -> dict:
+def _format_sub_row(row, parent: dict | None = None) -> dict:
 	display_mode = row.get("display_mode") or "Normal"
 	is_manual_amount = bool(cint(row.get("is_fixed_rate")))
 	include_in_total = display_mode == "Normal"
@@ -194,8 +226,12 @@ def _format_sub_row(row) -> dict:
 		rate_display = rate
 		amount_display = amount
 
+	sub_no = str(row.get("sub_no") or "").strip()
+	if not sub_no and parent is not None:
+		sub_no = _next_letter(len(parent.get("subs") or []))
+
 	return {
-		"sub_no": row.get("sub_no") or "",
+		"sub_no": sub_no,
 		"description": row.get("description") or "",
 		"uom": row.get("uom") or "",
 		"qty": qty,

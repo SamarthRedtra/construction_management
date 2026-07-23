@@ -3,7 +3,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import flt, today, getdate
+from frappe.utils import cint, flt, today, getdate
 from construction_management.api.boq_ledger import create_ledger_entry, recalculate_ledger_for_item
 from construction_management.api.boq_tree import get_boq_kpi, get_retention_summary as _get_retention_summary
 from erpnext.controllers.accounts_controller import get_default_taxes_and_charges
@@ -105,8 +105,20 @@ def get_project_boq_service_details(project: str, boq_item: str) -> dict:
 		frappe.throw(_("This BOQ service has no linked Item and cannot be invoiced"))
 
 	from construction_management.api.boq_ledger import get_to_date_qty
+	from construction_management.construction_management.doctype.project_boq.project_boq import (
+		is_boq_locked,
+	)
 
 	billed_qty = flt(get_to_date_qty(item.name))
+	total_qty = flt(item.total_qty)
+	allow_overbilling = 0
+	boq_locked = False
+	if item.project_boq:
+		allow_overbilling = cint(
+			frappe.db.get_value("Project BOQ", item.project_boq, "allow_overbilling") or 0
+		)
+		boq_locked = bool(is_boq_locked(item.project_boq))
+
 	return {
 		"boq_item": item.name,
 		"item_code": item.linked_item,
@@ -114,7 +126,12 @@ def get_project_boq_service_details(project: str, boq_item: str) -> dict:
 		"uom": item.unit or "Nos",
 		"rate": flt(item.rate),
 		"bill_no": item.parent_bill,
-		"balance_qty": max(0.0, flt(item.total_qty) - billed_qty),
+		"total_qty": total_qty,
+		"billed_qty": billed_qty,
+		"balance_qty": max(0.0, total_qty - billed_qty),
+		"allow_overbilling": allow_overbilling,
+		"boq_locked": boq_locked,
+		"project_boq": item.project_boq,
 	}
 
 

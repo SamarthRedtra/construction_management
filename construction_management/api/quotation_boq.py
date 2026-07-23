@@ -12,18 +12,46 @@ from frappe.utils import flt
 
 
 BOQ_TABLE_STYLE = (
-	"width:100%;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;font-size:11px;"
+	"width:100%;border-collapse:collapse;table-layout:fixed;"
+	"font-family:Arial,Helvetica,sans-serif;font-size:11px;"
 )
-BOQ_CELL_STYLE = "border:1px solid #333;padding:5px 7px;vertical-align:top;"
+BOQ_CELL_STYLE = (
+	"border:1px solid #333;padding:5px 7px;vertical-align:top;"
+	"word-break:break-word;overflow-wrap:anywhere;white-space:normal;box-sizing:border-box;"
+)
 BOQ_HEAD_STYLE = BOQ_CELL_STYLE + "background:#e8e8e8;font-weight:bold;text-align:center;"
 BOQ_SECTION_STYLE = BOQ_CELL_STYLE + "font-weight:bold;text-transform:uppercase;background:#f0f0f0;"
-BOQ_NUM_STYLE = BOQ_CELL_STYLE + "text-align:right;"
+BOQ_NUM_STYLE = (
+	"border:1px solid #333;padding:5px 7px;vertical-align:top;"
+	"text-align:right;white-space:nowrap;box-sizing:border-box;"
+)
 
 
 @frappe.whitelist()
 def get_boq_html_template() -> str:
 	"""Return a starter BOQ HTML table users can edit in the Text Editor."""
 	return _render_boq_html([], include_totals=True, template_only=True)
+
+
+@frappe.whitelist()
+def preview_boq_html_from_lines(
+	lines: str | list | None = None,
+	company: str | None = None,
+	include_vat: int | str = 1,
+) -> str:
+	"""Build bordered BOQ HTML from draft child rows for the Quotation BOQ tab preview."""
+	import json
+
+	from frappe.utils import cint
+
+	if isinstance(lines, str):
+		lines = json.loads(lines or "[]")
+	return lines_to_boq_html(
+		lines or [],
+		include_totals=True,
+		company=company,
+		include_vat=bool(cint(include_vat)),
+	)
 
 
 @frappe.whitelist()
@@ -823,20 +851,25 @@ def _render_boq_html(
 			},
 		]
 
+	empty = f'<td style="{BOQ_CELL_STYLE}"></td>'
 	body_rows = []
 	for row in rows:
 		kind = row.get("kind")
 		if kind == "section":
+			# Six bordered cells (no colspan) so print engines keep vertical lines.
 			body_rows.append(
 				f'<tr><td style="{BOQ_CELL_STYLE}"></td>'
-				f'<td colspan="5" style="{BOQ_SECTION_STYLE}">{html.escape(row.get("title") or "")}</td></tr>'
+				f'<td style="{BOQ_SECTION_STYLE}">{html.escape(row.get("title") or "")}</td>'
+				f"{empty}{empty}{empty}{empty}</tr>"
 			)
 		elif kind == "parent":
 			parent_no = html.escape(str(row.get("parent_no") or ""))
 			desc = html.escape(row.get("description") or "")
+			sl = f"{parent_no}-" if parent_no else ""
 			body_rows.append(
-				f'<tr><td style="{BOQ_CELL_STYLE};text-align:center;">{parent_no}-</td>'
-				f'<td colspan="5" style="{BOQ_CELL_STYLE};font-weight:bold;">{desc}</td></tr>'
+				f'<tr><td style="{BOQ_CELL_STYLE};text-align:center;">{sl}</td>'
+				f'<td style="{BOQ_CELL_STYLE};font-weight:bold;">{desc}</td>'
+				f"{empty}{empty}{empty}{empty}</tr>"
 			)
 		elif kind == "sub":
 			sub_no = html.escape(str(row.get("sub_no") or ""))
@@ -845,8 +878,9 @@ def _render_boq_html(
 			qty = _format_cell(row.get("qty"))
 			rate = _format_cell(row.get("rate"))
 			amount = _format_amount_cell(row)
+			sl = f"{sub_no}." if sub_no else ""
 			body_rows.append(
-				f'<tr><td style="{BOQ_CELL_STYLE};text-align:center;">{sub_no}.</td>'
+				f'<tr><td style="{BOQ_CELL_STYLE};text-align:center;">{sl}</td>'
 				f'<td style="{BOQ_CELL_STYLE};padding-left:18px;">{desc}</td>'
 				f'<td style="{BOQ_CELL_STYLE};text-align:center;">{uom}</td>'
 				f'<td style="{BOQ_NUM_STYLE}">{qty}</td>'

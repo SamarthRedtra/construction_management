@@ -34,6 +34,17 @@ def get_sales_desk_data(company: str | None = None) -> dict:
 		projects = []
 	commission = _commission_summary(sales_person, company, from_date, to_date, projects)
 
+	# Funnel snapshot for tracking
+	funnel = {
+		"leads_open": lead_kpis.get("open", 0),
+		"leads_quotation": lead_kpis.get("with_quotation", 0),
+		"leads_agreed": lead_kpis.get("agreed", 0),
+		"leads_converted": lead_kpis.get("converted", 0),
+		"quotations_open": quotation_kpis.get("open", 0),
+		"quotations_agreed": quotation_kpis.get("agreed", 0),
+		"quotations_lost": quotation_kpis.get("lost", 0),
+	}
+
 	return {
 		"user": user,
 		"employee": employee,
@@ -44,6 +55,7 @@ def get_sales_desk_data(company: str | None = None) -> dict:
 		"period": {"from_date": str(from_date), "to_date": str(to_date)},
 		"leads": lead_kpis,
 		"quotations": quotation_kpis,
+		"funnel": funnel,
 		"sales_person_pipeline": _sales_person_pipeline(
 			company, sales_person=None if scope_all_pipeline else sales_person
 		),
@@ -72,17 +84,28 @@ def _lead_kpis(user: str, company: str | None, scope_all: bool) -> dict:
 		filters["lead_owner"] = user
 
 	total = frappe.db.count("Lead", filters)
-	open_count = frappe.db.count("Lead", {**filters, "status": ["in", ["Lead", "Open", "Replied", "Interested"]]})
+	open_count = frappe.db.count(
+		"Lead", {**filters, "status": ["in", ["Lead", "Open", "Replied", "Interested"]]}
+	)
 	quotation_status = frappe.db.count("Lead", {**filters, "status": "Quotation"})
+	agreed = frappe.db.count("Lead", {**filters, "status": "Agreed"})
 	converted = frappe.db.count("Lead", {**filters, "status": "Converted"})
-	lost = frappe.db.count("Lead", {**filters, "status": ["in", ["Lost Quotation", "Do Not Contact"]]})
+	lost = frappe.db.count(
+		"Lead", {**filters, "status": ["in", ["Lost Quotation", "Do Not Contact"]]}
+	)
+	opportunity = frappe.db.count("Lead", {**filters, "status": "Opportunity"})
+
+	by_status = _count_grouped("Lead", filters, "status")
 
 	return {
 		"total": total,
 		"open": open_count,
 		"with_quotation": quotation_status,
+		"agreed": agreed,
 		"converted": converted,
 		"lost": lost,
+		"opportunity": opportunity,
+		"by_status": by_status,
 	}
 
 
@@ -97,54 +120,84 @@ def _quotation_kpis(user: str, sales_person: str | None, company: str | None, sc
 			filters["owner"] = user
 
 	draft = frappe.db.count("Quotation", {**filters, "docstatus": 0, "status": "Draft"})
-	open_q = frappe.db.count("Quotation", {**filters, "docstatus": 1, "status": ["in", ["Open", "Replied"]]})
-	# "Agreed" mapped to Ordered / Partially Ordered (customer accepted → SO)
+	open_q = frappe.db.count(
+		"Quotation",
+		{
+			**filters,
+			"docstatus": 1,
+			"status": [
+				"in",
+				[
+					"Open",
+					"Replied",
+					"Pending Agreement",
+					"Pending Sales Manager Approval",
+					"Pending Director Approval",
+					"Approved",
+				],
+			],
+		},
+	)
+	# Customer accepted quote (custom Agreed) or already ordered
 	agreed = frappe.db.count(
 		"Quotation",
-		{**filters, "docstatus": 1, "status": ["in", ["Ordered", "Partially Ordered"]]},
+		{**filters, "docstatus": 1, "status": ["in", ["Agreed", "Ordered", "Partially Ordered"]]},
 	)
-	lost = frappe.db.count("Quotation", {**filters, "docstatus": 1, "status": "Lost"})
+	lost = frappe.db.count(
+		"Quotation",
+		{
+			**filters,
+			"docstatus": 1,
+			"status": ["in", ["Lost", "Not Agreed", "Rejected by Sales Manager", "Rejected by Director"]],
+		},
+	)
 	expired = frappe.db.count("Quotation", {**filters, "docstatus": 1, "status": "Expired"})
 	submitted = frappe.db.count("Quotation", {**filters, "docstatus": 1})
 
 	agreed_amount = 0.0
 	open_amount = 0.0
-	if company or not scope_all:
-		conditions = ["docstatus = 1"]
-		values: dict = {}
-		if company:
-			conditions.append("company = %(company)s")
-			values["company"] = company
-		if not scope_all:
-			if sales_person and frappe.db.has_column("Quotation", "custom_sales_person"):
-				conditions.append("custom_sales_person = %(sales_person)s")
-				values["sales_person"] = sales_person
-			else:
-				conditions.append("owner = %(owner)s")
-				values["owner"] = user
-		where = " AND ".join(conditions)
-		agreed_amount = flt(
-			frappe.db.sql(
-				f"""
-				SELECT COALESCE(SUM(base_grand_total), 0)
-				FROM `tabQuotation`
-				WHERE {where}
-				  AND status IN ('Ordered', 'Partially Ordered')
-				""",
-				values,
-			)[0][0]
-		)
-		open_amount = flt(
-			frappe.db.sql(
-				f"""
-				SELECT COALESCE(SUM(base_grand_total), 0)
-				FROM `tabQuotation`
-				WHERE {where}
-				  AND status IN ('Open', 'Replied')
-				""",
-				values,
-			)[0][0]
-		)
+	conditions = ["docstatus = 1"]
+	values: dict = {}
+	if company:
+		conditions.append("company = %(company)s")
+		values["company"] = company
+	if not scope_all:
+		if sales_person and frappe.db.has_column("Quotation", "custom_sales_person"):
+			conditions.append("custom_sales_person = %(sales_person)s")
+			values["sales_person"] = sales_person
+		else:
+			conditions.append("owner = %(owner)s")
+			values["owner"] = user
+	where = " AND ".join(conditions)
+	agreed_amount = flt(
+		frappe.db.sql(
+			f"""
+			SELECT COALESCE(SUM(base_grand_total), 0)
+			FROM `tabQuotation`
+			WHERE {where}
+			  AND status IN ('Agreed', 'Ordered', 'Partially Ordered')
+			""",
+			values,
+		)[0][0]
+	)
+	open_amount = flt(
+		frappe.db.sql(
+			f"""
+			SELECT COALESCE(SUM(base_grand_total), 0)
+			FROM `tabQuotation`
+			WHERE {where}
+			  AND status IN (
+				'Open', 'Replied', 'Pending Agreement',
+				'Pending Sales Manager Approval', 'Pending Director Approval', 'Approved'
+			  )
+			""",
+			values,
+		)[0][0]
+	)
+
+	by_status_filters = dict(filters)
+	by_status_filters["docstatus"] = ["<", 2]
+	by_status = _count_grouped("Quotation", by_status_filters, "status")
 
 	return {
 		"draft": draft,
@@ -155,7 +208,37 @@ def _quotation_kpis(user: str, sales_person: str | None, company: str | None, sc
 		"submitted": submitted,
 		"agreed_amount": agreed_amount,
 		"open_amount": open_amount,
+		"by_status": by_status,
 	}
+
+
+def _count_grouped(doctype: str, filters: dict, field: str) -> list[dict]:
+	"""Return [{label, value}] for pie charts, skipping empty labels."""
+	try:
+		rows = frappe.get_all(
+			doctype,
+			filters=filters,
+			fields=[field, "count(name) as cnt"],
+			group_by=field,
+			order_by="cnt desc",
+		)
+	except Exception:
+		# Fallback if group_by unsupported in older path
+		rows = []
+		raw = frappe.get_all(doctype, filters=filters, fields=[field])
+		counts: dict[str, int] = {}
+		for r in raw:
+			key = r.get(field) or _("Blank")
+			counts[key] = counts.get(key, 0) + 1
+		rows = [{field: k, "cnt": v} for k, v in counts.items()]
+
+	out = []
+	for r in rows:
+		label = r.get(field) or _("Blank")
+		value = cint(r.get("cnt"))
+		if value:
+			out.append({"label": label, "value": value})
+	return out
 
 
 def _sales_person_pipeline(company: str | None, sales_person: str | None = None) -> list[dict]:
@@ -186,7 +269,10 @@ def _sales_person_pipeline(company: str | None, sales_person: str | None = None)
 	lead_filters = {"docstatus": ["<", 2]}
 	if company and frappe.db.has_column("Lead", "company"):
 		lead_filters["company"] = company
-	lead_rows = frappe.get_all("Lead", filters=lead_filters, fields=["lead_owner", "status"])
+	lead_fields = ["lead_owner", "status"]
+	if frappe.db.has_column("Lead", "qualification_status"):
+		lead_fields.append("qualification_status")
+	lead_rows = frappe.get_all("Lead", filters=lead_filters, fields=lead_fields)
 	user_sales_people = _sales_people_for_users({row.lead_owner for row in lead_rows if row.lead_owner})
 	for row in lead_rows:
 		person = user_sales_people.get(row.lead_owner) or _("Unassigned")
@@ -197,8 +283,14 @@ def _sales_person_pipeline(company: str | None, sales_person: str | None = None)
 			{"sales_person": person, "leads": 0, "qualified": 0, "quotations": 0, "quotation_amount": 0.0},
 		)
 		entry["leads"] += 1
-		if row.status == "Qualified":
-			entry["qualified"] += 1
+		if getattr(row, "qualification_status", None) == "Qualified" or row.status in (
+			"Agreed",
+			"Converted",
+			"Quotation",
+		):
+			# Treat progressed leads as "qualified" for the team graph
+			if row.status in ("Agreed", "Converted") or getattr(row, "qualification_status", None) == "Qualified":
+				entry["qualified"] += 1
 
 	return sorted(result.values(), key=lambda row: (row["leads"] + row["quotations"], row["sales_person"]), reverse=True)
 
