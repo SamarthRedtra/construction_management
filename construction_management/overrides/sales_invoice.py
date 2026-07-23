@@ -386,10 +386,16 @@ class SalesInvoiceOverride(SalesInvoice):
 
 		from construction_management.api.boq_invoice import (
 			allocate_capped_amounts,
+			doc_skips_advance_deduction,
 			get_deduction_details,
 			get_or_create_retention_item,
 			get_or_create_advance_item,
+			strip_advance_deduction_rows,
 		)
+
+		skip_advance = doc_skips_advance_deduction(self)
+		if skip_advance:
+			strip_advance_deduction_rows(self)
 		
 		details = get_deduction_details(self.project, self.items, invoice_name=self.name)
 		
@@ -397,9 +403,9 @@ class SalesInvoiceOverride(SalesInvoice):
 			return
 
 		retention_pct = flt(details.get("retention_percentage"))
-		advance_pct = flt(details.get("advance_percentage"))
+		advance_pct = 0 if skip_advance else flt(details.get("advance_percentage"))
 		skip_advance_set = set(details.get("skip_advance_boq_items") or [])
-		available_advance = flt(details.get("available_advance"))
+		available_advance = 0 if skip_advance else flt(details.get("available_advance"))
 
 		# Check if per-item deductions exist (pattern: each BOQ item has paired deduction rows)
 		has_per_item_deductions = False
@@ -410,7 +416,7 @@ class SalesInvoiceOverride(SalesInvoice):
 				deduction_boq_items.add(item.boq_item)
 
 		if has_per_item_deductions:
-			if skip_advance_set:
+			if skip_advance or skip_advance_set:
 				self.set(
 					"items",
 					[
@@ -418,7 +424,10 @@ class SalesInvoiceOverride(SalesInvoice):
 						for item in self.items
 						if not (
 							item.item_code == "ADVANCE-DEDUCTION"
-							and item.get("boq_item") in skip_advance_set
+							and (
+								skip_advance
+								or item.get("boq_item") in skip_advance_set
+							)
 						)
 					],
 				)
@@ -506,7 +515,7 @@ class SalesInvoiceOverride(SalesInvoice):
 				row.rate = -amount
 				row.amount = -amount
 
-			self._apply_additional_service_deductions(details, retention_pct)
+			self._apply_additional_service_deductions(details, retention_pct, skip_advance=skip_advance)
 		else:
 			# Global deduction mode (single row for whole invoice)
 			default_income_account = frappe.db.get_value("Company", self.company, "default_income_account")
@@ -543,7 +552,7 @@ class SalesInvoiceOverride(SalesInvoice):
 				self.set("items", [item for item in self.items if item.item_code != retention_item])
 
 			advance_item = "ADVANCE-DEDUCTION"
-			if details.get("suggested_advance") > 0:
+			if not skip_advance and details.get("suggested_advance") > 0:
 				get_or_create_advance_item()
 				found = False
 				for item in self.items:
@@ -610,7 +619,7 @@ class SalesInvoiceOverride(SalesInvoice):
 			},
 		)
 
-	def _apply_additional_service_deductions(self, details, retention_pct):
+	def _apply_additional_service_deductions(self, details, retention_pct, skip_advance=False):
 		"""Add deduction rows for non-BOQ service additions without changing BOQ ledger rows."""
 		service_total = sum(
 			flt(item.amount)
@@ -632,8 +641,10 @@ class SalesInvoiceOverride(SalesInvoice):
 			and item.get("boq_item")
 			and not cint(item.get("custom_service_deduction"))
 		)
-		advance_amount = max(0.0, flt(details.get("suggested_advance")) - boq_advance_amount)
-		advance_amount = flt(advance_amount, 2)
+		advance_amount = 0.0
+		if not skip_advance:
+			advance_amount = max(0.0, flt(details.get("suggested_advance")) - boq_advance_amount)
+			advance_amount = flt(advance_amount, 2)
 
 		default_income_account = frappe.db.get_value("Company", self.company, "default_income_account")
 		default_cost_center = self.cost_center or frappe.db.get_value("Company", self.company, "cost_center")

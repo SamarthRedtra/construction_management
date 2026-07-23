@@ -35,6 +35,24 @@ frappe.ui.form.on('Sales Invoice', {
 		}
 	},
 
+	custom_skip_advance_deduction: function (frm) {
+		if (frm.doc.docstatus !== 0) {
+			return;
+		}
+		if (cint(frm.doc.custom_skip_advance_deduction)) {
+			strip_advance_rows_on_form(frm);
+			frappe.show_alert({
+				message: __('Advance deduction skipped for this invoice'),
+				indicator: 'blue',
+			});
+			frm.refresh();
+			return;
+		}
+		if (!frm.is_new() && frm.doc.project) {
+			recalculate_si_deductions(frm);
+		}
+	},
+
 	refresh: function (frm) {
 		// Re-setup on refresh to ensure filters are applied after form loads
 		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
@@ -52,14 +70,17 @@ frappe.ui.form.on('Sales Invoice', {
 			});
 		}
 
+		const skip_advance = cint(frm.doc.custom_skip_advance_deduction);
 		if (frm.doc.docstatus === 0 && frm.doc.project) {
 			frm.add_custom_button(__('Pull Retention'), () => {
 				recalculate_si_deductions(frm);
 			}, __('Get Deductions'));
 
-			frm.add_custom_button(__('Pull Advance Deduction'), () => {
-				recalculate_si_deductions(frm);
-			}, __('Get Deductions'));
+			if (!skip_advance) {
+				frm.add_custom_button(__('Pull Advance Deduction'), () => {
+					recalculate_si_deductions(frm);
+				}, __('Get Deductions'));
+			}
 
 			if (!frm.is_new() && (frm.doc.items || []).some((r) => r.boq_item)) {
 				frm.add_custom_button(__('Recalculate Retention & Advance'), () => {
@@ -77,6 +98,17 @@ frappe.ui.form.on('Sales Invoice', {
 	}
 });
 
+function strip_advance_rows_on_form(frm) {
+	const rows = (frm.doc.items || []).filter((row) => row.item_code === 'ADVANCE-DEDUCTION');
+	rows.forEach((row) => {
+		frappe.model.clear_doc(row.doctype, row.name);
+	});
+	frm.doc.items = (frm.doc.items || []).filter((row) => row.item_code !== 'ADVANCE-DEDUCTION');
+	frm.refresh_field('items');
+	if (construction_management.deduction_summary) {
+		construction_management.deduction_summary.render(frm);
+	}
+}
 function open_boq_service_picker(frm) {
 	const d = new frappe.ui.Dialog({
 		title: __('Add Project BOQ Service'),
@@ -521,6 +553,10 @@ function recalculate_deductions(frm) {
 		return;
 	}
 
+	if (cint(frm.doc.custom_skip_advance_deduction)) {
+		strip_advance_rows_on_form(frm);
+	}
+
 	// Check if any deduction items exist (per-item deductions)
 	const has_deductions = (frm.doc.items || []).some(
 		i => _DEDUCTION_ITEMS.includes(i.item_code)
@@ -548,7 +584,8 @@ function recalculate_deductions(frm) {
 			}
 
 			const retention_pct = flt(r.message.retention_percentage);
-			const advance_pct = flt(r.message.advance_percentage);
+			const skip_doc_advance = cint(frm.doc.custom_skip_advance_deduction);
+			const advance_pct = skip_doc_advance ? 0 : flt(r.message.advance_percentage);
 			const skipAdvanceSet = new Set(r.message.skip_advance_boq_items || []);
 			const hasPerItemDeductions = (frm.doc.items || []).some(
 				i => _DEDUCTION_ITEMS.includes(i.item_code) && i.boq_item
@@ -607,13 +644,13 @@ function recalculate_deductions(frm) {
 			});
 
 			// Cap per-BOQ advance rows to available advance pool (same as Sales Order).
-			const advanceRows = (frm.doc.items || []).filter(
+			const advanceRows = skip_doc_advance ? [] : (frm.doc.items || []).filter(
 				(item) => item.item_code === 'ADVANCE-DEDUCTION'
 					&& item.boq_item
 					&& !cint(item.custom_service_deduction)
 					&& !skipAdvanceSet.has(item.boq_item)
 			);
-			const availableAdvance = flt(r.message.available_advance);
+			const availableAdvance = skip_doc_advance ? 0 : flt(r.message.available_advance);
 			const desiredAdvances = advanceRows.map((item) => Math.abs(flt(item.amount)));
 			const totalDesired = desiredAdvances.reduce((sum, value) => sum + value, 0);
 			if (advanceRows.length && totalDesired > 0) {
@@ -668,7 +705,9 @@ function sync_additional_service_deductions(frm, details) {
 	const boqAdvance = (frm.doc.items || []).reduce((total, item) =>
 		total + (item.item_code === 'ADVANCE-DEDUCTION' && item.boq_item && !item.custom_service_deduction
 			? Math.abs(flt(item.amount)) : 0), 0);
-	const advance = Math.max(0, flt(details.suggested_advance) - boqAdvance);
+	const advance = cint(frm.doc.custom_skip_advance_deduction)
+		? 0
+		: Math.max(0, flt(details.suggested_advance) - boqAdvance);
 	sync_deduction_row(frm, 'RETENTION-DEDUCTION', retention,
 		__('Retention deduction ({0}%) for additional services', [details.retention_percentage]), true);
 	sync_deduction_row(frm, 'ADVANCE-DEDUCTION', advance,
@@ -678,8 +717,13 @@ function sync_additional_service_deductions(frm, details) {
 function sync_global_deductions(frm, details) {
 	sync_deduction_row(frm, 'RETENTION-DEDUCTION', flt(details.suggested_retention),
 		__('Retention deduction ({0}%)', [details.retention_percentage]), false);
-	sync_deduction_row(frm, 'ADVANCE-DEDUCTION', flt(details.suggested_advance),
-		__('Deduction from advance payment'), false);
+	sync_deduction_row(
+		frm,
+		'ADVANCE-DEDUCTION',
+		cint(frm.doc.custom_skip_advance_deduction) ? 0 : flt(details.suggested_advance),
+		__('Deduction from advance payment'),
+		false
+	);
 }
 
 function sync_deduction_row(frm, itemCode, amount, description, isServiceDeduction) {

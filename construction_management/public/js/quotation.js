@@ -51,6 +51,10 @@ frappe.ui.form.on("Quotation", {
 		prefill_header_from_party(frm);
 	},
 
+	quotation_to(frm) {
+		prefill_header_from_party(frm);
+	},
+
 	tc_name(frm) {
 		if (!frm.doc.tc_name) {
 			return;
@@ -670,17 +674,39 @@ function ensure_placeholder_item(frm) {
 }
 
 function prefill_header_from_party(frm) {
-	const label = frm.doc.customer_name || frm.doc.party_name;
-	if (!label) {
+	const apply = (label) => {
+		if (!label) {
+			return;
+		}
+		if (!frm.doc.custom_client_name) {
+			frm.set_value("custom_client_name", label);
+		}
+		// Main Contractor comes from Customer/Lead name when left blank.
+		if (!frm.doc.custom_main_contractor) {
+			frm.set_value("custom_main_contractor", label);
+		}
+	};
+
+	if (frm.doc.customer_name) {
+		apply(frm.doc.customer_name);
 		return;
 	}
-	if (!frm.doc.custom_client_name) {
-		frm.set_value("custom_client_name", label);
+
+	if (frm.doc.quotation_to === "Lead" && frm.doc.party_name) {
+		frappe.db.get_value("Lead", frm.doc.party_name, "lead_name").then((r) => {
+			apply((r && r.message && r.message.lead_name) || frm.doc.party_name);
+		});
+		return;
 	}
-	// Main Contractor is the Customer when left blank.
-	if (!frm.doc.custom_main_contractor) {
-		frm.set_value("custom_main_contractor", label);
+
+	if (frm.doc.quotation_to === "Customer" && frm.doc.party_name) {
+		frappe.db.get_value("Customer", frm.doc.party_name, "customer_name").then((r) => {
+			apply((r && r.message && r.message.customer_name) || frm.doc.party_name);
+		});
+		return;
 	}
+
+	apply(frm.doc.party_name);
 }
 
 function prefill_header_from_project(frm) {

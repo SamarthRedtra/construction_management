@@ -23,12 +23,8 @@ def build_boq_quotation_print_context(doc) -> dict:
 		as_dict=True,
 	) or {}
 
-	customer_label = (
-		doc.get("customer_name")
-		or doc.get("party_name")
-		or ""
-	)
-	# Main Contractor is the Customer when the dedicated field is blank.
+	customer_label = _party_display_name(doc)
+	# Main Contractor is the Customer/Lead when the dedicated field is blank.
 	header = {
 		"quotation_ref": doc.get("custom_quotation_ref") or doc.name,
 		"date": formatdate(doc.transaction_date),
@@ -105,6 +101,25 @@ def _project_title(project: str | None) -> str:
 	if not project:
 		return ""
 	return frappe.db.get_value("Project", project, "project_name") or ""
+
+
+def _party_display_name(doc) -> str:
+	"""Resolve Customer / Lead display name for BOQ header fields."""
+	if doc.get("customer_name"):
+		return doc.get("customer_name")
+
+	party = doc.get("party_name")
+	if not party:
+		return ""
+
+	quotation_to = doc.get("quotation_to") or "Customer"
+	if quotation_to == "Lead":
+		lead_name = frappe.db.get_value("Lead", party, "lead_name")
+		return lead_name or party
+	if quotation_to == "Customer":
+		customer_name = frappe.db.get_value("Customer", party, "customer_name")
+		return customer_name or party
+	return party
 
 
 def _next_letter(count: int) -> str:

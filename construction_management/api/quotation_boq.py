@@ -17,7 +17,7 @@ BOQ_TABLE_STYLE = (
 )
 BOQ_CELL_STYLE = (
 	"border:1px solid #333;padding:5px 7px;vertical-align:top;"
-	"word-break:break-word;overflow-wrap:anywhere;white-space:normal;box-sizing:border-box;"
+	"word-break:break-word;overflow-wrap:anywhere;white-space:pre-wrap;box-sizing:border-box;"
 )
 BOQ_HEAD_STYLE = BOQ_CELL_STYLE + "background:#e8e8e8;font-weight:bold;text-align:center;"
 BOQ_SECTION_STYLE = BOQ_CELL_STYLE + "font-weight:bold;text-transform:uppercase;background:#f0f0f0;"

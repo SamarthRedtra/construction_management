@@ -134,6 +134,7 @@ class TestQuotationBOQPrint(FrappeTestCase):
 				"company": self.company,
 				"transaction_date": today(),
 				"currency": "AED",
+				"quotation_to": "Customer",
 				"customer_name": "Ginco Contracting",
 				"party_name": "Ginco Contracting",
 				"custom_main_contractor": "",
@@ -146,6 +147,57 @@ class TestQuotationBOQPrint(FrappeTestCase):
 		self.assertEqual(ctx["header"]["main_contractor"], "Ginco Contracting")
 		self.assertEqual(ctx["header"]["client_name"], "Ginco Contracting")
 
+	def test_main_contractor_falls_back_to_lead_name(self):
+		from unittest.mock import patch
+
+		from construction_management.quotation_boq_print_context import _party_display_name
+
+		doc = frappe._dict(
+			{
+				"quotation_to": "Lead",
+				"party_name": "CRM-LEAD-TEST",
+				"customer_name": "",
+			}
+		)
+		with patch("frappe.db.get_value", return_value="Acme Lead Contractor"):
+			self.assertEqual(_party_display_name(doc), "Acme Lead Contractor")
+
+		full = frappe._dict(
+			{
+				"name": "QTN-LEAD",
+				"company": self.company,
+				"transaction_date": today(),
+				"currency": "AED",
+				"quotation_to": "Lead",
+				"party_name": "CRM-LEAD-TEST",
+				"customer_name": "",
+				"custom_main_contractor": "",
+				"custom_client_name": "",
+				"custom_boq_lines": [],
+				"terms": "",
+			}
+		)
+		with patch(
+			"construction_management.quotation_boq_print_context._party_display_name",
+			return_value="Acme Lead Contractor",
+		):
+			ctx = build_boq_quotation_print_context(full)
+			self.assertEqual(ctx["header"]["main_contractor"], "Acme Lead Contractor")
+			self.assertEqual(ctx["header"]["client_name"], "Acme Lead Contractor")
+
+	def test_html_preserves_description_whitespace(self):
+		html = lines_to_boq_html(
+			[
+				frappe._dict(
+					idx=1,
+					line_type="Parent",
+					parent_no="1",
+					description="Line one\n  Indented  spaces",
+				),
+			]
+		)
+		self.assertIn("white-space:pre-wrap", html)
+		self.assertIn("Line one\n  Indented  spaces", html)
 	def test_html_parent_row_has_six_bordered_cells(self):
 		html = lines_to_boq_html(
 			[

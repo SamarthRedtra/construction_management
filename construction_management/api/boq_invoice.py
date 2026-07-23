@@ -1563,6 +1563,18 @@ def allocate_capped_amounts(desired_amounts: list[float], available: float) -> l
 	return allocated
 
 
+def doc_skips_advance_deduction(doc) -> bool:
+	"""True when the SI/SO checkbox opts out of advance recovery."""
+	return bool(cint(doc.get("custom_skip_advance_deduction")))
+
+
+def strip_advance_deduction_rows(doc):
+	"""Remove every ADVANCE-DEDUCTION child row from the document."""
+	for row in list(doc.get("items") or []):
+		if row.item_code == "ADVANCE-DEDUCTION":
+			doc.remove(row)
+
+
 @frappe.whitelist()
 def recalculate_sales_order_boq_deductions(sales_order: str) -> dict:
 	"""
@@ -1645,6 +1657,10 @@ def recalculate_sales_order_boq_deductions(sales_order: str) -> dict:
 					},
 				)
 
+	skip_advance = doc_skips_advance_deduction(doc)
+	if skip_advance:
+		advance_base_items = []
+
 	if items_for_deductions:
 		deduction_details = get_deduction_details(
 			doc.project,
@@ -1653,7 +1669,7 @@ def recalculate_sales_order_boq_deductions(sales_order: str) -> dict:
 		)
 		advance_pct = flt(deduction_details.get("advance_percentage", 0))
 		available_advance = flt(deduction_details.get("available_advance", 0))
-		if advance_pct > 0 and available_advance > 0 and advance_base_items:
+		if not skip_advance and advance_pct > 0 and available_advance > 0 and advance_base_items:
 			advance_item_code = get_or_create_advance_item()
 			desired_advances = []
 			for entry in advance_base_items:
@@ -1796,6 +1812,10 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 					},
 				)
 
+	skip_advance = doc_skips_advance_deduction(doc)
+	if skip_advance:
+		advance_base_items = []
+
 	if items_for_deductions:
 		deduction_details = get_deduction_details(
 			doc.project,
@@ -1805,7 +1825,13 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 		advance_pct = flt(deduction_details.get("advance_percentage", 0))
 		available_advance = flt(deduction_details.get("available_advance", 0))
 
-		if has_boq_revenue and advance_pct > 0 and available_advance > 0 and advance_base_items:
+		if (
+			not skip_advance
+			and has_boq_revenue
+			and advance_pct > 0
+			and available_advance > 0
+			and advance_base_items
+		):
 			advance_item_code = get_or_create_advance_item()
 			desired_advances = []
 			for entry in advance_base_items:
@@ -1867,7 +1893,7 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 						"cost_center": default_cost_center,
 					},
 				)
-			if suggested_advance > 0:
+			if not skip_advance and suggested_advance > 0:
 				doc.append(
 					"items",
 					{
@@ -1887,7 +1913,10 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 		# Additional-service retention/advance (non-BOQ rows flagged for deductions)
 		if has_boq_revenue:
 			_append_additional_service_deductions_on_invoice(
-				doc, deduction_details, flt(project_doc.retention_percentage)
+				doc,
+				deduction_details,
+				flt(project_doc.retention_percentage),
+				skip_advance=skip_advance,
 			)
 
 	doc.flags.ignore_deduction_recalc = True
@@ -1906,7 +1935,9 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 	}
 
 
-def _append_additional_service_deductions_on_invoice(doc, details, retention_pct):
+def _append_additional_service_deductions_on_invoice(
+	doc, details, retention_pct, skip_advance: bool = False
+):
 	"""Mirror SalesInvoiceOverride._apply_additional_service_deductions for rebuild API."""
 	from frappe.utils import cint
 
@@ -1927,8 +1958,10 @@ def _append_additional_service_deductions_on_invoice(doc, details, retention_pct
 		and item.get("boq_item")
 		and not cint(item.get("custom_service_deduction"))
 	)
-	advance_amount = max(0.0, flt(details.get("suggested_advance")) - boq_advance_amount)
-	advance_amount = flt(advance_amount, 2)
+	advance_amount = 0.0
+	if not skip_advance:
+		advance_amount = max(0.0, flt(details.get("suggested_advance")) - boq_advance_amount)
+		advance_amount = flt(advance_amount, 2)
 
 	default_income_account = frappe.db.get_value("Company", doc.company, "default_income_account")
 	default_cost_center = doc.cost_center or frappe.db.get_value("Company", doc.company, "cost_center")
