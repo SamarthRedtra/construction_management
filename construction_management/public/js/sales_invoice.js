@@ -54,12 +54,18 @@ frappe.ui.form.on('Sales Invoice', {
 
 		if (frm.doc.docstatus === 0 && frm.doc.project) {
 			frm.add_custom_button(__('Pull Retention'), () => {
-				pull_retention(frm);
+				recalculate_si_deductions(frm);
 			}, __('Get Deductions'));
 
 			frm.add_custom_button(__('Pull Advance Deduction'), () => {
-				pull_advance_deduction(frm);
+				recalculate_si_deductions(frm);
 			}, __('Get Deductions'));
+
+			if (!frm.is_new() && (frm.doc.items || []).some((r) => r.boq_item)) {
+				frm.add_custom_button(__('Recalculate Retention & Advance'), () => {
+					recalculate_si_deductions(frm);
+				}, __('Actions'));
+			}
 		}
 
 		construction_management.deduction_summary.render(frm);
@@ -416,126 +422,51 @@ function _si_deduction_debounce(frm) {
 	}, 800);
 }
 
-function pull_retention(frm) {
+function recalculate_si_deductions(frm) {
 	if (!frm.doc.project) {
 		frappe.msgprint(__('Please select a Project first'));
 		return;
 	}
+	if (frm.is_new()) {
+		frappe.msgprint(__('Save the Sales Invoice first, then pull retention and advance.'));
+		return;
+	}
+	if (frm.doc.docstatus !== 0) {
+		frappe.msgprint(__('Only draft Sales Invoices can recalculate deductions.'));
+		return;
+	}
 
 	frappe.call({
-		method: 'construction_management.api.boq_invoice.get_deduction_details',
-		args: {
-			project: frm.doc.project,
-			items: frm.doc.items,
-			invoice_name: frm.doc.name
-		},
-		callback: function (r) {
-			if (r.message && r.message.suggested_retention > 0) {
-				const amount = r.message.suggested_retention;
-				// Check if already exists
-				let row = (frm.doc.items || []).find(i => i.item_code === 'RETENTION-DEDUCTION');
-				if (!row) {
-					row = frm.add_child('items');
-				}
-				frappe.model.set_value(row.doctype, row.name, {
-					'item_code': 'RETENTION-DEDUCTION',
-					'qty': 1,
-					'rate': -amount,
-					'amount': -amount,
-					'description': `Retention deduction (${r.message.retention_percentage}%)`,
-					'project': frm.doc.project
-				});
-				frm.refresh_field('items');
-				construction_management.deduction_summary.render(frm);
-			} else {
-				frappe.msgprint(__('No retention to pull or retention percentage is 0.'));
+		method: 'construction_management.api.boq_invoice.recalculate_sales_invoice_boq_deductions',
+		args: { sales_invoice: frm.doc.name },
+		freeze: true,
+		freeze_message: __('Updating deduction lines...'),
+		callback(r) {
+			if (r.exc) {
+				return;
 			}
-		}
+			const msg = r.message || {};
+			frappe.show_alert({
+				message: __(
+					'Retention {0} / Advance {1} updated',
+					[
+						format_currency(flt(msg.suggested_retention)),
+						format_currency(flt(msg.suggested_advance)),
+					]
+				),
+				indicator: 'green',
+			});
+			frm.reload_doc();
+		},
 	});
 }
 
+function pull_retention(frm) {
+	recalculate_si_deductions(frm);
+}
+
 function pull_advance_deduction(frm) {
-	if (!frm.doc.project) {
-		frappe.msgprint(__('Please select a Project first'));
-		return;
-	}
-
-	frappe.call({
-		method: 'construction_management.api.boq_invoice.get_deduction_details',
-		args: {
-			project: frm.doc.project,
-			items: frm.doc.items,
-			invoice_name: frm.doc.name
-		},
-		callback: function (r) {
-			if (r.message && r.message.available_advance > 0) {
-				const available = r.message.available_advance;
-				const total_billable = r.message.total_billable_amount;
-
-				let d = new frappe.ui.Dialog({
-					title: __('Pull Advance Deduction'),
-					fields: [
-						{
-							label: __('Available Advance'),
-							fieldname: 'available_advance',
-							fieldtype: 'Currency',
-							default: available,
-							read_only: 1
-						},
-						{
-							label: __('Available BOQ Balance'),
-							fieldname: 'available_boq_balance',
-							fieldtype: 'Currency',
-							default: flt(r.message.available_boq_balance),
-							read_only: 1,
-							description: __('Project BOQ total less billed BOQ lines (ex-VAT)')
-						},
-						{
-							label: __('Total Billable Amount'),
-							fieldname: 'total_billable',
-							fieldtype: 'Currency',
-							default: total_billable,
-							read_only: 1
-						},
-						{
-							label: __('Deduction Amount'),
-							fieldname: 'amount',
-							fieldtype: 'Currency',
-							default: r.message.suggested_advance || 0,
-							description: r.message.advance_percentage ? __('Capped at {0}% of billable amount', [r.message.advance_percentage]) : '',
-							reqd: 1
-						}
-					],
-					primary_action_label: __('Apply'),
-					primary_action(values) {
-						if (values.amount > available) {
-							frappe.msgprint(__('Deduction cannot exceed available advance'));
-							return;
-						}
-
-						let row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
-						if (!row) {
-							row = frm.add_child('items');
-						}
-						frappe.model.set_value(row.doctype, row.name, {
-							'item_code': 'ADVANCE-DEDUCTION',
-							'qty': 1,
-							'rate': -values.amount,
-							'amount': -values.amount,
-							'description': __('Deduction from advance payment'),
-							'project': frm.doc.project
-						});
-						frm.refresh_field('items');
-						construction_management.deduction_summary.render(frm);
-						d.hide();
-					}
-				});
-				d.show();
-			} else {
-				frappe.msgprint(__('No available advance for this project.'));
-			}
-		}
-	});
+	recalculate_si_deductions(frm);
 }
 
 function calculate_advance_amount(frm) {
@@ -674,6 +605,39 @@ function recalculate_deductions(frm) {
 					}
 				}
 			});
+
+			// Cap per-BOQ advance rows to available advance pool (same as Sales Order).
+			const advanceRows = (frm.doc.items || []).filter(
+				(item) => item.item_code === 'ADVANCE-DEDUCTION'
+					&& item.boq_item
+					&& !cint(item.custom_service_deduction)
+					&& !skipAdvanceSet.has(item.boq_item)
+			);
+			const availableAdvance = flt(r.message.available_advance);
+			const desiredAdvances = advanceRows.map((item) => Math.abs(flt(item.amount)));
+			const totalDesired = desiredAdvances.reduce((sum, value) => sum + value, 0);
+			if (advanceRows.length && totalDesired > 0) {
+				const target = Math.min(availableAdvance, totalDesired);
+				const scale = target / totalDesired;
+				let running = 0;
+				advanceRows.forEach((item, idx) => {
+					let amount;
+					if (idx === advanceRows.length - 1) {
+						amount = flt(target - running, precision('rate', item));
+					} else {
+						amount = flt(desiredAdvances[idx] * scale, precision('rate', item));
+						running += amount;
+					}
+					if (flt(item.rate) !== -amount) {
+						frappe.model.set_value(item.doctype, item.name, {
+							rate: -amount,
+							amount: -amount,
+							qty: 1,
+						});
+						changed = true;
+					}
+				});
+			}
 
 			if (changed) {
 				frm.refresh_field('items');

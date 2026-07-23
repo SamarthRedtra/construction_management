@@ -115,6 +115,7 @@ class SalesInvoiceOverride(SalesInvoice):
 			and not self.custom_is_advanced
 			and (self.is_bill_invoice() or self.has_additional_service_deduction_items())
 			and self.docstatus == 0
+			and not self.flags.get("ignore_deduction_recalc")
 		):
 			self.apply_automatic_deductions()
 
@@ -384,6 +385,7 @@ class SalesInvoiceOverride(SalesInvoice):
 			return
 
 		from construction_management.api.boq_invoice import (
+			allocate_capped_amounts,
 			get_deduction_details,
 			get_or_create_retention_item,
 			get_or_create_advance_item,
@@ -397,6 +399,7 @@ class SalesInvoiceOverride(SalesInvoice):
 		retention_pct = flt(details.get("retention_percentage"))
 		advance_pct = flt(details.get("advance_percentage"))
 		skip_advance_set = set(details.get("skip_advance_boq_items") or [])
+		available_advance = flt(details.get("available_advance"))
 
 		# Check if per-item deductions exist (pattern: each BOQ item has paired deduction rows)
 		has_per_item_deductions = False
@@ -487,6 +490,21 @@ class SalesInvoiceOverride(SalesInvoice):
 						f"Advance deduction ({advance_pct}%)",
 						parent,
 					)
+
+			# Cap per-BOQ advance rows to the project advance pool (same as Sales Order).
+			advance_rows = [
+				item
+				for item in self.items
+				if item.item_code == "ADVANCE-DEDUCTION"
+				and item.get("boq_item")
+				and not cint(item.get("custom_service_deduction"))
+			]
+			desired = [abs(flt(row.amount)) for row in advance_rows]
+			allocated = allocate_capped_amounts(desired, available_advance)
+			for row, amount in zip(advance_rows, allocated, strict=True):
+				row.qty = 1
+				row.rate = -amount
+				row.amount = -amount
 
 			self._apply_additional_service_deductions(details, retention_pct)
 		else:
