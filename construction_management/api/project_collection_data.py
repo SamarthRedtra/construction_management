@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate, today
+from frappe.utils import add_days, cint, flt, getdate, today
 
 COLLECTION_ROW_KEYS = (
 	"sr_no",
@@ -75,6 +75,7 @@ def get_collection_portfolio(company: str, filters: dict | None = None) -> list[
 			"collected": flt(summary.get("collected")),
 			"pending": flt(summary.get("pending")),
 			"overdue_count": summary.get("overdue_count", 0),
+			"overdue_amount": flt(summary.get("overdue_amount")),
 			"last_follow_up_status": summary.get("last_follow_up_status") or "",
 		})
 
@@ -86,10 +87,16 @@ def get_collection_project_rows(project: str, include_follow_ups: bool = True) -
 	if not project:
 		frappe.throw(_("Project is required"))
 
+	fields = ["name", "project_name", "customer", "company", "custom_project_engineer"]
+	if frappe.db.has_column("Project", "custom_collection_overdue_basis"):
+		fields.append("custom_collection_overdue_basis")
+	if frappe.db.has_column("Project", "custom_collection_overdue_days"):
+		fields.append("custom_collection_overdue_days")
+
 	project_doc = frappe.db.get_value(
 		"Project",
 		project,
-		["name", "project_name", "customer", "company", "custom_project_engineer"],
+		fields,
 		as_dict=True,
 	)
 	if not project_doc:
@@ -104,6 +111,10 @@ def get_collection_project_rows(project: str, include_follow_ups: bool = True) -
 		pm_engg = frappe.db.get_value("Employee", project_doc.custom_project_engineer, "employee_name") or project_doc.custom_project_engineer
 
 	workdone = project_doc.project_name or project.name
+	overdue_settings = {
+		"basis": project_doc.get("custom_collection_overdue_basis") or "Tax Invoice",
+		"days": cint(project_doc.get("custom_collection_overdue_days")),
+	}
 	raw_rows = _build_collection_cycles(project, client_name, pm_engg, workdone)
 	follow_ups = []
 	if include_follow_ups:
@@ -114,7 +125,11 @@ def get_collection_project_rows(project: str, include_follow_ups: bool = True) -
 		follow_ups = get_project_soa_follow_ups(project)
 
 	_apply_follow_up_overlay(raw_rows, follow_ups)
+	from construction_management.api.collection_pc_override import merge_collection_pc_overlays
+
+	merge_collection_pc_overlays(raw_rows, follow_ups)
 	_apply_pdc_overlay(raw_rows)
+	_apply_overdue_rules(raw_rows, overdue_settings)
 
 	for idx, row in enumerate(raw_rows, start=1):
 		row["sr_no"] = idx
@@ -210,10 +225,13 @@ def _build_collection_cycles(project: str, client_name: str, pm_engg: str, workd
 
 	pc_map = {}
 	if pc_names:
+		pc_fields = ["name", "posting_date", "accepted_amount", "grand_total", "proforma_amount", "remarks"]
+		if frappe.db.has_column("Payment Certificate", "custom_certificate_date"):
+			pc_fields.append("custom_certificate_date")
 		for d in frappe.get_all(
 			"Payment Certificate",
 			filters={"name": ("in", list(pc_names))},
-			fields=["name", "posting_date", "accepted_amount", "grand_total", "proforma_amount", "remarks"],
+			fields=pc_fields,
 		):
 			pc_map[d.name] = d
 
@@ -236,7 +254,7 @@ def _build_collection_cycles(project: str, client_name: str, pm_engg: str, workd
 		pc_remarks = ""
 		if si.custom_payment_certificate and si.custom_payment_certificate in pc_map:
 			pc = pc_map[si.custom_payment_certificate]
-			pc_date = pc.posting_date
+			pc_date = _pc_display_date(pc)
 			pc_amt = flt(pc.accepted_amount) or flt(pc.grand_total) or flt(pc.proforma_amount)
 			pc_remarks = pc.remarks or ""
 
@@ -285,8 +303,9 @@ def _build_collection_cycles(project: str, client_name: str, pm_engg: str, workd
 		))
 
 	pcs_without_si = frappe.db.sql(
-		"""
+		f"""
 		SELECT name, posting_date, sales_order, grand_total, proforma_amount, accepted_amount, remarks
+			{', custom_certificate_date' if frappe.db.has_column('Payment Certificate', 'custom_certificate_date') else ", NULL AS custom_certificate_date"}
 		FROM `tabPayment Certificate`
 		WHERE project = %s
 		  AND docstatus IN (0, 1)
@@ -326,7 +345,7 @@ def _build_collection_cycles(project: str, client_name: str, pm_engg: str, workd
 			workdone=workdone,
 			pi_amount=pi_amount,
 			pi_date=pi_date,
-			pc_date=pc.posting_date,
+			pc_date=_pc_display_date(pc),
 			pc_amt=pc_amt,
 			remarks=pc.remarks or "",
 			payment_certificate=pc.name,
@@ -416,8 +435,61 @@ def _shape_collection_row(
 		"remarks": remarks,
 		"follow_up_status": "",
 		"follow_up_attachment": "",
-		"is_overdue": _is_overdue(due_date, ti_amt, payment_date),
+		"is_overdue": False,
+		"overdue_date": None,
+		"days_overdue": 0,
 	}
+
+
+def _pc_display_date(pc) -> str | None:
+	if not pc:
+		return None
+	return pc.get("custom_certificate_date") or pc.get("posting_date")
+
+
+def _apply_overdue_rules(rows: list[dict], overdue_settings: dict | None = None) -> None:
+	"""Apply Project overdue basis/days, else legacy Tax Invoice due_date."""
+	overdue_settings = overdue_settings or {}
+	basis = overdue_settings.get("basis") or "Tax Invoice"
+	days = cint(overdue_settings.get("days"))
+
+	for row in rows:
+		payment_date = row.get("payment_date")
+		unpaid_amt = flt(row.get("ti_amt") or row.get("pc_amt") or row.get("pi_amount"))
+		if payment_date or unpaid_amt <= 0:
+			row["is_overdue"] = False
+			row["overdue_date"] = row.get("due_date")
+			row["days_overdue"] = 0
+			continue
+
+		if days > 0:
+			if basis == "Proforma Invoice":
+				base_date = row.get("pi_date")
+			else:
+				base_date = row.get("due_date") or row.get("ti_date")
+
+			if not base_date:
+				row["is_overdue"] = False
+				row["overdue_date"] = None
+				row["days_overdue"] = 0
+				continue
+
+			overdue_date = add_days(getdate(base_date), days)
+			row["overdue_date"] = overdue_date
+			if not row.get("due_date"):
+				row["due_date"] = overdue_date
+			is_overdue = getdate(today()) > getdate(overdue_date)
+			row["is_overdue"] = is_overdue
+			row["days_overdue"] = (getdate(today()) - getdate(overdue_date)).days if is_overdue else 0
+			continue
+
+		# Legacy: Tax Invoice due_date only
+		row["overdue_date"] = row.get("due_date")
+		row["is_overdue"] = _is_overdue(row.get("due_date"), row.get("ti_amt"), payment_date)
+		if row["is_overdue"] and row.get("due_date"):
+			row["days_overdue"] = (getdate(today()) - getdate(row["due_date"])).days
+		else:
+			row["days_overdue"] = 0
 
 
 def _build_collection_summary(project: str, rows: list[dict], follow_ups: list[dict]) -> dict:
@@ -440,6 +512,11 @@ def _build_collection_summary(project: str, rows: list[dict], follow_ups: list[d
 	)
 	pending = flt(kpi.get("pending")) or max(0, ti_billed - collected)
 	overdue_count = sum(1 for r in rows if r.get("is_overdue"))
+	overdue_amount = sum(
+		flt(r.get("ti_amt") or r.get("pc_amt") or r.get("pi_amount"))
+		for r in rows
+		if r.get("is_overdue")
+	)
 
 	last_follow_up_status = ""
 	if follow_ups:
@@ -454,6 +531,7 @@ def _build_collection_summary(project: str, rows: list[dict], follow_ups: list[d
 		"collected": collected,
 		"pending": pending,
 		"overdue_count": overdue_count,
+		"overdue_amount": overdue_amount,
 		"last_follow_up_status": last_follow_up_status,
 	}
 
@@ -475,8 +553,16 @@ def _apply_follow_up_overlay(rows: list[dict], follow_ups: list[dict]) -> None:
 		if fu.get("remarks"):
 			base = row.get("remarks") or ""
 			row["remarks"] = f"{base} · {fu.remarks}" if base else fu.remarks
-		if not row.get("pc_date") and fu.get("payment_certificate") and fu.get("follow_up_date"):
-			row["pc_date"] = fu.follow_up_date
+		# Follow-up date/amount for Collection PC are applied in merge_collection_pc_overlays.
+		if fu.get("follow_up_date") and (fu.get("status") or "") not in (
+			"Collection PC",
+			"PC Date",
+			"PC Amount",
+		):
+			if not row.get("pc_date") and fu.get("payment_certificate"):
+				row["pc_date"] = fu.follow_up_date
+		if fu.get("payment_certificate") and not row.get("payment_certificate"):
+			row["payment_certificate"] = fu.payment_certificate
 
 
 def _apply_pdc_overlay(rows: list[dict]) -> None:

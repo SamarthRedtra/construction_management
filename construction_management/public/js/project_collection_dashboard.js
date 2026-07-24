@@ -78,6 +78,20 @@ construction_management.project_collection.get_row_status = function (row) {
 	return { label: row.stage || '', slug: 'default' };
 };
 
+construction_management.project_collection.to_input_date = function (value) {
+	if (!value) {
+		return '';
+	}
+	if (typeof value === 'string') {
+		return value.slice(0, 10);
+	}
+	try {
+		return frappe.datetime.obj_to_str(value).slice(0, 10);
+	} catch (e) {
+		return '';
+	}
+};
+
 construction_management.project_collection._build_billing_row_html = function (row, project, fmt, fmt_date) {
 	const status = construction_management.project_collection.get_row_status(row);
 	const category = construction_management.project_collection.get_payment_category(row);
@@ -85,6 +99,31 @@ construction_management.project_collection._build_billing_row_html = function (r
 	const ref_name = row.reference_name || row.invoice_no;
 	const invoice_link = construction_management.project_collection.get_doc_link(ref_doctype, row.invoice_no);
 	const payment_mode_disp = [row.payment_mode, row.cheque_no].filter(Boolean).join(' · ');
+	const pc_name = row.payment_certificate || (row.stage === 'Payment Certificate' ? row.invoice_no : '');
+	const pc_date_value = construction_management.project_collection.to_input_date(row.pc_date);
+	const pc_amt_value = row.pc_amt != null && row.pc_amt !== '' ? flt(row.pc_amt) : '';
+	// Always show an editable PC Date control so users can find/set it in the grid.
+	const pc_date_html = `
+		<input type="date" class="form-control input-xs collection-pc-date-input"
+			value="${pc_date_value}"
+			data-pc="${frappe.utils.escape_html(pc_name || '')}"
+			data-project="${frappe.utils.escape_html(project)}"
+			data-ref-doctype="${frappe.utils.escape_html(ref_doctype)}"
+			data-ref-name="${frappe.utils.escape_html(ref_name)}"
+			title="${__('Certificate / PC Date')}" />
+		${!pc_name ? `<div class="text-muted text-xs">${__('Saves as PC Date')}</div>` : ''}
+	`;
+	const pc_amt_html = `
+		<input type="number" step="0.01" class="form-control input-xs text-right collection-pc-amt-input"
+			value="${pc_amt_value}"
+			data-pc="${frappe.utils.escape_html(pc_name || '')}"
+			data-project="${frappe.utils.escape_html(project)}"
+			data-ref-doctype="${frappe.utils.escape_html(ref_doctype)}"
+			data-ref-name="${frappe.utils.escape_html(ref_name)}"
+			title="${__('PC Amount')}"
+			placeholder="0.00" />
+		${!pc_name ? `<div class="text-muted text-xs">${__('Saves as PC Amt')}</div>` : ''}
+	`;
 
 	return `
 		<tr class="collection-billing-row" data-category="${category}"
@@ -99,11 +138,11 @@ construction_management.project_collection._build_billing_row_html = function (r
 			<td>${frappe.utils.escape_html(row.workdone || '')}</td>
 			<td class="text-right">${row.pi_amount && row.pi_amount > 0 ? fmt(row.pi_amount, 'Currency') : ''}</td>
 			<td class="text-center">${fmt_date(row.pi_date)}</td>
-			<td class="text-center">${fmt_date(row.pc_date)}</td>
-			<td class="text-right">${row.pc_amt && row.pc_amt > 0 ? fmt(row.pc_amt, 'Currency') : ''}</td>
+			<td class="text-center collection-pc-date-cell">${pc_date_html}</td>
+			<td class="text-right collection-pc-amt-cell">${pc_amt_html}</td>
 			<td class="text-center">${fmt_date(row.ti_date)}</td>
 			<td class="text-right">${row.ti_amt && row.ti_amt > 0 ? fmt(row.ti_amt, 'Currency') : ''}</td>
-			<td class="text-center">${fmt_date(row.due_date)}</td>
+			<td class="text-center">${fmt_date(row.overdue_date || row.due_date)}${row.days_overdue ? ` <span class="text-danger">(+${row.days_overdue}d)</span>` : ''}</td>
 			<td>${frappe.utils.escape_html(payment_mode_disp)}</td>
 			<td class="text-center">${fmt_date(row.payment_date)}</td>
 			<td>
@@ -317,7 +356,7 @@ construction_management.project_collection.build_portfolio_html = function (rows
 					<td class="text-right">${fmt(row.ti_billed, 'Currency')}</td>
 					<td class="text-right">${fmt(row.collected, 'Currency')}</td>
 					<td class="text-right">${fmt(row.pending, 'Currency')}</td>
-					<td class="text-center">${row.overdue_count || 0}</td>
+					<td class="text-center">${row.overdue_count || 0}${row.overdue_amount ? `<div class="text-muted text-xs">${fmt(row.overdue_amount, 'Currency')}</div>` : ''}</td>
 					<td>${frappe.utils.escape_html(row.last_follow_up_status || '')}</td>
 				</tr>
 			`;
@@ -433,6 +472,7 @@ construction_management.project_collection.build_detail_html = function (data, p
 				<div class="collection-kpi-card kpi-danger">
 					<span class="kpi-label">${__('Overdue')}</span>
 					<span class="kpi-value">${summary.overdue_count || 0}</span>
+					<span class="kpi-sub">${fmt(summary.overdue_amount || 0, 'Currency')}</span>
 				</div>
 			</div>
 
@@ -454,7 +494,7 @@ construction_management.project_collection.build_detail_html = function (data, p
 								<th class="text-right">${__('PC Amt')}</th>
 								<th>${__('TI Date')}</th>
 								<th class="text-right">${__('TI Amt')}</th>
-								<th>${__('Due Date')}</th>
+								<th>${__('Overdue Date')}</th>
 								<th>${__('Payment Mode')}</th>
 								<th>${__('Payment Date')}</th>
 								<th>${__('Remarks')}</th>
@@ -570,6 +610,55 @@ construction_management.project_collection.bind_detail_events = function ($conta
 			payment_certificate: $el.data('pc') || '',
 			focus_attachment: is_attach,
 		}, $container, project, options);
+	});
+
+	$container.off('change.collection-pc-date').on('change.collection-pc-date', '.collection-pc-date-input', function () {
+		const $input = $(this);
+		const pc = ($input.attr('data-pc') || '').trim();
+		const certificate_date = $input.val() || null;
+		const args = {
+			project: $input.attr('data-project') || project,
+			payment_certificate: pc,
+			certificate_date: certificate_date,
+			reference_doctype: $input.attr('data-ref-doctype') || '',
+			reference_name: $input.attr('data-ref-name') || '',
+		};
+		frappe.call({
+			method: 'construction_management.construction_management.page.project_collection.project_collection.update_collection_pc_date',
+			args: args,
+			freeze: true,
+			freeze_message: __('Updating PC date...'),
+			callback: function (r) {
+				if (!r.exc) {
+					frappe.show_alert({ message: __('PC date updated'), indicator: 'green' });
+					me.render_dashboard($container.get(0), project, options);
+				}
+			},
+		});
+	});
+
+	$container.off('change.collection-pc-amt').on('change.collection-pc-amt', '.collection-pc-amt-input', function () {
+		const $input = $(this);
+		const pc = ($input.attr('data-pc') || '').trim();
+		const args = {
+			project: $input.attr('data-project') || project,
+			payment_certificate: pc,
+			pc_amount: $input.val(),
+			reference_doctype: $input.attr('data-ref-doctype') || '',
+			reference_name: $input.attr('data-ref-name') || '',
+		};
+		frappe.call({
+			method: 'construction_management.construction_management.page.project_collection.project_collection.update_collection_pc_amount',
+			args: args,
+			freeze: true,
+			freeze_message: __('Updating PC amount...'),
+			callback: function (r) {
+				if (!r.exc) {
+					frappe.show_alert({ message: __('PC amount updated'), indicator: 'green' });
+					me.render_dashboard($container.get(0), project, options);
+				}
+			},
+		});
 	});
 };
 

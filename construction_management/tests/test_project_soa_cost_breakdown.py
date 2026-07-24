@@ -30,12 +30,46 @@ class TestProjectSOACostBreakdown(FrappeTestCase):
 		)
 		self.assertEqual(category, "material")
 
-	def test_categorize_subcontractor_pi(self):
+	@patch("construction_management.api.purchase_receipt_utils.get_purchase_cost_category", return_value="subcontractor")
+	def test_categorize_subcontractor_pi(self, _mock_cat):
 		category = categorize_project_cost_entry(
-			{"account_type": "Expense Account", "voucher_type": "Purchase Invoice", "account": "Expenses"},
+			{
+				"account_type": "Expense Account",
+				"voucher_type": "Purchase Invoice",
+				"voucher_no": "PI-SUB-1",
+				"account": "Expenses",
+			},
 			[],
 		)
 		self.assertEqual(category, "subcontractor")
+
+	@patch("construction_management.api.purchase_receipt_utils.get_purchase_cost_category", return_value="material")
+	def test_categorize_supplier_pi_as_material(self, _mock_cat):
+		category = categorize_project_cost_entry(
+			{
+				"account_type": "Expense Account",
+				"voucher_type": "Purchase Invoice",
+				"voucher_no": "PI-SUP-1",
+				"account": "Expenses",
+			},
+			[],
+		)
+		self.assertEqual(category, "material")
+
+	def test_get_purchase_cost_category_defaults_to_material(self):
+		from construction_management.api.purchase_receipt_utils import get_purchase_cost_category
+
+		self.assertEqual(get_purchase_cost_category("Purchase Invoice", None), "material")
+		self.assertEqual(
+			get_purchase_cost_category(None, None, doc=frappe._dict({"custom_suppliersubcontractor": "Supplier"})),
+			"material",
+		)
+		self.assertEqual(
+			get_purchase_cost_category(
+				None, None, doc=frappe._dict({"custom_suppliersubcontractor": "Subcontractor"})
+			),
+			"subcontractor",
+		)
 
 	def test_categorize_skips_commission_accounts(self):
 		category = categorize_project_cost_entry(

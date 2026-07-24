@@ -94,6 +94,87 @@ def is_subcontractor_purchase(doc, purchase_order=None):
 	)
 
 
+def get_purchase_party_type(voucher_type: str | None = None, voucher_no: str | None = None, doc=None) -> str:
+	"""
+	Resolve Supplier vs Subcontractor for a purchase voucher.
+
+	Returns ``\"Subcontractor\"`` or ``\"Supplier\"`` (blank / missing defaults to Supplier).
+	"""
+	flag = None
+
+	if doc is not None:
+		flag = doc.get("custom_suppliersubcontractor")
+		if flag not in ("Supplier", "Subcontractor"):
+			po = get_linked_purchase_order(doc)
+			if po:
+				flag = frappe.db.get_value("Purchase Order", po, "custom_suppliersubcontractor")
+		return "Subcontractor" if flag == "Subcontractor" else "Supplier"
+
+	if not voucher_type or not voucher_no:
+		return "Supplier"
+
+	if voucher_type == "Purchase Invoice":
+		flag = frappe.db.get_value("Purchase Invoice", voucher_no, "custom_suppliersubcontractor")
+		if flag not in ("Supplier", "Subcontractor"):
+			po = frappe.db.sql(
+				"""
+				SELECT purchase_order FROM `tabPurchase Invoice Item`
+				WHERE parent = %s AND IFNULL(purchase_order, '') != ''
+				LIMIT 1
+				""",
+				voucher_no,
+			)
+			po = po[0][0] if po else None
+			if not po and frappe.db.has_column("Purchase Invoice", "custom_purchase_order"):
+				po = frappe.db.get_value("Purchase Invoice", voucher_no, "custom_purchase_order")
+			if po:
+				flag = frappe.db.get_value("Purchase Order", po, "custom_suppliersubcontractor")
+	elif voucher_type == "Purchase Receipt":
+		flag = frappe.db.get_value("Purchase Receipt", voucher_no, "custom_suppliersubcontractor")
+		if flag not in ("Supplier", "Subcontractor"):
+			po = frappe.db.sql(
+				"""
+				SELECT purchase_order FROM `tabPurchase Receipt Item`
+				WHERE parent = %s AND IFNULL(purchase_order, '') != ''
+				LIMIT 1
+				""",
+				voucher_no,
+			)
+			po = po[0][0] if po else None
+			if not po and frappe.db.has_column("Purchase Receipt", "custom_purchase_order"):
+				po = frappe.db.get_value("Purchase Receipt", voucher_no, "custom_purchase_order")
+			if po:
+				flag = frappe.db.get_value("Purchase Order", po, "custom_suppliersubcontractor")
+	elif voucher_type == "Purchase Order":
+		flag = frappe.db.get_value("Purchase Order", voucher_no, "custom_suppliersubcontractor")
+
+	return "Subcontractor" if flag == "Subcontractor" else "Supplier"
+
+
+def get_purchase_cost_category(voucher_type: str | None, voucher_no: str | None, doc=None) -> str:
+	"""Map purchase party type to project/BOQ cost bucket: material | subcontractor."""
+	party = get_purchase_party_type(voucher_type=voucher_type, voucher_no=voucher_no, doc=doc)
+	return "subcontractor" if party == "Subcontractor" else "material"
+
+
+def get_purchase_cost_category_sql(pi_alias: str = "pi", pii_alias: str = "pii") -> str:
+	"""
+	SQL expression returning 'Subcontractor' or 'Supplier' for a PI join.
+
+	Uses PI.custom_suppliersubcontractor, else linked PO via item, else 'Supplier'.
+	"""
+	return f"""COALESCE(
+		NULLIF({pi_alias}.custom_suppliersubcontractor, ''),
+		(
+			SELECT po.custom_suppliersubcontractor
+			FROM `tabPurchase Order` po
+			WHERE po.name = {pii_alias}.purchase_order
+			LIMIT 1
+		),
+		'Supplier'
+	)"""
+
+
 def get_purchase_deduction_percentages(doc, po_doc):
 	"""Use PO retention/advance % only. Project defaults must not override explicit PO values."""
 	return (

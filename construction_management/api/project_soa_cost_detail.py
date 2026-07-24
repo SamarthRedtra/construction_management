@@ -32,7 +32,13 @@ def categorize_project_cost_entry(entry: dict, comm_accounts: list[str] | None =
 	voucher_type = entry.get("voucher_type") or ""
 	account = entry.get("account") or ""
 
-	if account_type == "Service" or voucher_type in ("Purchase Invoice", "Purchase Receipt") or "Subcontract" in account:
+	# Purchase vouchers: Supplier → material, Subcontractor → subcontractor
+	if voucher_type in ("Purchase Invoice", "Purchase Receipt"):
+		from construction_management.api.purchase_receipt_utils import get_purchase_cost_category
+
+		return get_purchase_cost_category(voucher_type, entry.get("voucher_no"))
+
+	if account_type == "Service" or "Subcontract" in account:
 		return "subcontractor"
 	if account_type == "Cost of Goods Sold" or voucher_type == "Stock Entry" or "Material" in account:
 		return "material"
@@ -99,6 +105,8 @@ def _fetch_gl_expense_entries(project: str) -> list[dict]:
 
 
 def _fetch_non_expense_pi_atoms(project: str, expense_accounts: set[str]) -> list[dict]:
+	from construction_management.api.purchase_receipt_utils import get_purchase_cost_category
+
 	atoms = []
 	pi_items = frappe.db.sql(
 		"""
@@ -106,6 +114,7 @@ def _fetch_non_expense_pi_atoms(project: str, expense_accounts: set[str]) -> lis
 			pi.name AS voucher_no,
 			pi.supplier,
 			pi.posting_date,
+			pi.custom_suppliersubcontractor,
 			pii.item_code,
 			pii.item_name,
 			pii.base_net_amount AS amount,
@@ -118,11 +127,16 @@ def _fetch_non_expense_pi_atoms(project: str, expense_accounts: set[str]) -> lis
 		project,
 		as_dict=True,
 	)
+	category_cache: dict[str, str] = {}
 	for row in pi_items:
 		if row.expense_account in expense_accounts:
 			continue
+		if row.voucher_no not in category_cache:
+			category_cache[row.voucher_no] = get_purchase_cost_category(
+				"Purchase Invoice", row.voucher_no
+			)
 		atoms.append({
-			"category": "subcontractor",
+			"category": category_cache[row.voucher_no],
 			"amount": flt(row.amount),
 			"voucher_type": "Purchase Invoice",
 			"voucher_no": row.voucher_no,
@@ -383,6 +397,27 @@ def _build_material_atoms(project: str, gl_atoms: list[dict]) -> list[dict]:
 			if atom["voucher_no"] in linked_stock_entries:
 				continue
 			atoms.extend(_expand_stock_entry_atoms(atom))
+			continue
+		# Supplier purchases categorized as material — group by supplier like subcontract drill-down
+		if atom["voucher_type"] in ("Purchase Invoice", "Purchase Receipt"):
+			supplier = atom.get("supplier")
+			if not supplier and atom["voucher_type"] == "Purchase Invoice":
+				supplier = frappe.db.get_value("Purchase Invoice", atom["voucher_no"], "supplier")
+			elif not supplier and atom["voucher_type"] == "Purchase Receipt":
+				supplier = frappe.db.get_value("Purchase Receipt", atom["voucher_no"], "supplier")
+			supplier = supplier or _("Unknown Supplier")
+			atoms.append({
+				**atom,
+				"group_key": supplier,
+				"group_label": supplier,
+				"line_key": atom.get("item_code") or atom["voucher_no"],
+				"line_label": atom.get("item_name") or atom.get("item_code") or atom["voucher_no"],
+				"source_doctype": atom["voucher_type"],
+				"source_document": atom["voucher_no"],
+				"date": atom.get("posting_date"),
+				"remarks": atom.get("boq_item") or "",
+				"link": _doc_link(atom["voucher_type"], atom["voucher_no"]),
+			})
 			continue
 		atoms.append({
 			**atom,
@@ -813,9 +848,12 @@ def summarize_project_cost_breakdown(project: str) -> dict:
 	expense_accounts = _get_expense_account_names()
 	for atom in _fetch_non_expense_pi_atoms(project, expense_accounts):
 		amount = flt(atom["amount"])
+		category = atom.get("category") or "material"
+		if category not in ("material", "labor", "subcontractor", "other"):
+			category = "material"
 		if not atom.get("boq_item"):
 			breakdown["unallocated"] += amount
-		breakdown["subcontractor"] += amount
+		breakdown[category] += amount
 
 	breakdown["total"] = (
 		breakdown["subcontractor"]

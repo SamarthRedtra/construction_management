@@ -336,19 +336,28 @@ class BOQItem(Document):
 		dpr_costs = dpr_totals[0] if dpr_totals else frappe._dict({})
 		# Avoid double counting: subcontracting cost will be sourced from PI/JE/SE, not DPR
 		dpr_subcontract_cost = 0
-		
-		# Purchase Invoice subcontract/expense adders
-		pi_totals = frappe.db.sql("""
-			SELECT 
-				COALESCE(SUM(CASE WHEN pii.expense_account IS NOT NULL THEN pii.amount ELSE 0 END), 0) as pi_expense,
-				COALESCE(SUM(pii.amount), 0) as pi_subcontract
+
+		from construction_management.api.purchase_receipt_utils import get_purchase_cost_category_sql
+
+		party_expr = get_purchase_cost_category_sql("pi", "pii")
+
+		# Purchase Invoice: Supplier → material, Subcontractor → subcontract
+		pi_totals = frappe.db.sql(
+			f"""
+			SELECT
+				COALESCE(SUM(CASE WHEN {party_expr} = 'Subcontractor' THEN pii.amount ELSE 0 END), 0) AS pi_subcontract,
+				COALESCE(SUM(CASE WHEN {party_expr} != 'Subcontractor' THEN pii.amount ELSE 0 END), 0) AS pi_material,
+				COALESCE(SUM(CASE WHEN pii.expense_account IS NOT NULL THEN pii.amount ELSE 0 END), 0) AS pi_expense
 			FROM `tabPurchase Invoice Item` pii
 			JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
 			WHERE pii.boq_item = %s AND pi.docstatus = 1
-		""", self.name, as_dict=True)
-		
+			""",
+			self.name,
+			as_dict=True,
+		)
+
 		pi_costs = pi_totals[0] if pi_totals else frappe._dict({})
-		
+
 		# Non-DPR Journal/Stock Entries carrying BOQ dimensions (project + boq_item)
 		je_se_totals = frappe.db.sql("""
 			SELECT 
@@ -370,12 +379,12 @@ class BOQItem(Document):
 				)
 			)
 		""", (self.name, project), as_dict=True) if project else []
-		
+
 		je_se_costs = je_se_totals[0] if je_se_totals else frappe._dict({})
-		
+
 		return {
 			"labour_cost": flt(dpr_costs.get("labour_cost")),
-			"material_cost": flt(dpr_costs.get("material_cost")),
+			"material_cost": flt(dpr_costs.get("material_cost")) + flt(pi_costs.get("pi_material")),
 			"asset_cost": flt(dpr_costs.get("asset_cost")),
 			"subcontract_cost": dpr_subcontract_cost + flt(pi_costs.get("pi_subcontract")) + flt(je_se_costs.get("je_se_subcontract")),
 			"expense_cost": flt(dpr_costs.get("expense_cost")),

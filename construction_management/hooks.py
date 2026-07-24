@@ -196,8 +196,15 @@ doc_events = {
 	"Project": {
 		"before_insert": "construction_management.api.project_numbering.assign_project_number_if_missing",
 		"validate": "construction_management.api.project_numbering.assign_project_number_if_missing",
-		"on_update": "construction_management.overrides.project.clear_project_cache",
-		"after_insert": "construction_management.construction_management.doctype.boq_settings.boq_settings.auto_create_project_warehouse"
+		"on_update": [
+			"construction_management.overrides.project.clear_project_cache",
+			"construction_management.raven_integrations.project_channel.on_update",
+		],
+		"after_insert": [
+			"construction_management.construction_management.doctype.boq_settings.boq_settings.auto_create_project_warehouse",
+			"construction_management.raven_integrations.project_channel.after_insert",
+		],
+		"on_trash": "construction_management.raven_integrations.project_channel.on_trash",
 	},
 	"Daily Progress Record": {
 		"validate": "construction_management.construction_management.doctype.boq_settings.boq_settings.validate_warehouse_for_dpr"

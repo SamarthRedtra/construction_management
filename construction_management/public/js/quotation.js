@@ -57,6 +57,7 @@ frappe.ui.form.on("Quotation", {
 
 	tc_name(frm) {
 		if (!frm.doc.tc_name) {
+			frm.set_value("terms", "");
 			return;
 		}
 		frappe.db.get_value("Terms and Conditions", frm.doc.tc_name, "terms").then((r) => {
@@ -164,6 +165,7 @@ function setup_sales_manager_approver_field(frm) {
 		"description",
 		__("Only this Sales Manager is assigned on submit. All Quotation Directors are also assigned.")
 	);
+	setup_terms_template_queries(frm);
 	if (!editable || !frm.doc.company) {
 		return;
 	}
@@ -172,11 +174,51 @@ function setup_sales_manager_approver_field(frm) {
 		args: { company: frm.doc.company },
 		callback: (r) => {
 			const managers = (r.message && r.message.managers) || [];
+			if (!managers.length) {
+				frm.set_query("custom_sales_manager_approver", () => ({
+					filters: { name: ["in", []] },
+				}));
+				frm.set_df_property(
+					"custom_sales_manager_approver",
+					"description",
+					__(
+						"Configure Quotation Sales Managers on Company {0} before selecting an approver.",
+						[frm.doc.company]
+					)
+				);
+				frappe.show_alert({
+					message: __(
+						"No Quotation Sales Managers configured on Company {0}. Add them under Quotation Sales Managers.",
+						[frm.doc.company]
+					),
+					indicator: "orange",
+				});
+				return;
+			}
 			frm.set_query("custom_sales_manager_approver", () => ({
-				filters: { name: ["in", managers.length ? managers : ["__none__"]] },
+				filters: { name: ["in", managers], enabled: 1 },
 			}));
 		},
 	});
+}
+
+function setup_terms_template_queries(frm) {
+	const typed = (tc_type) => () => ({
+		filters: {
+			disabled: 0,
+			selling: 1,
+			custom_tc_type: tc_type,
+		},
+	});
+	frm.set_query("custom_payment_terms_tc", typed("Payment Terms"));
+	frm.set_query("custom_exclusion_tc", typed("Exclusion"));
+	frm.set_query("custom_validity_tc", typed("Validity"));
+	frm.set_query("tc_name", () => ({
+		filters: {
+			disabled: 0,
+			selling: 1,
+		},
+	}));
 }
 
 function setup_approval_actions(frm) {

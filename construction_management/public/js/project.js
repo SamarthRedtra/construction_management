@@ -72,6 +72,7 @@ frappe.ui.form.on('Project', {
 
 		construction_management.project_tab_access.apply(frm);
 		render_project_commission_embed(frm);
+		setup_project_raven_communications(frm);
 	},
 
 	company(frm) {
@@ -106,6 +107,107 @@ function ensure_boq_management_visible(frm) {
 			df.depends_on = '';
 		}
 		frm.toggle_display(fieldname, true);
+	});
+}
+
+function setup_project_raven_communications(frm) {
+	if (frm.is_new() || !frm.doc.name) {
+		return;
+	}
+
+	frm.remove_custom_button(__('Open Project Channel'), __('Communications'));
+	const channel_id = frm.doc.custom_raven_channel;
+	if (channel_id) {
+		frm.add_custom_button(__('Open Project Channel'), () => {
+			window.open(`/raven/channel/${encodeURIComponent(channel_id)}`, '_blank');
+		}, __('Communications'));
+	} else {
+		frm.add_custom_button(__('Open Project Channel'), () => {
+			frappe.call({
+				method: 'construction_management.raven_integrations.project_channel.get_project_channel_messages',
+				args: { project: frm.doc.name, limit: 1 },
+				freeze: true,
+				callback(r) {
+					const url = r.message && r.message.url;
+					if (url) {
+						if (r.message.channel_id && !frm.doc.custom_raven_channel) {
+							frm.doc.custom_raven_channel = r.message.channel_id;
+							frm.refresh_field('custom_raven_channel');
+						}
+						window.open(url, '_blank');
+					} else {
+						frappe.msgprint(__('No Raven channel found for this project yet. Save the project to create one.'));
+					}
+				},
+			});
+		}, __('Communications'));
+	}
+
+	render_project_raven_panel(frm);
+}
+
+function render_project_raven_panel(frm) {
+	const field = frm.fields_dict.custom_raven_communications_html;
+	if (!field) {
+		return;
+	}
+	const $wrapper = field.$wrapper;
+	$wrapper.html(`<div class="text-muted">${__('Loading communications...')}</div>`);
+
+	frappe.call({
+		method: 'construction_management.raven_integrations.project_channel.get_project_channel_messages',
+		args: { project: frm.doc.name, limit: 12 },
+		callback(r) {
+			const data = r.message || {};
+			const channel_id = data.channel_id || frm.doc.custom_raven_channel;
+			const url = data.url || (channel_id ? `/raven/channel/${channel_id}` : null);
+			const messages = data.messages || [];
+
+			if (channel_id && frm.doc.custom_raven_channel !== channel_id) {
+				frm.doc.custom_raven_channel = channel_id;
+				frm.refresh_field('custom_raven_channel');
+			}
+
+			let body = '';
+			if (!channel_id) {
+				body = `<p class="text-muted">${__('Project channel will be created automatically when Raven is available.')}</p>`;
+			} else if (!messages.length) {
+				body = `<p class="text-muted">${__('No messages yet.')}</p>`;
+			} else {
+				body = '<ul class="list-unstyled" style="margin:0;max-height:280px;overflow:auto;">';
+				messages.forEach((msg) => {
+					const text = frappe.utils.escape_html(
+						(msg.text || msg.content || '').replace(/<[^>]+>/g, ' ').trim() || __('(attachment / empty)')
+					);
+					const when = msg.creation ? frappe.datetime.str_to_user(msg.creation) : '';
+					const who = frappe.utils.escape_html(msg.owner || '');
+					body += `<li style="padding:6px 0;border-bottom:1px solid var(--border-color);">
+						<div class="text-muted" style="font-size:11px;">${who}${when ? ' · ' + when : ''}</div>
+						<div>${text}</div>
+					</li>`;
+				});
+				body += '</ul>';
+			}
+
+			const open_link = url
+				? `<a class="btn btn-xs btn-default" href="${frappe.utils.escape_html(url)}" target="_blank" rel="noopener">
+					${__('Open in Raven')}
+				</a>`
+				: '';
+
+			$wrapper.html(`
+				<div class="project-raven-comms" style="padding:8px 0;">
+					<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+						<strong>${__('Project Communications')}</strong>
+						${open_link}
+					</div>
+					${body}
+				</div>
+			`);
+		},
+		error() {
+			$wrapper.html(`<div class="text-muted">${__('Unable to load Raven messages.')}</div>`);
+		},
 	});
 }
 

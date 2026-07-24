@@ -342,20 +342,26 @@ class EstimatedGPCalculator:
 			return 0
 	
 	def _get_subcontract_costs(self, boq_item: str) -> float:
-		"""Get actual subcontract costs from purchase invoices"""
+		"""Get actual subcontract costs from Subcontractor purchase invoices"""
 		try:
-			# Get from purchase invoices tagged to BOQ item
-			subcontract_cost = frappe.db.sql("""
+			from construction_management.api.purchase_receipt_utils import get_purchase_cost_category_sql
+
+			party_expr = get_purchase_cost_category_sql("pi", "pii")
+			subcontract_cost = frappe.db.sql(
+				f"""
 				SELECT COALESCE(SUM(pii.amount), 0) as total_cost
 				FROM `tabPurchase Invoice Item` pii
 				JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
 				WHERE pii.boq_item = %s
 				AND pi.docstatus = 1
-				AND pi.is_subcontracted = 1
-			""", boq_item, as_dict=True)
-			
+				AND {party_expr} = 'Subcontractor'
+				""",
+				boq_item,
+				as_dict=True,
+			)
+
 			return flt(subcontract_cost[0].total_cost) if subcontract_cost else 0
-			
+
 		except Exception:
 			return 0
 	

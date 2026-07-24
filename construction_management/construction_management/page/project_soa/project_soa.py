@@ -387,21 +387,25 @@ def get_project_soa_follow_ups(project: str) -> list[dict]:
 	if not project:
 		frappe.throw(_("Project is required"))
 
+	fields = [
+		"name",
+		"project",
+		"reference_doctype",
+		"reference_name",
+		"payment_certificate",
+		"follow_up_date",
+		"status",
+		"remarks",
+		"attachment",
+		"modified",
+	]
+	if frappe.db.has_column("Project SOA Follow Up", "pc_amount"):
+		fields.append("pc_amount")
+
 	return frappe.get_all(
 		"Project SOA Follow Up",
 		filters={"project": project},
-		fields=[
-			"name",
-			"project",
-			"reference_doctype",
-			"reference_name",
-			"payment_certificate",
-			"follow_up_date",
-			"status",
-			"remarks",
-			"attachment",
-			"modified",
-		],
+		fields=fields,
 		order_by="follow_up_date desc, modified desc",
 	)
 
@@ -416,6 +420,7 @@ def create_project_soa_follow_up(
 	remarks: str = "",
 	attachment: str = "",
 	payment_certificate: str = "",
+	pc_amount=None,
 ) -> dict:
 	if not project or not reference_doctype or not reference_name:
 		frappe.throw(_("Project, reference doctype, and reference name are required"))
@@ -429,6 +434,8 @@ def create_project_soa_follow_up(
 	doc.status = status or "Open"
 	doc.remarks = remarks or ""
 	doc.attachment = attachment or ""
+	if pc_amount is not None and frappe.get_meta("Project SOA Follow Up").has_field("pc_amount"):
+		doc.pc_amount = flt(pc_amount)
 	doc.insert(ignore_permissions=True)
 
 	return {"name": doc.name}

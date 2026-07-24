@@ -692,21 +692,24 @@ def get_item_actual_costs(boq_item: str) -> dict:
 		WHERE boq_item = %s AND docstatus = 1
 	""", boq_item, as_dict=True)[0]
 
-	# Get financial costs from GL (Subcontract, Asset, Other)
+	# Purchase costs split by Supplier/Subcontractor; plus other GL buckets
+	pi_material = get_pi_purchase_cost(boq_item, "material")
 	subcontract_cost = get_gl_subcontract_cost(boq_item)
 	asset_cost = get_gl_asset_cost(boq_item)
 	other_cost = get_gl_other_cost(boq_item)
-	
+
+	material_total = flt(dpr_costs.material) + flt(pi_material)
+
 	total_cost = (
-		flt(dpr_costs.material) + 
-		flt(dpr_costs.labour) + 
-		flt(subcontract_cost) + 
-		flt(asset_cost) + 
+		material_total +
+		flt(dpr_costs.labour) +
+		flt(subcontract_cost) +
+		flt(asset_cost) +
 		flt(other_cost)
 	)
 
 	return {
-		"material": flt(dpr_costs.material),
+		"material": material_total,
 		"labour": flt(dpr_costs.labour),
 		"asset": flt(asset_cost),
 		"subcontract": flt(subcontract_cost),
@@ -715,28 +718,45 @@ def get_item_actual_costs(boq_item: str) -> dict:
 	}
 
 
+def get_pi_purchase_cost(boq_item: str, category: str = "subcontractor") -> float:
+	"""Sum submitted PI item amounts for a BOQ item by purchase party type."""
+	from construction_management.api.purchase_receipt_utils import get_purchase_cost_category_sql
+
+	party_expr = get_purchase_cost_category_sql("pi", "pii")
+	if category == "material":
+		condition = f"{party_expr} != 'Subcontractor'"
+	else:
+		condition = f"{party_expr} = 'Subcontractor'"
+
+	result = frappe.db.sql(
+		f"""
+		SELECT COALESCE(SUM(pii.amount), 0)
+		FROM `tabPurchase Invoice Item` pii
+		JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
+		WHERE pii.boq_item = %s AND pi.docstatus = 1 AND ({condition})
+		""",
+		boq_item,
+	)
+	return flt(result[0][0] if result else 0)
+
+
 def get_gl_subcontract_cost(boq_item: str) -> float:
-	"""Get total subcontracting cost from GL (Purchase Receipts/Invoices)"""
-	# Subcontract costs are usually booked under Expense accounts in PR/PI
-	# We filter by voucher types that book actual expenses
-	return frappe.db.sql("""
-		SELECT COALESCE(SUM(gle.debit - gle.credit), 0)
-		FROM `tabGL Entry` gle
-		WHERE gle.account IN (
-			SELECT name FROM `tabAccount` 
-			WHERE account_type IN ('Expense Account', 'Cost of Goods Sold', 'Service')
-			OR root_type = 'Expense'
-		)
-		AND gle.voucher_type IN ('Purchase Receipt', 'Purchase Invoice')
-		AND gle.is_cancelled = 0
-		AND EXISTS (
-			SELECT 1 FROM `tabPurchase Receipt Item` pri 
-			WHERE pri.parent = gle.voucher_no AND pri.boq_item = %s
-		) OR EXISTS (
-			SELECT 1 FROM `tabPurchase Invoice Item` pii
-			WHERE pii.parent = gle.voucher_no AND pii.boq_item = %s
-		)
-	""", (boq_item, boq_item))[0][0]
+	"""Get subcontracting cost from Subcontractor PIs (and matching PR GL if any)."""
+	from construction_management.api.purchase_receipt_utils import get_purchase_cost_category_sql
+
+	party_expr = get_purchase_cost_category_sql("pi", "pii")
+	pi_cost = frappe.db.sql(
+		f"""
+		SELECT COALESCE(SUM(pii.amount), 0)
+		FROM `tabPurchase Invoice Item` pii
+		JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
+		WHERE pii.boq_item = %s
+		  AND pi.docstatus = 1
+		  AND {party_expr} = 'Subcontractor'
+		""",
+		boq_item,
+	)
+	return flt(pi_cost[0][0] if pi_cost else 0)
 
 
 def get_gl_asset_cost(boq_item: str) -> float:

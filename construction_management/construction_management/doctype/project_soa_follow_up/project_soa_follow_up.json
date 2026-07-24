@@ -13,6 +13,7 @@
   "column_break_1",
   "follow_up_date",
   "status",
+  "pc_amount",
   "section_break_notes",
   "remarks",
   "attachment"
@@ -66,7 +67,13 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Open\nFollowed Up\nWaiting Payment\nClosed"
+   "options": "Open\nFollowed Up\nWaiting Payment\nClosed\nPC Date\nPC Amount\nCollection PC"
+  },
+  {
+   "fieldname": "pc_amount",
+   "fieldtype": "Currency",
+   "label": "PC Amount",
+   "description": "Collection Manager PC certified amount when no Payment Certificate is linked."
   },
   {
    "fieldname": "section_break_notes",

@@ -204,7 +204,7 @@
    "insert_after": "custom_approval_col_break",
    "label": "Sales Manager Approver",
    "options": "User",
-   "read_only": 1,
+   "read_only": 0,
    "dt": "Quotation",
    "name": "Quotation-custom_sales_manager_approver"
   },
