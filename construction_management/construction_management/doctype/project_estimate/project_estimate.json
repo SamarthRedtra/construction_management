@@ -1,0 +1,173 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-07-24 15:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "project",
+  "boq_bill",
+  "column_break_1",
+  "boq_item",
+  "estimation_template",
+  "section_activities",
+  "activities",
+  "section_totals",
+  "total_material_cost",
+  "total_labour_cost",
+  "column_break_2",
+  "total_estimated_cost",
+  "cost_per_m2",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "PE-.YYYY.-",
+   "reqd": 1
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Project",
+   "options": "Project",
+   "reqd": 1
+  },
+  {
+   "fieldname": "boq_bill",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "BOQ Bill No",
+   "options": "BOQ Bill",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "boq_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "BOQ Item",
+   "options": "BOQ Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "estimation_template",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Estimation Template",
+   "options": "Estimation Template",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_activities",
+   "fieldtype": "Section Break",
+   "label": "Activities"
+  },
+  {
+   "fieldname": "activities",
+   "fieldtype": "Table",
+   "label": "Activities",
+   "options": "Project Estimate Activity",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_totals",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "total_material_cost",
+   "fieldtype": "Currency",
+   "label": "Total Material Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_labour_cost",
+   "fieldtype": "Currency",
+   "label": "Total Labour Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_estimated_cost",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Estimated Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cost_per_m2",
+   "fieldtype": "Currency",
+   "label": "Cost / m2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Project Estimate",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-07-24 15:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Construction Management",
+ "name": "Project Estimate",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

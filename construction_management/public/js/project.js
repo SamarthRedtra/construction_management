@@ -49,6 +49,11 @@ frappe.ui.form.on('Project', {
 				frm.add_custom_button(__('Collection Manager'), () => {
 					frappe.set_route('project-collection', frm.doc.name);
 				}, __('Construction'));
+				frm.add_custom_button(__('Project Estimate'), () => {
+					frappe.new_doc('Project Estimate', {
+						project: frm.doc.name,
+					});
+				}, __('Construction'));
 			}
 		} else {
 			const accounting_wrapper = frm.fields_dict.accounting_kpi_html?.$wrapper;
@@ -73,6 +78,7 @@ frappe.ui.form.on('Project', {
 		construction_management.project_tab_access.apply(frm);
 		render_project_commission_embed(frm);
 		setup_project_raven_communications(frm);
+		render_project_estimates_panel(frm);
 	},
 
 	company(frm) {
@@ -146,6 +152,81 @@ function setup_project_raven_communications(frm) {
 	render_project_raven_panel(frm);
 }
 
+function render_project_estimates_panel(frm) {
+	const field = frm.fields_dict.custom_project_estimates_html;
+	if (!field) {
+		return;
+	}
+	const $wrapper = field.$wrapper;
+	if (frm.is_new()) {
+		$wrapper.html(
+			`<div class="text-muted">${__('Save the project first to add estimates.')}</div>`
+		);
+		return;
+	}
+
+	$wrapper.html(`<div class="text-muted">${__('Loading estimates...')}</div>`);
+
+	frappe.call({
+		method: 'construction_management.api.project_estimate.get_project_estimates',
+		args: { project: frm.doc.name },
+		callback(r) {
+			const estimates = (r.message && r.message.estimates) || [];
+			const currency = frappe.boot.sysdefaults.currency || 'INR';
+
+			let body = '';
+			if (!estimates.length) {
+				body = `<p class="text-muted" style="margin:8px 0;">${__('No project estimates yet.')}</p>`;
+			} else {
+				body = `<table class="table table-bordered table-condensed" style="margin:8px 0;">
+					<thead>
+						<tr>
+							<th>${__('Estimate')}</th>
+							<th>${__('BOQ Item')}</th>
+							<th>${__('Template')}</th>
+							<th class="text-right">${__('Total')}</th>
+							<th>${__('Status')}</th>
+						</tr>
+					</thead>
+					<tbody>`;
+				estimates.forEach((row) => {
+					const status_color =
+						row.docstatus === 1 ? 'green' : row.docstatus === 2 ? 'red' : 'orange';
+					body += `<tr>
+						<td><a href="/app/project-estimate/${encodeURIComponent(row.name)}">${frappe.utils.escape_html(row.name)}</a></td>
+						<td>${frappe.utils.escape_html(row.boq_item_label || row.boq_item || '')}</td>
+						<td>${frappe.utils.escape_html(row.estimation_template || '')}</td>
+						<td class="text-right">${format_currency(row.total_estimated_cost || 0, currency)}</td>
+						<td><span class="indicator-pill ${status_color}">${frappe.utils.escape_html(row.status || '')}</span></td>
+					</tr>`;
+				});
+				body += '</tbody></table>';
+			}
+
+			$wrapper.html(`
+				<div class="project-estimates-panel" style="padding:4px 0 12px;">
+					<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;">
+						<div class="text-muted">${__('Activity-level estimates posted to BOQ items')}</div>
+						<button class="btn btn-xs btn-primary cm-add-project-estimate" type="button">
+							${__('Add Estimation')}
+						</button>
+					</div>
+					${body}
+				</div>
+			`);
+
+			$wrapper.find('.cm-add-project-estimate').on('click', () => {
+				frappe.new_doc('Project Estimate', {
+					project: frm.doc.name,
+				});
+			});
+		},
+		error() {
+			$wrapper.html(`<div class="text-muted">${__('Unable to load project estimates.')}</div>`);
+		},
+	});
+}
+
 function render_project_raven_panel(frm) {
 	const field = frm.fields_dict.custom_raven_communications_html;
 	if (!field) {
@@ -195,10 +276,26 @@ function render_project_raven_panel(frm) {
 				</a>`
 				: '';
 
+			const project_no = data.project_no || frm.doc.custom_project_no || '';
+			const channel_name = data.channel_name || '';
+			const subtitle_bits = [];
+			if (project_no) {
+				subtitle_bits.push(`${__('Project No')}: ${frappe.utils.escape_html(project_no)}`);
+			}
+			if (channel_name) {
+				subtitle_bits.push(frappe.utils.escape_html(channel_name));
+			}
+			const subtitle = subtitle_bits.length
+				? `<div class="text-muted" style="font-size:12px;margin-top:2px;">${subtitle_bits.join(' · ')}</div>`
+				: '';
+
 			$wrapper.html(`
 				<div class="project-raven-comms" style="padding:8px 0;">
 					<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-						<strong>${__('Project Communications')}</strong>
+						<div>
+							<strong>${__('Project Communications')}</strong>
+							${subtitle}
+						</div>
 						${open_link}
 					</div>
 					${body}

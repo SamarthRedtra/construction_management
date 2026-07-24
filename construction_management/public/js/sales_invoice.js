@@ -91,12 +91,89 @@ frappe.ui.form.on('Sales Invoice', {
 
 		construction_management.deduction_summary.render(frm);
 
+		// Soft alert when DPR/actual cost exceeds BOQ estimate
+		cm_check_boq_estimate_overruns(frm);
+
 		// Render reversal JV summary widget for submitted invoices
 		if (frm.doc.docstatus === 1) {
 			cm_render_si_jv_summary(frm);
 		}
 	}
 });
+
+function cm_check_boq_estimate_overruns(frm) {
+	const boq_items = [...new Set(
+		(frm.doc.items || []).map((r) => r.boq_item).filter(Boolean)
+	)];
+	if (!boq_items.length) {
+		return;
+	}
+
+	frappe.call({
+		method: 'construction_management.api.project_estimate.get_boq_estimate_overruns',
+		args: {
+			sales_invoice: frm.doc.name || null,
+			boq_items: JSON.stringify(boq_items),
+		},
+		callback(r) {
+			if (!r.message || !r.message.has_overruns) {
+				return;
+			}
+			const count = r.message.count;
+			const msg = __('Cost exceeds estimate for {0} BOQ item(s). Click for details.', [count]);
+			frm.dashboard.clear_headline();
+			frm.dashboard.set_headline_alert(
+				`<a href="#" class="cm-estimate-overrun-link text-danger">${frappe.utils.escape_html(msg)}</a>`,
+				'orange'
+			);
+			frm.dashboard.wrapper
+				.find('.cm-estimate-overrun-link')
+				.off('click')
+				.on('click', (e) => {
+					e.preventDefault();
+					cm_show_estimate_overrun_dialog(r.message.overruns || []);
+				});
+		},
+	});
+}
+
+function cm_show_estimate_overrun_dialog(overruns) {
+	const currency = frappe.boot.sysdefaults.currency || 'INR';
+	let rows = '';
+	(overruns || []).forEach((o) => {
+		rows += `<tr>
+			<td>${frappe.utils.escape_html(o.label || o.boq_item)}
+				<br><small class="text-muted">${frappe.utils.escape_html(o.boq_item)}</small></td>
+			<td class="text-right">${format_currency(o.estimated, currency)}</td>
+			<td class="text-right">${format_currency(o.actual, currency)}</td>
+			<td class="text-right text-danger"><b>${format_currency(o.exceed, currency)}</b></td>
+			<td class="text-right">${flt(o.percent_over).toFixed(1)}%</td>
+		</tr>`;
+	});
+
+	const html = `
+		<div class="cm-estimate-overrun-dialog">
+			<p>${__('Actual cost to date exceeds the BOQ estimated cost for the items below.')}</p>
+			<table class="table table-bordered table-condensed">
+				<thead>
+					<tr>
+						<th>${__('BOQ Item')}</th>
+						<th class="text-right">${__('Estimated')}</th>
+						<th class="text-right">${__('Actual')}</th>
+						<th class="text-right">${__('Exceeds By')}</th>
+						<th class="text-right">${__('% Over')}</th>
+					</tr>
+				</thead>
+				<tbody>${rows}</tbody>
+			</table>
+		</div>`;
+
+	frappe.msgprint({
+		title: __('Estimate Overrun'),
+		indicator: 'orange',
+		message: html,
+	});
+}
 
 function strip_advance_rows_on_form(frm) {
 	const rows = (frm.doc.items || []).filter((row) => row.item_code === 'ADVANCE-DEDUCTION');

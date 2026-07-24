@@ -68,6 +68,16 @@ frappe.ui.form.on("BOQ Item", {
 			}, __("Actions"));
 		}
 
+		if (!frm.is_new()) {
+			frm.add_custom_button(__("Create Project Estimate"), function () {
+				frappe.new_doc("Project Estimate", {
+					project: frm.doc.project,
+					boq_bill: frm.doc.parent_bill,
+					boq_item: frm.doc.name,
+				});
+			}, __("Actions"));
+		}
+
 		// Add "Create Invoice" button if not fully billed
 		if (!frm.is_new() && frm.doc.billing_status !== "Fully Billed" && flt(frm.doc.current_qty) > 0) {
 			frm.add_custom_button(__("Create Invoice"), function () {

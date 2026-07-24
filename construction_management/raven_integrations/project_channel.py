@@ -40,9 +40,7 @@ def ensure_project_channel(doc) -> str | None:
 	channel = frappe.new_doc("Raven Channel")
 	channel.channel_name = get_channel_name_for_project(doc)
 	channel.type = "Private"
-	channel.channel_description = _("Channel for Project - {0}").format(
-		doc.project_name or doc.name
-	)
+	channel.channel_description = _channel_description_for_project(doc)
 	channel.is_synced = 1
 	channel.linked_doctype = "Project"
 	channel.linked_document = doc.name
@@ -111,7 +109,15 @@ def get_channel_for_project(project: str) -> str | None:
 
 
 def get_channel_name_for_project(doc) -> str:
-	source = (getattr(doc, "project_name", None) or doc.name or "project").strip()
+	"""Build a Raven channel name that includes Project No when available."""
+	project_no = (getattr(doc, "custom_project_no", None) or "").strip()
+	project_name = (getattr(doc, "project_name", None) or "").strip()
+	parts = []
+	if project_no:
+		parts.append(project_no)
+	if project_name:
+		parts.append(project_name)
+	source = " - ".join(parts) if parts else (doc.name or "project")
 	channel_name = ""
 	prev = ""
 	for char in source:
@@ -122,6 +128,14 @@ def get_channel_name_for_project(doc) -> str:
 			channel_name += "-"
 			prev = "-"
 	return (channel_name.strip("-") or doc.name)[:140]
+
+
+def _channel_description_for_project(doc) -> str:
+	project_no = (getattr(doc, "custom_project_no", None) or "").strip()
+	label = doc.project_name or doc.name
+	if project_no:
+		return _("Channel for Project {0} - {1}").format(project_no, label)
+	return _("Channel for Project - {0}").format(label)
 
 
 def _team_raven_user_ids(doc) -> dict[str, str]:
@@ -197,9 +211,7 @@ def _sync_channel_meta(doc, channel_id: str) -> None:
 		channel_id,
 		{
 			"channel_name": get_channel_name_for_project(doc),
-			"channel_description": _("Channel for Project - {0}").format(
-				doc.project_name or doc.name
-			),
+			"channel_description": _channel_description_for_project(doc),
 		},
 		update_modified=False,
 	)
@@ -249,6 +261,8 @@ def get_project_channel_messages(project: str, limit: int = 15) -> dict:
 
 	return {
 		"channel_id": channel_id,
+		"channel_name": frappe.db.get_value("Raven Channel", channel_id, "channel_name"),
+		"project_no": getattr(doc, "custom_project_no", None) or "",
 		"messages": messages,
 		"url": f"/raven/channel/{channel_id}",
 	}

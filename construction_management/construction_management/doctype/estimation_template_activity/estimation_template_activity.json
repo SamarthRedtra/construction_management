@@ -1,0 +1,87 @@
+{
+ "actions": [],
+ "creation": "2026-07-24 15:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "manufacturer",
+  "material",
+  "est_qty",
+  "unit_price",
+  "skilled",
+  "unskilled",
+  "skilled_rate",
+  "unskilled_rate"
+ ],
+ "fields": [
+  {
+   "columns": 1,
+   "fieldname": "manufacturer",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Manufacturer"
+  },
+  {
+   "columns": 2,
+   "fieldname": "material",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Material",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "est_qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Est Qty"
+  },
+  {
+   "columns": 1,
+   "fieldname": "unit_price",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Unit Price"
+  },
+  {
+   "columns": 1,
+   "fieldname": "skilled",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Skilled"
+  },
+  {
+   "columns": 1,
+   "fieldname": "unskilled",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Unskilled"
+  },
+  {
+   "columns": 1,
+   "fieldname": "skilled_rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Skilled Rate"
+  },
+  {
+   "columns": 1,
+   "fieldname": "unskilled_rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Unskilled Rate"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-24 15:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Construction Management",
+ "name": "Estimation Template Activity",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": []
+}
