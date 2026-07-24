@@ -122,7 +122,7 @@
 	.boq-quote .sub-row .desc { padding-left: 16px; }
 	.boq-quote .totals-wrap {
 		width: 100%;
-		margin: 10px 0 18px;
+		margin: 8px 0 6px;
 	}
 	.boq-quote .totals-wrap table {
 		margin-left: auto;
@@ -159,27 +159,39 @@
 		font-size: 12px;
 	}
 	.boq-quote .terms {
-		margin-top: 4px;
-		margin-bottom: 12px;
+		margin: 10px 0 0;
+		padding: 0;
 		font-size: 10px;
-		line-height: 1.5;
+		line-height: 1.35;
 		color: #334155;
+	}
+	.boq-quote .terms:first-of-type {
+		margin-top: 8px;
+	}
+	.boq-quote .terms .section-label {
+		margin: 0 0 4px;
+		padding-left: 8px;
 	}
 	.boq-quote .terms-body {
 		border: 1px solid #cbd5e1;
 		background: #f8fafc;
-		padding: 10px 12px;
+		/* no top/bottom padding inside content box */
+		padding: 0 8px;
 	}
-	.boq-quote .terms-body p {
-		margin: 0 0 6px;
+	.boq-quote .terms-body p,
+	.boq-quote .terms-body div,
+	.boq-quote .terms-body li {
+		margin: 0 !important;
+		padding: 0 !important;
 	}
 	.boq-quote .terms-body ul,
 	.boq-quote .terms-body ol {
-		margin: 4px 0 8px 18px;
-		padding: 0;
+		margin: 0 0 0 16px !important;
+		padding: 0 !important;
 	}
-	.boq-quote .terms-body li {
-		margin-bottom: 4px;
+	.boq-quote .terms-body br:first-child,
+	.boq-quote .terms-body > br {
+		display: none;
 	}
 </style>
 

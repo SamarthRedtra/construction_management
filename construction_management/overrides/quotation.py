@@ -148,13 +148,17 @@ class QuotationOverride(Quotation):
 			)
 
 	def _reset_amendment_approval_state(self):
-		"""Every amendment is a new draft and must receive fresh approvals.
+		"""Clear inherited approval decisions only when first creating an amendment.
 
 		Frappe copies custom fields from the cancelled quotation into its amendment.
-		Approval decisions and the old cost sheet must therefore never be copied into
-		the new quotation.
+		Approval decisions and the old cost sheet must not be copied into the new draft.
+
+		IMPORTANT: run only on first create (`is_new()`). Running on every validate was
+		wiping a user-selected Sales Manager Approver on each Save/Submit.
 		"""
 		if not self.get("amended_from") or self.docstatus != 0:
+			return
+		if not self.is_new():
 			return
 
 		for fieldname in (
@@ -421,7 +425,7 @@ def _resolve_assigned_sales_manager(doc, managers: list[str]) -> str:
 	Company may list several Quotation Sales Managers; only one is assigned
 	per quotation (ToDo / Sales Manager Approver).
 	"""
-	selected = doc.get("custom_sales_manager_approver")
+	selected = (doc.get("custom_sales_manager_approver") or "").strip()
 	if selected in managers:
 		return selected
 
@@ -432,7 +436,12 @@ def _resolve_assigned_sales_manager(doc, managers: list[str]) -> str:
 	if len(managers) == 1:
 		return managers[0]
 
-	frappe.throw(_("Select the Sales Manager Approver before submitting this quotation."))
+	frappe.throw(
+		_(
+			"Select the Sales Manager Approver before submitting this quotation. "
+			"Available managers: {0}"
+		).format(", ".join(managers))
+	)
 
 
 @frappe.whitelist()
@@ -440,6 +449,73 @@ def get_quotation_approver_options(company: str) -> dict:
 	"""Company-configured manager / director user lists for Quotation form filters."""
 	managers, directors = _get_quotation_approvers(company)
 	return {"managers": managers, "directors": directors}
+
+
+@frappe.whitelist()
+def get_sales_person_manager_user(sales_person: str | None = None, company: str | None = None) -> str | None:
+	"""Return the Sales Person's user if they are a Quotation Sales Manager for the company."""
+	user = _sales_person_user(sales_person)
+	if not user:
+		return None
+	managers, _ = _get_quotation_approvers(company)
+	return user if user in managers else None
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def sales_manager_approver_query(
+	doctype: str,
+	txt: str,
+	searchfield: str,
+	start: int,
+	page_len: int,
+	filters: dict | None = None,
+):
+	"""Link search for Sales Manager Approver — scoped to Company managers, ignores User perms.
+
+	Standard User link search uses get_list and fails for users without User read permission.
+	"""
+	filters = filters or {}
+	if isinstance(filters, str):
+		import json
+
+		try:
+			filters = json.loads(filters)
+		except Exception:
+			filters = {}
+	company = filters.get("company")
+	managers, _ = _get_quotation_approvers(company)
+	if not managers:
+		return []
+
+	txt = (txt or "").strip()
+	like = f"%{txt}%"
+	rows = frappe.db.sql(
+		"""
+		SELECT name, IFNULL(full_name, name) AS full_name
+		FROM `tabUser`
+		WHERE enabled = 1
+			AND name IN %(managers)s
+			AND (
+				%(txt)s = ''
+				OR name LIKE %(like)s
+				OR IFNULL(full_name, '') LIKE %(like)s
+				OR IFNULL(first_name, '') LIKE %(like)s
+				OR IFNULL(last_name, '') LIKE %(like)s
+			)
+		ORDER BY full_name ASC, name ASC
+		LIMIT %(start)s, %(page_len)s
+		""",
+		{
+			"managers": tuple(managers),
+			"txt": txt,
+			"like": like,
+			"start": int(start or 0),
+			"page_len": int(page_len or 20),
+		},
+	)
+	return rows
+
 
 
 def _assign_quotation_users(doc, users: list[str], description: str, *, cancel_open: bool = True):

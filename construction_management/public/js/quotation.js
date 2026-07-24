@@ -166,18 +166,18 @@ function setup_sales_manager_approver_field(frm) {
 		__("Only this Sales Manager is assigned on submit. All Quotation Directors are also assigned.")
 	);
 	setup_terms_template_queries(frm);
-	if (!editable || !frm.doc.company) {
+
+	if (!frm.doc.company) {
 		return;
 	}
+
 	frappe.call({
 		method: "construction_management.overrides.quotation.get_quotation_approver_options",
 		args: { company: frm.doc.company },
 		callback: (r) => {
 			const managers = (r.message && r.message.managers) || [];
 			if (!managers.length) {
-				frm.set_query("custom_sales_manager_approver", () => ({
-					filters: { name: ["in", []] },
-				}));
+				frm.set_df_property("custom_sales_manager_approver", "reqd", 0);
 				frm.set_df_property(
 					"custom_sales_manager_approver",
 					"description",
@@ -186,18 +186,32 @@ function setup_sales_manager_approver_field(frm) {
 						[frm.doc.company]
 					)
 				);
-				frappe.show_alert({
-					message: __(
-						"No Quotation Sales Managers configured on Company {0}. Add them under Quotation Sales Managers.",
-						[frm.doc.company]
-					),
-					indicator: "orange",
-				});
+				if (editable) {
+					frappe.show_alert({
+						message: __(
+							"No Quotation Sales Managers configured on Company {0}. Add them under Quotation Sales Managers.",
+							[frm.doc.company]
+						),
+						indicator: "orange",
+					});
+				}
 				return;
 			}
-			frm.set_query("custom_sales_manager_approver", () => ({
-				filters: { name: ["in", managers], enabled: 1 },
-			}));
+
+			// Use Select (not User Link) so any role can pick without User read permission
+			const options = "\n" + managers.join("\n");
+			frm.set_df_property("custom_sales_manager_approver", "fieldtype", "Select");
+			frm.set_df_property("custom_sales_manager_approver", "options", options);
+			frm.set_df_property("custom_sales_manager_approver", "reqd", editable ? 1 : 0);
+			frm.refresh_field("custom_sales_manager_approver");
+
+			if (
+				editable &&
+				frm.doc.custom_sales_manager_approver &&
+				!managers.includes(frm.doc.custom_sales_manager_approver)
+			) {
+				frm.set_value("custom_sales_manager_approver", "");
+			}
 		},
 	});
 }

@@ -78,12 +78,29 @@ def build_boq_quotation_print_context(doc) -> dict:
 			"include_vat": _include_vat(doc),
 		},
 		"boq_html": boq_html,
-		"terms_html": doc.get("terms") or "",
-		"payment_terms": doc.get("custom_payment_terms") or "",
-		"exclusion": doc.get("custom_exclusion") or "",
-		"validity": doc.get("custom_validity") or "",
+		"terms_html": _compact_terms_html(doc.get("terms") or ""),
+		"payment_terms": _compact_terms_html(doc.get("custom_payment_terms") or ""),
+		"exclusion": _compact_terms_html(doc.get("custom_exclusion") or ""),
+		"validity": _compact_terms_html(doc.get("custom_validity") or ""),
 		"currency": doc.currency or "AED",
 	}
+
+
+def _compact_terms_html(html: str) -> str:
+	"""Strip empty paragraphs / leading-trailing breaks that create print whitespace."""
+	import re
+
+	if not html:
+		return ""
+	text = str(html)
+	# empty paragraphs / nbsp-only paragraphs
+	text = re.sub(r"<p[^>]*>\s*(?:&nbsp;|\s|<br\s*/?>)*\s*</p>", "", text, flags=re.I)
+	# leading/trailing br
+	text = re.sub(r"^(?:\s|<br\s*/?>|&nbsp;)+", "", text, flags=re.I)
+	text = re.sub(r"(?:\s|<br\s*/?>|&nbsp;)+$", "", text, flags=re.I)
+	# collapse multiple br
+	text = re.sub(r"(?:<br\s*/?>\s*){2,}", "<br>", text, flags=re.I)
+	return text.strip()
 
 
 def _get_letter_head(doc, default_letter_head: str | None) -> dict | None:
