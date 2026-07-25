@@ -159,6 +159,11 @@ function setup_print_hint(frm) {
 
 function setup_sales_manager_approver_field(frm) {
 	const editable = frm.doc.docstatus === 0;
+
+	// Keep field as Link → User (do not convert to Select — that breaks
+	// Frappe "Ignore User Permissions" validation on submit).
+	frm.set_df_property("custom_sales_manager_approver", "fieldtype", "Link");
+	frm.set_df_property("custom_sales_manager_approver", "options", "User");
 	frm.set_df_property("custom_sales_manager_approver", "read_only", editable ? 0 : 1);
 	frm.set_df_property(
 		"custom_sales_manager_approver",
@@ -167,7 +172,13 @@ function setup_sales_manager_approver_field(frm) {
 	);
 	setup_terms_template_queries(frm);
 
-	if (!frm.doc.company) {
+	frm.set_query("custom_sales_manager_approver", () => ({
+		query: "construction_management.overrides.quotation.sales_manager_approver_query",
+		filters: { company: frm.doc.company || "" },
+	}));
+
+	if (!editable || !frm.doc.company) {
+		frm.set_df_property("custom_sales_manager_approver", "reqd", 0);
 		return;
 	}
 
@@ -176,8 +187,8 @@ function setup_sales_manager_approver_field(frm) {
 		args: { company: frm.doc.company },
 		callback: (r) => {
 			const managers = (r.message && r.message.managers) || [];
+			frm.set_df_property("custom_sales_manager_approver", "reqd", managers.length ? 1 : 0);
 			if (!managers.length) {
-				frm.set_df_property("custom_sales_manager_approver", "reqd", 0);
 				frm.set_df_property(
 					"custom_sales_manager_approver",
 					"description",
@@ -186,32 +197,22 @@ function setup_sales_manager_approver_field(frm) {
 						[frm.doc.company]
 					)
 				);
-				if (editable) {
-					frappe.show_alert({
-						message: __(
-							"No Quotation Sales Managers configured on Company {0}. Add them under Quotation Sales Managers.",
-							[frm.doc.company]
-						),
-						indicator: "orange",
-					});
-				}
+				frappe.show_alert({
+					message: __(
+						"No Quotation Sales Managers configured on Company {0}. Add them under Quotation Sales Managers.",
+						[frm.doc.company]
+					),
+					indicator: "orange",
+				});
 				return;
 			}
-
-			// Use Select (not User Link) so any role can pick without User read permission
-			const options = "\n" + managers.join("\n");
-			frm.set_df_property("custom_sales_manager_approver", "fieldtype", "Select");
-			frm.set_df_property("custom_sales_manager_approver", "options", options);
-			frm.set_df_property("custom_sales_manager_approver", "reqd", editable ? 1 : 0);
-			frm.refresh_field("custom_sales_manager_approver");
-
 			if (
-				editable &&
 				frm.doc.custom_sales_manager_approver &&
 				!managers.includes(frm.doc.custom_sales_manager_approver)
 			) {
 				frm.set_value("custom_sales_manager_approver", "");
 			}
+			frm.refresh_field("custom_sales_manager_approver");
 		},
 	});
 }
