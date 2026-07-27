@@ -9,6 +9,7 @@
   "role",
   "employee",
   "employee_name",
+  "notification_preference",
   "division",
   "column_break_1",
   "designation"
@@ -37,6 +38,14 @@
    "in_list_view": 1,
    "label": "Employee Name",
    "read_only": 1
+  },
+  {
+   "default": "All Messages",
+   "fieldname": "notification_preference",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Raven Notification Preference",
+   "options": "All Messages\nMentions Only"
   },
   {
    "fieldname": "division",

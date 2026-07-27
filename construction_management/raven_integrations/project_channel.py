@@ -64,6 +64,7 @@ def sync_project_channel_members(doc, channel_id: str | None = None) -> None:
 		return
 
 	desired_raven_users = _team_raven_user_ids(doc)
+	notification_preferences = _team_notification_preferences(doc)
 	workspace = frappe.db.get_value("Raven Channel", channel_id, "workspace")
 
 	# Ensure Desk User has Raven User role + Raven User is enabled (required for member list UI).
@@ -75,13 +76,21 @@ def sync_project_channel_members(doc, channel_id: str | None = None) -> None:
 	existing = frappe.get_all(
 		"Raven Channel Member",
 		filters={"channel_id": channel_id, "is_synced": 1},
-		fields=["name", "user_id", "linked_doctype", "linked_document"],
+		fields=["name", "user_id", "linked_doctype", "linked_document", "notification_preference"],
 	)
 	existing_by_user = {row.user_id: row for row in existing if row.user_id}
 
 	changed = False
 	for raven_user, employee_id in desired_raven_users.items():
+		notification_preference = notification_preferences.get(employee_id, "All Messages")
 		if raven_user in existing_by_user:
+			existing_member = existing_by_user[raven_user]
+			if existing_member.notification_preference != notification_preference:
+				member_doc = frappe.get_doc("Raven Channel Member", existing_member.name)
+				member_doc.notification_preference = notification_preference
+				member_doc.flags.ignore_permissions = True
+				member_doc.save(ignore_permissions=True)
+				changed = True
 			continue
 		# Skip if already a non-synced member of this channel (avoid duplicate).
 		if frappe.db.exists(
@@ -96,6 +105,7 @@ def sync_project_channel_members(doc, channel_id: str | None = None) -> None:
 				"is_synced": 1,
 				"linked_doctype": "Employee",
 				"linked_document": employee_id,
+				"notification_preference": notification_preference,
 			}
 		)
 		member.insert(ignore_permissions=True)
@@ -205,6 +215,20 @@ def _team_raven_user_ids(doc) -> dict[str, str]:
 		if raven_user:
 			result[raven_user] = emp.name
 	return result
+
+
+def _team_notification_preferences(doc) -> dict[str, str]:
+	"""Map each Project Team Employee to their selected Raven notification preference."""
+	preferences: dict[str, str] = {}
+	for row in doc.get("custom_project_team") or []:
+		employee = row.get("employee")
+		if employee and employee not in preferences:
+			preferences[employee] = (
+				"Mentions Only"
+				if row.get("notification_preference") == "Mentions Only"
+				else "All Messages"
+			)
+	return preferences
 
 
 def _resolve_raven_user_for_employee(emp) -> str | None:
@@ -564,7 +588,9 @@ def get_project_channel_messages(project: str, limit: int = 15) -> dict:
 
 
 @frappe.whitelist()
-def add_users_to_raven_channels(users=None, channel_ids=None) -> dict:
+def add_users_to_raven_channels(
+	users=None, channel_ids=None, notification_preference: str = "All Messages"
+) -> dict:
 	"""
 	Add one/many Desk Users to one/many Raven Channels (project-linked or any).
 	Members are inserted with is_synced=0 so Project team sync will not remove them.
@@ -576,6 +602,7 @@ def add_users_to_raven_channels(users=None, channel_ids=None) -> dict:
 
 	users = _as_list(users)
 	channel_ids = _as_list(channel_ids)
+	notification_preference = _notification_preference(notification_preference)
 	if not users:
 		frappe.throw(_("Select at least one User"))
 	if not channel_ids:
@@ -616,6 +643,7 @@ def add_users_to_raven_channels(users=None, channel_ids=None) -> dict:
 					"channel_id": channel_id,
 					"user_id": raven_user,
 					"is_synced": 0,
+					"notification_preference": notification_preference,
 				}
 			)
 			member.flags.ignore_permissions = True
@@ -654,6 +682,10 @@ def _as_list(value) -> list[str]:
 	if isinstance(value, (list, tuple, set)):
 		return [str(v).strip() for v in value if str(v).strip()]
 	return [str(value).strip()] if str(value).strip() else []
+
+
+def _notification_preference(value: str | None) -> str:
+	return "Mentions Only" if value == "Mentions Only" else "All Messages"
 
 
 def _resolve_raven_users(users: list[str]) -> list[str]:

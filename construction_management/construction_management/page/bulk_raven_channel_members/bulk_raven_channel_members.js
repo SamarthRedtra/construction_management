@@ -21,6 +21,7 @@ frappe.pages['bulk-raven-channel-members'].on_page_load = function (wrapper) {
 			</p>
 			<div id="bulk-raven-company" style="margin-bottom: 14px;"></div>
 			<div id="bulk-raven-users" style="margin-bottom: 14px;"></div>
+			<div id="bulk-raven-notification-preference" style="margin-bottom: 14px;"></div>
 			<div style="margin: 8px 0 6px; font-weight: 600;">${__('Project Raven Channels')}</div>
 			<div id="bulk-raven-channel-list" class="frappe-card" style="padding: 12px; max-height: 360px; overflow: auto;"></div>
 			<div id="bulk-raven-result" class="text-muted" style="margin-top: 16px;"></div>
@@ -63,6 +64,20 @@ frappe.pages['bulk-raven-channel-members'].on_page_load = function (wrapper) {
 		},
 		render_input: true,
 	});
+
+	const notification_preference_control = frappe.ui.form.make_control({
+		parent: wrapper.querySelector('#bulk-raven-notification-preference'),
+		df: {
+			label: __('Notification Preference'),
+			fieldname: 'notification_preference',
+			fieldtype: 'Select',
+			options: 'All Messages\nMentions Only',
+			default: 'All Messages',
+			description: __('Mentions Only sends push notifications only when the member is tagged.'),
+		},
+		render_input: true,
+	});
+	notification_preference_control.set_value('All Messages');
 
 	function render_channel_checks(rows) {
 		const $list = $body.find('#bulk-raven-channel-list');
@@ -155,7 +170,11 @@ frappe.pages['bulk-raven-channel-members'].on_page_load = function (wrapper) {
 
 		frappe.call({
 			method: 'construction_management.raven_integrations.project_channel.add_users_to_raven_channels',
-			args: { users, channel_ids },
+			args: {
+				users,
+				channel_ids,
+				notification_preference: notification_preference_control.get_value() || 'All Messages',
+			},
 			freeze: true,
 			freeze_message: __('Adding members…'),
 			callback(r) {
