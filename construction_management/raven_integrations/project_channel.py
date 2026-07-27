@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
+from frappe.utils import cint
 
 
 def after_insert(doc, method=None):
@@ -35,6 +36,7 @@ def ensure_project_channel(doc) -> str | None:
 	if existing:
 		_store_channel_on_project(doc.name, existing)
 		_sync_channel_meta(doc, existing)
+		sync_project_channel_members(doc, existing)
 		return existing
 
 	channel = frappe.new_doc("Raven Channel")
@@ -62,6 +64,14 @@ def sync_project_channel_members(doc, channel_id: str | None = None) -> None:
 		return
 
 	desired_raven_users = _team_raven_user_ids(doc)
+	workspace = frappe.db.get_value("Raven Channel", channel_id, "workspace")
+
+	# Ensure Desk User has Raven User role + Raven User is enabled (required for member list UI).
+	for raven_user in list(desired_raven_users.keys()):
+		_ensure_raven_user_ready(raven_user)
+		# Raven only allows channel membership for workspace members.
+		_ensure_workspace_member(workspace, raven_user)
+
 	existing = frappe.get_all(
 		"Raven Channel Member",
 		filters={"channel_id": channel_id, "is_synced": 1},
@@ -69,8 +79,14 @@ def sync_project_channel_members(doc, channel_id: str | None = None) -> None:
 	)
 	existing_by_user = {row.user_id: row for row in existing if row.user_id}
 
+	changed = False
 	for raven_user, employee_id in desired_raven_users.items():
 		if raven_user in existing_by_user:
+			continue
+		# Skip if already a non-synced member of this channel (avoid duplicate).
+		if frappe.db.exists(
+			"Raven Channel Member", {"channel_id": channel_id, "user_id": raven_user}
+		):
 			continue
 		member = frappe.get_doc(
 			{
@@ -83,11 +99,20 @@ def sync_project_channel_members(doc, channel_id: str | None = None) -> None:
 			}
 		)
 		member.insert(ignore_permissions=True)
+		changed = True
 
 	desired_set = set(desired_raven_users.keys())
 	for row in existing:
 		if row.user_id and row.user_id not in desired_set:
 			frappe.db.delete("Raven Channel Member", row.name)
+			changed = True
+
+	# Always clear Raven member list cache so UI shows fresh members.
+	_clear_raven_channel_members_cache(channel_id)
+	if workspace:
+		_clear_raven_workspace_members_cache(workspace)
+	if changed:
+		_clear_raven_users_list_cache()
 
 
 def get_channel_for_project(project: str) -> str | None:
@@ -139,7 +164,13 @@ def _channel_description_for_project(doc) -> str:
 
 
 def _team_raven_user_ids(doc) -> dict[str, str]:
-	"""Map Raven User name → Employee name for project team rows."""
+	"""Map Raven User name → Employee name for project team rows.
+
+	Resolution order per employee:
+	1. Employee.user_id → Raven User
+	2. Employee emails → User → Raven User
+	3. Name match against Raven User.full_name (unique match only)
+	"""
 	employees = []
 	for row in doc.get("custom_project_team") or []:
 		if row.get("employee"):
@@ -153,31 +184,295 @@ def _team_raven_user_ids(doc) -> dict[str, str]:
 	if not employees:
 		return {}
 
-	user_map = {
-		row.name: row.user_id
-		for row in frappe.get_all(
-			"Employee",
-			filters={"name": ("in", employees)},
-			fields=["name", "user_id"],
-		)
-		if row.user_id
-	}
-	if not user_map:
+	emp_rows = frappe.get_all(
+		"Employee",
+		filters={"name": ("in", employees)},
+		fields=[
+			"name",
+			"employee_name",
+			"user_id",
+			"company_email",
+			"personal_email",
+			"prefered_email",
+		],
+	)
+	if not emp_rows:
 		return {}
 
-	raven_users = frappe.get_all(
-		"Raven User",
-		filters={"user": ("in", list(user_map.values()))},
-		fields=["name", "user"],
-	)
-	user_to_raven = {row.user: row.name for row in raven_users}
-
-	result = {}
-	for employee, user_id in user_map.items():
-		raven_user = user_to_raven.get(user_id)
+	result: dict[str, str] = {}
+	for emp in emp_rows:
+		raven_user = _resolve_raven_user_for_employee(emp)
 		if raven_user:
-			result[raven_user] = employee
+			result[raven_user] = emp.name
 	return result
+
+
+def _resolve_raven_user_for_employee(emp) -> str | None:
+	"""Resolve Raven User for one Employee row (as_dict / Document)."""
+	user_id = (emp.get("user_id") if isinstance(emp, dict) else emp.user_id) or None
+	if user_id:
+		raven = _ensure_raven_user_for_user(user_id)
+		if raven:
+			return raven
+
+	emails = []
+	for key in ("company_email", "personal_email", "prefered_email"):
+		val = emp.get(key) if isinstance(emp, dict) else emp.get(key)
+		if val:
+			emails.append(str(val).strip())
+	for email in emails:
+		if frappe.db.exists("User", email):
+			raven = _ensure_raven_user_for_user(email)
+			if raven:
+				_maybe_link_employee_user(emp.get("name") if isinstance(emp, dict) else emp.name, email)
+				return raven
+
+	employee_name = emp.get("employee_name") if isinstance(emp, dict) else emp.employee_name
+	matched_user = _match_user_by_employee_name(employee_name)
+	if matched_user:
+		raven = _ensure_raven_user_for_user(matched_user)
+		if raven:
+			_maybe_link_employee_user(emp.get("name") if isinstance(emp, dict) else emp.name, matched_user)
+			return raven
+	return None
+
+
+def _maybe_link_employee_user(employee: str, user: str) -> None:
+	"""Persist Employee.user_id when empty so future syncs are direct."""
+	if not employee or not user:
+		return
+	if frappe.db.get_value("Employee", employee, "user_id"):
+		return
+	if not frappe.db.exists("User", user):
+		return
+	try:
+		frappe.db.set_value("Employee", employee, "user_id", user, update_modified=False)
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), f"Link Employee {employee} → User {user}")
+
+
+def _ensure_raven_user_for_user(user: str) -> str | None:
+	"""Return Raven User name for Desk User; create enabled Raven User if missing."""
+	if not user or not frappe.db.exists("User", user):
+		return None
+	existing = frappe.db.get_value("Raven User", {"user": user}, "name")
+	if existing:
+		_ensure_raven_user_ready(existing)
+		return existing
+	try:
+		doc = frappe.get_doc(
+			{
+				"doctype": "Raven User",
+				"user": user,
+				"type": "User",
+				"enabled": 1,
+			}
+		)
+		doc.flags.ignore_permissions = True
+		doc.insert(ignore_permissions=True)
+		_ensure_desk_user_has_raven_role(user)
+		_clear_raven_users_list_cache()
+		return doc.name
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), f"Ensure Raven User for {user}")
+		existing = frappe.db.get_value("Raven User", {"user": user}, "name")
+		if existing:
+			_ensure_raven_user_ready(existing)
+		return existing
+
+
+def _ensure_raven_user_ready(raven_user: str) -> None:
+	"""Enable Raven User + ensure linked Desk User has Raven User role."""
+	if not raven_user or not frappe.db.exists("Raven User", raven_user):
+		return
+	row = frappe.db.get_value("Raven User", raven_user, ["user", "enabled"], as_dict=True) or {}
+	if not cint(row.get("enabled")):
+		frappe.db.set_value("Raven User", raven_user, "enabled", 1, update_modified=False)
+	if row.get("user"):
+		_ensure_desk_user_has_raven_role(row.user)
+
+
+def _ensure_desk_user_has_raven_role(user: str) -> None:
+	"""Add Raven User role to Desk User when missing."""
+	if not user or user == "Guest":
+		return
+	if not frappe.db.exists("User", user):
+		return
+	if frappe.db.exists("Has Role", {"parent": user, "role": "Raven User"}):
+		return
+	if not frappe.db.exists("Role", "Raven User"):
+		return
+
+	try:
+		user_doc = frappe.get_doc("User", user)
+		user_doc.flags.ignore_permissions = True
+		user_doc.add_roles("Raven User")
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), f"Add Raven User role via add_roles for {user}")
+
+	# Some User save hooks strip roles; fall back to direct Has Role insert.
+	if frappe.db.exists("Has Role", {"parent": user, "role": "Raven User"}):
+		frappe.clear_cache(user=user)
+		return
+
+	try:
+		max_idx = frappe.db.sql(
+			"SELECT IFNULL(MAX(idx), 0) FROM `tabHas Role` WHERE parent=%s",
+			(user,),
+		)[0][0]
+		frappe.get_doc(
+			{
+				"doctype": "Has Role",
+				"parent": user,
+				"parenttype": "User",
+				"parentfield": "roles",
+				"role": "Raven User",
+				"idx": int(max_idx) + 1,
+			}
+		).insert(ignore_permissions=True)
+		frappe.clear_cache(user=user)
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), f"Add Raven User role via Has Role for {user}")
+
+
+def _ensure_workspace_member(workspace: str | None, raven_user: str) -> None:
+	"""Ensure Raven User is a member of the channel's workspace (required by Raven)."""
+	if not workspace or not raven_user:
+		return
+	if not frappe.db.exists("DocType", "Raven Workspace Member"):
+		return
+	if not frappe.db.exists("Raven Workspace", workspace):
+		return
+	if frappe.db.exists(
+		"Raven Workspace Member", {"workspace": workspace, "user": raven_user}
+	):
+		return
+	try:
+		member = frappe.get_doc(
+			{
+				"doctype": "Raven Workspace Member",
+				"workspace": workspace,
+				"user": raven_user,
+				"is_admin": 0,
+			}
+		)
+		member.flags.ignore_permissions = True
+		member.insert(ignore_permissions=True)
+		_clear_raven_workspace_members_cache(workspace)
+	except Exception:
+		# Duplicate / race is fine
+		if not frappe.db.exists(
+			"Raven Workspace Member", {"workspace": workspace, "user": raven_user}
+		):
+			frappe.log_error(
+				frappe.get_traceback(),
+				f"Add Raven Workspace Member {raven_user} → {workspace}",
+			)
+
+
+def _clear_raven_workspace_members_cache(workspace: str) -> None:
+	if not workspace:
+		return
+	try:
+		from raven.utils import delete_workspace_members_cache
+
+		delete_workspace_members_cache(workspace)
+	except Exception:
+		frappe.cache().delete_value(f"raven:workspace_members:{workspace}")
+
+
+def _clear_raven_channel_members_cache(channel_id: str) -> None:
+	if not channel_id:
+		return
+	try:
+		from raven.utils import delete_channel_members_cache
+
+		delete_channel_members_cache(channel_id)
+	except Exception:
+		frappe.cache().delete_value(f"raven:channel_members:{channel_id}")
+
+
+def _clear_raven_users_list_cache() -> None:
+	try:
+		from raven.api.raven_users import get_users
+
+		if hasattr(get_users, "clear_cache"):
+			get_users.clear_cache()
+	except Exception:
+		pass
+
+
+def _normalize_person_name(name: str | None) -> str:
+	import re
+
+	text = re.sub(r"\([^)]*\)", " ", name or "")
+	text = re.sub(r"[^A-Za-z0-9 ]+", " ", text)
+	return re.sub(r"\s+", " ", text).strip().upper()
+
+
+def _match_user_by_employee_name(employee_name: str | None) -> str | None:
+	"""Unique User match from Raven User / User full names."""
+	target = _normalize_person_name(employee_name)
+	if not target or len(target) < 3:
+		return None
+
+	raven_rows = frappe.get_all("Raven User", fields=["name", "user", "full_name"], filters={"enabled": 1})
+	hits = []
+	for row in raven_rows:
+		candidate = _normalize_person_name(row.full_name) or _normalize_person_name(row.user)
+		if _person_names_match(target, candidate):
+			hits.append(row.user)
+	hits = list({h for h in hits if h})
+	if len(hits) == 1:
+		return hits[0]
+
+	# Fallback: enabled System Users by full_name
+	users = frappe.get_all(
+		"User",
+		filters={"enabled": 1, "user_type": "System User"},
+		fields=["name", "full_name"],
+	)
+	uhits = []
+	for row in users:
+		if _person_names_match(target, _normalize_person_name(row.full_name)):
+			uhits.append(row.name)
+	uhits = list({h for h in uhits if h})
+	if len(uhits) == 1:
+		return uhits[0]
+	return None
+
+
+def _person_names_match(a: str, b: str) -> bool:
+	if not a or not b:
+		return False
+	if a == b:
+		return True
+	if a.startswith(b) or b.startswith(a):
+		return True
+	at, bt = a.split(), b.split()
+	if len(at) >= 2 and len(bt) >= 2 and at[0] == bt[0] and at[1] == bt[1]:
+		return True
+	# Contiguous token window: "WAQAR TARIQ" inside "MUHAMMAD WAQAR TARIQ …"
+	shorter, longer = (at, bt) if len(at) <= len(bt) else (bt, at)
+	if len(shorter) >= 2 and _tokens_contiguous(shorter, longer):
+		return True
+	# Single strong token (len>=5) unique-ish overlap for short raven names like "TAQREEB"
+	if len(shorter) == 1 and len(shorter[0]) >= 5 and shorter[0] in longer:
+		return True
+	if len(at) >= 1 and len(bt) >= 1 and at[0] == bt[0] and len(at[0]) >= 4:
+		if len(at) >= 2 and at[1] in bt:
+			return True
+	return False
+
+
+def _tokens_contiguous(needle: list[str], haystack: list[str]) -> bool:
+	n, m = len(needle), len(haystack)
+	if n == 0 or n > m:
+		return False
+	for i in range(m - n + 1):
+		if haystack[i : i + n] == needle:
+			return True
+	return False
 
 
 def _resolve_workspace(doc) -> str | None:
@@ -266,6 +561,127 @@ def get_project_channel_messages(project: str, limit: int = 15) -> dict:
 		"messages": messages,
 		"url": f"/raven/channel/{channel_id}",
 	}
+
+
+@frappe.whitelist()
+def add_users_to_raven_channels(users=None, channel_ids=None) -> dict:
+	"""
+	Add one/many Desk Users to one/many Raven Channels (project-linked or any).
+	Members are inserted with is_synced=0 so Project team sync will not remove them.
+	"""
+	if not _raven_installed():
+		frappe.throw(_("Raven is not installed"))
+	if not frappe.has_permission("Raven Channel", "write"):
+		frappe.throw(_("Not permitted to modify Raven channels"), frappe.PermissionError)
+
+	users = _as_list(users)
+	channel_ids = _as_list(channel_ids)
+	if not users:
+		frappe.throw(_("Select at least one User"))
+	if not channel_ids:
+		frappe.throw(_("Select at least one Raven Channel"))
+
+	raven_users = _resolve_raven_users(users)
+	if not raven_users:
+		frappe.throw(_("None of the selected users have a Raven User profile"))
+
+	for raven_user in raven_users:
+		_ensure_raven_user_ready(raven_user)
+
+	added = 0
+	skipped = 0
+	missing_channels = []
+
+	for channel_id in channel_ids:
+		if not frappe.db.exists("Raven Channel", channel_id):
+			missing_channels.append(channel_id)
+			continue
+		workspace = frappe.db.get_value("Raven Channel", channel_id, "workspace")
+		for raven_user in raven_users:
+			_ensure_workspace_member(workspace, raven_user)
+		existing = set(
+			frappe.get_all(
+				"Raven Channel Member",
+				filters={"channel_id": channel_id, "user_id": ("in", raven_users)},
+				pluck="user_id",
+			)
+		)
+		for raven_user in raven_users:
+			if raven_user in existing:
+				skipped += 1
+				continue
+			member = frappe.get_doc(
+				{
+					"doctype": "Raven Channel Member",
+					"channel_id": channel_id,
+					"user_id": raven_user,
+					"is_synced": 0,
+				}
+			)
+			member.flags.ignore_permissions = True
+			member.insert(ignore_permissions=True)
+			added += 1
+		_clear_raven_channel_members_cache(channel_id)
+		if workspace:
+			_clear_raven_workspace_members_cache(workspace)
+
+	_clear_raven_users_list_cache()
+	return {
+		"added": added,
+		"skipped": skipped,
+		"raven_users": raven_users,
+		"missing_channels": missing_channels,
+	}
+
+
+def _as_list(value) -> list[str]:
+	if value is None:
+		return []
+	if isinstance(value, str):
+		import json
+
+		value = value.strip()
+		if not value:
+			return []
+		if value.startswith("["):
+			try:
+				parsed = json.loads(value)
+				if isinstance(parsed, list):
+					return [str(v).strip() for v in parsed if str(v).strip()]
+			except Exception:
+				pass
+		return [v.strip() for v in value.split(",") if v.strip()]
+	if isinstance(value, (list, tuple, set)):
+		return [str(v).strip() for v in value if str(v).strip()]
+	return [str(value).strip()] if str(value).strip() else []
+
+
+def _resolve_raven_users(users: list[str]) -> list[str]:
+	"""Accept Desk User names or Raven User names; return Raven User names."""
+	resolved = []
+	for name in users:
+		if frappe.db.exists("Raven User", name):
+			_ensure_raven_user_ready(name)
+			resolved.append(name)
+			continue
+		# Desk User → ensure Raven User exists (+ role)
+		raven = _ensure_raven_user_for_user(name)
+		if raven:
+			resolved.append(raven)
+			continue
+		# Raven User by user field
+		raven = frappe.db.get_value("Raven User", {"user": name}, "name")
+		if raven:
+			_ensure_raven_user_ready(raven)
+			resolved.append(raven)
+	# unique, preserve order
+	seen = set()
+	out = []
+	for ru in resolved:
+		if ru not in seen:
+			seen.add(ru)
+			out.append(ru)
+	return out
 
 
 def _cint_limit(limit) -> int:

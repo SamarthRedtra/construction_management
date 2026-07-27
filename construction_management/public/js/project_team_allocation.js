@@ -3,6 +3,37 @@
  */
 frappe.provide("construction_management.project_team_allocation");
 
+/**
+ * Save Project so on_update syncs team Employees into the linked Raven channel.
+ */
+construction_management.project_team_allocation.persist_and_sync_raven = function (frm) {
+	frm.dirty();
+	if (frm.is_new() || !frm.doc.name) {
+		return Promise.resolve();
+	}
+	if (frm._pma_saving_raven) {
+		return frm._pma_saving_raven;
+	}
+	frm._pma_saving_raven = frm
+		.save()
+		.then(() => {
+			frappe.show_alert({
+				message: __("Team saved. Raven channel members updated."),
+				indicator: "green",
+			});
+		})
+		.catch(() => {
+			frappe.show_alert({
+				message: __("Team changed locally. Save the Project to update the Raven channel."),
+				indicator: "orange",
+			});
+		})
+		.finally(() => {
+			frm._pma_saving_raven = null;
+		});
+	return frm._pma_saving_raven;
+};
+
 construction_management.project_team_allocation.GROUPS = [
 	{
 		id: "sales",
@@ -676,7 +707,7 @@ construction_management.project_team_allocation.bind_events = function (wrapper,
 		frm.refresh_field("custom_project_team");
 		construction_management.project_team_allocation.sync_team_to_legacy_fields(frm);
 		construction_management.project_team_allocation.render(frm);
-		frm.dirty();
+		construction_management.project_team_allocation.persist_and_sync_raven(frm);
 	});
 };
 
@@ -747,7 +778,7 @@ construction_management.project_team_allocation.open_assign_dialog = function (f
 				frm.refresh_field("custom_project_team");
 				construction_management.project_team_allocation.sync_team_to_legacy_fields(frm);
 				construction_management.project_team_allocation.render(frm);
-				frm.dirty();
+				construction_management.project_team_allocation.persist_and_sync_raven(frm);
 				d.hide();
 			});
 		},

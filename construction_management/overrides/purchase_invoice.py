@@ -5,8 +5,9 @@ from collections import defaultdict
 
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import cint, flt
 from redtra_customisation.override.purchase_invoice import CustomPurchaseInvoice
+from erpnext.accounts.doctype.purchase_invoice.purchase_invoice import PurchaseInvoice
 from erpnext.accounts.utils import update_voucher_outstanding
 
 _PO_PROGRESS_DEDUCTION_ITEMS = frozenset(
@@ -24,6 +25,44 @@ _PO_PROGRESS_FIELDS = (
 
 
 class PurchaseInvoiceOverride(CustomPurchaseInvoice):
+	def validate_with_previous_doc(self):
+		"""Allow PI project/warehouse to differ from PO (e.g. receive into another site warehouse)."""
+		super(PurchaseInvoice, self).validate_with_previous_doc(
+			{
+				"Purchase Order": {
+					"ref_dn_field": "purchase_order",
+					"compare_fields": [["supplier", "="], ["company", "="], ["currency", "="]],
+				},
+				"Purchase Order Item": {
+					"ref_dn_field": "po_detail",
+					"compare_fields": [["item_code", "="], ["uom", "="]],
+					"is_child_table": True,
+					"allow_duplicate_prev_row_id": True,
+				},
+				"Purchase Receipt": {
+					"ref_dn_field": "purchase_receipt",
+					"compare_fields": [["supplier", "="], ["company", "="], ["currency", "="]],
+				},
+				"Purchase Receipt Item": {
+					"ref_dn_field": "pr_detail",
+					"compare_fields": [["item_code", "="], ["uom", "="]],
+					"is_child_table": True,
+				},
+			}
+		)
+
+		if (
+			cint(frappe.db.get_single_value("Buying Settings", "maintain_same_rate"))
+			and not self.is_return
+			and not self.is_internal_supplier
+		):
+			self.validate_rate_with_reference_doc(
+				[
+					["Purchase Order", "purchase_order", "po_detail"],
+					["Purchase Receipt", "purchase_receipt", "pr_detail"],
+				]
+			)
+
 	def get_gl_entries(self, warehouse_account=None):
 		gl_entries = super().get_gl_entries(warehouse_account)
 

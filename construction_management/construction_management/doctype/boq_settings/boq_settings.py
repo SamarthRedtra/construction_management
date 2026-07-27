@@ -106,7 +106,8 @@ class BOQSettings(Document):
 			("salary_labor_account", _("Salary Labour Account")),
 			("purchase_retention_account", _("Purchase Retention Account")),
 			("purchase_advance_account", _("Purchase Advance Account")),
-			("sales_person_commission_account", _("Sales Person Commission Account")),
+			("sales_person_commission_account", _("Sales Commission Account")),
+			("sales_commission_payable_account", _("Sales Commission Payable Account")),
 			("sales_partner_commission_account", _("Sales Partner Commission Account")),
 		]
 		for field, label in account_fields:

@@ -223,6 +223,7 @@ doc_events = {
 		"on_update": "construction_management.api.gl_hook.update_cost_from_gl"
 	},
 	"Payment Entry": {
+		"before_validate": "construction_management.overrides.payment_entry.before_validate",
 		"on_submit": "construction_management.overrides.payment_entry.on_submit",
 		"on_cancel": "construction_management.overrides.payment_entry.on_cancel"
 	},

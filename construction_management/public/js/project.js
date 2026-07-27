@@ -19,6 +19,7 @@ frappe.ui.form.on('Project', {
 		hide_project_naming_series(frm);
 		hide_project_construction_clutter(frm);
 		hide_project_costing_progress_tabs(frm);
+		hide_project_comments_timeline(frm);
 
 		if (frm.is_new()) {
 			ensure_project_company(frm);
@@ -347,6 +348,30 @@ const CM_PAYMENT_TERMS_FIELDS = [
 function hide_project_naming_series(frm) {
 	if (frm.fields_dict.naming_series) {
 		frm.set_df_property('naming_series', 'hidden', 1);
+	}
+}
+
+function hide_project_comments_timeline(frm) {
+	/** Hide standard Frappe Comments / Activity footer on Project form. */
+	const $wrapper = frm?.$wrapper || frm?.page?.wrapper;
+	if (!$wrapper || !$wrapper.length) {
+		return;
+	}
+	$wrapper.addClass('project-hide-comments-timeline');
+	if (!document.getElementById('project-hide-comments-style')) {
+		const style = document.createElement('style');
+		style.id = 'project-hide-comments-style';
+		style.textContent = `
+			.project-hide-comments-timeline .form-footer,
+			.project-hide-comments-timeline .comment-box,
+			.project-hide-comments-timeline .new-timeline,
+			.project-hide-comments-timeline .timeline-item,
+			.project-hide-comments-timeline .form-comments,
+			.project-hide-comments-timeline [data-fieldname="__comments"] {
+				display: none !important;
+			}
+		`;
+		document.head.appendChild(style);
 	}
 }
 

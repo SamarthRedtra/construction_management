@@ -31,10 +31,10 @@ function set_account_queries(frm) {
 		"purchase_retention_account",
 		"purchase_advance_account",
 		"sales_person_commission_account",
+		"sales_commission_payable_account",
 		"so_unearned_revenue_credit_account",
 		"so_unearned_revenue_debit_account",
 		"sales_partner_commission_account"
-
 	];
 
 	account_fields.forEach((fieldname) => {

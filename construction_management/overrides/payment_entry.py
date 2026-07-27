@@ -2,11 +2,36 @@
 # License: MIT
 
 import frappe
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 from construction_management.overrides.sales_invoice import (
 	create_boq_advance_payment_from_pe_allocation,
 )
+
+
+def before_validate(doc, method=None):
+	"""Keep commission payout PE on Sales Commission Payable (not Employee payable)."""
+	if not cint(doc.get("custom_is_commission_payout")):
+		return
+	if doc.payment_type != "Pay" or doc.party_type != "Employee":
+		return
+	if not doc.company:
+		return
+
+	from construction_management.api.sales_commission_gl import require_commission_posting_accounts
+
+	payable_account = require_commission_posting_accounts(doc.company)["payable_account"]
+	doc.paid_to = payable_account
+	doc.paid_to_account_currency = frappe.db.get_value(
+		"Account", payable_account, "account_currency"
+	)
+	doc.custom_remarks = 1
+	if doc.get("reference_no") and not (doc.remarks or "").startswith(
+		"Commission payout for Sales Invoice "
+	):
+		from construction_management.api.project_commission_data import _commission_payout_remark
+
+		doc.remarks = _commission_payout_remark(doc.reference_no)
 
 
 def on_submit(doc, method):

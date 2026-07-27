@@ -36,6 +36,7 @@
   "section_break_commission_posting",
   "sales_person_commission_account",
   "column_break_commission_posting",
+  "sales_commission_payable_account",
   "sales_partner_commission_account",
   "advance_deduction_item",
   "column_break_hcla",
@@ -149,15 +150,22 @@
    "label": "Commission Posting Accounts"
   },
   {
-   "description": "Account used for Sales Person commission JV/GL postings",
+   "description": "Expense account for sales commission accrual (Dr), e.g. Sales Commission Project",
    "fieldname": "sales_person_commission_account",
    "fieldtype": "Link",
-   "label": "Sales Person Commission Account",
+   "label": "Sales Commission Account",
    "options": "Account"
   },
   {
    "fieldname": "column_break_commission_posting",
    "fieldtype": "Column Break"
+  },
+  {
+   "description": "Liability account for sales commission accrual (Cr) and agent payout (Dr), e.g. Sales Commission Payable",
+   "fieldname": "sales_commission_payable_account",
+   "fieldtype": "Link",
+   "label": "Sales Commission Payable Account",
+   "options": "Account"
   },
   {
    "description": "Account used for Sales Partner commission JV/GL postings",

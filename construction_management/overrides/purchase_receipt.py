@@ -325,20 +325,23 @@ def _remove_purchase_deduction_items(doc, item_codes=None):
 
 
 def _resolve_purchase_receipt_item_project(doc, row):
-	"""Resolve project for a PR item. PO-linked rows must keep the PO item project."""
-	if row.get("purchase_order_item"):
-		po_item_project = frappe.db.get_value(
-			"Purchase Order Item", row.purchase_order_item, "project"
-		)
-		if po_item_project:
-			return po_item_project
+	"""Resolve project for a PR item.
 
-	project = row.get("project")
+	Prefer the receiving warehouse's project so stock can be received into a
+	different site warehouse than the Purchase Order (e.g. PO SKD-46, receive SKD-50).
+	"""
+	project = None
 
-	if not project and row.get("warehouse"):
+	if row.get("warehouse"):
 		project = get_warehouse_project(row.warehouse, company=doc.company)
 	if not project and row.get("rejected_warehouse"):
 		project = get_warehouse_project(row.rejected_warehouse, company=doc.company)
+	if not project:
+		project = row.get("project")
+	if not project and row.get("purchase_order_item"):
+		project = frappe.db.get_value(
+			"Purchase Order Item", row.purchase_order_item, "project"
+		)
 	if not project:
 		project = doc.get("project")
 	if not project and row.get("purchase_order"):
