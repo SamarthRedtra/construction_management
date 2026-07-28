@@ -1,0 +1,49 @@
+{
+ "app": "construction_management",
+ "charts": [],
+ "content": "[{\"id\":\"sdHeader\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Sales Desk</b></span>\",\"col\":12}},{\"id\":\"sdOverview\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Pipeline at a glance</b></span>\",\"col\":12}},{\"id\":\"sdNc1\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Open Leads\",\"col\":4}},{\"id\":\"sdNc2\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Open Quotations\",\"col\":4}},{\"id\":\"sdNc3\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Agreed Quotations\",\"col\":4}},{\"id\":\"sdSpacer1\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"sdPipeline\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Sales pipeline</b></span>\",\"col\":12}},{\"id\":\"sdScLead\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Lead\",\"col\":3}},{\"id\":\"sdScQuotation\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Quotation\",\"col\":3}},{\"id\":\"sdScAgreed\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Agreed Quotations List\",\"col\":3}},{\"id\":\"sdScCustomer\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Customer\",\"col\":3}},{\"id\":\"sdSpacer2\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"sdProjects\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Projects &amp; commission</b></span>\",\"col\":12}},{\"id\":\"sdScProject\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Project\",\"col\":3}},{\"id\":\"sdScComm\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Project Commission\",\"col\":3}},{\"id\":\"sdScSoa\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Project SOA\",\"col\":3}},{\"id\":\"sdScPersonRpt\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"My Commission Report\",\"col\":3}}]",
+ "creation": "2026-07-20 16:10:00.000000",
+ "custom_blocks": [],
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "trending-up",
+ "is_hidden": 0,
+ "label": "Sales Desk",
+ "links": [
+  {"label":"Sales Pipeline","link_count":4,"type":"Card Break"},
+  {"label":"Lead","link_to":"Lead","link_type":"DocType","onboard":1,"type":"Link"},
+  {"label":"Quotation","link_to":"Quotation","link_type":"DocType","onboard":1,"type":"Link"},
+  {"label":"Agreed Quotations List","link_to":"Quotation","link_type":"DocType","type":"Link"},
+  {"label":"Customer","link_to":"Customer","link_type":"DocType","type":"Link"},
+  {"label":"Projects & Commission","link_count":4,"type":"Card Break"},
+  {"label":"Project","link_to":"Project","link_type":"DocType","type":"Link"},
+  {"label":"Project Commission","link_to":"project-commission","link_type":"Page","type":"Link"},
+  {"label":"Project SOA","link_to":"project-soa","link_type":"Page","type":"Link"},
+  {"is_query_report":1,"label":"Sales Person Commission Payment Summary","link_to":"Sales Person Commission Payment Summary","link_type":"Report","type":"Link"}
+ ],
+ "modified": "2026-07-28 11:00:00.000000",
+ "module": "Construction Management",
+ "name": "Sales Desk",
+ "number_cards": [
+  {"label":"Open Leads","number_card_name":"Open Leads"},
+  {"label":"Open Quotations","number_card_name":"Open Quotations"},
+  {"label":"Agreed Quotations","number_card_name":"Agreed Quotations"}
+ ],
+ "owner": "Administrator",
+ "public": 1,
+ "roles": [{"role":"Sales User"},{"role":"Sales Manager"},{"role":"System Manager"}],
+ "sequence_id": 2.0,
+ "shortcuts": [
+  {"color":"Blue","format":"{} Open","label":"Lead","link_to":"Lead","stats_filter":"{\"status\": [\"in\", [\"Lead\", \"Open\", \"Replied\", \"Interested\"]]}","type":"DocType"},
+  {"color":"Orange","format":"{} Open","label":"Quotation","link_to":"Quotation","stats_filter":"{\"docstatus\": 1, \"status\": [\"in\", [\"Open\", \"Replied\"]]}","type":"DocType"},
+  {"color":"Green","format":"{} Agreed","label":"Agreed Quotations List","link_to":"Quotation","stats_filter":"{\"docstatus\": 1, \"status\": [\"in\", [\"Ordered\", \"Partially Ordered\"]]}","type":"DocType"},
+  {"label":"Customer","link_to":"Customer","type":"DocType"},
+  {"color":"Blue","format":"{} Open","label":"Project","link_to":"Project","stats_filter":"{\"status\": \"Open\"}","type":"DocType"},
+  {"label":"Project Commission","link_to":"project-commission","type":"Page"},
+  {"label":"Project SOA","link_to":"project-soa","type":"Page"},
+  {"label":"My Commission Report","link_to":"Sales Person Commission Payment Summary","type":"Report"}
+ ],
+ "title": "Sales Desk",
+ "type": "Workspace"
+}

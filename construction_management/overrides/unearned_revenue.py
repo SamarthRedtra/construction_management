@@ -101,23 +101,50 @@ def get_boq_unearned_settings(company):
 
 
 def _get_so_unearned_amount(sales_order):
-	# Calculate gross amount by adding back deductions (Retention/Advance)
-	# These are usually stored as negative amounts in items or in custom fields
+	# The Sales Order net total is the contractual value before the custom
+	# retention field is displayed. Adding that field again overstates revenue.
+	# Only negative deduction rows actually included in the item total need to be
+	# added back for the unearned-revenue calculation.
 	amount = flt(sales_order.get("base_net_total") or sales_order.get("base_grand_total"))
 	
 	deductions = 0
 	for item in sales_order.get("items", []):
 		if item.get("item_code") in ["RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"]:
 			deductions += abs(flt(item.base_amount))
-	
-	# Also check custom retention field if items aren't used for deductions yet
-	if not deductions:
-		deductions = flt(sales_order.get("custom_retention_amount"))
 
 	gross_amount = amount + deductions
 	percentage = flt(sales_order.get("custom_unbilled_revenue_percentage") or 100)
 	
 	return flt(gross_amount * (percentage / 100.0))
+
+
+def correct_so_unearned_revenue_jv(sales_order_name):
+	"""Replace an incorrect SO unearned-revenue JV when nothing has reversed it yet."""
+	sales_order = frappe.get_doc("Sales Order", sales_order_name)
+	journal_entry_name = find_journal_entry_by_so(sales_order_name)
+	if not journal_entry_name:
+		return None
+
+	if frappe.db.exists(
+		"Journal Entry",
+		{
+			"docstatus": 1,
+			"user_remark": ("like", f"{SI_UNEARNED_REMARK_PREFIX}::%::{sales_order_name}"),
+		},
+	):
+		frappe.throw(
+			f"Cannot correct {journal_entry_name}: an invoice has already reversed this unearned revenue entry."
+		)
+
+	existing_amount = get_source_accounts_and_amount(journal_entry_name)["amount"]
+	expected_amount = _get_so_unearned_amount(sales_order)
+	if flt(existing_amount) == flt(expected_amount):
+		return journal_entry_name
+
+	journal_entry = frappe.get_doc("Journal Entry", journal_entry_name)
+	journal_entry.cancel()
+	create_so_unearned_revenue_jv(sales_order)
+	return find_journal_entry_by_so(sales_order_name)
 
 
 def _get_sales_order_amounts_from_invoice(sales_invoice):
