@@ -616,7 +616,7 @@ def add_users_to_raven_channels(
 		_ensure_raven_user_ready(raven_user)
 
 	added = 0
-	skipped = 0
+	updated = 0
 	missing_channels = []
 
 	for channel_id in channel_ids:
@@ -626,16 +626,25 @@ def add_users_to_raven_channels(
 		workspace = frappe.db.get_value("Raven Channel", channel_id, "workspace")
 		for raven_user in raven_users:
 			_ensure_workspace_member(workspace, raven_user)
-		existing = set(
-			frappe.get_all(
+		existing = {
+			member.user_id: member.name
+			for member in frappe.get_all(
 				"Raven Channel Member",
 				filters={"channel_id": channel_id, "user_id": ("in", raven_users)},
-				pluck="user_id",
+				fields=["name", "user_id"],
 			)
-		)
+		}
 		for raven_user in raven_users:
 			if raven_user in existing:
-				skipped += 1
+				member = frappe.get_doc("Raven Channel Member", existing[raven_user])
+				if member.notification_preference != notification_preference:
+					member.notification_preference = notification_preference
+					member.flags.ignore_permissions = True
+					member.save(ignore_permissions=True)
+				else:
+					# Repair any old topic subscription left behind before this preference existed.
+					member.sync_notification_subscription()
+				updated += 1
 				continue
 			member = frappe.get_doc(
 				{
@@ -656,7 +665,7 @@ def add_users_to_raven_channels(
 	_clear_raven_users_list_cache()
 	return {
 		"added": added,
-		"skipped": skipped,
+		"updated": updated,
 		"raven_users": raven_users,
 		"missing_channels": missing_channels,
 	}

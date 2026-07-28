@@ -181,8 +181,8 @@ frappe.pages['bulk-raven-channel-members'].on_page_load = function (wrapper) {
 				const res = r.message || {};
 				$body.find('#bulk-raven-result').html(
 					__(
-						'Added {0} membership(s). Skipped {1} already present.',
-						[res.added || 0, res.skipped || 0]
+						'Added {0} membership(s). Updated notification preference for {1} existing membership(s).',
+						[res.added || 0, res.updated || 0]
 					)
 				);
 				frappe.show_alert({ message: __('Channel members updated'), indicator: 'green' });

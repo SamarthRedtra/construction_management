@@ -20,9 +20,9 @@ class ProjectProcessHome {
 		this.wrapper = $(wrapper);
 		this.page_body = this.wrapper.find('.layout-main-section');
 		this.status_filter = 'ongoing';
-		this.project_number_sort = 'asc';
+		this.project_number_sort = 'desc';
 		this.search = '';
-		this.company = frappe.defaults.get_user_default('Company') || '';
+		this.company = 'M R G INSULATION WORKS L.L.C';
 		this.start = 0;
 		this.page_length = 25;
 		this.total_count = 0;
@@ -58,8 +58,8 @@ class ProjectProcessHome {
 					<div class="pph-project-number-sort">
 						<label>${__('Project No.')}</label>
 						<select class="form-control input-sm" data-field="project-number-sort" style="width: 150px; display: inline-block;">
-							<option value="asc">${__('Ascending')}</option>
-							<option value="desc">${__('Descending')}</option>
+							<option value="asc" ${this.project_number_sort === 'asc' ? '' : 'selected'}>${__('Ascending')}</option>
+							<option value="desc" ${this.project_number_sort === 'desc' ? 'selected' : ''}>${__('Descending')}</option>
 						</select>
 					</div>
 					<div class="pph-search-filter">
