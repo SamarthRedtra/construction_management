@@ -6,6 +6,9 @@ from frappe import _
 from frappe.utils import cint, flt
 
 from construction_management.api.boq_tasks import create_boq_item_with_task
+from construction_management.construction_management.doctype.project_tab_access.project_tab_access import (
+	get_user_project_scope,
+)
 from construction_management.overrides.project import get_project_contractor_name
 
 
@@ -19,6 +22,14 @@ STATUS_FILTERS = {
 def _active_project_filters() -> dict:
 	"""ERPNext Project.is_active is Yes/No, not 0/1."""
 	return {"is_active": "Yes"}
+
+
+def _apply_member_project_scope(filters: dict) -> list[str] | None:
+	"""Apply Project Access selections to Member Home data queries."""
+	scope = get_user_project_scope(frappe.session.user)
+	if scope is not None:
+		filters["name"] = ["in", scope]
+	return scope
 
 
 def _boq_item_optional_fields() -> list[str]:
@@ -50,6 +61,7 @@ def get_project_process_home_data(
 		frappe.throw(_("Project number sort must be ascending or descending"))
 
 	filters = _active_project_filters()
+	_apply_member_project_scope(filters)
 	statuses = STATUS_FILTERS[status_filter]
 	if statuses:
 		filters["status"] = ["in", list(statuses)]
@@ -127,19 +139,26 @@ def get_project_process_home_data(
 @frappe.whitelist()
 def get_member_home_companies() -> list[dict]:
 	"""Distinct companies from active projects for the member home filter."""
-	rows = frappe.db.sql(
-		"""
-		SELECT DISTINCT p.company AS name, c.company_name
-		FROM `tabProject` p
-		LEFT JOIN `tabCompany` c ON c.name = p.company
-		WHERE p.is_active = 'Yes'
-		  AND p.company IS NOT NULL
-		  AND p.company != ''
-		ORDER BY c.company_name ASC, p.company ASC
-		""",
-		as_dict=True,
+	filters = _active_project_filters()
+	_apply_member_project_scope(filters)
+	project_companies = frappe.get_all(
+		"Project",
+		filters=filters,
+		fields=["company"],
+		group_by="company",
+		order_by="company asc",
 	)
-	return [{"name": row.name, "company_name": row.company_name or row.name} for row in rows]
+	company_names = [row.company for row in project_companies if row.company]
+	if not company_names:
+		return []
+
+	companies = frappe.get_all(
+		"Company",
+		filters={"name": ["in", company_names]},
+		fields=["name", "company_name"],
+		order_by="company_name asc, name asc",
+	)
+	return [{"name": row.name, "company_name": row.company_name or row.name} for row in companies]
 
 
 def _project_matches_search(project, needle: str, employee_names: dict, contractor_names: dict) -> bool:
@@ -243,6 +262,9 @@ def _fetch_scope_boq_items(project: str) -> list[dict]:
 @frappe.whitelist()
 def get_project_process_rows(project: str) -> dict:
 	"""Return construction BOQ Bill + BOQ Item rows (excludes payment installments)."""
+	scope = get_user_project_scope(frappe.session.user)
+	if scope is not None and project not in scope:
+		frappe.throw(_("You do not have access to this project."), frappe.PermissionError)
 	if not project:
 		frappe.throw(_("Project is required"))
 

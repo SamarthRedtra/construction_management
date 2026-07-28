@@ -97,9 +97,12 @@ def get_user_project_scope(user: str | None = None) -> list[str] | None:
 		return None
 
 	roles = set(frappe.get_roles(user))
-	matching_rules = [
-		row for row in settings.rules or [] if _user_matches_rule(user, roles, row)
-	]
+	# A rule assigned directly to a user is an explicit project scope and must
+	# take precedence over their broad role-based access. Without this priority,
+	# an empty role rule would turn a selected user rule back into "all projects".
+	user_rules = [row for row in settings.rules or [] if row.user == user]
+	role_rules = [row for row in settings.rules or [] if row.role and row.role in roles]
+	matching_rules = user_rules or role_rules
 
 	if not matching_rules:
 		return None

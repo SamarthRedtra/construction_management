@@ -133,6 +133,27 @@ class TestProjectTabAccess(FrappeTestCase):
 		self.assertIsNone(get_user_project_scope("limited_user@example.com"))
 		self.assertIsNone(get_project_permission_query_conditions("limited_user@example.com"))
 
+	@patch(
+		"construction_management.construction_management.doctype.project_tab_access.project_tab_access.frappe.get_roles",
+		return_value=[TEST_ROLE],
+	)
+	def test_user_project_selection_overrides_empty_role_rule(self, mock_get_roles):
+		project = self._ensure_project("TAB-ACCESS-USER-ONLY-PROJ")
+		doc = frappe.get_single("Project Tab Access")
+		doc.enabled = 1
+		doc.append("rules", {"tabs": "Details", "role": TEST_ROLE})
+		doc.append(
+			"rules",
+			{
+				"tabs": "Details",
+				"user": "limited_user@example.com",
+				"allowed_projects": project,
+			},
+		)
+		doc.save(ignore_permissions=True)
+
+		self.assertEqual(get_user_project_scope("limited_user@example.com"), [project])
+
 	def _ensure_project(self, name: str) -> str:
 		if frappe.db.exists("Project", name):
 			return name
