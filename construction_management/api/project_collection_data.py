@@ -678,10 +678,13 @@ def _build_collection_summary(project: str, rows: list[dict], follow_ups: list[d
 
 def _apply_follow_up_overlay(rows: list[dict], follow_ups: list[dict]) -> None:
 	latest: dict[tuple[str, str], dict] = {}
+	collection_due_dates: dict[tuple[str, str], object] = {}
 	for fu in follow_ups:
 		key = (fu.get("reference_doctype"), fu.get("reference_name"))
 		if key not in latest:
 			latest[key] = fu
+		if key not in collection_due_dates and fu.get("collection_due_date"):
+			collection_due_dates[key] = fu.get("collection_due_date")
 
 	for row in rows:
 		key = (row.get("reference_doctype"), row.get("reference_name"))
@@ -706,6 +709,9 @@ def _apply_follow_up_overlay(rows: list[dict], follow_ups: list[dict]) -> None:
 				row["pc_date"] = fu.follow_up_date
 		if fu.get("payment_certificate") and not row.get("payment_certificate"):
 			row["payment_certificate"] = fu.payment_certificate
+		if collection_due_dates.get(key):
+			row["collection_due_date"] = collection_due_dates[key]
+			row["due_date"] = collection_due_dates[key]
 
 
 def _apply_pdc_overlay(rows: list[dict]) -> None:

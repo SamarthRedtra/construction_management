@@ -92,6 +92,23 @@ construction_management.project_collection.to_input_date = function (value) {
 	}
 };
 
+construction_management.project_collection.parse_amount = function (value) {
+	if (value === null || value === undefined || value === '') {
+		return 0;
+	}
+	return Number(String(value).replace(/,/g, '').trim()) || 0;
+};
+
+construction_management.project_collection.format_amount_input = function (value) {
+	if (value === null || value === undefined || value === '') {
+		return '';
+	}
+	return new Intl.NumberFormat('en-US', {
+		minimumFractionDigits: 0,
+		maximumFractionDigits: 2,
+	}).format(construction_management.project_collection.parse_amount(value));
+};
+
 construction_management.project_collection.has_pc_update = function (row) {
 	return Boolean(
 		row.follow_up_status === 'Collection PC'
@@ -117,11 +134,17 @@ construction_management.project_collection._build_billing_row_html = function (r
 	const pc_attachment = row.pc_attachment || row.follow_up_attachment || '';
 	const follow_up_name = row.follow_up_name || '';
 	const follow_up_status = row.follow_up_status || '';
+	const collection_due_date_value = construction_management.project_collection.to_input_date(
+		row.collection_due_date || row.due_date
+	);
+	const has_collection_due_date = Boolean(row.collection_due_date);
 	const follow_up_link = follow_up_name
 		? `/app/project-soa-follow-up/${encodeURIComponent(follow_up_name)}`
 		: '';
 	const pc_date_value = construction_management.project_collection.to_input_date(row.pc_date);
-	const pc_amt_value = row.pc_amt != null && row.pc_amt !== '' ? flt(row.pc_amt) : '';
+	const pc_amt_value = row.pc_amt != null && row.pc_amt !== ''
+		? construction_management.project_collection.format_amount_input(row.pc_amt)
+		: '';
 	const has_saved_pc = Boolean(
 		follow_up_name && (follow_up_status === 'Collection PC' || pc_attachment || pc_date_value || pc_amt_value !== '')
 	);
@@ -138,7 +161,7 @@ construction_management.project_collection._build_billing_row_html = function (r
 		${!pc_name ? `<div class="text-muted text-xs">${__('Saves as PC Date')}</div>` : ''}
 	`;
 	const pc_amt_html = `
-		<input type="number" step="0.01" class="form-control input-xs text-right collection-pc-amt-input"
+		<input type="text" inputmode="decimal" class="form-control input-xs text-right collection-pc-amt-input"
 			value="${pc_amt_value}"
 			data-pc="${frappe.utils.escape_html(pc_name || '')}"
 			data-project="${frappe.utils.escape_html(project)}"
@@ -147,6 +170,16 @@ construction_management.project_collection._build_billing_row_html = function (r
 			title="${__('PC Amount')}"
 			placeholder="0.00" />
 		${!pc_name ? `<div class="text-muted text-xs">${__('Saves as PC Amt')}</div>` : ''}
+	`;
+	const due_date_html = `
+		<input type="date" class="form-control input-xs collection-due-date-input"
+			value="${collection_due_date_value}"
+			data-project="${frappe.utils.escape_html(project)}"
+			data-ref-doctype="${frappe.utils.escape_html(ref_doctype)}"
+			data-ref-name="${frappe.utils.escape_html(ref_name)}"
+			title="${__('Collection Due Date')}" />
+		${has_collection_due_date ? `<div><span class="badge badge-primary">${__('Collection Due')}</span></div>` : ''}
+		${row.days_overdue ? `<div class="text-danger">+${row.days_overdue}${__('d overdue')}</div>` : ''}
 	`;
 
 	return `
@@ -169,7 +202,7 @@ construction_management.project_collection._build_billing_row_html = function (r
 			<td class="text-right collection-pc-amt-cell">${pc_amt_html}</td>
 			<td class="text-center">${fmt_date(row.ti_date)}</td>
 			<td class="text-right">${row.ti_amt && row.ti_amt > 0 ? fmt(row.ti_amt, 'Currency') : ''}</td>
-			<td class="text-center">${fmt_date(row.overdue_date || row.due_date)}${row.days_overdue ? ` <span class="text-danger">(+${row.days_overdue}d)</span>` : ''}</td>
+			<td class="text-center collection-due-date-cell">${due_date_html}</td>
 			<td>${frappe.utils.escape_html(payment_mode_disp)}</td>
 			<td class="text-center">${fmt_date(row.payment_date)}</td>
 			<td>${project_link}</td>
@@ -777,6 +810,26 @@ construction_management.project_collection.bind_invoice_portfolio_events = funct
 			$actions.find('.collection-save-note').fadeOut(180, function () { $(this).remove(); });
 		}, 2200);
 	};
+	$container.off('change.collection-register-due-date').on('change.collection-register-due-date', '.collection-due-date-input', function () {
+		const $input = $(this);
+		$input.prop('disabled', true).addClass('collection-input-saving');
+		frappe.call({
+			method: 'construction_management.construction_management.page.project_collection.project_collection.update_collection_due_date',
+			args: {
+				project: $input.attr('data-project'),
+				due_date: $input.val() || null,
+				reference_doctype: $input.attr('data-ref-doctype'),
+				reference_name: $input.attr('data-ref-name'),
+			},
+			callback(r) {
+				$input.prop('disabled', false).removeClass('collection-input-saving');
+				if (!r.exc) mark_row_saved($input.closest('.collection-billing-row'), __('Collection due date saved'));
+			},
+			error() {
+				$input.prop('disabled', false).removeClass('collection-input-saving');
+			},
+		});
+	});
 	$container.off('click.collection-upload-pc').on('click.collection-upload-pc', '.collection-upload-pc', function (e) {
 		e.preventDefault();
 		const $el = $(this);
@@ -787,7 +840,7 @@ construction_management.project_collection.bind_invoice_portfolio_events = funct
 		}, (result, values) => {
 			const $row = $el.closest('.collection-billing-row');
 			$row.find('.collection-pc-date-input').val(values.certificate_date);
-			$row.find('.collection-pc-amt-input').val(values.pc_amount);
+			$row.find('.collection-pc-amt-input').val(construction_management.project_collection.format_amount_input(values.pc_amount));
 			$el.text(__('Update PC'));
 			if (result.attachment && !$row.find('.collection-view-pc').length) {
 				$el.after(`<a class="collection-action-link collection-view-pc" href="${frappe.utils.escape_html(result.attachment)}" target="_blank" rel="noopener">${__('View PC')}</a>`);
@@ -798,6 +851,10 @@ construction_management.project_collection.bind_invoice_portfolio_events = funct
 	$container.off('change.collection-portfolio-pc').on('change.collection-portfolio-pc', '.collection-pc-date-input, .collection-pc-amt-input', function () {
 		const $input = $(this);
 		const isDate = $input.hasClass('collection-pc-date-input');
+		const pcAmount = isDate ? null : construction_management.project_collection.parse_amount($input.val());
+		if (!isDate && $input.val() !== '') {
+			$input.val(construction_management.project_collection.format_amount_input(pcAmount));
+		}
 		$input.prop('disabled', true).addClass('collection-input-saving');
 		frappe.call({
 			method: isDate
@@ -808,7 +865,7 @@ construction_management.project_collection.bind_invoice_portfolio_events = funct
 				certificate_date: $input.val(), reference_doctype: $input.attr('data-ref-doctype'), reference_name: $input.attr('data-ref-name'),
 			} : {
 				project: $input.attr('data-project'), payment_certificate: $input.attr('data-pc'),
-				pc_amount: $input.val(), reference_doctype: $input.attr('data-ref-doctype'), reference_name: $input.attr('data-ref-name'),
+				pc_amount: pcAmount, reference_doctype: $input.attr('data-ref-doctype'), reference_name: $input.attr('data-ref-name'),
 			},
 			callback(r) {
 				$input.prop('disabled', false).removeClass('collection-input-saving');
@@ -888,10 +945,14 @@ construction_management.project_collection.bind_detail_events = function ($conta
 	$container.off('change.collection-pc-amt').on('change.collection-pc-amt', '.collection-pc-amt-input', function () {
 		const $input = $(this);
 		const pc = ($input.attr('data-pc') || '').trim();
+		const pcAmount = construction_management.project_collection.parse_amount($input.val());
+		if ($input.val() !== '') {
+			$input.val(construction_management.project_collection.format_amount_input(pcAmount));
+		}
 		const args = {
 			project: $input.attr('data-project') || project,
 			payment_certificate: pc,
-			pc_amount: $input.val(),
+			pc_amount: pcAmount,
 			reference_doctype: $input.attr('data-ref-doctype') || '',
 			reference_name: $input.attr('data-ref-name') || '',
 		};
@@ -903,6 +964,27 @@ construction_management.project_collection.bind_detail_events = function ($conta
 			callback: function (r) {
 				if (!r.exc) {
 					frappe.show_alert({ message: __('PC amount updated'), indicator: 'green' });
+					me.render_dashboard($container.get(0), project, options);
+				}
+			},
+		});
+	});
+
+	$container.off('change.collection-due-date').on('change.collection-due-date', '.collection-due-date-input', function () {
+		const $input = $(this);
+		frappe.call({
+			method: 'construction_management.construction_management.page.project_collection.project_collection.update_collection_due_date',
+			args: {
+				project: $input.attr('data-project') || project,
+				due_date: $input.val() || null,
+				reference_doctype: $input.attr('data-ref-doctype') || '',
+				reference_name: $input.attr('data-ref-name') || '',
+			},
+			freeze: true,
+			freeze_message: __('Updating collection due date...'),
+			callback: function (r) {
+				if (!r.exc) {
+					frappe.show_alert({ message: __('Collection due date updated'), indicator: 'green' });
 					me.render_dashboard($container.get(0), project, options);
 				}
 			},

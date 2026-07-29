@@ -14,6 +14,7 @@
   "follow_up_date",
   "status",
   "pc_amount",
+  "collection_due_date",
   "section_break_notes",
   "remarks",
   "attachment"
@@ -67,13 +68,19 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Open\nFollowed Up\nWaiting Payment\nClosed\nPC Date\nPC Amount\nCollection PC"
+   "options": "Open\nFollowed Up\nWaiting Payment\nClosed\nPC Date\nPC Amount\nCollection PC\nCollection Due Date"
   },
   {
    "fieldname": "pc_amount",
    "fieldtype": "Currency",
    "label": "PC Amount",
    "description": "Collection Manager PC certified amount when no Payment Certificate is linked."
+  },
+  {
+   "fieldname": "collection_due_date",
+   "fieldtype": "Date",
+   "label": "Collection Due Date",
+   "description": "Collection Manager due date. This does not change the accounting due date on the Sales Invoice."
   },
   {
    "fieldname": "section_break_notes",

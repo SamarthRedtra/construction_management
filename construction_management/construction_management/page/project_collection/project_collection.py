@@ -188,3 +188,21 @@ def update_collection_pc_amount(
 		pc_amount=amount,
 		update_amount=True,
 	)
+
+
+@frappe.whitelist()
+def update_collection_due_date(
+	project: str,
+	due_date: str | None = None,
+	reference_doctype: str | None = None,
+	reference_name: str | None = None,
+) -> dict:
+	"""Persist a Collection Manager due date without changing the accounting invoice date."""
+	if not project or not reference_doctype or not reference_name:
+		frappe.throw(_("Project and row reference are required to save Collection Due Date."))
+	if not frappe.db.has_column("Project SOA Follow Up", "collection_due_date"):
+		frappe.throw(_("Collection Due Date field is not installed. Run bench migrate."))
+
+	from construction_management.api.collection_pc_override import upsert_collection_due_date
+
+	return upsert_collection_due_date(project, reference_doctype, reference_name, due_date)

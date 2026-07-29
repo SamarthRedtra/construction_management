@@ -401,6 +401,8 @@ def get_project_soa_follow_ups(project: str) -> list[dict]:
 	]
 	if frappe.db.has_column("Project SOA Follow Up", "pc_amount"):
 		fields.append("pc_amount")
+	if frappe.db.has_column("Project SOA Follow Up", "collection_due_date"):
+		fields.append("collection_due_date")
 
 	return frappe.get_all(
 		"Project SOA Follow Up",

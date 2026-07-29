@@ -638,8 +638,8 @@
 	background: #fff;
 }
 
-.collection-billing-grid {
-	min-width: 2360px;
+.collection-billing-grid { 
+	min-width: 2432px;
 	margin: 0;
 	font-size: 12px;
 	table-layout: fixed;
@@ -676,7 +676,8 @@
 .collection-billing-grid td:nth-child(5) { width: 155px; }
 .collection-billing-grid td:nth-child(6) { width: 235px; }
 .collection-billing-grid td:nth-child(7) { width: 130px; }
-.collection-billing-grid td:nth-child(8), .collection-billing-grid td:nth-child(11), .collection-billing-grid td:nth-child(13), .collection-billing-grid td:nth-child(15) { width: 108px; }
+.collection-billing-grid td:nth-child(8), .collection-billing-grid td:nth-child(11), .collection-billing-grid td:nth-child(15) { width: 108px; }
+.collection-billing-grid td:nth-child(13) { width: 180px; }
 .collection-billing-grid td:nth-child(9) { width: 165px; }
 .collection-billing-grid td:nth-child(10), .collection-billing-grid td:nth-child(12) { width: 135px; }
 .collection-billing-grid td:nth-child(14) { width: 145px; }
@@ -690,7 +691,8 @@
 .collection-billing-grid th:nth-child(5) { width: 155px; }
 .collection-billing-grid th:nth-child(6) { width: 235px; }
 .collection-billing-grid th:nth-child(7) { width: 130px; }
-.collection-billing-grid th:nth-child(8), .collection-billing-grid th:nth-child(11), .collection-billing-grid th:nth-child(13), .collection-billing-grid th:nth-child(15) { width: 108px; }
+.collection-billing-grid th:nth-child(8), .collection-billing-grid th:nth-child(11), .collection-billing-grid th:nth-child(15) { width: 108px; }
+.collection-billing-grid th:nth-child(13) { width: 180px; }
 .collection-billing-grid th:nth-child(9) { width: 165px; }
 .collection-billing-grid th:nth-child(10), .collection-billing-grid th:nth-child(12) { width: 135px; }
 .collection-billing-grid th:nth-child(14) { width: 145px; }
@@ -744,8 +746,10 @@
 
 .collection-billing-grid .collection-pc-date-cell { min-width: 0; }
 .collection-billing-grid .collection-pc-amt-cell { min-width: 0; }
+.collection-billing-grid .collection-due-date-cell { min-width: 180px; }
 .collection-billing-grid .collection-pc-date-input,
-.collection-billing-grid .collection-pc-amt-input {
+.collection-billing-grid .collection-pc-amt-input,
+.collection-billing-grid .collection-due-date-input {
 	width: 100%;
 	min-width: 0;
 	height: 32px;
@@ -757,7 +761,8 @@
 }
 
 .collection-billing-grid .collection-pc-date-input:focus,
-.collection-billing-grid .collection-pc-amt-input:focus {
+.collection-billing-grid .collection-pc-amt-input:focus,
+.collection-billing-grid .collection-due-date-input:focus {
 	border-color: #159193;
 	box-shadow: 0 0 0 3px rgba(21, 145, 147, .1);
 	outline: 0;

@@ -90,6 +90,55 @@ def _find_collection_pc_follow_up(project: str, reference_doctype: str, referenc
 	)
 
 
+def upsert_collection_due_date(
+	project: str, reference_doctype: str, reference_name: str, due_date=None
+) -> dict:
+	"""Store the Collection Manager due date on the row's Project SOA Follow Up."""
+	existing = _find_collection_pc_follow_up(project, reference_doctype, reference_name)
+	if not existing:
+		existing = frappe.db.get_value(
+			"Project SOA Follow Up",
+			{
+				"project": project,
+				"reference_doctype": reference_doctype,
+				"reference_name": reference_name,
+			},
+			"name",
+			order_by="modified desc",
+		)
+
+	if existing:
+		frappe.db.set_value(
+			"Project SOA Follow Up",
+			existing,
+			"collection_due_date",
+			getdate(due_date) if due_date else None,
+			update_modified=True,
+		)
+		name = existing
+	else:
+		doc = frappe.new_doc("Project SOA Follow Up")
+		doc.project = project
+		doc.reference_doctype = reference_doctype
+		doc.reference_name = reference_name
+		doc.status = "Collection Due Date"
+		doc.follow_up_date = getdate(due_date) if due_date else getdate(today())
+		doc.collection_due_date = getdate(due_date) if due_date else None
+		doc.remarks = _("Collection due date set from Collection Manager")
+		doc.insert(ignore_permissions=True)
+		name = doc.name
+
+	frappe.db.commit()
+	return {
+		"name": name,
+		"project": project,
+		"reference_doctype": reference_doctype,
+		"reference_name": reference_name,
+		"due_date": due_date,
+		"via": "follow_up",
+	}
+
+
 def merge_collection_pc_overlays(rows: list[dict], follow_ups: list[dict]) -> None:
 	"""
 	Merge PC date/amount from all Collection PC follow-ups onto rows.
