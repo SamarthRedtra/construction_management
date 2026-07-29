@@ -9,6 +9,8 @@ from frappe.utils import flt
 
 from construction_management.api.collection_pc_override import upsert_collection_pc_override
 from construction_management.api.project_collection_data import (
+	get_collection_expected_payments as _get_collection_expected_payments,
+	get_collection_invoice_portfolio as _get_collection_invoice_portfolio,
 	get_collection_portfolio as _get_collection_portfolio,
 	get_collection_project_rows,
 )
@@ -24,6 +26,48 @@ def get_collection_portfolio(company: str, filters: str | dict | None = None) ->
 	filters = filters or {}
 
 	return _get_collection_portfolio(company, filters)
+
+
+@frappe.whitelist()
+def get_collection_invoice_portfolio(company: str, filters: str | dict | None = None) -> list[dict]:
+	if not company:
+		frappe.throw(_("Company is required"))
+	if isinstance(filters, str):
+		filters = json.loads(filters) if filters else {}
+	return _get_collection_invoice_portfolio(company, filters or {})
+
+
+@frappe.whitelist()
+def get_collection_expected_payments(company: str, filters: str | dict | None = None) -> dict:
+	if isinstance(filters, str):
+		filters = json.loads(filters) if filters else {}
+	return _get_collection_expected_payments(company, filters or {})
+
+
+@frappe.whitelist()
+def save_collection_payment_certificate(
+	project: str,
+	reference_doctype: str,
+	reference_name: str,
+	certificate_date: str | None = None,
+	pc_amount=None,
+	attachment: str | None = None,
+) -> dict:
+	"""Save the PC date, certified amount, and uploaded certificate against an invoice row."""
+	result = upsert_collection_pc_override(
+		project,
+		reference_doctype,
+		reference_name,
+		pc_date=certificate_date,
+		pc_amount=flt(pc_amount),
+		update_date=True,
+		update_amount=True,
+	)
+	if attachment:
+		frappe.db.set_value("Project SOA Follow Up", result["name"], "attachment", attachment, update_modified=True)
+	result["attachment"] = attachment or ""
+	frappe.db.commit()
+	return result
 
 
 @frappe.whitelist()

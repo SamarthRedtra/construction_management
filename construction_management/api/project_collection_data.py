@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, cint, flt, getdate, today
+from frappe.utils import add_days, add_months, cint, flt, getdate, today
 
 COLLECTION_ROW_KEYS = (
 	"sr_no",
@@ -80,6 +80,127 @@ def get_collection_portfolio(company: str, filters: dict | None = None) -> list[
 		})
 
 	return portfolio
+
+
+def get_collection_invoice_portfolio(company: str, filters: dict | None = None) -> list[dict]:
+	"""Collection rows grouped by invoiced project, including its Sales Order proformas."""
+	if not company:
+		frappe.throw(_("Company is required"))
+	filters = filters or {}
+	conditions = [
+		"p.company = %(company)s",
+		"EXISTS (SELECT 1 FROM `tabSales Invoice` si WHERE si.project = p.name AND si.docstatus = 1)",
+	]
+	values = {"company": company}
+	if filters.get("customer"):
+		conditions.append("p.customer = %(customer)s")
+		values["customer"] = filters["customer"]
+
+	projects = frappe.db.sql(
+		f"""
+		SELECT p.name, p.project_name
+		FROM `tabProject` p
+		WHERE {' AND '.join(conditions)}
+		ORDER BY p.project_name ASC, p.name ASC
+		""",
+		values,
+		as_dict=True,
+	)
+	rows = []
+	for project in projects:
+		detail = get_collection_project_rows(project.name, include_follow_ups=True)
+		project_rows = []
+		for row in detail.get("rows") or []:
+			if row.get("reference_doctype") not in ("Sales Invoice", "Sales Order"):
+				continue
+			document_date = row.get("ti_date") or row.get("pi_date")
+			if filters.get("from_date") and (not document_date or getdate(document_date) < getdate(filters["from_date"])):
+				continue
+			if filters.get("to_date") and (not document_date or getdate(document_date) > getdate(filters["to_date"])):
+				continue
+			row["project_name"] = project.project_name or project.name
+			row["document_type"] = "Tax Invoice" if row.get("reference_doctype") == "Sales Invoice" else "Proforma (Sales Order)"
+			project_rows.append(row)
+
+		# A Sales Order linked to a submitted Tax Invoice is intentionally omitted by
+		# get_collection_project_rows. Add it here so the register visibly shows the
+		# Proforma (Sales Order) and Tax Invoice stages together.
+		existing_sales_orders = {row.get("reference_name") for row in project_rows if row.get("reference_doctype") == "Sales Order"}
+		sales_order_fields = ["name", "transaction_date", "grand_total"]
+		if frappe.db.has_column("Sales Order", "remarks"):
+			sales_order_fields.append("remarks")
+		for sales_order in frappe.get_all(
+			"Sales Order",
+			filters={"project": project.name, "docstatus": 1},
+			fields=sales_order_fields,
+			order_by="transaction_date desc, name desc",
+		):
+			if sales_order.name in existing_sales_orders:
+				continue
+			document_date = sales_order.transaction_date
+			if filters.get("from_date") and (not document_date or getdate(document_date) < getdate(filters["from_date"])):
+				continue
+			if filters.get("to_date") and (not document_date or getdate(document_date) > getdate(filters["to_date"])):
+				continue
+			project_rows.append(
+				_shape_collection_row(
+					project=project.name,
+					reference_doctype="Sales Order",
+					reference_name=sales_order.name,
+					invoice_no=sales_order.name,
+					stage="Sales Order (Proforma)",
+					client_name=detail["project"].get("client_name") or "",
+					pm_engg=detail["project"].get("pm_engg") or "",
+					workdone=project.project_name or project.name,
+					pi_amount=flt(sales_order.grand_total),
+					pi_date=document_date,
+					remarks=sales_order.remarks or "",
+				)
+			)
+			project_rows[-1]["project_name"] = project.project_name or project.name
+			project_rows[-1]["document_type"] = "Proforma (Sales Order)"
+
+		rows.extend(project_rows)
+
+	# Keep each project together while showing its newest documents first.
+	rows.sort(key=lambda row: (getdate(row.get("ti_date") or row.get("pi_date") or "1900-01-01"), row.get("invoice_no") or ""), reverse=True)
+	rows.sort(key=lambda row: (row.get("project_name") or "", row.get("project") or ""))
+	for idx, row in enumerate(rows, start=1):
+		row["sr_no"] = idx
+	return rows
+
+
+def get_collection_expected_payments(company: str, filters: dict | None = None) -> dict:
+	"""Outstanding Tax Invoices grouped by customer for the next three due-date months."""
+	if not company:
+		frappe.throw(_("Company is required"))
+	filters = filters or {}
+	anchor = getdate(filters.get("from_date") or today()).replace(day=1)
+	months = [getdate(add_months(anchor, offset)).replace(day=1) for offset in range(3)]
+	end_date = add_days(getdate(add_months(months[-1], 1)).replace(day=1), -1)
+	conditions = ["si.company = %(company)s", "si.docstatus = 1", "si.outstanding_amount > 0", "si.due_date BETWEEN %(start)s AND %(end)s"]
+	values = {"company": company, "start": months[0], "end": end_date}
+	if filters.get("customer"):
+		conditions.append("si.customer = %(customer)s")
+		values["customer"] = filters["customer"]
+	entries = frappe.db.sql(
+		f"""
+		SELECT si.customer, COALESCE(c.customer_name, si.customer) AS customer_name,
+			si.due_date, si.outstanding_amount
+		FROM `tabSales Invoice` si
+		LEFT JOIN `tabCustomer` c ON c.name = si.customer
+		WHERE {' AND '.join(conditions)}
+		""",
+		values,
+		as_dict=True,
+	)
+	by_customer = {}
+	for entry in entries:
+		row = by_customer.setdefault(entry.customer, {"customer": entry.customer, "customer_name": entry.customer_name, "amounts": {}})
+		month_key = getdate(entry.due_date).replace(day=1).isoformat()
+		row["amounts"][month_key] = flt(row["amounts"].get(month_key)) + flt(entry.outstanding_amount)
+	rows = sorted(by_customer.values(), key=lambda row: row["customer_name"] or row["customer"])
+	return {"months": [{"key": month.isoformat(), "label": month.strftime("%b %Y")} for month in months], "rows": rows}
 
 
 def get_collection_project_rows(project: str, include_follow_ups: bool = True) -> dict:
@@ -157,6 +278,7 @@ def _build_collection_cycles(project: str, client_name: str, pm_engg: str, workd
 	has_pf_link = frappe.db.has_column("Sales Invoice", "custom_proforma_invoice")
 	has_so_link = frappe.db.has_column("Sales Invoice", "custom_sales_order")
 	has_pc_link = frappe.db.has_column("Sales Invoice", "custom_payment_certificate")
+	has_advance_flag = frappe.db.has_column("Sales Invoice", "custom_is_advanced")
 
 	proforma_sql = "AND IFNULL(si.custom_is_proforma, 0) = 0" if has_proforma_flag else ""
 	extra_fields = ""
@@ -172,6 +294,10 @@ def _build_collection_cycles(project: str, client_name: str, pm_engg: str, workd
 		extra_fields += ", IFNULL(si.custom_payment_certificate, '') AS custom_payment_certificate"
 	else:
 		extra_fields += ", '' AS custom_payment_certificate"
+	if has_advance_flag:
+		extra_fields += ", IFNULL(si.custom_is_advanced, 0) AS custom_is_advanced"
+	else:
+		extra_fields += ", 0 AS custom_is_advanced"
 
 	si_list = frappe.db.sql(
 		f"""
@@ -259,7 +385,7 @@ def _build_collection_cycles(project: str, client_name: str, pm_engg: str, workd
 			pc_remarks = pc.remarks or ""
 
 		pay = pay_map.get(("Sales Invoice", si.name)) or {}
-		rows.append(_shape_collection_row(
+		collection_row = _shape_collection_row(
 			project=project,
 			reference_doctype="Sales Invoice",
 			reference_name=si.name,
@@ -280,7 +406,9 @@ def _build_collection_cycles(project: str, client_name: str, pm_engg: str, workd
 			cheque_no=pay.get("reference_no") or "",
 			remarks=" · ".join(filter(None, [si.remarks, pc_remarks])),
 			payment_certificate=si.custom_payment_certificate or "",
-		))
+		)
+		collection_row["is_advance"] = cint(si.custom_is_advanced)
+		rows.append(collection_row)
 
 	for pi in frappe.db.get_all(
 		"Proforma Invoice",

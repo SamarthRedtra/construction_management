@@ -100,7 +100,10 @@ def merge_collection_pc_overlays(rows: list[dict], follow_ups: list[dict]) -> No
 	by_ref: dict[tuple[str, str], dict] = {}
 
 	def _bucket(key):
-		return by_ref.setdefault(key, {"pc_date": None, "pc_amount": None, "payment_certificate": None})
+		return by_ref.setdefault(
+			key,
+			{"pc_date": None, "pc_amount": None, "payment_certificate": None, "attachment": None},
+		)
 
 	# 1) Authoritative Collection PC rows win
 	for fu in follow_ups or []:
@@ -114,6 +117,8 @@ def merge_collection_pc_overlays(rows: list[dict], follow_ups: list[dict]) -> No
 			bucket["pc_amount"] = flt(fu.get("pc_amount"))
 		if fu.get("payment_certificate"):
 			bucket["payment_certificate"] = fu.get("payment_certificate")
+		if fu.get("attachment"):
+			bucket["attachment"] = fu.get("attachment")
 
 	# 2) Legacy PC Date / PC Amount fill only missing fields (newest-first list)
 	for fu in follow_ups or []:
@@ -128,6 +133,8 @@ def merge_collection_pc_overlays(rows: list[dict], follow_ups: list[dict]) -> No
 			bucket["pc_amount"] = flt(fu.get("pc_amount"))
 		if fu.get("payment_certificate") and not bucket["payment_certificate"]:
 			bucket["payment_certificate"] = fu.get("payment_certificate")
+		if fu.get("attachment") and not bucket["attachment"]:
+			bucket["attachment"] = fu.get("attachment")
 
 	for row in rows:
 		key = (row.get("reference_doctype"), row.get("reference_name"))
@@ -140,3 +147,5 @@ def merge_collection_pc_overlays(rows: list[dict], follow_ups: list[dict]) -> No
 			row["pc_amt"] = flt(bucket["pc_amount"])
 		if bucket.get("payment_certificate") and not row.get("payment_certificate"):
 			row["payment_certificate"] = bucket["payment_certificate"]
+		if bucket.get("attachment"):
+			row["pc_attachment"] = bucket["attachment"]

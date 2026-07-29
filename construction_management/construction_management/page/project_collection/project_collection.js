@@ -2,6 +2,12 @@
 // License: MIT
 
 frappe.pages['project-collection'].on_page_load = function (wrapper) {
+	frappe.require('/assets/construction_management/css/project_collection.css', () => {
+		initialize_collection_manager(wrapper);
+	});
+};
+
+function initialize_collection_manager(wrapper) {
 	frappe.ui.make_app_page({
 		parent: wrapper,
 		title: __('Collection Manager'),
@@ -14,9 +20,24 @@ frappe.pages['project-collection'].on_page_load = function (wrapper) {
 			<div class="project-collection-header-row">
 				<h1 class="collection-title-main">${__('COLLECTION MANAGER')}</h1>
 			</div>
+			<div class="collection-view-switch" role="group" aria-label="${__('Collection view')}">
+				<button type="button" class="collection-view-toggle active" data-view="register">${__('Collection Register')}</button>
+				<button type="button" class="collection-view-toggle" data-view="expected">${__('Expected Payments')}</button>
+			</div>
+			<div class="collection-period-bar" role="group" aria-label="${__('Date period')}">
+				<span class="collection-period-label">${__('Period')}</span>
+				<button type="button" class="collection-period-chip" data-range="this_week">${__('This Week')}</button>
+				<button type="button" class="collection-period-chip active" data-range="this_month">${__('This Month')}</button>
+				<button type="button" class="collection-period-chip" data-range="last_month">${__('Last Month')}</button>
+				<button type="button" class="collection-period-chip" data-range="this_quarter">${__('This Quarter')}</button>
+				<button type="button" class="collection-period-chip" data-range="this_year">${__('This Year')}</button>
+				<button type="button" class="collection-period-chip" data-range="all_time">${__('All Time')}</button>
+			</div>
 			<div class="project-collection-filters-row">
 				<div id="project-collection-company-wrapper"></div>
-				<div id="project-collection-project-wrapper"></div>
+				<div id="project-collection-customer-wrapper"></div>
+				<div id="project-collection-from-date-wrapper"></div>
+				<div id="project-collection-to-date-wrapper"></div>
 			</div>
 			<div id="project-collection-container"></div>
 		</div>
@@ -24,29 +45,51 @@ frappe.pages['project-collection'].on_page_load = function (wrapper) {
 
 	const container_el = wrapper.querySelector('#project-collection-container');
 	let selected_company = frappe.defaults.get_user_default('Company') || '';
+	let active_range = 'this_month';
+	let applying_date_range = false;
+	let active_view = 'register';
 
-	window.__collection_on_project_select = function (project) {
-		project_control.set_value(project);
-	};
-
-	function reset_page_state() {
-		reset_project_collection_dashboard(container_el, { company: selected_company });
+	function to_date_string(value) {
+		return [value.getFullYear(), String(value.getMonth() + 1).padStart(2, '0'), String(value.getDate()).padStart(2, '0')].join('-');
 	}
 
-	function render_for_project(project) {
-		if (project) {
-			render_project_collection_dashboard(container_el, project, { company: selected_company });
-		} else {
-			reset_page_state();
+	function get_date_range(range) {
+		const now = new Date();
+		const year = now.getFullYear();
+		const month = now.getMonth();
+		if (range === 'all_time') return { from_date: '', to_date: '' };
+		if (range === 'this_week') {
+			const start = new Date(year, month, now.getDate() - ((now.getDay() + 6) % 7));
+			return { from_date: to_date_string(start), to_date: to_date_string(now) };
 		}
+		if (range === 'last_month') {
+			return { from_date: to_date_string(new Date(year, month - 1, 1)), to_date: to_date_string(new Date(year, month, 0)) };
+		}
+		if (range === 'this_quarter') {
+			const quarter_start = Math.floor(month / 3) * 3;
+			return { from_date: to_date_string(new Date(year, quarter_start, 1)), to_date: to_date_string(now) };
+		}
+		if (range === 'this_year') {
+			return { from_date: `${year}-01-01`, to_date: to_date_string(now) };
+		}
+		return { from_date: to_date_string(new Date(year, month, 1)), to_date: to_date_string(now) };
 	}
 
-	function sync_project_field_state() {
-		project_control.df.get_query = () => ({
-			filters: selected_company ? { company: selected_company } : {},
+	function update_active_range(range) {
+		active_range = range;
+		page_body.find('.collection-period-chip').toggleClass('active', function () {
+			return $(this).data('range') === range;
 		});
-		project_control.df.read_only = selected_company ? 0 : 1;
-		project_control.refresh();
+	}
+
+	function render_front() {
+		construction_management.project_collection.render_invoice_portfolio(container_el, {
+			company: selected_company,
+			customer: customer_control.get_value() || '',
+			from_date: from_date_control.get_value() || '',
+			to_date: to_date_control.get_value() || '',
+			view: active_view,
+		});
 	}
 
 	const company_control = frappe.ui.form.make_control({
@@ -59,40 +102,57 @@ frappe.pages['project-collection'].on_page_load = function (wrapper) {
 			placeholder: __('Select Company'),
 			change() {
 				selected_company = this.get_value() || '';
-				project_control.set_value('');
-				sync_project_field_state();
-				reset_page_state();
+				render_front();
 			},
 		},
 		render_input: true,
 	});
 
-	const project_control = frappe.ui.form.make_control({
-		parent: wrapper.querySelector('#project-collection-project-wrapper'),
+	const customer_control = frappe.ui.form.make_control({
+		parent: wrapper.querySelector('#project-collection-customer-wrapper'),
 		df: {
-			label: __('Project'),
-			fieldname: 'project',
+			label: __('Customer'),
+			fieldname: 'customer',
 			fieldtype: 'Link',
-			options: 'Project',
-			placeholder: __('All Projects (Portfolio)'),
-			get_query() {
-				return {
-					filters: selected_company ? { company: selected_company } : {},
-				};
-			},
+			options: 'Customer',
+			placeholder: __('All Customers'),
 			change() {
-				render_for_project(this.get_value());
+				render_front();
 			},
 		},
 		render_input: true,
 	});
+	const make_date_control = (selector, fieldname, label) => frappe.ui.form.make_control({
+		parent: wrapper.querySelector(selector),
+		df: { label, fieldname, fieldtype: 'Date', change() { if (!applying_date_range) { update_active_range('custom'); render_front(); } } },
+		render_input: true,
+	});
+	const from_date_control = make_date_control('#project-collection-from-date-wrapper', 'from_date', __('From Date'));
+	const to_date_control = make_date_control('#project-collection-to-date-wrapper', 'to_date', __('To Date'));
 
-	let project_val = null;
+	function apply_date_range(range) {
+		const dates = get_date_range(range);
+		applying_date_range = true;
+		from_date_control.set_value(dates.from_date);
+		to_date_control.set_value(dates.to_date);
+		applying_date_range = false;
+		update_active_range(range);
+		render_front();
+	}
+
+	page_body.on('click', '.collection-period-chip', function () {
+		apply_date_range($(this).data('range'));
+	});
+	page_body.on('click', '.collection-view-toggle', function () {
+		active_view = $(this).data('view');
+		page_body.find('.collection-view-toggle').toggleClass('active', function () {
+			return $(this).data('view') === active_view;
+		});
+		render_front();
+	});
+
 	let company_val = frappe.defaults.get_user_default('Company') || '';
-	if (frappe.get_route().length > 2) {
-		project_val = frappe.get_route()[2];
-	} else if (frappe.route_options) {
-		project_val = frappe.route_options.project || null;
+	if (frappe.route_options) {
 		company_val = frappe.route_options.company || company_val;
 	}
 
@@ -101,18 +161,5 @@ frappe.pages['project-collection'].on_page_load = function (wrapper) {
 		company_control.set_value(company_val);
 	}
 
-	sync_project_field_state();
-	reset_page_state();
-
-	if (project_val) {
-		frappe.db.get_value('Project', project_val, 'company').then((r) => {
-			const project_company = r.message && r.message.company;
-			if (project_company) {
-				selected_company = project_company;
-				company_control.set_value(project_company);
-				sync_project_field_state();
-			}
-			project_control.set_value(project_val);
-		});
-	}
-};
+	apply_date_range(active_range);
+}

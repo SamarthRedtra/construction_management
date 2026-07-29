@@ -98,8 +98,12 @@ construction_management.project_collection._build_billing_row_html = function (r
 	const ref_doctype = row.reference_doctype || '';
 	const ref_name = row.reference_name || row.invoice_no;
 	const invoice_link = construction_management.project_collection.get_doc_link(ref_doctype, row.invoice_no);
+	const project_link = row.project ? `<a href="/app/project/${encodeURIComponent(row.project)}" target="_blank" class="document-link">${frappe.utils.escape_html(row.project)}</a>` : '';
+	const document_type = row.document_type || (ref_doctype === 'Sales Order' ? __('Proforma (Sales Order)') : row.stage || '');
+	const document_type_slug = ref_doctype === 'Sales Order' ? 'proforma' : 'tax-invoice';
 	const payment_mode_disp = [row.payment_mode, row.cheque_no].filter(Boolean).join(' · ');
 	const pc_name = row.payment_certificate || (row.stage === 'Payment Certificate' ? row.invoice_no : '');
+	const pc_attachment = row.pc_attachment || '';
 	const pc_date_value = construction_management.project_collection.to_input_date(row.pc_date);
 	const pc_amt_value = row.pc_amt != null && row.pc_amt !== '' ? flt(row.pc_amt) : '';
 	// Always show an editable PC Date control so users can find/set it in the grid.
@@ -132,7 +136,9 @@ construction_management.project_collection._build_billing_row_html = function (r
 			<td class="collection-invoice-cell">
 				<div class="collection-invoice-link">${invoice_link}</div>
 				<span class="badge-status ${status.slug}">${status.label}</span>
+				${row.is_advance ? `<span class="badge-status advance">${__('Advance')}</span>` : ''}
 			</td>
+			<td><span class="collection-document-type ${document_type_slug}">${frappe.utils.escape_html(document_type)}</span></td>
 			<td>${frappe.utils.escape_html(row.client_name || '')}</td>
 			<td>${frappe.utils.escape_html(row.pm_engg || '')}</td>
 			<td>${frappe.utils.escape_html(row.workdone || '')}</td>
@@ -145,6 +151,7 @@ construction_management.project_collection._build_billing_row_html = function (r
 			<td class="text-center">${fmt_date(row.overdue_date || row.due_date)}${row.days_overdue ? ` <span class="text-danger">(+${row.days_overdue}d)</span>` : ''}</td>
 			<td>${frappe.utils.escape_html(payment_mode_disp)}</td>
 			<td class="text-center">${fmt_date(row.payment_date)}</td>
+			<td>${project_link}</td>
 			<td>
 				${frappe.utils.escape_html(row.remarks || '')}
 				<div class="collection-row-actions">
@@ -152,13 +159,12 @@ construction_management.project_collection._build_billing_row_html = function (r
 						data-project="${frappe.utils.escape_html(project)}"
 						data-ref-doctype="${frappe.utils.escape_html(ref_doctype)}"
 						data-ref-name="${frappe.utils.escape_html(ref_name)}">${__('Add Follow Up')}</span>
-					${row.stage === 'Payment Certificate' || row.payment_certificate ? `
-						<span class="collection-action-link collection-attach-pc"
+					<span class="collection-action-link collection-upload-pc"
 							data-project="${frappe.utils.escape_html(project)}"
 							data-ref-doctype="${frappe.utils.escape_html(ref_doctype)}"
 							data-ref-name="${frappe.utils.escape_html(ref_name)}"
-							data-pc="${frappe.utils.escape_html(row.payment_certificate || row.invoice_no)}">${__('Attach PC')}</span>
-					` : ''}
+							data-pc="${frappe.utils.escape_html(row.payment_certificate || '')}">${__('Add / Upload PC')}</span>
+					${pc_attachment ? `<a class="collection-action-link" href="${frappe.utils.escape_html(pc_attachment)}" target="_blank" rel="noopener">${__('View PC')}</a>` : ''}
 				</div>
 			</td>
 		</tr>
@@ -233,7 +239,7 @@ construction_management.project_collection._build_grouped_billing_rows = functio
 		const cat_total = cat_rows.reduce((sum, row) => sum + flt(row.ti_amt || row.pc_amt || row.pi_amount || 0), 0);
 		html += `
 			<tr class="collection-category-header" data-category="${cat.key}">
-				<td colspan="15">
+				<td colspan="17">
 					<span class="badge-status ${cat.slug}">${cat.label}</span>
 					<span class="category-meta">${cat_rows.length} ${__('rows')} · ${fmt(cat_total, 'Currency')}</span>
 				</td>
@@ -339,6 +345,92 @@ construction_management.project_collection.render_dashboard = function (containe
 	});
 };
 
+construction_management.project_collection.render_invoice_portfolio = function (container, filters) {
+	const $container = $(container);
+	if (!filters.company) {
+			$container.html(`<div class="collection-empty-state"><h3>${__('Select a Company')}</h3></div>`);
+		return;
+	}
+	if (filters.view === 'expected') {
+		$container.html(`<div class="collection-loading-state"><div class="collection-spinner"></div><p>${__('Loading expected payments...')}</p></div>`);
+		construction_management.project_collection.render_expected_payments($container, filters, true);
+		return;
+	}
+	$container.html(`<div class="collection-loading-state"><div class="collection-spinner"></div><p>${__('Loading invoiced projects...')}</p></div>`);
+	frappe.call({
+		method: 'construction_management.construction_management.page.project_collection.project_collection.get_collection_invoice_portfolio',
+		args: { company: filters.company, filters },
+		callback: (r) => {
+			const rows = r.message || [];
+			$container.html(construction_management.project_collection.build_invoice_portfolio_html(rows));
+			construction_management.project_collection.bind_invoice_portfolio_events($container, filters);
+		},
+		error: () => $container.html(`<div class="collection-error-state"><p>${__('Failed to load invoiced projects.')}</p></div>`),
+	});
+};
+
+construction_management.project_collection.build_invoice_portfolio_html = function (rows) {
+	const fmt = construction_management.project_collection.format_num;
+	const fmtDate = construction_management.project_collection.format_date;
+	const tax_invoices = rows.filter((row) => row.reference_doctype === 'Sales Invoice');
+	const total_invoiced = tax_invoices.reduce((total, row) => total + flt(row.ti_amt || 0), 0);
+	const paid_count = tax_invoices.filter((row) => row.payment_date).length;
+	const awaiting_pc_count = tax_invoices.filter((row) => !row.pc_date).length;
+	const overdue_count = tax_invoices.filter((row) => row.is_overdue).length;
+	let body = '';
+	if (rows.length) {
+		let active_project = '';
+		let serial = 0;
+		body = rows.map((row) => {
+			let group_header = '';
+			if (row.project !== active_project) {
+				active_project = row.project;
+				group_header = `<tr class="collection-project-group-header"><td colspan="17"><span>${frappe.utils.escape_html(row.project_name || row.project)}</span><small>${frappe.utils.escape_html(row.client_name || '')}${row.pm_engg ? ` · ${frappe.utils.escape_html(row.pm_engg)}` : ''}</small></td></tr>`;
+			}
+			serial += 1;
+			return group_header + construction_management.project_collection._build_billing_row_html(
+				Object.assign({}, row, { sr_no: serial }), row.project, fmt, fmtDate
+			);
+		}).join('');
+	} else {
+		body = `<tr><td colspan="17" class="text-center text-muted">${__('No invoiced projects match the selected filters')}</td></tr>`;
+	}
+	return `<div class="project-collection-dashboard collection-register-dashboard">
+		<div class="collection-register-heading">
+			<div><p class="collection-eyebrow">${__('Collection control centre')}</p><h2 class="collection-section-title">${__('Invoice Register')}</h2><p class="collection-section-sub">${__('Submitted invoices only · newest invoices first')}</p></div>
+			<div class="collection-register-note">${__('Add a PC date, certified amount, or upload the certificate directly from the invoice row.')}</div>
+		</div>
+		<div class="collection-register-kpis">
+			<div class="collection-register-kpi"><span>${__('Documents')}</span><strong>${rows.length}</strong></div>
+			<div class="collection-register-kpi collection-register-kpi-primary"><span>${__('Tax invoice value')}</span><strong>${fmt(total_invoiced, 'Currency')}</strong></div>
+			<div class="collection-register-kpi collection-register-kpi-success"><span>${__('Paid')}</span><strong>${paid_count}</strong></div>
+			<div class="collection-register-kpi collection-register-kpi-warning"><span>${__('Awaiting PC')}</span><strong>${awaiting_pc_count}</strong></div>
+			<div class="collection-register-kpi collection-register-kpi-danger"><span>${__('Overdue')}</span><strong>${overdue_count}</strong></div>
+		</div>
+		<div class="collection-table-toolbar"><span>${__('Invoice details and collection progress')}</span><span>${__('Scroll horizontally to view all fields')} →</span></div>
+		<div class="collection-grid-scroll"><table class="collection-table border-table collection-billing-grid"><thead><tr>
+			<th>${__('Sr No')}</th><th>${__('Document No')}</th><th>${__('Document Type')}</th><th>${__('Client Name')}</th><th>${__('PM / Engg')}</th><th>${__('Workdone')}</th>
+			<th class="text-right">${__('PI Amount')}</th><th>${__('PI Date')}</th><th>${__('PC Date')}</th><th class="text-right">${__('PC Amt')}</th>
+			<th>${__('TI Date')}</th><th class="text-right">${__('TI Amt')}</th><th>${__('Due Date')}</th><th>${__('Payment Mode')}</th><th>${__('Payment Date')}</th><th>${__('Project No')}</th><th>${__('Remarks / Action')}</th>
+		</tr></thead><tbody>${body}</tbody></table></div></div>`;
+};
+
+construction_management.project_collection.render_expected_payments = function ($container, filters, replace) {
+	frappe.call({
+		method: 'construction_management.construction_management.page.project_collection.project_collection.get_collection_expected_payments',
+		args: { company: filters.company, filters },
+		callback: (r) => {
+			const data = r.message || { months: [], rows: [] };
+			const fmt = construction_management.project_collection.format_num;
+			const headers = (data.months || []).map((month) => `<th class="text-right">${frappe.utils.escape_html(month.label)}</th>`).join('');
+			const rows = (data.rows || []).map((row, index) => `<tr><td class="text-center">${index + 1}</td><td>${frappe.utils.escape_html(row.customer_name || row.customer)}</td>${data.months.map((month) => `<td class="text-right">${row.amounts[month.key] ? fmt(row.amounts[month.key], 'Currency') : ''}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${(data.months || []).length + 2}" class="text-center text-muted">${__('No outstanding payments due in these months')}</td></tr>`;
+			const totals = (data.months || []).map((month) => `<td class="text-right">${fmt((data.rows || []).reduce((sum, row) => sum + flt(row.amounts[month.key] || 0), 0), 'Currency')}</td>`).join('');
+			const html = `<div class="collection-expected-payments"><div class="collection-register-heading"><div><p class="collection-eyebrow">${__('Cash forecast')}</p><h2 class="collection-section-title">${__('Expected Payments by Customer')}</h2><p class="collection-section-sub">${__('Outstanding Tax Invoices grouped by due month')}</p></div></div><div class="collection-grid-scroll"><table class="collection-table border-table collection-expected-table"><thead><tr><th>${__('Sr No')}</th><th>${__('Customer')}</th>${headers}</tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="2">${__('Total')}</td>${totals}</tr></tfoot></table></div></div>`;
+			if (replace) $container.html(html); else $container.append(html);
+		},
+	});
+};
+
 construction_management.project_collection.build_portfolio_html = function (rows, options) {
 	const fmt = construction_management.project_collection.format_num;
 	const embedded_class = options.embedded ? ' project-collection-embedded' : '';
@@ -408,7 +500,7 @@ construction_management.project_collection.build_detail_html = function (data, p
 		category_summary_html = construction_management.project_collection._build_billing_category_summary(rows, fmt);
 		grid_rows = construction_management.project_collection._build_grouped_billing_rows(rows, project, fmt, fmt_date);
 	} else {
-		grid_rows = `<tr><td colspan="15" class="text-center text-muted">${__('No billing cycles for this project')}</td></tr>`;
+		grid_rows = `<tr><td colspan="17" class="text-center text-muted">${__('No billing cycles for this project')}</td></tr>`;
 	}
 
 	let follow_up_html = '';
@@ -485,6 +577,7 @@ construction_management.project_collection.build_detail_html = function (data, p
 							<tr>
 								<th>${__('Sr No')}</th>
 								<th>${__('Invoice No')}</th>
+								<th>${__('Document Type')}</th>
 								<th>${__('Client Name')}</th>
 								<th>${__('PM / Engg')}</th>
 								<th>${__('Workdone')}</th>
@@ -497,6 +590,7 @@ construction_management.project_collection.build_detail_html = function (data, p
 								<th>${__('Overdue Date')}</th>
 								<th>${__('Payment Mode')}</th>
 								<th>${__('Payment Date')}</th>
+								<th>${__('Project No')}</th>
 								<th>${__('Remarks')}</th>
 							</tr>
 						</thead>
@@ -581,6 +675,90 @@ construction_management.project_collection.show_follow_up_dialog = function (con
 	if (context.focus_attachment) {
 		dialog.fields_dict.attachment.$wrapper.find('button').trigger('click');
 	}
+};
+
+construction_management.project_collection.show_payment_certificate_dialog = function (context, on_saved) {
+	const dialog = new frappe.ui.Dialog({
+		title: __('Add / Upload Payment Certificate'),
+		fields: [
+			{ fieldname: 'certificate_date', label: __('PC Date'), fieldtype: 'Date', default: frappe.datetime.get_today(), reqd: 1 },
+			{ fieldname: 'pc_amount', label: __('PC Amount'), fieldtype: 'Currency', reqd: 1 },
+			{ fieldname: 'attachment', label: __('Payment Certificate'), fieldtype: 'Attach', reqd: 1 },
+		],
+		primary_action_label: __('Save Certificate'),
+		primary_action(values) {
+			frappe.call({
+				method: 'construction_management.construction_management.page.project_collection.project_collection.save_collection_payment_certificate',
+				args: Object.assign({}, context, values),
+				freeze: true,
+				freeze_message: __('Saving payment certificate...'),
+				callback(r) {
+					if (!r.exc) {
+						dialog.hide();
+						frappe.show_alert({ message: __('Payment certificate saved'), indicator: 'green' });
+						on_saved(r.message || {}, values);
+					}
+				},
+			});
+		},
+	});
+	dialog.show();
+};
+
+construction_management.project_collection.bind_invoice_portfolio_events = function ($container, filters) {
+	const me = this;
+	const mark_row_saved = ($row, message) => {
+		$row.addClass('collection-row-saved');
+		const $actions = $row.find('.collection-row-actions');
+		$actions.find('.collection-save-note').remove();
+		$actions.append(`<span class="collection-save-note">${frappe.utils.escape_html(message || __('Saved'))}</span>`);
+		setTimeout(() => {
+			$row.removeClass('collection-row-saved');
+			$actions.find('.collection-save-note').fadeOut(180, function () { $(this).remove(); });
+		}, 2200);
+	};
+	$container.off('click.collection-upload-pc').on('click.collection-upload-pc', '.collection-upload-pc', function (e) {
+		e.preventDefault();
+		const $el = $(this);
+		me.show_payment_certificate_dialog({
+			project: $el.data('project'),
+			reference_doctype: $el.data('ref-doctype'),
+			reference_name: $el.data('ref-name'),
+		}, (result, values) => {
+			const $row = $el.closest('.collection-billing-row');
+			$row.find('.collection-pc-date-input').val(values.certificate_date);
+			$row.find('.collection-pc-amt-input').val(values.pc_amount);
+			$el.text(__('Update PC'));
+			if (result.attachment && !$row.find('.collection-view-pc').length) {
+				$el.after(`<a class="collection-action-link collection-view-pc" href="${frappe.utils.escape_html(result.attachment)}" target="_blank" rel="noopener">${__('View PC')}</a>`);
+			}
+			mark_row_saved($row, __('PC saved'));
+		});
+	});
+	$container.off('change.collection-portfolio-pc').on('change.collection-portfolio-pc', '.collection-pc-date-input, .collection-pc-amt-input', function () {
+		const $input = $(this);
+		const isDate = $input.hasClass('collection-pc-date-input');
+		$input.prop('disabled', true).addClass('collection-input-saving');
+		frappe.call({
+			method: isDate
+				? 'construction_management.construction_management.page.project_collection.project_collection.update_collection_pc_date'
+				: 'construction_management.construction_management.page.project_collection.project_collection.update_collection_pc_amount',
+			args: isDate ? {
+				project: $input.attr('data-project'), payment_certificate: $input.attr('data-pc'),
+				certificate_date: $input.val(), reference_doctype: $input.attr('data-ref-doctype'), reference_name: $input.attr('data-ref-name'),
+			} : {
+				project: $input.attr('data-project'), payment_certificate: $input.attr('data-pc'),
+				pc_amount: $input.val(), reference_doctype: $input.attr('data-ref-doctype'), reference_name: $input.attr('data-ref-name'),
+			},
+			callback(r) {
+				$input.prop('disabled', false).removeClass('collection-input-saving');
+				if (!r.exc) mark_row_saved($input.closest('.collection-billing-row'));
+			},
+			error() {
+				$input.prop('disabled', false).removeClass('collection-input-saving');
+			},
+		});
+	});
 };
 
 construction_management.project_collection.bind_detail_events = function ($container, project, options) {
