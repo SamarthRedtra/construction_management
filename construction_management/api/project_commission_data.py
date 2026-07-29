@@ -44,8 +44,9 @@ def build_commission_ledger(project: str) -> tuple[list[dict], dict]:
 
 	si_rows = _build_sales_invoice_commission_rows(project, company)
 	jv_rows = _build_journal_commission_rows(project, company)
-	pe_rows = _build_commission_payout_payment_rows(project, company)
-	rows = si_rows + jv_rows + pe_rows
+	# Commission Payment Entry details are embedded in their Sales Invoice row.
+	# Keeping a separate row made a paid commission appear twice in the ledger.
+	rows = si_rows + jv_rows
 
 	rows.sort(key=lambda row: (
 		getdate(row.get("sort_date") or "1900-01-01"),
@@ -100,11 +101,19 @@ def build_summary(project: str, ledger_rows: list[dict]) -> dict:
 	)
 	balance = total_invoice_amount - total_received_amount
 
-	commission_received_total = sum(
-		flt(row.get("commission_received"))
-		for row in ledger_rows
-		if row["row_type"] in (ROW_TYPE_JV, ROW_TYPE_PE)
-	)
+	commission_received_total = 0.0
+	seen_payouts = set()
+	for row in ledger_rows:
+		if row["row_type"] == ROW_TYPE_JV:
+			commission_received_total += flt(row.get("commission_received"))
+		elif row["row_type"] == ROW_TYPE_SI:
+			for payout in row.get("commission_payouts") or []:
+				payout_name = payout.get("name")
+				if payout_name and payout_name not in seen_payouts:
+					commission_received_total += flt(payout.get("paid_amount"))
+					seen_payouts.add(payout_name)
+		elif row["row_type"] == ROW_TYPE_PE:
+			commission_received_total += flt(row.get("commission_received"))
 	commission_balance = commission_total - commission_received_total
 
 	retention_amount = frappe.db.sql(
@@ -166,73 +175,164 @@ def _get_commission_account(company: str) -> str | None:
 
 
 def _build_sales_invoice_commission_rows(project: str, company: str) -> list[dict]:
-	if not _redtra_available():
-		return []
+	"""Build invoice commission rows, including invoices without a Sales Team row.
 
-	try:
-		from redtra_customisation.redtra_customisation.report.sales_person_commission_payment_summary.sales_person_commission_payment_summary import (
-			get_entries,
-		)
-	except ImportError:
-		return []
+	The Redtra report is based on ``Sales Team``.  Some historical invoices have
+	the commission fields populated directly on the Sales Invoice but no Sales
+	Team child row; excluding those invoices made their commission invisible.
+	"""
+	entries = []
+	if _redtra_available():
+		try:
+			from redtra_customisation.redtra_customisation.report.sales_person_commission_payment_summary.sales_person_commission_payment_summary import (
+				get_entries,
+			)
+			entries = get_entries({
+				"company": company,
+				"project": project,
+				"doc_type": "Sales Invoice",
+			}) or []
+		except ImportError:
+			pass
 
-	entries = get_entries({
-		"company": company,
-		"project": project,
-		"doc_type": "Sales Invoice",
-	}) or []
+	# Preserve the Sales Team rows from Redtra, then supplement invoices whose
+	# commission was stored directly on the invoice (for example ACC-SINV-2026-00214).
+	reported_invoices = {entry.get("source_name") for entry in entries if entry.get("source_name")}
+	entries.extend(_get_unreported_invoice_commission_entries(project, company, reported_invoices))
 
 	rows = []
 	pay_shown_for = set()
-	paid_out_invoices = _get_paid_out_commission_invoices(project)
+	payout_resolution = _get_commission_payout_resolution(project, company, entries)
+	paid_out_invoices = set(payout_resolution["invoice_by_payment"].values())
+	payouts_by_invoice = _get_submitted_commission_payouts_by_invoice(payout_resolution)
 	for entry in entries:
 		invoice_name = entry.get("source_name")
-		payments = _get_si_payments(invoice_name)
-		payment_lines = payments or [{"reference_no": "", "posting_date": "", "allocated_amount": 0.0}]
+		payment = _get_si_payment_summary(invoice_name)
 		commission_amount = flt(entry.get("commission_amount"))
 		employee = entry.get("employee") or ""
 		pay_key = (invoice_name, entry.get("sales_person") or "")
 		already_paid = invoice_name in paid_out_invoices
+		payouts = payouts_by_invoice.get(invoice_name, [])
+		payout_amount = sum(flt(payout.get("paid_amount")) for payout in payouts)
+		payout_cheques = ", ".join(
+			str(payout.get("reference_no") or "") for payout in payouts if payout.get("reference_no")
+		)
 
-		for idx, payment in enumerate(payment_lines):
-			# One Pay action per invoice + sales person (not per customer cheque line).
-			show_pay = (
-				idx == 0
-				and pay_key not in pay_shown_for
-				and commission_amount > 0
-				and bool(employee)
-				and not already_paid
-			)
-			if show_pay:
-				pay_shown_for.add(pay_key)
+		# One row per invoice + sales person, even when its receipt has multiple
+		# Payment Entry references (including small round-off adjustments).
+		show_pay = (
+			pay_key not in pay_shown_for
+			and commission_amount > 0
+			and bool(employee)
+			and not already_paid
+		)
+		if show_pay:
+			pay_shown_for.add(pay_key)
 
-			rows.append({
-				"row_type": ROW_TYPE_SI,
-				"sort_date": entry.get("posting_date"),
-				"invoice_date": entry.get("posting_date"),
-				"invoice_serial_no": "",
-				"invoice_no": invoice_name,
-				"invoice_type": "Tax Invoice",
-				"amount": flt(entry.get("amount")),
-				"cheque_no": payment.get("reference_no") or "",
-				"cheque_date": payment.get("posting_date") or "",
-				"cheque_amount": flt(payment.get("allocated_amount")),
-				"commission_pct": flt(entry.get("commission_rate")),
-				"commission_amount": commission_amount,
-				"commission_received": 0.0,
-				"commission_cheque_no": "",
-				"remarks": "",
-				"sales_person": entry.get("sales_person") or "",
-				"employee": employee,
-				"employee_name": entry.get("employee_name") or "",
-				"company": entry.get("company") or company,
-				"project": project,
-				"show_pay": show_pay,
-				"commission_paid": already_paid,
-				"source_name": invoice_name,
-			})
+		rows.append({
+			"row_type": ROW_TYPE_SI,
+			"sort_date": entry.get("posting_date"),
+			"invoice_date": entry.get("posting_date"),
+			"invoice_serial_no": "",
+			"invoice_no": invoice_name,
+			"invoice_type": "Tax Invoice",
+			"amount": flt(entry.get("amount")),
+			"cheque_no": payment.get("reference_no") or "",
+			"cheque_date": payment.get("posting_date") or "",
+			"cheque_amount": flt(payment.get("allocated_amount")),
+			"commission_pct": flt(entry.get("commission_rate")),
+			"commission_amount": commission_amount,
+			"commission_received": payout_amount,
+			"commission_cheque_no": payout_cheques,
+			"commission_payouts": payouts,
+			"remarks": "",
+			"sales_person": entry.get("sales_person") or "",
+			"employee": employee,
+			"employee_name": entry.get("employee_name") or "",
+			"company": entry.get("company") or company,
+			"project": project,
+			"show_pay": show_pay,
+			"commission_paid": already_paid,
+			"source_name": invoice_name,
+		})
 
 	return rows
+
+
+def _get_unreported_invoice_commission_entries(
+	project: str, company: str, reported_invoices: set[str]
+) -> list[dict]:
+	"""Return submitted commission invoices absent from the Sales Team report."""
+	if not frappe.get_meta("Sales Invoice").has_field("total_commission"):
+		return []
+
+	fields = [
+		"name",
+		"posting_date",
+		"company",
+		"project",
+		"base_total",
+		"total_commission",
+	]
+	meta = frappe.get_meta("Sales Invoice")
+	if meta.has_field("commission_rate"):
+		fields.append("commission_rate")
+	if meta.has_field("custom_sales_order"):
+		fields.append("custom_sales_order")
+
+	invoices = frappe.get_all(
+		"Sales Invoice",
+		filters={"project": project, "company": company, "docstatus": 1},
+		fields=fields,
+		order_by="posting_date asc, name asc",
+	)
+
+	entries = []
+	for invoice in invoices:
+		if invoice.name in reported_invoices or flt(invoice.total_commission) <= 0:
+			continue
+		sales_person, employee, employee_name = _get_invoice_commission_recipient(invoice)
+		entries.append({
+			"source_name": invoice.name,
+			"posting_date": invoice.posting_date,
+			"company": invoice.company,
+			"project": invoice.project,
+			"amount": flt(invoice.base_total),
+			"sales_person": sales_person,
+			"employee": employee,
+			"employee_name": employee_name,
+			"commission_rate": flt(invoice.get("commission_rate")),
+			"commission_amount": flt(invoice.total_commission),
+		})
+	return entries
+
+
+def _get_invoice_commission_recipient(invoice) -> tuple[str, str, str]:
+	"""Find the sales person/employee on an invoice, then on its linked order."""
+	parent_names = [invoice.name]
+	parent_types = ["Sales Invoice"]
+	if invoice.get("custom_sales_order"):
+		parent_names.append(invoice.custom_sales_order)
+		parent_types.append("Sales Order")
+
+	for parent, parenttype in zip(parent_names, parent_types):
+		row = frappe.db.sql(
+			"""
+			SELECT st.sales_person, sp.employee, emp.employee_name
+			FROM `tabSales Team` st
+			LEFT JOIN `tabSales Person` sp ON sp.name = st.sales_person
+			LEFT JOIN `tabEmployee` emp ON emp.name = sp.employee
+			WHERE st.parent = %s AND st.parenttype = %s
+			ORDER BY st.idx ASC
+			LIMIT 1
+			""",
+			(parent, parenttype),
+			as_dict=True,
+		)
+		if row:
+			return row[0].sales_person or "", row[0].employee or "", row[0].employee_name or ""
+
+	return "", "", ""
 
 
 def _commission_payout_remark(invoice_no: str) -> str:
@@ -259,85 +359,113 @@ def _extract_invoice_from_commission_pe(row) -> str | None:
 	return None
 
 
-def _get_paid_out_commission_invoices(project: str) -> set[str]:
-	"""Invoices that already have a commission Payment Entry (draft or submitted)."""
+def _get_paid_out_commission_invoices(
+	project: str, company: str | None = None, commission_entries: list[dict] | None = None
+) -> set[str]:
+	"""Invoices with a commission payout, including safely inferred legacy payouts."""
+	return set(_get_commission_payout_resolution(project, company, commission_entries)["invoice_by_payment"].values())
+
+
+def _get_submitted_commission_payouts_by_invoice(resolution: dict) -> dict[str, list[dict]]:
+	"""Group submitted commission payout Payment Entries by their invoice."""
+	payouts_by_invoice = {}
+	for payout in resolution.get("rows") or []:
+		invoice = resolution.get("invoice_by_payment", {}).get(payout.name)
+		if not invoice or payout.docstatus != 1:
+			continue
+		payouts_by_invoice.setdefault(invoice, []).append({
+			"name": payout.name,
+			"posting_date": payout.posting_date,
+			"creation": payout.get("creation"),
+			"reference_no": payout.reference_no or "",
+			"paid_amount": flt(payout.paid_amount),
+		})
+	return payouts_by_invoice
+
+
+def _get_commission_payout_resolution(
+	project: str, company: str | None = None, commission_entries: list[dict] | None = None
+) -> dict:
+	"""Map commission Payment Entries to invoices.
+
+	New Payment Entries carry a dedicated flag and invoice remark.  Older entries
+	were sometimes created without either.  Such a legacy entry is accepted only
+	when its project, employee and amount identify exactly one unpaid invoice;
+	this avoids treating ordinary employee payments as commission.
+	"""
 	if not project:
-		return set()
+		return {"rows": [], "invoice_by_payment": {}}
 
 	has_flag = _pe_has_commission_payout_flag()
-	if has_flag:
-		where_extra = """
-		  AND (
-				IFNULL(custom_is_commission_payout, 0) = 1
-				OR remarks LIKE %s
-		  )
-		"""
-		params = (project, f"{COMMISSION_PAYOUT_REMARK_PREFIX}%")
-		select_cols = "reference_no, remarks, custom_is_commission_payout"
-	else:
-		where_extra = " AND remarks LIKE %s "
-		params = (project, f"{COMMISSION_PAYOUT_REMARK_PREFIX}%")
-		select_cols = "reference_no, remarks"
-
+	flag_column = ", IFNULL(custom_is_commission_payout, 0) AS is_commission_payout" if has_flag else ", 0 AS is_commission_payout"
+	company_clause = " AND company = %s" if company else ""
+	params = [project]
+	if company:
+		params.append(company)
 	rows = frappe.db.sql(
 		f"""
-		SELECT {select_cols}
+		SELECT name, docstatus, posting_date, creation, party AS employee, paid_amount,
+			reference_no, remarks, company{flag_column}
 		FROM `tabPayment Entry`
-		WHERE project = %s
+		WHERE project = %s{company_clause}
 		  AND docstatus < 2
 		  AND payment_type = 'Pay'
 		  AND party_type = 'Employee'
-		  {where_extra}
-		""",
-		params,
-		as_dict=True,
-	)
-
-	paid = set()
-	for row in rows:
-		invoice = _extract_invoice_from_commission_pe(row)
-		if invoice:
-			paid.add(invoice)
-	return paid
-
-
-def _build_commission_payout_payment_rows(project: str, company: str) -> list[dict]:
-	"""Commission payout Payment Entries — shown as Commission Received."""
-	has_flag = _pe_has_commission_payout_flag()
-	if has_flag:
-		where_extra = """
-		  AND (
-				IFNULL(custom_is_commission_payout, 0) = 1
-				OR remarks LIKE %s
-		  )
-		"""
-		params = (project, company, f"{COMMISSION_PAYOUT_REMARK_PREFIX}%")
-	else:
-		where_extra = " AND remarks LIKE %s "
-		params = (project, company, f"{COMMISSION_PAYOUT_REMARK_PREFIX}%")
-
-	rows = frappe.db.sql(
-		f"""
-		SELECT
-			name,
-			posting_date,
-			party AS employee,
-			paid_amount,
-			reference_no,
-			remarks,
-			company
-		FROM `tabPayment Entry`
-		WHERE project = %s
-		  AND company = %s
-		  AND docstatus = 1
-		  AND payment_type = 'Pay'
-		  AND party_type = 'Employee'
-		  {where_extra}
 		ORDER BY posting_date ASC, name ASC
 		""",
 		params,
 		as_dict=True,
 	)
+
+	invoice_by_payment = {}
+	used_invoices = set()
+	for row in rows:
+		is_marked = flt(row.get("is_commission_payout")) == 1 or (
+			COMMISSION_PAYOUT_REMARK_PREFIX in (row.get("remarks") or "")
+		)
+		if not is_marked:
+			continue
+		invoice = _extract_invoice_from_commission_pe(row)
+		if invoice:
+			invoice_by_payment[row.name] = invoice
+			used_invoices.add(invoice)
+
+	# Match only unmarked legacy entries where there is one exact invoice match.
+	# This supports historical entries such as MRG-PE-00450 without broadening
+	# the definition of a commission payout to every employee payment.
+	candidates_by_key = {}
+	for entry in commission_entries or []:
+		invoice = entry.get("source_name") or entry.get("invoice_no")
+		employee = entry.get("employee") or ""
+		amount = flt(entry.get("commission_amount"))
+		if not invoice or not employee or amount <= 0 or invoice in used_invoices:
+			continue
+		key = (employee, round(amount, 2))
+		candidates_by_key.setdefault(key, []).append(invoice)
+
+	for row in rows:
+		if row.name in invoice_by_payment:
+			continue
+		if flt(row.get("is_commission_payout")) or COMMISSION_PAYOUT_REMARK_PREFIX in (row.get("remarks") or ""):
+			continue
+		key = (row.get("employee") or "", round(flt(row.get("paid_amount")), 2))
+		matches = list(dict.fromkeys(candidates_by_key.get(key, [])))
+		if len(matches) == 1 and matches[0] not in used_invoices:
+			invoice_by_payment[row.name] = matches[0]
+			used_invoices.add(matches[0])
+
+	return {"rows": rows, "invoice_by_payment": invoice_by_payment}
+
+
+def _build_commission_payout_payment_rows(
+	project: str, company: str, si_rows: list[dict] | None = None
+) -> list[dict]:
+	"""Commission payout Payment Entries — shown as Commission Received."""
+	resolution = _get_commission_payout_resolution(project, company, si_rows)
+	rows = [
+		row for row in resolution["rows"]
+		if row.docstatus == 1 and row.name in resolution["invoice_by_payment"]
+	]
 
 	result = []
 	for pe in rows:
@@ -350,7 +478,7 @@ def _build_commission_payout_payment_rows(project: str, company: str) -> list[di
 			"sort_date": pe.posting_date,
 			"invoice_date": "",
 			"invoice_serial_no": "",
-			"invoice_no": "",
+			"invoice_no": resolution["invoice_by_payment"].get(pe.name, ""),
 			"invoice_type": "",
 			"amount": 0.0,
 			"cheque_no": "",
@@ -360,7 +488,9 @@ def _build_commission_payout_payment_rows(project: str, company: str) -> list[di
 			"commission_amount": flt(pe.paid_amount),
 			"commission_received": flt(pe.paid_amount),
 			"commission_cheque_no": pe.reference_no or "",
-			"remarks": pe.remarks or "",
+			"remarks": pe.remarks or _commission_payout_remark(
+				resolution["invoice_by_payment"].get(pe.name, "")
+			),
 			"sales_person": "",
 			"employee": employee,
 			"employee_name": employee_name or "",
@@ -518,6 +648,20 @@ def _get_si_payments(invoice_name: str) -> list[dict]:
 		invoice_name,
 		as_dict=True,
 	)
+
+
+def _get_si_payment_summary(invoice_name: str) -> dict:
+	"""Collapse all receipt references into one display value for an invoice."""
+	payments = _get_si_payments(invoice_name)
+	if not payments:
+		return {"reference_no": "", "posting_date": "", "allocated_amount": 0.0}
+
+	primary = max(payments, key=lambda row: flt(row.get("allocated_amount")))
+	return {
+		"reference_no": primary.get("reference_no") or "",
+		"posting_date": primary.get("posting_date") or "",
+		"allocated_amount": sum(flt(row.get("allocated_amount")) for row in payments),
+	}
 
 
 def _get_je_reference_no(journal_entry: str) -> str:

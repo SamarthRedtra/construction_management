@@ -9,6 +9,7 @@ from unittest.mock import patch
 from construction_management.api.project_commission_data import (
 	ROW_TYPE_JV,
 	ROW_TYPE_SI,
+	_get_commission_payout_resolution,
 	build_commission_ledger,
 	build_summary,
 )
@@ -139,3 +140,31 @@ class TestProjectCommission(FrappeTestCase):
 				self.assertEqual(rows[0]["invoice_no"], "")
 				self.assertEqual(rows[0]["remarks"], "Sales person commission")
 				self.assertEqual(rows[0]["commission_received"], 250)
+
+	@patch("construction_management.api.project_commission_data._pe_has_commission_payout_flag", return_value=True)
+	@patch("construction_management.api.project_commission_data.frappe.db.sql")
+	def test_legacy_payment_is_matched_only_to_one_exact_commission(self, mock_sql, _mock_has_flag):
+		mock_sql.return_value = [
+			frappe._dict({
+				"name": "PE-COMM-001",
+				"docstatus": 1,
+				"employee": "EMP-001",
+				"paid_amount": 100.004,
+				"remarks": "",
+				"is_commission_payout": 0,
+			})
+		]
+
+		resolution = _get_commission_payout_resolution(
+			"PROJ-001",
+			"Test Company",
+			[
+				{
+					"source_name": "SI-COMM-001",
+					"employee": "EMP-001",
+					"commission_amount": 100.0,
+				}
+			],
+		)
+
+		self.assertEqual(resolution["invoice_by_payment"], {"PE-COMM-001": "SI-COMM-001"})

@@ -165,6 +165,24 @@ construction_management.project_commission.get_voucher_link = function (row) {
 	return '';
 };
 
+construction_management.project_commission.get_commission_payout_details = function (row) {
+	if (row.row_type !== 'Sales Invoice' || !(row.commission_payouts || []).length) {
+		return '';
+	}
+
+	const payouts = row.commission_payouts.map((payout) => {
+		const name = frappe.utils.escape_html(payout.name || '');
+		const link = payout.name
+			? `<a href="/app/payment-entry/${encodeURIComponent(payout.name)}" target="_blank" class="document-link">${name}</a>`
+			: '';
+		const timestamp = payout.creation || payout.posting_date;
+		const paid_at = timestamp ? frappe.datetime.str_to_user(timestamp) : '';
+		return `<div>${link}${paid_at ? `<br><small class="text-muted">${__('Paid')} · ${paid_at}</small>` : ''}</div>`;
+	});
+
+	return payouts.join('');
+};
+
 construction_management.project_commission.build_dashboard_html = function (data, options) {
 	const fmt = construction_management.project_commission.format_num;
 	const badge_slugs = construction_management.project_commission.BADGE_SLUGS;
@@ -209,9 +227,10 @@ construction_management.project_commission.build_dashboard_html = function (data
 			const cheque_amt_disp = row.cheque_amount > 0 ? fmt(row.cheque_amount, 'Currency') : '';
 			const comm_recv_disp = row.commission_received > 0 ? fmt(row.commission_received, 'Currency') : '';
 			const voucher_link = construction_management.project_commission.get_voucher_link(row);
-			const remarks_cell = row.remarks
+			const payout_details = construction_management.project_commission.get_commission_payout_details(row);
+			const remarks_cell = payout_details || (row.remarks
 				? frappe.utils.escape_html(row.remarks)
-				: voucher_link;
+				: voucher_link);
 			const pay_cell = construction_management.project_commission.get_pay_cell_html(row, can_create_pe);
 
 			ledger_html += `
