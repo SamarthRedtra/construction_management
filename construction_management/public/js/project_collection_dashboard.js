@@ -92,6 +92,17 @@ construction_management.project_collection.to_input_date = function (value) {
 	}
 };
 
+construction_management.project_collection.has_pc_update = function (row) {
+	return Boolean(
+		row.follow_up_status === 'Collection PC'
+		|| row.pc_date
+		|| (row.pc_amt !== null && row.pc_amt !== undefined && row.pc_amt !== '')
+		|| row.pc_attachment
+		|| row.follow_up_attachment
+		|| row.payment_certificate
+	);
+};
+
 construction_management.project_collection._build_billing_row_html = function (row, project, fmt, fmt_date) {
 	const status = construction_management.project_collection.get_row_status(row);
 	const category = construction_management.project_collection.get_payment_category(row);
@@ -103,9 +114,18 @@ construction_management.project_collection._build_billing_row_html = function (r
 	const document_type_slug = ref_doctype === 'Sales Order' ? 'proforma' : 'tax-invoice';
 	const payment_mode_disp = [row.payment_mode, row.cheque_no].filter(Boolean).join(' · ');
 	const pc_name = row.payment_certificate || (row.stage === 'Payment Certificate' ? row.invoice_no : '');
-	const pc_attachment = row.pc_attachment || '';
+	const pc_attachment = row.pc_attachment || row.follow_up_attachment || '';
+	const follow_up_name = row.follow_up_name || '';
+	const follow_up_status = row.follow_up_status || '';
+	const follow_up_link = follow_up_name
+		? `/app/project-soa-follow-up/${encodeURIComponent(follow_up_name)}`
+		: '';
 	const pc_date_value = construction_management.project_collection.to_input_date(row.pc_date);
 	const pc_amt_value = row.pc_amt != null && row.pc_amt !== '' ? flt(row.pc_amt) : '';
+	const has_saved_pc = Boolean(
+		follow_up_name && (follow_up_status === 'Collection PC' || pc_attachment || pc_date_value || pc_amt_value !== '')
+	);
+	const has_pc_update = construction_management.project_collection.has_pc_update(row);
 	// Always show an editable PC Date control so users can find/set it in the grid.
 	const pc_date_html = `
 		<input type="date" class="form-control input-xs collection-pc-date-input"
@@ -130,13 +150,14 @@ construction_management.project_collection._build_billing_row_html = function (r
 	`;
 
 	return `
-		<tr class="collection-billing-row" data-category="${category}"
+		<tr class="collection-billing-row" data-category="${category}" data-pc-updated="${has_pc_update ? '1' : '0'}"
 			data-ref-doctype="${frappe.utils.escape_html(ref_doctype)}" data-ref-name="${frappe.utils.escape_html(ref_name)}">
 			<td class="text-center">${row.sr_no}</td>
 			<td class="collection-invoice-cell">
 				<div class="collection-invoice-link">${invoice_link}</div>
 				<span class="badge-status ${status.slug}">${status.label}</span>
 				${row.is_advance ? `<span class="badge-status advance">${__('Advance')}</span>` : ''}
+				${has_saved_pc ? `<span class="badge badge-success">${__('PC Saved')}</span>` : ''}
 			</td>
 			<td><span class="collection-document-type ${document_type_slug}">${frappe.utils.escape_html(document_type)}</span></td>
 			<td>${frappe.utils.escape_html(row.client_name || '')}</td>
@@ -155,6 +176,7 @@ construction_management.project_collection._build_billing_row_html = function (r
 			<td>
 				${frappe.utils.escape_html(row.remarks || '')}
 				<div class="collection-row-actions">
+					${follow_up_link ? `<a class="collection-action-link" href="${follow_up_link}" target="_blank" rel="noopener">${__('Open Follow-Up')}</a>` : ''}
 					<span class="collection-action-link collection-add-follow-up"
 						data-project="${frappe.utils.escape_html(project)}"
 						data-ref-doctype="${frappe.utils.escape_html(ref_doctype)}"
@@ -163,7 +185,7 @@ construction_management.project_collection._build_billing_row_html = function (r
 							data-project="${frappe.utils.escape_html(project)}"
 							data-ref-doctype="${frappe.utils.escape_html(ref_doctype)}"
 							data-ref-name="${frappe.utils.escape_html(ref_name)}"
-							data-pc="${frappe.utils.escape_html(row.payment_certificate || '')}">${__('Add / Upload PC')}</span>
+							data-pc="${frappe.utils.escape_html(row.payment_certificate || '')}">${has_saved_pc ? __('Update PC') : __('Add / Upload PC')}</span>
 					${pc_attachment ? `<a class="collection-action-link" href="${frappe.utils.escape_html(pc_attachment)}" target="_blank" rel="noopener">${__('View PC')}</a>` : ''}
 				</div>
 			</td>
@@ -175,6 +197,7 @@ construction_management.project_collection._build_billing_category_summary = fun
 	const categories = construction_management.project_collection.BILLING_CATEGORIES;
 	const counts = {};
 	const totals = {};
+	const pc_updated_count = rows.filter(construction_management.project_collection.has_pc_update).length;
 
 	categories.forEach((cat) => {
 		counts[cat.key] = 0;
@@ -192,6 +215,9 @@ construction_management.project_collection._build_billing_category_summary = fun
 		<div class="collection-category-filters">
 			<button type="button" class="collection-filter-chip active" data-filter="all">
 				${__('All')} <span class="chip-count">${rows.length}</span>
+			</button>
+			<button type="button" class="collection-filter-chip" data-filter="pc-updated">
+				${__('PC Updated')} <span class="chip-count">${pc_updated_count}</span>
 			</button>
 	`;
 
@@ -376,6 +402,7 @@ construction_management.project_collection.build_invoice_portfolio_html = functi
 	const total_invoiced = tax_invoices.reduce((total, row) => total + flt(row.ti_amt || 0), 0);
 	const paid_count = tax_invoices.filter((row) => row.payment_date).length;
 	const awaiting_pc_count = tax_invoices.filter((row) => !row.pc_date).length;
+	const pc_updated_count = rows.filter(construction_management.project_collection.has_pc_update).length;
 	const overdue_count = tax_invoices.filter((row) => row.is_overdue).length;
 	let body = '';
 	if (rows.length) {
@@ -406,6 +433,10 @@ construction_management.project_collection.build_invoice_portfolio_html = functi
 			<div class="collection-register-kpi collection-register-kpi-success"><span>${__('Paid')}</span><strong>${paid_count}</strong></div>
 			<div class="collection-register-kpi collection-register-kpi-warning"><span>${__('Awaiting PC')}</span><strong>${awaiting_pc_count}</strong></div>
 			<div class="collection-register-kpi collection-register-kpi-danger"><span>${__('Overdue')}</span><strong>${overdue_count}</strong></div>
+		</div>
+		<div class="collection-category-filters">
+			<button type="button" class="collection-register-filter collection-filter-chip active" data-register-filter="all">${__('All Documents')} <span class="chip-count">${rows.length}</span></button>
+			<button type="button" class="collection-register-filter collection-filter-chip" data-register-filter="pc-updated">${__('PC Updated')} <span class="chip-count">${pc_updated_count}</span></button>
 		</div>
 		<div class="collection-table-toolbar"><span>${__('Invoice details and collection progress')}</span><span>${__('Scroll horizontally to view all fields')} →</span></div>
 		<div class="collection-grid-scroll"><table class="collection-table border-table collection-billing-grid"><thead><tr>
@@ -510,6 +541,9 @@ construction_management.project_collection.build_detail_html = function (data, p
 			const attach_link = row.attachment
 				? `<a href="${row.attachment}" target="_blank">${__('View')}</a>`
 				: '';
+			const follow_up_link = row.name
+				? `<a class="collection-action-link" href="/app/project-soa-follow-up/${encodeURIComponent(row.name)}" target="_blank" rel="noopener">${__('Open')}</a>`
+				: '';
 			const route = construction_management.project_soa
 				? construction_management.project_soa._route_for_doctype(row.reference_doctype)
 				: 'Form';
@@ -519,13 +553,15 @@ construction_management.project_collection.build_detail_html = function (data, p
 					<td><a href="/app/${route}/${encodeURIComponent(row.reference_name)}" target="_blank">${frappe.utils.escape_html(row.reference_name || '')}</a></td>
 					<td>${row.follow_up_date ? frappe.datetime.str_to_user(row.follow_up_date) : ''}</td>
 					<td>${frappe.utils.escape_html(row.status || '')}</td>
+					<td class="text-right">${row.pc_amount != null ? fmt(row.pc_amount, 'Currency') : ''}</td>
 					<td>${frappe.utils.escape_html(row.remarks || '')}</td>
 					<td>${attach_link}</td>
+					<td>${follow_up_link}</td>
 				</tr>
 			`;
 		});
 	} else {
-		follow_up_html = `<tr><td colspan="6" class="text-center text-muted">${__('No follow-ups recorded')}</td></tr>`;
+		follow_up_html = `<tr><td colspan="8" class="text-center text-muted">${__('No follow-ups recorded')}</td></tr>`;
 	}
 
 	return `
@@ -600,7 +636,8 @@ construction_management.project_collection.build_detail_html = function (data, p
 			</div>
 
 			<div class="collection-follow-up-section">
-				<h3 class="collection-section-title">${__('Payment Certificate Follow Ups')}</h3>
+				<h3 class="collection-section-title">${__('Saved PC / Follow-Up Records')}</h3>
+				<p class="collection-section-sub">${__('All PC data entered in Project SOA Follow Up is listed here. Use Open to view or edit the saved record.')}</p>
 				<table class="collection-table border-table collection-follow-up-table">
 					<thead>
 						<tr>
@@ -608,8 +645,10 @@ construction_management.project_collection.build_detail_html = function (data, p
 							<th>${__('Reference')}</th>
 							<th>${__('Follow Up Date')}</th>
 							<th>${__('Status')}</th>
+							<th class="text-right">${__('PC Amount')}</th>
 							<th>${__('Remarks')}</th>
 							<th>${__('Attachment')}</th>
+							<th>${__('Action')}</th>
 						</tr>
 					</thead>
 					<tbody>${follow_up_html}</tbody>
@@ -707,6 +746,27 @@ construction_management.project_collection.show_payment_certificate_dialog = fun
 
 construction_management.project_collection.bind_invoice_portfolio_events = function ($container, filters) {
 	const me = this;
+	$container.off('click.collection-register-filter').on('click.collection-register-filter', '.collection-register-filter', function () {
+		const filter = $(this).data('register-filter');
+		$container.find('.collection-register-filter').removeClass('active');
+		$(this).addClass('active');
+
+		$container.find('.collection-billing-row').each(function () {
+			const show = filter === 'all' || $(this).attr('data-pc-updated') === '1';
+			$(this).toggle(show);
+		});
+
+		// Keep a project heading visible only when it still contains a visible row.
+		$container.find('.collection-project-group-header').each(function () {
+			const $header = $(this);
+			let has_visible_row = false;
+			$header.nextUntil('.collection-project-group-header', '.collection-billing-row').each(function () {
+				if ($(this).is(':visible')) has_visible_row = true;
+			});
+			$header.toggle(has_visible_row);
+		});
+	});
+
 	const mark_row_saved = ($row, message) => {
 		$row.addClass('collection-row-saved');
 		const $actions = $row.find('.collection-row-actions');
@@ -769,11 +829,21 @@ construction_management.project_collection.bind_detail_events = function ($conta
 		$container.find('.collection-filter-chip').removeClass('active');
 		$(this).addClass('active');
 
-		$container.find('.collection-category-header, .collection-billing-row').each(function () {
-			const $el = $(this);
-			const category = $el.data('category');
-			const show = filter === 'all' || category === filter;
-			$el.toggle(show);
+		$container.find('.collection-billing-row').each(function () {
+			const $row = $(this);
+			const category = $row.data('category');
+			const show = filter === 'all'
+				|| (filter === 'pc-updated' && $row.attr('data-pc-updated') === '1')
+				|| category === filter;
+			$row.toggle(show);
+		});
+
+		$container.find('.collection-category-header').each(function () {
+			const $header = $(this);
+			const has_visible_row = $header
+				.nextUntil('.collection-category-header', '.collection-billing-row')
+				.filter(':visible').length > 0;
+			$header.toggle(has_visible_row);
 		});
 	});
 

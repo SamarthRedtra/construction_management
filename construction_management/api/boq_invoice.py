@@ -30,16 +30,16 @@ def _set_direct_billing_mode(invoice, is_proforma: int = 0):
 
 
 def _set_invoice_company_from_project(invoice, project_doc):
-	"""Set the mandatory Sales Invoice company from the source Project.
+	"""Set the mandatory company from the source Project.
 
-	BOQ invoices (including proforma invoices) are created directly from the
-	Project screen, so ERPNext does not get a company from a Sales Order.  It
-	must be set before taxes and totals are calculated.
+	BOQ documents (Sales Order / Sales Invoice / Proforma) are created from the
+	Project screen, so ERPNext does not get a company from a prior document.
+	It must be set before taxes and totals are calculated.
 	"""
-	company = project_doc.get("company") or frappe.defaults.get_global_default("company")
+	company = project_doc.get("company") or frappe.defaults.get_user_default("Company") or frappe.defaults.get_global_default("company")
 	if not company:
 		frappe.throw(
-			_("Project {0} needs a Company before an invoice or proforma can be created.").format(
+			_("Project {0} needs a Company before an invoice, proforma, or sales order can be created.").format(
 				project_doc.name
 			)
 		)
@@ -2076,6 +2076,7 @@ def create_sales_order_from_selected_items(
 		order = frappe.new_doc("Sales Order")
 		order.project = project
 		order.customer = customer
+		_set_invoice_company_from_project(order, project_doc)
 		order.transaction_date = posting_date or today()
 		order.delivery_date = posting_date or today()
 		order.remarks = remarks
@@ -2197,9 +2198,12 @@ def create_sales_order_from_selected_items(
 		if not order.items:
 			return {"status": "error", "error_message": _("No valid items to order")}
 		
-		# Populate taxes
+		# Populate taxes (company must already be set)
+		if not order.company:
+			_set_invoice_company_from_project(order, project_doc)
+
 		if not order.get("taxes_and_charges"):
-			company_curr = project_doc.company
+			company_curr = order.company
 			default_tax = get_default_taxes_and_charges("Sales Taxes and Charges Template", company=company_curr)
 			
 			if default_tax and default_tax.get("taxes_and_charges"):

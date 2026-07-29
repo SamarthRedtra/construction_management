@@ -124,8 +124,12 @@ def get_collection_invoice_portfolio(company: str, filters: dict | None = None) 
 
 		# A Sales Order linked to a submitted Tax Invoice is intentionally omitted by
 		# get_collection_project_rows. Add it here so the register visibly shows the
-		# Proforma (Sales Order) and Tax Invoice stages together.
+		# Proforma (Sales Order) and Tax Invoice stages together. These supplemental
+		# rows must receive the same PC/follow-up overlay as the original rows;
+		# otherwise a PC saved against the Sales Order cannot be found by the
+		# Collection Manager filter.
 		existing_sales_orders = {row.get("reference_name") for row in project_rows if row.get("reference_doctype") == "Sales Order"}
+		supplemental_sales_order_rows = []
 		sales_order_fields = ["name", "transaction_date", "grand_total"]
 		if frappe.db.has_column("Sales Order", "remarks"):
 			sales_order_fields.append("remarks")
@@ -142,7 +146,7 @@ def get_collection_invoice_portfolio(company: str, filters: dict | None = None) 
 				continue
 			if filters.get("to_date") and (not document_date or getdate(document_date) > getdate(filters["to_date"])):
 				continue
-			project_rows.append(
+			supplemental_sales_order_rows.append(
 				_shape_collection_row(
 					project=project.name,
 					reference_doctype="Sales Order",
@@ -157,8 +161,16 @@ def get_collection_invoice_portfolio(company: str, filters: dict | None = None) 
 					remarks=sales_order.remarks or "",
 				)
 			)
-			project_rows[-1]["project_name"] = project.project_name or project.name
-			project_rows[-1]["document_type"] = "Proforma (Sales Order)"
+			supplemental_sales_order_rows[-1]["project_name"] = project.project_name or project.name
+			supplemental_sales_order_rows[-1]["document_type"] = "Proforma (Sales Order)"
+
+		if supplemental_sales_order_rows:
+			follow_ups = detail.get("follow_ups") or []
+			_apply_follow_up_overlay(supplemental_sales_order_rows, follow_ups)
+			from construction_management.api.collection_pc_override import merge_collection_pc_overlays
+
+			merge_collection_pc_overlays(supplemental_sales_order_rows, follow_ups)
+			project_rows.extend(supplemental_sales_order_rows)
 
 		rows.extend(project_rows)
 
@@ -676,6 +688,9 @@ def _apply_follow_up_overlay(rows: list[dict], follow_ups: list[dict]) -> None:
 		fu = latest.get(key)
 		if not fu:
 			continue
+		# Expose the source record so Collection Manager can link users directly to
+		# the follow-up where PC details and attachments were saved.
+		row["follow_up_name"] = fu.get("name") or ""
 		row["follow_up_status"] = fu.get("status") or ""
 		row["follow_up_attachment"] = fu.get("attachment") or ""
 		if fu.get("remarks"):

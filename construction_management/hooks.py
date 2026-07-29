@@ -276,6 +276,7 @@ override_whitelisted_methods = {
 	"frappe.desk.form.load.getdoctype": "construction_management.overrides.form_load.getdoctype",
 	"erpnext.accounts.doctype.process_statement_of_accounts.process_statement_of_accounts.download_statements": "construction_management.overrides.process_statement_of_accounts.download_statements",
 	"erpnext.accounts.doctype.process_statement_of_accounts.process_statement_of_accounts.send_emails": "construction_management.overrides.process_statement_of_accounts.send_emails",
+	"erpnext.accounts.party.get_party_account": "construction_management.overrides.party.get_party_account",
 }
 
 # Custom SOA HTML template for Advanced General Ledger
@@ -303,6 +304,9 @@ process_soa_html = {
 # Request Events
 # ----------------
 # before_request = ["construction_management.utils.before_request"]
+before_request = [
+	"construction_management.overrides.party.install_party_account_perm_patch",
+]
 # after_request = ["construction_management.utils.after_request"]
 
 # Job Events
