@@ -29,6 +29,23 @@ def _set_direct_billing_mode(invoice, is_proforma: int = 0):
 		invoice.custom_billing_mode = "Direct BOQ"
 
 
+def _set_invoice_company_from_project(invoice, project_doc):
+	"""Set the mandatory Sales Invoice company from the source Project.
+
+	BOQ invoices (including proforma invoices) are created directly from the
+	Project screen, so ERPNext does not get a company from a Sales Order.  It
+	must be set before taxes and totals are calculated.
+	"""
+	company = project_doc.get("company") or frappe.defaults.get_global_default("company")
+	if not company:
+		frappe.throw(
+			_("Project {0} needs a Company before an invoice or proforma can be created.").format(
+				project_doc.name
+			)
+		)
+	invoice.company = company
+
+
 @frappe.whitelist()
 def get_pending_proformas_for_item(boq_item: str) -> list:
 	"""
@@ -216,6 +233,7 @@ def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float
 	
 	# Create Sales Invoice
 	invoice = frappe.new_doc("Sales Invoice")
+	_set_invoice_company_from_project(invoice, project_doc)
 	invoice.customer = customer
 	invoice.project = project
 	invoice.posting_date = today()
@@ -384,6 +402,7 @@ def create_invoice_from_multiple_items(project: str, items: list,
 	
 	# Create Sales Invoice
 	invoice = frappe.new_doc("Sales Invoice")
+	_set_invoice_company_from_project(invoice, project_doc)
 	invoice.customer = customer
 	invoice.project = project
 	invoice.posting_date = today()
@@ -615,6 +634,7 @@ def create_invoice_from_selected_bills(project: str, bill_names: list,
 	
 	# Create Sales Invoice
 	invoice = frappe.new_doc("Sales Invoice")
+	_set_invoice_company_from_project(invoice, project_doc)
 	invoice.customer = customer
 	invoice.project = project
 	invoice.posting_date = today()
@@ -1479,6 +1499,7 @@ def release_retention(project: str, amount: float = None) -> dict:
 	
 	# Create invoice
 	invoice = frappe.new_doc("Sales Invoice")
+	_set_invoice_company_from_project(invoice, project_doc)
 	invoice.customer = customer
 	invoice.project = project
 	invoice.posting_date = today()
@@ -3067,6 +3088,7 @@ def create_invoice_from_selected_items(project: str, items: str | list,
 	
 	# Create Sales Invoice
 	invoice = frappe.new_doc("Sales Invoice")
+	_set_invoice_company_from_project(invoice, project_doc)
 	invoice.customer = customer
 	invoice.project = project
 	invoice.posting_date = today()
