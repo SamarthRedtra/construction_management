@@ -63,8 +63,8 @@ def get_result(filters, account_details):
 	data = get_data_with_opening_closing(filters, account_details, accounting_dimensions, gl_entries)
 	result = get_result_as_list(data, filters)
 
-	# Inject Proforma (Sales Order) rows if enabled
-	if filters.get("include_proforma"):
+	# Inject Proforma (Sales Order) rows only when explicitly enabled.
+	if cint(filters.get("include_proforma")):
 		result = inject_proforma_rows(result, filters)
 
 	return result
@@ -350,8 +350,9 @@ def get_soa_pdf(filters):
 	if isinstance(filters, str):
 		filters = frappe._dict(json.loads(filters))
 
-	# Ensure proforma is included
-	filters["include_proforma"] = 1
+	# Respect the report checkbox.  Previously this was forced to 1 here,
+	# causing Proforma rows to appear in every printed SOA.
+	filters["include_proforma"] = cint(filters.get("include_proforma"))
 
 	columns, data = execute(filters)
 

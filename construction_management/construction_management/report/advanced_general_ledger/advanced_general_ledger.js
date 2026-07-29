@@ -229,7 +229,7 @@ frappe.query_reports["Advanced General Ledger"] = {
 			fieldname: "include_proforma",
 			label: __("Include Proforma (Sales Orders)"),
 			fieldtype: "Check",
-			default: 1,
+			default: 0,
 		},
 	],
 	collapsible_filters: true,
