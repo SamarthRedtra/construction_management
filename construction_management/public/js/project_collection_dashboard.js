@@ -470,6 +470,7 @@ construction_management.project_collection.build_invoice_portfolio_html = functi
 		<div class="collection-category-filters">
 			<button type="button" class="collection-register-filter collection-filter-chip active" data-register-filter="all">${__('All Documents')} <span class="chip-count">${rows.length}</span></button>
 			<button type="button" class="collection-register-filter collection-filter-chip" data-register-filter="pc-updated">${__('PC Updated')} <span class="chip-count">${pc_updated_count}</span></button>
+			<label class="collection-remove-paid-control"><input type="checkbox" class="collection-remove-paid-toggle" /> ${__('Remove Paid')}</label>
 		</div>
 		<div class="collection-table-toolbar"><span>${__('Invoice details and collection progress')}</span><span>${__('Scroll horizontally to view all fields')} →</span></div>
 		<div class="collection-grid-scroll"><table class="collection-table border-table collection-billing-grid"><thead><tr>
@@ -779,26 +780,33 @@ construction_management.project_collection.show_payment_certificate_dialog = fun
 
 construction_management.project_collection.bind_invoice_portfolio_events = function ($container, filters) {
 	const me = this;
-	$container.off('click.collection-register-filter').on('click.collection-register-filter', '.collection-register-filter', function () {
-		const filter = $(this).data('register-filter');
-		$container.find('.collection-register-filter').removeClass('active');
-		$(this).addClass('active');
+	const apply_register_filters = () => {
+		const filter = $container.find('.collection-register-filter.active').data('register-filter') || 'all';
+		const remove_paid = $container.find('.collection-remove-paid-toggle').is(':checked');
 
 		$container.find('.collection-billing-row').each(function () {
-			const show = filter === 'all' || $(this).attr('data-pc-updated') === '1';
-			$(this).toggle(show);
+			const $row = $(this);
+			const matches_pc_filter = filter === 'all' || $row.attr('data-pc-updated') === '1';
+			const is_paid = $row.attr('data-category') === 'paid';
+			$row.toggle(matches_pc_filter && !(remove_paid && is_paid));
 		});
 
 		// Keep a project heading visible only when it still contains a visible row.
 		$container.find('.collection-project-group-header').each(function () {
 			const $header = $(this);
-			let has_visible_row = false;
-			$header.nextUntil('.collection-project-group-header', '.collection-billing-row').each(function () {
-				if ($(this).is(':visible')) has_visible_row = true;
-			});
+			const has_visible_row = $header
+				.nextUntil('.collection-project-group-header', '.collection-billing-row')
+				.filter(':visible').length > 0;
 			$header.toggle(has_visible_row);
 		});
+	};
+
+	$container.off('click.collection-register-filter').on('click.collection-register-filter', '.collection-register-filter', function () {
+		$container.find('.collection-register-filter').removeClass('active');
+		$(this).addClass('active');
+		apply_register_filters();
 	});
+	$container.off('change.collection-remove-paid').on('change.collection-remove-paid', '.collection-remove-paid-toggle', apply_register_filters);
 
 	const mark_row_saved = ($row, message) => {
 		$row.addClass('collection-row-saved');
