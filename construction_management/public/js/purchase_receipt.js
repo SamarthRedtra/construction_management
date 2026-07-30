@@ -4,7 +4,9 @@
 
 frappe.ui.form.on('Purchase Receipt', {
 	onload: function (frm) {
-		// Setup cascading dimension filters for child table
+		frm._pr_deduction_busy = false;
+		frm._pr_deduction_timer = null;
+
 		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
 			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
 			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'items');
@@ -14,18 +16,25 @@ frappe.ui.form.on('Purchase Receipt', {
 
 	refresh: function (frm) {
 		ensure_additional_discount_fields(frm);
-		// Re-setup dimension filters on refresh
 		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
 			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
 			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'items');
 		}
 		setup_extra_accounting_entry_queries(frm);
 
-		if (frm.doc.docstatus === 0) {
-			recalculate_pr_deductions(frm);
+		// Do NOT recalculate deductions on every refresh — that calls set_value and
+		// marks a just-saved draft dirty again ("Not Saved"). Server validate already
+		// applies deductions on save. Only seed once for new docs missing deduction rows.
+		if (frm.doc.docstatus === 0 && frm.is_new()) {
+			const has_billable = (frm.doc.items || []).some(
+				(i) => i.item_code && !is_pr_deduction_item(i.item_code)
+			);
+			const has_deduction = (frm.doc.items || []).some((i) => is_pr_deduction_item(i.item_code));
+			if (has_billable && !has_deduction) {
+				schedule_pr_deduction_recalc(frm);
+			}
 		}
 
-		// Explicit queries for BOQ dimensions in child table
 		frm.set_query("bill_no", "items", function (doc, cdt, cdn) {
 			let row = locals[cdt][cdn];
 			let project = row.project || doc.project;
@@ -39,11 +48,10 @@ frappe.ui.form.on('Purchase Receipt', {
 			let row = locals[cdt][cdn];
 			if (row.bill_no) {
 				return { filters: { parent_bill: row.bill_no } };
-			} else {
-				let project = row.project || doc.project;
-				if (project) {
-					return { filters: { project: project } };
-				}
+			}
+			let project = row.project || doc.project;
+			if (project) {
+				return { filters: { project: project } };
 			}
 			return {};
 		});
@@ -61,7 +69,6 @@ frappe.ui.form.on('Purchase Receipt', {
 			}, __('Actions'));
 		}
 
-		// Add "Create Payment Certificate" button for submitted PRs with Subcontractor type
 		if (frm.doc.docstatus === 1 && frm.doc.custom_suppliersubcontractor == "Subcontractor") {
 			frappe.call({
 				method: 'frappe.client.get_count',
@@ -81,32 +88,28 @@ frappe.ui.form.on('Purchase Receipt', {
 				}
 			});
 		}
-
 	},
 
 	before_save: function (frm) {
-		// Auto-fill blank custom site fields to resolve mandatory dimension errors
-		(frm.doc.items || []).forEach(item => {
-			if (item.hasOwnProperty('site') && !item.site) {
-				frappe.model.set_value(item.doctype, item.name, 'site', 'Transit');
+		// Set directly — frappe.model.set_value here races save and leaves form dirty.
+		(frm.doc.items || []).forEach((item) => {
+			if (Object.prototype.hasOwnProperty.call(item, 'site') && !item.site) {
+				item.site = 'Transit';
 			}
-			if (item.hasOwnProperty('rejected_site') && !item.rejected_site) {
-				frappe.model.set_value(item.doctype, item.name, 'rejected_site', 'Transit');
+			if (Object.prototype.hasOwnProperty.call(item, 'rejected_site') && !item.rejected_site) {
+				item.rejected_site = 'Transit';
 			}
 		});
 	}
 });
 
 
-// Auto-set Project on item rows when Accepted Warehouse is chosen
 frappe.ui.form.on('Purchase Receipt Item', {
 	warehouse(frm, cdt, cdn) {
 		const row = frappe.get_doc(cdt, cdn);
 		const warehouse = row.warehouse;
 
 		if (!warehouse) return;
-
-		// PO-linked rows: warehouse may differ, but project must stay as PO item project.
 		if (row.purchase_order_item) {
 			return;
 		}
@@ -119,6 +122,7 @@ frappe.ui.form.on('Purchase Receipt Item', {
 			},
 			callback: function (r) {
 				if (!r.message) return;
+				if (row.project === r.message) return;
 
 				frappe.model.set_value(cdt, cdn, 'project', r.message);
 				frappe.show_alert({
@@ -130,35 +134,61 @@ frappe.ui.form.on('Purchase Receipt Item', {
 	},
 
 	items_add: function (frm, cdt, cdn) {
-		frappe.model.set_value(cdt, cdn, 'site', 'Transit');
-		recalculate_pr_deductions(frm);
+		const row = frappe.get_doc(cdt, cdn);
+		if (Object.prototype.hasOwnProperty.call(row, 'site') && !row.site) {
+			row.site = 'Transit';
+		}
+		schedule_pr_deduction_recalc(frm);
 	},
 
-	items_remove: function (frm, cdt, cdn) {
-		recalculate_pr_deductions(frm);
+	items_remove: function (frm) {
+		schedule_pr_deduction_recalc(frm);
 	},
 
 	qty: function (frm, cdt, cdn) {
-		recalculate_pr_deductions(frm);
+		if (is_pr_deduction_row(cdt, cdn)) return;
+		schedule_pr_deduction_recalc(frm);
 	},
 
 	rate: function (frm, cdt, cdn) {
-		recalculate_pr_deductions(frm);
+		if (is_pr_deduction_row(cdt, cdn) || frm._pr_deduction_busy) return;
+		schedule_pr_deduction_recalc(frm);
 	},
 
 	amount: function (frm, cdt, cdn) {
-		recalculate_pr_deductions(frm);
+		if (is_pr_deduction_row(cdt, cdn) || frm._pr_deduction_busy) return;
+		schedule_pr_deduction_recalc(frm);
 	}
 });
 
 
+function is_pr_deduction_item(item_code) {
+	return item_code === 'RETENTION-DEDUCTION' || item_code === 'ADVANCE-DEDUCTION';
+}
+
+function is_pr_deduction_row(cdt, cdn) {
+	const row = frappe.get_doc(cdt, cdn);
+	return row && is_pr_deduction_item(row.item_code);
+}
+
+function schedule_pr_deduction_recalc(frm) {
+	if (!frm || frm.doc.docstatus !== 0 || frm._pr_deduction_busy) {
+		return;
+	}
+	if (frm._pr_deduction_timer) {
+		clearTimeout(frm._pr_deduction_timer);
+	}
+	frm._pr_deduction_timer = setTimeout(() => {
+		frm._pr_deduction_timer = null;
+		recalculate_pr_deductions(frm);
+	}, 250);
+}
+
 function recalculate_pr_deductions(frm) {
-	// Only recalculate if the document is in draft
-	if (frm.doc.docstatus !== 0) {
+	if (frm.doc.docstatus !== 0 || frm._pr_deduction_busy) {
 		return;
 	}
 
-	// Find linked Purchase Order
 	let purchase_order = frm.doc.custom_purchase_order;
 	if (!purchase_order) {
 		for (let item of (frm.doc.items || [])) {
@@ -171,15 +201,12 @@ function recalculate_pr_deductions(frm) {
 
 	if (!purchase_order) return;
 
-	const is_subcontractor =
-		frm.doc.custom_suppliersubcontractor === 'Subcontractor';
+	const is_subcontractor = frm.doc.custom_suppliersubcontractor === 'Subcontractor';
 
-	// Fetch PO retention/advance percentages and supplier/subcontractor type
 	frappe.db.get_value('Purchase Order', purchase_order,
 		['custom_retention_', 'custom_advance_', 'custom_suppliersubcontractor', 'project'])
 		.then(r => {
 			if (!r.message) return;
-
 			if (!is_subcontractor && r.message.custom_suppliersubcontractor !== 'Subcontractor') return;
 
 			let retention_pct = flt(r.message.custom_retention_);
@@ -195,101 +222,129 @@ function recalculate_pr_deductions(frm) {
 }
 
 function remove_pr_deduction_rows(frm) {
+	let removed = false;
 	for (const item_code of ['RETENTION-DEDUCTION', 'ADVANCE-DEDUCTION']) {
 		const row = (frm.doc.items || []).find(i => i.item_code === item_code);
 		if (row) {
 			frappe.model.clear_doc(row.doctype, row.name);
+			removed = true;
 		}
 	}
-	frm.refresh_field('items');
+	if (removed) {
+		frm.refresh_field('items');
+	}
+}
+
+function set_deduction_row_value(row, fieldname, value) {
+	if (flt(row[fieldname]) === flt(value)) {
+		return false;
+	}
+	row[fieldname] = value;
+	return true;
 }
 
 function apply_pr_deduction_amounts(frm, retention_pct, advance_pct) {
-			// Calculate total billable (exclude deduction items)
-			let total_billable = 0;
-			for (let item of (frm.doc.items || [])) {
-				if (item.item_code !== 'RETENTION-DEDUCTION' && item.item_code !== 'ADVANCE-DEDUCTION') {
-					total_billable += flt(item.amount);
-				}
+	frm._pr_deduction_busy = true;
+	try {
+		let total_billable = 0;
+		for (let item of (frm.doc.items || [])) {
+			if (!is_pr_deduction_item(item.item_code)) {
+				total_billable += flt(item.amount);
 			}
+		}
 
-			// Update or create retention deduction
-			if (retention_pct > 0) {
-				const retention_amount = flt(total_billable * retention_pct / 100, 2);
+		let changed = false;
 
-				if (retention_amount > 0) {
-					let retention_row = (frm.doc.items || []).find(i => i.item_code === 'RETENTION-DEDUCTION');
-
-					if (retention_row) {
-						frappe.model.set_value(retention_row.doctype, retention_row.name, 'rate', -retention_amount);
-						frappe.model.set_value(retention_row.doctype, retention_row.name, 'amount', -retention_amount);
-						frappe.model.set_value(retention_row.doctype, retention_row.name, 'description',
-							`Retention deduction (${retention_pct}%)`);
-					} else {
-						const new_row = frm.add_child('items');
-						frappe.model.set_value(new_row.doctype, new_row.name, {
-							'item_code': 'RETENTION-DEDUCTION',
-							'item_name': 'Retention Deduction',
-							'uom': 'Nos',
-							'qty': 1,
-							'rate': -retention_amount,
-							'amount': -retention_amount,
-							'description': `Retention deduction (${retention_pct}%)`,
-							'project': frm.doc.project
-						});
+		if (retention_pct > 0) {
+			const retention_amount = flt(total_billable * retention_pct / 100, 2);
+			if (retention_amount > 0) {
+				let retention_row = (frm.doc.items || []).find(i => i.item_code === 'RETENTION-DEDUCTION');
+				if (retention_row) {
+					changed = set_deduction_row_value(retention_row, 'rate', -retention_amount) || changed;
+					changed = set_deduction_row_value(retention_row, 'amount', -retention_amount) || changed;
+					const desc = `Retention deduction (${retention_pct}%)`;
+					if (retention_row.description !== desc) {
+						retention_row.description = desc;
+						changed = true;
 					}
 				} else {
-					const retention_row = (frm.doc.items || []).find(i => i.item_code === 'RETENTION-DEDUCTION');
-					if (retention_row) {
-						frappe.model.clear_doc(retention_row.doctype, retention_row.name);
-					}
+					const new_row = frm.add_child('items');
+					Object.assign(new_row, {
+						item_code: 'RETENTION-DEDUCTION',
+						item_name: 'Retention Deduction',
+						uom: 'Nos',
+						qty: 1,
+						received_qty: 1,
+						rate: -retention_amount,
+						amount: -retention_amount,
+						description: `Retention deduction (${retention_pct}%)`,
+						project: frm.doc.project
+					});
+					changed = true;
 				}
 			} else {
 				const retention_row = (frm.doc.items || []).find(i => i.item_code === 'RETENTION-DEDUCTION');
 				if (retention_row) {
 					frappe.model.clear_doc(retention_row.doctype, retention_row.name);
+					changed = true;
 				}
 			}
+		} else {
+			const retention_row = (frm.doc.items || []).find(i => i.item_code === 'RETENTION-DEDUCTION');
+			if (retention_row) {
+				frappe.model.clear_doc(retention_row.doctype, retention_row.name);
+				changed = true;
+			}
+		}
 
-			// Update or create advance deduction
-			if (advance_pct > 0) {
-				const advance_amount = flt(total_billable * advance_pct / 100, 2);
-
-				if (advance_amount > 0) {
-					let advance_row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
-
-					if (advance_row) {
-						frappe.model.set_value(advance_row.doctype, advance_row.name, 'rate', -advance_amount);
-						frappe.model.set_value(advance_row.doctype, advance_row.name, 'amount', -advance_amount);
-						frappe.model.set_value(advance_row.doctype, advance_row.name, 'description',
-							`Advance deduction (${advance_pct}%)`);
-					} else {
-						const new_row = frm.add_child('items');
-						frappe.model.set_value(new_row.doctype, new_row.name, {
-							'item_code': 'ADVANCE-DEDUCTION',
-							'item_name': 'Advance Deduction',
-							'uom': 'Nos',
-							'qty': 1,
-							'rate': -advance_amount,
-							'amount': -advance_amount,
-							'description': `Advance deduction (${advance_pct}%)`,
-							'project': frm.doc.project
-						});
+		if (advance_pct > 0) {
+			const advance_amount = flt(total_billable * advance_pct / 100, 2);
+			if (advance_amount > 0) {
+				let advance_row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
+				if (advance_row) {
+					changed = set_deduction_row_value(advance_row, 'rate', -advance_amount) || changed;
+					changed = set_deduction_row_value(advance_row, 'amount', -advance_amount) || changed;
+					const desc = `Advance deduction (${advance_pct}%)`;
+					if (advance_row.description !== desc) {
+						advance_row.description = desc;
+						changed = true;
 					}
 				} else {
-					const advance_row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
-					if (advance_row) {
-						frappe.model.clear_doc(advance_row.doctype, advance_row.name);
-					}
+					const new_row = frm.add_child('items');
+					Object.assign(new_row, {
+						item_code: 'ADVANCE-DEDUCTION',
+						item_name: 'Advance Deduction',
+						uom: 'Nos',
+						qty: 1,
+						received_qty: 1,
+						rate: -advance_amount,
+						amount: -advance_amount,
+						description: `Advance deduction (${advance_pct}%)`,
+						project: frm.doc.project
+					});
+					changed = true;
 				}
 			} else {
 				const advance_row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
 				if (advance_row) {
 					frappe.model.clear_doc(advance_row.doctype, advance_row.name);
+					changed = true;
 				}
 			}
+		} else {
+			const advance_row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
+			if (advance_row) {
+				frappe.model.clear_doc(advance_row.doctype, advance_row.name);
+				changed = true;
+			}
+		}
 
+		if (changed) {
 			frm.refresh_field('items');
+		}
+	} finally {
+		frm._pr_deduction_busy = false;
+	}
 }
 
 
@@ -339,7 +394,6 @@ function setup_extra_accounting_entry_queries(frm) {
 
 frappe.ui.form.on('Purchase Receipt Extra Entry', {
 	party_type: function (frm, cdt, cdn) {
-		// Reset party when party type changes to prevent stale invalid links.
 		frappe.model.set_value(cdt, cdn, 'party', '');
 	}
 });
