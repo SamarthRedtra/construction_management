@@ -1240,7 +1240,7 @@ def _get_invoiced_advance_total(project: str) -> float:
 
 
 def get_advance_balance(project: str) -> float:
-	"""Get the available advance balance for a project"""
+	"""Get the available, actually collected advance balance for a project."""
 	paid_pool = frappe.db.sql(
 		"""
 		SELECT COALESCE(SUM(amount), 0) AS total
@@ -1253,7 +1253,12 @@ def get_advance_balance(project: str) -> float:
 
 	paid_collected = flt(paid_pool[0].total) if paid_pool else 0
 	invoiced_advance = _get_invoiced_advance_total(project)
-	total_collected = max(paid_collected, invoiced_advance)
+	# A submitted BOQ Advance Payment is the authoritative record of money
+	# received.  An advance Sales Invoice can be greater than its paid amount,
+	# so do not recover an unpaid balance merely because it was invoiced.
+	# Retain the Sales Invoice fallback for projects still using the legacy flow
+	# without BOQ Advance Payment records.
+	total_collected = paid_collected if paid_collected > 0 else invoiced_advance
 
 	# Get total advances already deducted (from invoice items)
 	# Include Draft (0) as well as Submitted (1) invoices
@@ -1275,6 +1280,60 @@ def get_advance_balance(project: str) -> float:
 	# get_advance_balance should return the AVAILABLE POOL.
 	# Thus, we ignore the percentage here or return the full remaining amount.
 	return remaining_advance
+
+
+def get_source_advance_deduction_ratios(items, variance_item_code: str | None = None) -> dict:
+	"""Return approved SO advance-deduction ratios keyed by (Sales Order, BOQ Item).
+
+	Invoices created from a Sales Order must retain the advance recovery agreed
+	on that order.  Recalculating them solely from the Project's current
+	percentage can change the deduction after the order is approved.
+	"""
+	keys = {
+		(item.get("sales_order"), item.get("boq_item"))
+		for item in (items or [])
+		if item.get("sales_order") and item.get("boq_item")
+	}
+	if not keys:
+		return {}
+
+	sales_orders = sorted({sales_order for sales_order, _boq_item in keys})
+	boq_items = sorted({boq_item for _sales_order, boq_item in keys})
+	submitted_orders = set(
+		frappe.get_all(
+			"Sales Order",
+			filters={"name": ["in", sales_orders], "docstatus": 1},
+			pluck="name",
+		)
+	)
+	if not submitted_orders:
+		return {}
+
+	rows = frappe.get_all(
+		"Sales Order Item",
+		filters={"parent": ["in", list(submitted_orders)], "boq_item": ["in", boq_items]},
+		fields=["parent", "item_code", "boq_item", "amount"],
+	)
+	advance_by_key = {}
+	revenue_by_key = {}
+	excluded_codes = {"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"}
+	if variance_item_code:
+		excluded_codes.add(variance_item_code)
+
+	for row in rows:
+		key = (row.parent, row.boq_item)
+		if key not in keys:
+			continue
+		if row.item_code == "ADVANCE-DEDUCTION":
+			advance_by_key[key] = advance_by_key.get(key, 0) + abs(flt(row.amount))
+		elif row.item_code not in excluded_codes and flt(row.amount) > 0:
+			revenue_by_key[key] = revenue_by_key.get(key, 0) + flt(row.amount)
+
+	return {
+		key: flt(advance_by_key[key] / revenue_by_key[key])
+		for key in advance_by_key
+		if revenue_by_key.get(key) and advance_by_key[key] > 0
+	}
 
 
 def get_boq_items_skip_advance(boq_item_names: list[str]) -> set[str]:
@@ -1766,6 +1825,7 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 	items_for_deductions = []
 	advance_base_items = []
 	has_boq_revenue = False
+	source_advance_ratios = get_source_advance_deduction_ratios(doc.items, variance_item)
 
 	for row in doc.items:
 		if row.item_code in excluded_for_base:
@@ -1799,6 +1859,7 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 		if not boq_item_skips_advance(row.boq_item):
 			advance_base_items.append(
 				{
+					"sales_order": row.get("sales_order"),
 					"boq_item": row.boq_item,
 					"bill_no": bill_no,
 					"description": boq_desc or "",
@@ -1849,22 +1910,31 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 		if (
 			not skip_advance
 			and has_boq_revenue
-			and advance_pct > 0
+			and (advance_pct > 0 or source_advance_ratios)
 			and available_advance > 0
 			and advance_base_items
 		):
 			advance_item_code = get_or_create_advance_item()
 			desired_advances = []
 			for entry in advance_base_items:
-				desired = flt(entry["amount"] * advance_pct / 100, 2)
+				source_ratio = source_advance_ratios.get(
+					(entry.get("sales_order"), entry["boq_item"])
+				)
+				desired = (
+					flt(entry["amount"] * source_ratio, 2)
+					if source_ratio is not None
+					else flt(entry["amount"] * advance_pct / 100, 2)
+				)
 				if desired > 0:
-					desired_advances.append((entry, desired))
+					desired_advances.append((entry, desired, source_ratio))
 
 			allocated_amounts = allocate_capped_amounts(
-				[desired for _, desired in desired_advances],
+				[desired for _, desired, _source_ratio in desired_advances],
 				available_advance,
 			)
-			for (entry, _desired), advance_amount in zip(desired_advances, allocated_amounts, strict=True):
+			for (entry, _desired, source_ratio), advance_amount in zip(
+				desired_advances, allocated_amounts, strict=True
+			):
 				if advance_amount <= 0:
 					continue
 				doc.append(
@@ -1872,8 +1942,14 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 					{
 						"item_code": advance_item_code,
 						"item_name": "Advance Deduction",
-						"description": _("Advance deduction ({0}%) for: {1}").format(
-							advance_pct, entry["description"]
+						"description": (
+							_("Advance deduction (Sales Order allocation) for: {0}").format(
+								entry["description"]
+							)
+							if source_ratio is not None
+							else _("Advance deduction ({0}%) for: {1}").format(
+								advance_pct, entry["description"]
+							)
 						),
 						"qty": 1,
 						"rate": -advance_amount,

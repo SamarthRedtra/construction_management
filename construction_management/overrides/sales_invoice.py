@@ -15,20 +15,6 @@ from construction_management.overrides.unearned_revenue import (
 from erpnext.accounts.utils import update_voucher_outstanding
 
 
-def _so_base_net_for_boq_item(so_doc, boq_item, excluded_item_codes):
-	"""Sum base_net on SO revenue rows for a BOQ Item (excl. retention/advance/variance lines)."""
-	if not boq_item:
-		return 0.0
-	total = 0.0
-	for row in so_doc.get("items", []):
-		if row.item_code in excluded_item_codes:
-			continue
-		if row.boq_item != boq_item:
-			continue
-		total += flt(row.base_net_amount, row.precision("base_net_amount"))
-	return total
-
-
 def _consolidate_income_gl_by_boq_item(gl_map, income_accounts, unbilled_revenue_account):
 	"""Merge Sales (income) GLE rows that share the same boq_item into one net credit/debit row.
 
@@ -388,6 +374,7 @@ class SalesInvoiceOverride(SalesInvoice):
 			allocate_capped_amounts,
 			doc_skips_advance_deduction,
 			get_deduction_details,
+			get_source_advance_deduction_ratios,
 			get_or_create_retention_item,
 			get_or_create_advance_item,
 			strip_advance_deduction_rows,
@@ -406,6 +393,10 @@ class SalesInvoiceOverride(SalesInvoice):
 		advance_pct = 0 if skip_advance else flt(details.get("advance_percentage"))
 		skip_advance_set = set(details.get("skip_advance_boq_items") or [])
 		available_advance = 0 if skip_advance else flt(details.get("available_advance"))
+		variance_item_code = frappe.get_cached_value("BOQ Settings", self.company, "varience_item")
+		source_advance_ratios = get_source_advance_deduction_ratios(
+			self.items, variance_item_code
+		)
 
 		# Check if per-item deductions exist (pattern: each BOQ item has paired deduction rows)
 		has_per_item_deductions = False
@@ -450,14 +441,27 @@ class SalesInvoiceOverride(SalesInvoice):
 					item.qty = 1
 					item.description = f"Retention deduction ({retention_pct}%)"
 
-				elif item.item_code == "ADVANCE-DEDUCTION" and advance_pct > 0:
+				elif item.item_code == "ADVANCE-DEDUCTION":
 					if item.boq_item in skip_advance_set:
 						continue
-					new_advance = flt(parent_amount * advance_pct / 100, 2)
+					source_ratio = source_advance_ratios.get(
+						(item.get("sales_order"), item.get("boq_item"))
+					)
+					if source_ratio is None and advance_pct <= 0:
+						continue
+					new_advance = (
+						flt(parent_amount * source_ratio, 2)
+						if source_ratio is not None
+						else flt(parent_amount * advance_pct / 100, 2)
+					)
 					item.rate = -new_advance
 					item.amount = -new_advance
 					item.qty = 1
-					item.description = f"Advance deduction ({advance_pct}%)"
+					item.description = (
+						"Advance deduction (Sales Order allocation)"
+						if source_ratio is not None
+						else f"Advance deduction ({advance_pct}%)"
+					)
 
 			# A BOQ service can be added directly to a draft invoice. Create its paired
 			# deduction rows when the invoice already uses the per-BOQ deduction layout.
@@ -722,9 +726,13 @@ class SalesInvoiceOverride(SalesInvoice):
 			if not boq_settings.enable_so_unearned_revenue_jv:
 				return gl_entries
 
-		# 4. Unearned reversal per SI row: (matching SO revenue row base_net × unbilled %) — same BOQ Item as SO line
-		unearned_reversal_by_item_row = {}
-		unearned_reversal_by_boq_item = {}
+		# Store the SO recognition percentage against each invoice row.  The
+		# reversal amount itself must be calculated from the final invoice income
+		# entry, after any invoice discount or retention/advance gross-up.
+		# Using the source Sales Order line amount here left part of a 100%
+		# recognised invoice credited to Sales.
+		unearned_reversal_pct_by_item_row = {}
+		unearned_reversal_pct_by_boq_item = {}
 		unbilled_revenue_acc = boq_settings.so_unearned_revenue_debit_account
 		
 		if boq_settings.get("enable_so_unearned_revenue_jv") and unbilled_revenue_acc:
@@ -737,8 +745,10 @@ class SalesInvoiceOverride(SalesInvoice):
 				if not find_journal_entry_by_so(so_name):
 					continue
 
-				so_doc = frappe.get_cached_doc("Sales Order", so_name)
-				pct = flt(so_doc.get("custom_unbilled_revenue_percentage") or 100) / 100.0
+				pct = flt(
+					frappe.get_cached_value("Sales Order", so_name, "custom_unbilled_revenue_percentage")
+					or 100
+				) / 100.0
 				if pct <= 0:
 					continue
 
@@ -748,32 +758,31 @@ class SalesInvoiceOverride(SalesInvoice):
 					if it.sales_order == so_name and it.item_code not in excluded
 				]
 				for item in inv_lines:
-					if not item.boq_item:
-						continue
-					so_line_net = _so_base_net_for_boq_item(so_doc, item.boq_item, excluded)
-					if so_line_net <= 0:
-						continue
-					reversal_amount = flt(so_line_net * pct)
-					unearned_reversal_by_item_row[item.name] = (
-						unearned_reversal_by_item_row.get(item.name, 0) + reversal_amount
-					)
-					unearned_reversal_by_boq_item[item.boq_item] = (
-						unearned_reversal_by_boq_item.get(item.boq_item, 0) + reversal_amount
-					)
+					unearned_reversal_pct_by_item_row[item.name] = pct
+					if item.boq_item:
+						unearned_reversal_pct_by_boq_item[item.boq_item] = pct
 
 		applied_unearned_boq_items = set()
 
 		def _get_unearned_reversal_amount(entry):
 			voucher_detail_no = entry.get("voucher_detail_no")
-			if voucher_detail_no and voucher_detail_no in unearned_reversal_by_item_row:
-				return unearned_reversal_by_item_row[voucher_detail_no]
+			if voucher_detail_no and voucher_detail_no in unearned_reversal_pct_by_item_row:
+				return flt(entry.get("credit")) * unearned_reversal_pct_by_item_row[voucher_detail_no]
 
 			boq_item = entry.get("boq_item")
-			if boq_item and boq_item in unearned_reversal_by_boq_item and boq_item not in applied_unearned_boq_items:
-				return unearned_reversal_by_boq_item[boq_item]
+			if (
+				boq_item
+				and boq_item in unearned_reversal_pct_by_boq_item
+				and boq_item not in applied_unearned_boq_items
+			):
+				return flt(entry.get("credit")) * unearned_reversal_pct_by_boq_item[boq_item]
 			return 0
 
 		def _apply_unearned_reversal(entry, rev_amt):
+			if not rev_amt:
+				return
+
+			rev_amt = min(flt(rev_amt), flt(entry.get("credit")))
 			if not rev_amt:
 				return
 
@@ -833,7 +842,11 @@ class SalesInvoiceOverride(SalesInvoice):
 					"item_code": item.item_code
 				})
 
-		if not deductions and not unearned_reversal_by_item_row and not unearned_reversal_by_boq_item:
+		if (
+			not deductions
+			and not unearned_reversal_pct_by_item_row
+			and not unearned_reversal_pct_by_boq_item
+		):
 			return gl_entries
 
 		# 2. Reconstruct entries
