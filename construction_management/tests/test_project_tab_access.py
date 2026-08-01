@@ -163,6 +163,33 @@ class TestProjectTabAccess(FrappeTestCase):
 
 		self.assertEqual(get_user_project_scope("limited_user@example.com"), [project])
 
+	@patch(
+		"construction_management.construction_management.doctype.project_tab_access.project_tab_access.frappe.get_roles",
+		return_value=[TEST_ROLE],
+	)
+	def test_empty_project_rule_does_not_widen_scoped_role_rule(self, mock_get_roles):
+		"""Tab-only rules must not cancel an explicit project list on the same role."""
+		project = self._ensure_project("TAB-ACCESS-SCOPED-PROJ")
+		doc = frappe.get_single("Project Tab Access")
+		doc.enabled = 1
+		doc.append("rules", {"tabs": "Details", "role": TEST_ROLE})  # tab-only
+		doc.append(
+			"rules",
+			{
+				"tabs": "Construction",
+				"role": TEST_ROLE,
+				"allowed_projects": project,
+			},
+		)
+		doc.save(ignore_permissions=True)
+
+		self.assertEqual(get_user_project_scope("limited_user@example.com"), [project])
+		outside = self._ensure_project("TAB-ACCESS-OUTSIDE-PROJ")
+		outside_doc = frappe.get_doc("Project", outside)
+		self.assertFalse(
+			has_project_permission(outside_doc, ptype="read", user="limited_user@example.com")
+		)
+
 	def _ensure_project(self, name: str) -> str:
 		if frappe.db.exists("Project", name):
 			return name

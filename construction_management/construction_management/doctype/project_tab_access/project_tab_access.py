@@ -89,7 +89,17 @@ def _get_rule_projects(rule) -> list[str]:
 
 
 def get_user_project_scope(user: str | None = None) -> list[str] | None:
-	"""Return allowed project names, or None when the user can access all projects."""
+	"""Return allowed project names for document access, or None when unrestricted.
+
+	Semantics:
+	- None  → no Project Tab Access document filter (role permissions still apply)
+	- [...] → user may only access these existing projects
+	- []    → matched scoped rules but no projects resolved (deny all)
+
+	Tab-only rules (role/user + tabs, but empty allowed_projects) do **not** mean
+	"all projects". They only affect tab visibility and are ignored for document scope.
+	If a user also has scoped rules with explicit projects, those projects are enforced.
+	"""
 	user = user or frappe.session.user
 	settings = frappe.get_single("Project Tab Access")
 
@@ -98,8 +108,7 @@ def get_user_project_scope(user: str | None = None) -> list[str] | None:
 
 	roles = set(frappe.get_roles(user))
 	# A rule assigned directly to a user is an explicit project scope and must
-	# take precedence over their broad role-based access. Without this priority,
-	# an empty role rule would turn a selected user rule back into "all projects".
+	# take precedence over their broad role-based access.
 	user_rules = [row for row in settings.rules or [] if row.user == user]
 	role_rules = [row for row in settings.rules or [] if row.role and row.role in roles]
 	matching_rules = user_rules or role_rules
@@ -108,11 +117,18 @@ def get_user_project_scope(user: str | None = None) -> list[str] | None:
 		return None
 
 	allowed_projects: set[str] = set()
+	saw_scoped_rule = False
 	for rule in matching_rules:
 		projects = _get_rule_projects(rule)
 		if not projects:
-			return None
+			# Tab-only rule — does not widen document access to every project
+			continue
+		saw_scoped_rule = True
 		allowed_projects.update(projects)
+
+	if not saw_scoped_rule:
+		# Only tab-only rules matched → no document-level project filter
+		return None
 
 	return sorted(allowed_projects)
 
