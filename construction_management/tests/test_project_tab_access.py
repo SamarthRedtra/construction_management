@@ -117,6 +117,15 @@ class TestProjectTabAccess(FrappeTestCase):
 		project_doc = frappe.get_doc("Project", project_a)
 		self.assertTrue(has_project_permission(project_doc, user="limited_user@example.com"))
 
+		new_project = frappe.new_doc("Project")
+		new_project.project_name = "Tab Access Create Test"
+		self.assertTrue(
+			has_project_permission(new_project, ptype="create", user="limited_user@example.com")
+		)
+		self.assertTrue(
+			has_project_permission(new_project, ptype="write", user="limited_user@example.com")
+		)
+
 	@patch(
 		"construction_management.construction_management.doctype.project_tab_access.project_tab_access.frappe.get_roles"
 	)

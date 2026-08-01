@@ -35,4 +35,19 @@ def has_project_permission(doc, ptype: str = "read", user: str | None = None) ->
 	if scope is None:
 		return True
 
-	return doc.name in scope
+	# Project Tab Access only restricts which *existing* projects are visible.
+	# New Project docs use temporary names (new-project-...) that are never in
+	# scope — returning False here incorrectly blocks Save with
+	# "You need the 'create' permission on Project".
+	if ptype == "create":
+		return True
+
+	docname = getattr(doc, "name", None)
+	if not docname:
+		return True
+	if isinstance(docname, str) and docname.startswith("new-"):
+		return True
+	if getattr(doc, "is_new", None) and callable(doc.is_new) and doc.is_new():
+		return True
+
+	return docname in scope
