@@ -631,7 +631,14 @@ def get_boq_items(bill_name: str) -> list:
 			"subcontract": flt(item.get("estimated_subcontract_cost", 0)),
 			"asset": flt(item.get("estimated_asset_cost", 0)),
 			"other": flt(item.get("estimated_other_cost", 0)),
-			"total": flt(item.get("total_estimated_cost", 0))
+			"total": flt(item.get("total_estimated_cost", 0)),
+			"per_unit": {
+				"material": flt(item.get("estimated_material_cost_per_unit", 0)),
+				"labour": flt(item.get("estimated_labour_cost_per_unit", 0)),
+				"subcontract": flt(item.get("estimated_subcontract_cost_per_unit", 0)),
+				"asset": flt(item.get("estimated_asset_cost_per_unit", 0)),
+				"other": flt(item.get("estimated_other_cost_per_unit", 0)),
+			},
 		}
 		
 		# Get revenue breakdown (PI, PC, Tax Invoice, Variance, Balance)
@@ -1950,27 +1957,38 @@ def update_boq_item_estimated_cost(boq_item: str, field: str, value: float) -> d
 	if not can_user_edit_estimation_costs():
 		frappe.throw(_("You do not have permission to edit estimation costs."))
 
-	allowed_fields = {
+	total_to_per_unit = {
 		"estimated_material_cost": "estimated_material_cost_per_unit",
 		"estimated_labour_cost": "estimated_labour_cost_per_unit",
 		"estimated_asset_cost": "estimated_asset_cost_per_unit",
 		"estimated_subcontract_cost": "estimated_subcontract_cost_per_unit",
 		"estimated_other_cost": "estimated_other_cost_per_unit",
 	}
-
-	if field not in allowed_fields:
-		frappe.throw(_("Invalid estimated cost field: {0}").format(field))
+	per_unit_to_total = {
+		"estimated_material_cost_per_unit": "estimated_material_cost",
+		"estimated_labour_cost_per_unit": "estimated_labour_cost",
+		"estimated_asset_cost_per_unit": "estimated_asset_cost",
+		"estimated_subcontract_cost_per_unit": "estimated_subcontract_cost",
+		"estimated_other_cost_per_unit": "estimated_other_cost",
+	}
 
 	item = frappe.get_doc("BOQ Item", boq_item)
 	new_val = flt(value)
-	setattr(item, field, new_val)
-
-	per_unit_field = allowed_fields[field]
 	qty = flt(item.total_qty)
-	if qty > 0:
-		setattr(item, per_unit_field, new_val / qty)
+
+	if field in total_to_per_unit:
+		setattr(item, field, new_val)
+		per_unit_field = total_to_per_unit[field]
+		if qty > 0:
+			setattr(item, per_unit_field, new_val / qty)
+		else:
+			setattr(item, per_unit_field, 0)
+	elif field in per_unit_to_total:
+		setattr(item, field, new_val)
+		total_field = per_unit_to_total[field]
+		setattr(item, total_field, new_val * qty)
 	else:
-		setattr(item, per_unit_field, 0)
+		frappe.throw(_("Invalid estimated cost field: {0}").format(field))
 
 	total_est = (
 		flt(item.estimated_material_cost)
@@ -1997,6 +2015,13 @@ def update_boq_item_estimated_cost(boq_item: str, field: str, value: float) -> d
 			"subcontract": flt(item.estimated_subcontract_cost),
 			"other": flt(item.estimated_other_cost),
 			"total": total_est,
+			"per_unit": {
+				"material": flt(item.estimated_material_cost_per_unit),
+				"labour": flt(item.estimated_labour_cost_per_unit),
+				"asset": flt(item.estimated_asset_cost_per_unit),
+				"subcontract": flt(item.estimated_subcontract_cost_per_unit),
+				"other": flt(item.estimated_other_cost_per_unit),
+			},
 		},
 		"estimated_gp": est_gp,
 		"estimated_gp_percent": est_gp_pct,
