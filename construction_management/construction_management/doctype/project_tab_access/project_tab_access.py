@@ -137,28 +137,22 @@ def can_user_edit_estimation_costs(user: str | None = None) -> bool:
 	"""Check if the user has permission to edit BOQ estimation costs.
 
 	Rules:
-	- Administrator and System Manager always have permission.
+	- Administrator always has permission.
 	- If Project Tab Access is disabled, returns True.
-	- If Project Tab Access is enabled and any rule has `allow_edit_estimation_costs` checked:
-	  returns True if the user matches a rule with `allow_edit_estimation_costs` enabled.
-	- If no rule in settings has `allow_edit_estimation_costs` enabled, returns True by default.
+	- If Project Tab Access is enabled:
+	  Checks matching user or role rules. Returns True if any matching rule has
+	  `allow_edit_estimation_costs` enabled (1). Otherwise returns False.
 	"""
 	user = user or frappe.session.user
 	if user == "Administrator":
 		return True
 
 	roles = set(frappe.get_roles(user))
-	if "System Manager" in roles or "Administrator" in roles:
+	if "Administrator" in roles:
 		return True
 
 	settings = frappe.get_single("Project Tab Access")
 	if not settings.enabled:
-		return True
-
-	has_estimation_rule_configured = any(
-		getattr(row, "allow_edit_estimation_costs", 0) for row in (settings.rules or [])
-	)
-	if not has_estimation_rule_configured:
 		return True
 
 	user_rules = [row for row in settings.rules or [] if row.user == user]

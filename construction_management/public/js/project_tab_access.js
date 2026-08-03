@@ -41,13 +41,13 @@ construction_management.project_tab_access.fetch_config = function (force) {
 };
 
 construction_management.project_tab_access.can_edit_estimation_costs = function () {
-	if (construction_management.project_tab_access.is_bypass_user()) {
+	if (frappe.session.user === 'Administrator' || (frappe.user_roles || []).includes('Administrator')) {
 		return true;
 	}
 	if (construction_management.project_tab_access._config_cache) {
-		return construction_management.project_tab_access._config_cache.can_edit_estimation_costs !== false;
+		return Boolean(construction_management.project_tab_access._config_cache.can_edit_estimation_costs);
 	}
-	return true;
+	return false;
 };
 
 construction_management.project_tab_access.user_can_access_tab = function (rules) {

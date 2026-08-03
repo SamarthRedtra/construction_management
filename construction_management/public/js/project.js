@@ -636,20 +636,22 @@ function render_construction_dashboard(frm) {
 		${get_dashboard_styles()}
 	`);
 
-	frappe.call({
-		method: 'construction_management.api.boq_tree.get_boq_tree_data',
-		args: { project: frm.doc.name },
-		callback: function (r) {
-			if (r.message && r.message.has_boq) {
-				// BOQ exists-show dashboard even if no bills yet
-				render_modern_dashboard(wrapper, frm, r.message);
-			} else {
+	construction_management.project_tab_access.fetch_config().then(() => {
+		frappe.call({
+			method: 'construction_management.api.boq_tree.get_boq_tree_data',
+			args: { project: frm.doc.name },
+			callback: function (r) {
+				if (r.message && r.message.has_boq) {
+					// BOQ exists-show dashboard even if no bills yet
+					render_modern_dashboard(wrapper, frm, r.message);
+				} else {
+					render_empty_state(wrapper, frm);
+				}
+			},
+			error: function () {
 				render_empty_state(wrapper, frm);
 			}
-		},
-		error: function () {
-			render_empty_state(wrapper, frm);
-		}
+		});
 	});
 }
 

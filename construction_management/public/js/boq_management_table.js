@@ -396,14 +396,29 @@ function render_item_row(item, frm, srNo) {
 			
 			<!-- Estimated Cost -->
 			${(function () {
-				const canEditEst = construction_management.project_tab_access?.can_edit_estimation_costs?.() !== false;
+				const canEditEst = construction_management.project_tab_access?.can_edit_estimation_costs?.() === true;
 				if (!canEditEst) {
 					return `
-						<td class="col-num">${format_currency(estimated.material || 0)}</td>
-						<td class="col-num">${format_currency(estimated.labour || 0)}</td>
-						<td class="col-num">${format_currency(estimated.asset || 0)}</td>
-						<td class="col-num">${format_currency(estimated.subcontract || 0)}</td>
-						<td class="col-num">${format_currency(estimated.other || 0)}</td>
+						<td class="col-num">
+							<input type="number" class="est-cost-input est-material-input" value="${(estimated.material || 0).toFixed(2)}"
+								disabled readonly title="${__('Estimation cost editing is disabled for your role')}" aria-label="Estimated Material Cost" tabindex="-1">
+						</td>
+						<td class="col-num">
+							<input type="number" class="est-cost-input est-labour-input" value="${(estimated.labour || 0).toFixed(2)}"
+								disabled readonly title="${__('Estimation cost editing is disabled for your role')}" aria-label="Estimated Labour Cost" tabindex="-1">
+						</td>
+						<td class="col-num">
+							<input type="number" class="est-cost-input est-asset-input" value="${(estimated.asset || 0).toFixed(2)}"
+								disabled readonly title="${__('Estimation cost editing is disabled for your role')}" aria-label="Estimated Asset Cost" tabindex="-1">
+						</td>
+						<td class="col-num">
+							<input type="number" class="est-cost-input est-subcontract-input" value="${(estimated.subcontract || 0).toFixed(2)}"
+								disabled readonly title="${__('Estimation cost editing is disabled for your role')}" aria-label="Estimated Subcontract Cost" tabindex="-1">
+						</td>
+						<td class="col-num">
+							<input type="number" class="est-cost-input est-other-input" value="${(estimated.other || 0).toFixed(2)}"
+								disabled readonly title="${__('Estimation cost editing is disabled for your role')}" aria-label="Estimated Other Cost" tabindex="-1">
+						</td>
 						<td class="col-num font-bold est-total-cell" data-item="${item.name}">${format_currency(estimated.total || 0)}</td>
 					`;
 				}

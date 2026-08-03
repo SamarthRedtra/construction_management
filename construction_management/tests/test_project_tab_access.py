@@ -30,6 +30,13 @@ class TestProjectTabAccess(FrappeTestCase):
 		if not frappe.db.exists("Role", TEST_ROLE):
 			frappe.get_doc({"doctype": "Role", "role_name": TEST_ROLE}).insert(ignore_permissions=True)
 
+		if not frappe.db.exists("User", "limited_user@example.com"):
+			frappe.get_doc({
+				"doctype": "User",
+				"email": "limited_user@example.com",
+				"first_name": "Limited User",
+			}).insert(ignore_permissions=True)
+
 	def test_disabled_returns_no_restrictions(self):
 		doc = frappe.get_single("Project Tab Access")
 		doc.enabled = 0
