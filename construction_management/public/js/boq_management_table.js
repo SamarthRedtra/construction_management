@@ -395,12 +395,42 @@ function render_item_row(item, frm, srNo) {
 			<td class="col-num font-bold">${format_currency((ledgerAmount.total || 0) - ((revenue.tax_invoice || 0) + (revenue.variance || 0)))}</td>
 			
 			<!-- Estimated Cost -->
-			<td class="col-num">${format_currency(estimated.material || 0)}</td>
-			<td class="col-num">${format_currency(estimated.labour || 0)}</td>
-			<td class="col-num">${format_currency(estimated.asset || 0)}</td>
-			<td class="col-num">${format_currency(estimated.subcontract || 0)}</td>
-			<td class="col-num">${format_currency(estimated.other || 0)}</td>
-			<td class="col-num font-bold">${format_currency(estimated.total || 0)}</td>
+			${(function () {
+				const canEditEst = construction_management.project_tab_access?.can_edit_estimation_costs?.() !== false;
+				if (!canEditEst) {
+					return `
+						<td class="col-num">${format_currency(estimated.material || 0)}</td>
+						<td class="col-num">${format_currency(estimated.labour || 0)}</td>
+						<td class="col-num">${format_currency(estimated.asset || 0)}</td>
+						<td class="col-num">${format_currency(estimated.subcontract || 0)}</td>
+						<td class="col-num">${format_currency(estimated.other || 0)}</td>
+						<td class="col-num font-bold est-total-cell" data-item="${item.name}">${format_currency(estimated.total || 0)}</td>
+					`;
+				}
+				return `
+					<td class="col-num">
+						<input type="number" class="est-cost-input est-material-input" value="${(estimated.material || 0).toFixed(2)}"
+							data-item="${item.name}" data-field="estimated_material_cost" step="0.01" min="0" aria-label="Estimated Material Cost" tabindex="0">
+					</td>
+					<td class="col-num">
+						<input type="number" class="est-cost-input est-labour-input" value="${(estimated.labour || 0).toFixed(2)}"
+							data-item="${item.name}" data-field="estimated_labour_cost" step="0.01" min="0" aria-label="Estimated Labour Cost" tabindex="0">
+					</td>
+					<td class="col-num">
+						<input type="number" class="est-cost-input est-asset-input" value="${(estimated.asset || 0).toFixed(2)}"
+							data-item="${item.name}" data-field="estimated_asset_cost" step="0.01" min="0" aria-label="Estimated Asset Cost" tabindex="0">
+					</td>
+					<td class="col-num">
+						<input type="number" class="est-cost-input est-subcontract-input" value="${(estimated.subcontract || 0).toFixed(2)}"
+							data-item="${item.name}" data-field="estimated_subcontract_cost" step="0.01" min="0" aria-label="Estimated Subcontract Cost" tabindex="0">
+					</td>
+					<td class="col-num">
+						<input type="number" class="est-cost-input est-other-input" value="${(estimated.other || 0).toFixed(2)}"
+							data-item="${item.name}" data-field="estimated_other_cost" step="0.01" min="0" aria-label="Estimated Other Cost" tabindex="0">
+					</td>
+					<td class="col-num font-bold est-total-cell" data-item="${item.name}">${format_currency(estimated.total || 0)}</td>
+				`;
+			})()}
 			
 		<!-- Actual Cost -->
 		<td class="col-num">${format_currency(actual.material || 0)}</td>
@@ -416,9 +446,8 @@ function render_item_row(item, frm, srNo) {
 			<td class="col-num ${profitability.gp_percent >= 0 ? 'text-success' : 'text-danger'}">${(profitability.gp_percent || 0).toFixed(1)}%</td>
 			
 			<!-- Estimated GP -->
-			<!-- Estimated GP -->
-			<td class="col-num ${(profitability.estimated_gp || 0) >= 0 ? 'text-success' : 'text-danger'} font-bold">${format_currency(profitability.estimated_gp || 0)}</td>
-			<td class="col-num ${(profitability.estimated_gp_percent || 0) >= 0 ? 'text-success' : 'text-danger'}">${(profitability.estimated_gp_percent || 0).toFixed(1)}%</td>
+			<td class="col-num est-gp-cell ${(profitability.estimated_gp || 0) >= 0 ? 'text-success' : 'text-danger'} font-bold" data-item="${item.name}">${format_currency(profitability.estimated_gp || 0)}</td>
+			<td class="col-num est-gp-pct-cell ${(profitability.estimated_gp_percent || 0) >= 0 ? 'text-success' : 'text-danger'}" data-item="${item.name}">${(profitability.estimated_gp_percent || 0).toFixed(1)}%</td>
 			
 			<!-- Financial Summary -->
 			<td class="col-num text-warning">${format_currency(item.retention_amount || 0)}</td>
@@ -874,6 +903,62 @@ function attach_table_events(container, frm) {
 					row.find('.current-qty-input, .current-value-input').data('rate', r.message.amount.rate || 0);
 					sync_row_ledger_from_server(row, r.message);
 				}
+			}
+		});
+	});
+
+	// Handle Estimated Cost inline input change
+	container.find('.est-cost-input').on('change', function () {
+		const input = $(this);
+		const itemName = input.data('item');
+		const fieldName = input.data('field');
+		let newVal = parseFloat(input.val()) || 0;
+		if (newVal < 0) {
+			newVal = 0;
+			input.val('0.00');
+		}
+
+		const row = input.closest('tr');
+
+		let matCost = parseFloat(row.find('.est-material-input').val()) || 0;
+		let labCost = parseFloat(row.find('.est-labour-input').val()) || 0;
+		let assCost = parseFloat(row.find('.est-asset-input').val()) || 0;
+		let subCost = parseFloat(row.find('.est-subcontract-input').val()) || 0;
+		let othCost = parseFloat(row.find('.est-other-input').val()) || 0;
+		let totalEst = matCost + labCost + assCost + subCost + othCost;
+
+		row.find('.est-total-cell[data-item="' + itemName + '"]').text(format_currency(totalEst));
+
+		frappe.call({
+			method: 'construction_management.api.boq_tree.update_boq_item_estimated_cost',
+			args: {
+				boq_item: itemName,
+				field: fieldName,
+				value: newVal
+			},
+			callback: function (r) {
+				if (r.message) {
+					const data = r.message;
+					if (data.estimated_costs) {
+						row.find('.est-total-cell[data-item="' + itemName + '"]').text(format_currency(data.estimated_costs.total || 0));
+					}
+					if (data.estimated_gp !== undefined) {
+						const gpCell = row.find('.est-gp-cell[data-item="' + itemName + '"]');
+						gpCell.text(format_currency(data.estimated_gp || 0));
+						gpCell.toggleClass('text-success', (data.estimated_gp || 0) >= 0);
+						gpCell.toggleClass('text-danger', (data.estimated_gp || 0) < 0);
+					}
+					if (data.estimated_gp_percent !== undefined) {
+						const gpPctCell = row.find('.est-gp-pct-cell[data-item="' + itemName + '"]');
+						gpPctCell.text((data.estimated_gp_percent || 0).toFixed(1) + '%');
+						gpPctCell.toggleClass('text-success', (data.estimated_gp_percent || 0) >= 0);
+						gpPctCell.toggleClass('text-danger', (data.estimated_gp_percent || 0) < 0);
+					}
+					frappe.show_alert({ message: __('Estimated cost updated'), indicator: 'green' });
+				}
+			},
+			error: function () {
+				frappe.show_alert({ message: __('Failed to update estimated cost'), indicator: 'red' });
 			}
 		});
 	});
@@ -4020,9 +4105,9 @@ function get_table_styles() {
 		.expand-btn.loading { opacity: 0.5; cursor: wait; }
 		
 		/* Input Fields */
-		.current-qty-input, .current-value-input { width: 60px; padding: 4px 6px; border: 1px solid #d1d8dd; border-radius: 4px; font-size: 11px; text-align: right; background: #fff; }
-		.current-qty-input:focus, .current-value-input:focus { outline: none; border-color: #2490ef; box-shadow: 0 0 0 2px rgba(36, 144, 239, 0.15); }
-		.current-qty-input:disabled, .current-value-input:disabled { background: #f7f7f7; color: #8d99a6; }
+		.current-qty-input, .current-value-input, .est-cost-input { width: 60px; padding: 4px 6px; border: 1px solid #d1d8dd; border-radius: 4px; font-size: 11px; text-align: right; background: #fff; }
+		.current-qty-input:focus, .current-value-input:focus, .est-cost-input:focus { outline: none; border-color: #2490ef; box-shadow: 0 0 0 2px rgba(36, 144, 239, 0.15); }
+		.current-qty-input:disabled, .current-value-input:disabled, .est-cost-input:disabled { background: #f7f7f7; color: #8d99a6; }
 		
 		/* Text Styling */
 		.font-bold { font-weight: 600; }

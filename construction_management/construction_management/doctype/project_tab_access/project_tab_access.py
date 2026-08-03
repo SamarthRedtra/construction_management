@@ -133,15 +133,56 @@ def get_user_project_scope(user: str | None = None) -> list[str] | None:
 	return sorted(allowed_projects)
 
 
+def can_user_edit_estimation_costs(user: str | None = None) -> bool:
+	"""Check if the user has permission to edit BOQ estimation costs.
+
+	Rules:
+	- Administrator and System Manager always have permission.
+	- If Project Tab Access is disabled, returns True.
+	- If Project Tab Access is enabled and any rule has `allow_edit_estimation_costs` checked:
+	  returns True if the user matches a rule with `allow_edit_estimation_costs` enabled.
+	- If no rule in settings has `allow_edit_estimation_costs` enabled, returns True by default.
+	"""
+	user = user or frappe.session.user
+	if user == "Administrator":
+		return True
+
+	roles = set(frappe.get_roles(user))
+	if "System Manager" in roles or "Administrator" in roles:
+		return True
+
+	settings = frappe.get_single("Project Tab Access")
+	if not settings.enabled:
+		return True
+
+	has_estimation_rule_configured = any(
+		getattr(row, "allow_edit_estimation_costs", 0) for row in (settings.rules or [])
+	)
+	if not has_estimation_rule_configured:
+		return True
+
+	user_rules = [row for row in settings.rules or [] if row.user == user]
+	role_rules = [row for row in settings.rules or [] if row.role and row.role in roles]
+	matching_rules = user_rules or role_rules
+
+	for rule in matching_rules:
+		if getattr(rule, "allow_edit_estimation_costs", 0):
+			return True
+
+	return False
+
+
 @frappe.whitelist()
 def get_project_tab_access_config() -> dict:
 	"""Return tab access rules for the Project form."""
 	settings = frappe.get_single("Project Tab Access")
+	can_edit_estimation = can_user_edit_estimation_costs()
 	if not settings.enabled:
 		return {
 			"enabled": False,
 			"restricted_tabs": {},
 			"always_hidden_tabs": list(ALWAYS_HIDDEN_TABS),
+			"can_edit_estimation_costs": can_edit_estimation,
 		}
 
 	restricted_tabs: dict[str, list[dict]] = {}
@@ -171,4 +212,5 @@ def get_project_tab_access_config() -> dict:
 		"enabled": True,
 		"restricted_tabs": restricted_tabs,
 		"always_hidden_tabs": list(ALWAYS_HIDDEN_TABS),
+		"can_edit_estimation_costs": can_edit_estimation,
 	}

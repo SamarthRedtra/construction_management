@@ -190,6 +190,38 @@ class TestProjectTabAccess(FrappeTestCase):
 			has_project_permission(outside_doc, ptype="read", user="limited_user@example.com")
 		)
 
+	def test_can_user_edit_estimation_costs(self):
+		from construction_management.construction_management.doctype.project_tab_access.project_tab_access import (
+			can_user_edit_estimation_costs,
+		)
+		# Admin always True
+		self.assertTrue(can_user_edit_estimation_costs("Administrator"))
+
+		doc = frappe.get_single("Project Tab Access")
+		doc.enabled = 1
+		doc.rules = []
+		doc.append(
+			"rules",
+			{
+				"tabs": "Construction",
+				"role": TEST_ROLE,
+				"allow_edit_estimation_costs": 1,
+			},
+		)
+		doc.save(ignore_permissions=True)
+
+		with patch(
+			"construction_management.construction_management.doctype.project_tab_access.project_tab_access.frappe.get_roles",
+			return_value=[TEST_ROLE],
+		):
+			self.assertTrue(can_user_edit_estimation_costs("test_user@example.com"))
+
+		with patch(
+			"construction_management.construction_management.doctype.project_tab_access.project_tab_access.frappe.get_roles",
+			return_value=["Other Role"],
+		):
+			self.assertFalse(can_user_edit_estimation_costs("test_user@example.com"))
+
 	def _ensure_project(self, name: str) -> str:
 		if frappe.db.exists("Project", name):
 			return name

@@ -1889,6 +1889,7 @@ window.add_boq_item = function (bill_name, project) {
 	}
 
 	function applyCostEntryMode() {
+		const canEditEst = construction_management.project_tab_access?.can_edit_estimation_costs?.() !== false;
 		const mode = d.get_value('cost_entry_mode') || 'Unit Rate';
 		const isLumpSum = mode === 'Lump Sum Total';
 		const qty = d.get_value('total_qty') || 0;
@@ -1902,6 +1903,16 @@ window.add_boq_item = function (bill_name, project) {
 			'estimated_subcontract_cost_per_unit', 'estimated_asset_cost_per_unit',
 			'estimated_other_cost_per_unit'
 		];
+
+		if (!canEditEst) {
+			d.set_df_property('cost_entry_mode', 'read_only', 1);
+			lumpSumCostFields.concat(unitCostFields).forEach((fieldname) => {
+				d.set_df_property(fieldname, 'read_only', 1);
+			});
+			lumpSumCostFields.concat(unitCostFields).concat(['cost_entry_mode']).forEach((fieldname) => d.refresh_field(fieldname));
+			updateGrandEstimatedCost();
+			return;
+		}
 
 		lumpSumCostFields.forEach((fieldname) => {
 			d.set_df_property(fieldname, 'read_only', isLumpSum ? 0 : 1);

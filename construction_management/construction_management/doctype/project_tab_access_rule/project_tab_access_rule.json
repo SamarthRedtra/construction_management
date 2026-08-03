@@ -10,7 +10,8 @@
   "user",
   "access_mode",
   "required_role",
-  "allowed_projects"
+  "allowed_projects",
+  "allow_edit_estimation_costs"
  ],
  "fields": [
   {
@@ -57,6 +58,13 @@
    "fieldname": "allowed_projects",
    "fieldtype": "Small Text",
    "label": "Allowed Projects"
+  },
+  {
+   "default": "0",
+   "fieldname": "allow_edit_estimation_costs",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Allow Edit Estimation Costs"
   }
  ],
  "istable": 1,

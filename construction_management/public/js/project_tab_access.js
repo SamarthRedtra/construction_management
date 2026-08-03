@@ -34,9 +34,20 @@ construction_management.project_tab_access.fetch_config = function (force) {
 			enabled: false,
 			restricted_tabs: {},
 			always_hidden_tabs: construction_management.project_tab_access.ALWAYS_HIDDEN_TABS,
+			can_edit_estimation_costs: true,
 		};
 		return construction_management.project_tab_access._config_cache;
 	});
+};
+
+construction_management.project_tab_access.can_edit_estimation_costs = function () {
+	if (construction_management.project_tab_access.is_bypass_user()) {
+		return true;
+	}
+	if (construction_management.project_tab_access._config_cache) {
+		return construction_management.project_tab_access._config_cache.can_edit_estimation_costs !== false;
+	}
+	return true;
 };
 
 construction_management.project_tab_access.user_can_access_tab = function (rules) {

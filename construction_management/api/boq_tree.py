@@ -1932,3 +1932,73 @@ def get_project_cost_breakdown(project: str) -> dict:
 
 	return summarize_project_cost_breakdown(project)
 
+
+@frappe.whitelist()
+def update_boq_item_estimated_cost(boq_item: str, field: str, value: float) -> dict:
+	"""
+	Update an estimated cost field on a BOQ Item (Material, Labour, Asset, Subcontract, Other).
+	
+	Args:
+		boq_item: BOQ Item name
+		field: fieldname (e.g. estimated_material_cost)
+		value: numeric value
+	"""
+	from construction_management.construction_management.doctype.project_tab_access.project_tab_access import (
+		can_user_edit_estimation_costs,
+	)
+
+	if not can_user_edit_estimation_costs():
+		frappe.throw(_("You do not have permission to edit estimation costs."))
+
+	allowed_fields = {
+		"estimated_material_cost": "estimated_material_cost_per_unit",
+		"estimated_labour_cost": "estimated_labour_cost_per_unit",
+		"estimated_asset_cost": "estimated_asset_cost_per_unit",
+		"estimated_subcontract_cost": "estimated_subcontract_cost_per_unit",
+		"estimated_other_cost": "estimated_other_cost_per_unit",
+	}
+
+	if field not in allowed_fields:
+		frappe.throw(_("Invalid estimated cost field: {0}").format(field))
+
+	item = frappe.get_doc("BOQ Item", boq_item)
+	new_val = flt(value)
+	setattr(item, field, new_val)
+
+	per_unit_field = allowed_fields[field]
+	qty = flt(item.total_qty)
+	if qty > 0:
+		setattr(item, per_unit_field, new_val / qty)
+	else:
+		setattr(item, per_unit_field, 0)
+
+	total_est = (
+		flt(item.estimated_material_cost)
+		+ flt(item.estimated_labour_cost)
+		+ flt(item.estimated_asset_cost)
+		+ flt(item.estimated_subcontract_cost)
+		+ flt(item.estimated_other_cost)
+	)
+	item.total_estimated_cost = total_est
+	item.save()
+
+	contract_val = flt(item.total_amount) or (flt(item.total_qty) * flt(item.rate))
+	est_gp = contract_val - total_est
+	est_gp_pct = (est_gp / contract_val * 100) if contract_val > 0 else 0
+
+	return {
+		"boq_item": item.name,
+		"field": field,
+		"value": new_val,
+		"estimated_costs": {
+			"material": flt(item.estimated_material_cost),
+			"labour": flt(item.estimated_labour_cost),
+			"asset": flt(item.estimated_asset_cost),
+			"subcontract": flt(item.estimated_subcontract_cost),
+			"other": flt(item.estimated_other_cost),
+			"total": total_est,
+		},
+		"estimated_gp": est_gp,
+		"estimated_gp_percent": est_gp_pct,
+	}
+
