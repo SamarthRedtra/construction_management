@@ -80,6 +80,9 @@ def build_boq_quotation_print_context(doc) -> dict:
 		"boq_html": boq_html,
 		"terms_html": _compact_terms_html(doc.get("terms") or ""),
 		"payment_terms": _compact_terms_html(doc.get("custom_payment_terms") or ""),
+		"retention_terms": _compact_terms_html(doc.get("custom_retention") or ""),
+		"warranty_terms": _compact_terms_html(doc.get("custom_warranty") or ""),
+		"specific_exclusion": _compact_terms_html(doc.get("custom_specific_exclusion") or ""),
 		"exclusion": _compact_terms_html(doc.get("custom_exclusion") or ""),
 		"validity": _compact_terms_html(doc.get("custom_validity") or ""),
 		"currency": doc.currency or "AED",
@@ -251,9 +254,12 @@ def _format_sub_row(row, parent: dict | None = None) -> dict:
 	if display_mode == "N/A":
 		rate_display = "-"
 		amount_display = "N/A"
-	elif display_mode == "Rate Only" or not include_in_total:
-		rate_display = rate
+	elif display_mode == "Rate Only":
+		rate_display = rate if rate > 0 else "Nill"
 		amount_display = "Rate only"
+	elif rate == 0 or amount == 0 or not include_in_total:
+		rate_display = "Nill"
+		amount_display = "BY MAIN CONTRACTOR"
 	else:
 		rate_display = rate
 		amount_display = amount

@@ -56,53 +56,46 @@ frappe.ui.form.on("Quotation", {
 	},
 
 	tc_name(frm) {
-		if (!frm.doc.tc_name) {
-			frm.set_value("terms", "");
-			return;
-		}
-		frappe.db.get_value("Terms and Conditions", frm.doc.tc_name, "terms").then((r) => {
-			if (r && r.message && r.message.terms) {
-				frm.set_value("terms", r.message.terms);
-			}
-		});
+		fetch_terms_template(frm, "tc_name", "terms");
 	},
 
 	custom_payment_terms_tc(frm) {
-		if (!frm.doc.custom_payment_terms_tc) {
-			frm.set_value("custom_payment_terms", "");
-			return;
-		}
-		frappe.db.get_value("Terms and Conditions", frm.doc.custom_payment_terms_tc, "terms").then((r) => {
-			if (r && r.message && r.message.terms) {
-				frm.set_value("custom_payment_terms", r.message.terms);
-			}
-		});
+		fetch_terms_template(frm, "custom_payment_terms_tc", "custom_payment_terms");
+	},
+
+	custom_retention_tc(frm) {
+		fetch_terms_template(frm, "custom_retention_tc", "custom_retention");
+	},
+
+	custom_warranty_tc(frm) {
+		fetch_terms_template(frm, "custom_warranty_tc", "custom_warranty");
+	},
+
+	custom_specific_exclusion_tc(frm) {
+		fetch_terms_template(frm, "custom_specific_exclusion_tc", "custom_specific_exclusion");
 	},
 
 	custom_exclusion_tc(frm) {
-		if (!frm.doc.custom_exclusion_tc) {
-			frm.set_value("custom_exclusion", "");
-			return;
-		}
-		frappe.db.get_value("Terms and Conditions", frm.doc.custom_exclusion_tc, "terms").then((r) => {
-			if (r && r.message && r.message.terms) {
-				frm.set_value("custom_exclusion", r.message.terms);
-			}
-		});
+		fetch_terms_template(frm, "custom_exclusion_tc", "custom_exclusion");
 	},
 
 	custom_validity_tc(frm) {
-		if (!frm.doc.custom_validity_tc) {
-			frm.set_value("custom_validity", "");
-			return;
-		}
-		frappe.db.get_value("Terms and Conditions", frm.doc.custom_validity_tc, "terms").then((r) => {
-			if (r && r.message && r.message.terms) {
-				frm.set_value("custom_validity", r.message.terms);
-			}
-		});
+		fetch_terms_template(frm, "custom_validity_tc", "custom_validity");
 	},
 });
+
+function fetch_terms_template(frm, template_field, target_field) {
+	const template_name = frm.doc[template_field];
+	if (!template_name) {
+		frm.set_value(target_field, "");
+		return;
+	}
+	frappe.db.get_value("Terms and Conditions", template_name, "terms").then((r) => {
+		if (r && r.message && r.message.terms) {
+			frm.set_value(target_field, r.message.terms);
+		}
+	});
+}
 
 function setup_amendment_action(frm) {
 	if (frm.doc.docstatus !== 2) {

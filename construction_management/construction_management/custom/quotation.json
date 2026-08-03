@@ -315,10 +315,61 @@
    "name": "Quotation-custom_payment_terms"
   },
   {
-   "fieldname": "custom_exclusion_tc",
+   "fieldname": "custom_retention_tc",
    "fieldtype": "Link",
    "insert_after": "custom_payment_terms",
-   "label": "Exclusions Template",
+   "label": "Retention Template",
+   "options": "Terms and Conditions",
+   "dt": "Quotation",
+   "name": "Quotation-custom_retention_tc"
+  },
+  {
+   "fieldname": "custom_retention",
+   "fieldtype": "Text Editor",
+   "insert_after": "custom_retention_tc",
+   "label": "Retention Terms",
+   "dt": "Quotation",
+   "name": "Quotation-custom_retention"
+  },
+  {
+   "fieldname": "custom_warranty_tc",
+   "fieldtype": "Link",
+   "insert_after": "custom_retention",
+   "label": "Warranty Certificate Template",
+   "options": "Terms and Conditions",
+   "dt": "Quotation",
+   "name": "Quotation-custom_warranty_tc"
+  },
+  {
+   "fieldname": "custom_warranty",
+   "fieldtype": "Text Editor",
+   "insert_after": "custom_warranty_tc",
+   "label": "Warranty Certificate",
+   "dt": "Quotation",
+   "name": "Quotation-custom_warranty"
+  },
+  {
+   "fieldname": "custom_specific_exclusion_tc",
+   "fieldtype": "Link",
+   "insert_after": "custom_warranty",
+   "label": "Specific Quotation Exclusion Template",
+   "options": "Terms and Conditions",
+   "dt": "Quotation",
+   "name": "Quotation-custom_specific_exclusion_tc"
+  },
+  {
+   "fieldname": "custom_specific_exclusion",
+   "fieldtype": "Text Editor",
+   "insert_after": "custom_specific_exclusion_tc",
+   "label": "Specific Quotation Exclusions",
+   "dt": "Quotation",
+   "name": "Quotation-custom_specific_exclusion"
+  },
+  {
+   "fieldname": "custom_exclusion_tc",
+   "fieldtype": "Link",
+   "insert_after": "custom_specific_exclusion",
+   "label": "Common Exclusion Template",
    "options": "Terms and Conditions",
    "dt": "Quotation",
    "name": "Quotation-custom_exclusion_tc"
@@ -327,7 +378,7 @@
    "fieldname": "custom_exclusion",
    "fieldtype": "Text Editor",
    "insert_after": "custom_exclusion_tc",
-   "label": "Exclusions",
+   "label": "Common Exclusions",
    "dt": "Quotation",
    "name": "Quotation-custom_exclusion"
   },

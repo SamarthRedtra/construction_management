@@ -160,7 +160,13 @@ function render_comprehensive_items_table(items, frm) {
 						<th colspan="3" class="col-group col-group-value">Value Breakdown</th>
 						<th colspan="3" class="col-group col-group-billing">Current Billing</th>
 						<th colspan="6" class="col-group col-group-revenue">Revenue</th>
-						<th colspan="6" class="col-group col-group-estimated">Estimated Cost</th>
+						<th colspan="11" class="col-group col-group-estimated">
+							Estimated Cost
+							<select class="global-est-mode-select" style="font-size: 10px; padding: 1px 4px; margin-left: 6px; border-radius: 3px; border: 1px solid #ccc; background: #fff; cursor: pointer;">
+								<option value="unit" ${(window._boq_global_est_mode || 'unit') === 'unit' ? 'selected' : ''}>Per Unit Mode (Default)</option>
+								<option value="total" ${(window._boq_global_est_mode || 'unit') === 'total' ? 'selected' : ''}>Total Cost Mode</option>
+							</select>
+						</th>
 					<th colspan="7" class="col-group col-group-actual">Actual Cost</th>
 					<th colspan="4" class="col-group col-group-profit">Profitability</th>
 						<th colspan="4" class="col-group col-group-financial">Financial Summary</th>
@@ -186,41 +192,16 @@ function render_comprehensive_items_table(items, frm) {
 						<th class="col-num">BOQ Balance PI</th>
 						<th class="col-num">BOQ Balance TI</th>
 						<!-- Estimated Cost -->
-						<th class="col-num" style="min-width: 110px;">
-							Material
-							<select class="cat-mode-select" data-cat="material" style="font-size: 10px; padding: 0px 2px; margin-left: 2px; border-radius: 3px; border: 1px solid #ccc; background: #fff; cursor: pointer;">
-								<option value="total" ${((window._boq_cat_modes || {}).material || 'total') === 'total' ? 'selected' : ''}>Total</option>
-								<option value="unit" ${((window._boq_cat_modes || {}).material || 'total') === 'unit' ? 'selected' : ''}>/ Unit</option>
-							</select>
-						</th>
-						<th class="col-num" style="min-width: 110px;">
-							Labour
-							<select class="cat-mode-select" data-cat="labour" style="font-size: 10px; padding: 0px 2px; margin-left: 2px; border-radius: 3px; border: 1px solid #ccc; background: #fff; cursor: pointer;">
-								<option value="total" ${((window._boq_cat_modes || {}).labour || 'total') === 'total' ? 'selected' : ''}>Total</option>
-								<option value="unit" ${((window._boq_cat_modes || {}).labour || 'total') === 'unit' ? 'selected' : ''}>/ Unit</option>
-							</select>
-						</th>
-						<th class="col-num" style="min-width: 110px;">
-							Asset
-							<select class="cat-mode-select" data-cat="asset" style="font-size: 10px; padding: 0px 2px; margin-left: 2px; border-radius: 3px; border: 1px solid #ccc; background: #fff; cursor: pointer;">
-								<option value="total" ${((window._boq_cat_modes || {}).asset || 'total') === 'total' ? 'selected' : ''}>Total</option>
-								<option value="unit" ${((window._boq_cat_modes || {}).asset || 'total') === 'unit' ? 'selected' : ''}>/ Unit</option>
-							</select>
-						</th>
-						<th class="col-num" style="min-width: 110px;">
-							S/C
-							<select class="cat-mode-select" data-cat="subcontract" style="font-size: 10px; padding: 0px 2px; margin-left: 2px; border-radius: 3px; border: 1px solid #ccc; background: #fff; cursor: pointer;">
-								<option value="total" ${((window._boq_cat_modes || {}).subcontract || 'total') === 'total' ? 'selected' : ''}>Total</option>
-								<option value="unit" ${((window._boq_cat_modes || {}).subcontract || 'total') === 'unit' ? 'selected' : ''}>/ Unit</option>
-							</select>
-						</th>
-						<th class="col-num" style="min-width: 110px;">
-							Other
-							<select class="cat-mode-select" data-cat="other" style="font-size: 10px; padding: 0px 2px; margin-left: 2px; border-radius: 3px; border: 1px solid #ccc; background: #fff; cursor: pointer;">
-								<option value="total" ${((window._boq_cat_modes || {}).other || 'total') === 'total' ? 'selected' : ''}>Total</option>
-								<option value="unit" ${((window._boq_cat_modes || {}).other || 'total') === 'unit' ? 'selected' : ''}>/ Unit</option>
-							</select>
-						</th>
+						<th class="col-num" style="min-width: 95px;">Material (Unit)</th>
+						<th class="col-num" style="min-width: 95px;">Material (Total)</th>
+						<th class="col-num" style="min-width: 95px;">Labour (Unit)</th>
+						<th class="col-num" style="min-width: 95px;">Labour (Total)</th>
+						<th class="col-num" style="min-width: 95px;">Asset (Unit)</th>
+						<th class="col-num" style="min-width: 95px;">Asset (Total)</th>
+						<th class="col-num" style="min-width: 95px;">S/C (Unit)</th>
+						<th class="col-num" style="min-width: 95px;">S/C (Total)</th>
+						<th class="col-num" style="min-width: 95px;">Other (Unit)</th>
+						<th class="col-num" style="min-width: 95px;">Other (Total)</th>
 						<th class="col-num font-bold">Total</th>
 					<!-- Actual Cost -->
 					<th class="col-num">Material</th>
@@ -432,50 +413,44 @@ function render_item_row(item, frm, srNo) {
 				const perUnit = estimated.per_unit || {};
 				const modes = window._boq_cat_modes || {};
 
-				const matMode = modes.material || 'total';
-				const labMode = modes.labour || 'total';
-				const assMode = modes.asset || 'total';
-				const subMode = modes.subcontract || 'total';
-				const othMode = modes.other || 'total';
+				const globalEstMode = window._boq_global_est_mode || 'unit';
+				const isUnitActive = globalEstMode === 'unit';
 
-				const matVal = matMode === 'unit' ? (perUnit.material || 0) : (estimated.material || 0);
-				const labVal = labMode === 'unit' ? (perUnit.labour || 0) : (estimated.labour || 0);
-				const assVal = assMode === 'unit' ? (perUnit.asset || 0) : (estimated.asset || 0);
-				const subVal = subMode === 'unit' ? (perUnit.subcontract || 0) : (estimated.subcontract || 0);
-				const othVal = othMode === 'unit' ? (perUnit.other || 0) : (estimated.other || 0);
+				const cats = [
+					{ name: 'material', label: 'Material' },
+					{ name: 'labour', label: 'Labour' },
+					{ name: 'asset', label: 'Asset' },
+					{ name: 'subcontract', label: 'Subcontract' },
+					{ name: 'other', label: 'Other' },
+				];
 
-				const matField = matMode === 'unit' ? 'estimated_material_cost_per_unit' : 'estimated_material_cost';
-				const labField = labMode === 'unit' ? 'estimated_labour_cost_per_unit' : 'estimated_labour_cost';
-				const assField = assMode === 'unit' ? 'estimated_asset_cost_per_unit' : 'estimated_asset_cost';
-				const subField = subMode === 'unit' ? 'estimated_subcontract_cost_per_unit' : 'estimated_subcontract_cost';
-				const othField = othMode === 'unit' ? 'estimated_other_cost_per_unit' : 'estimated_other_cost';
+				let estCellsHtml = '';
+				cats.forEach(c => {
+					const totalVal = (estimated[c.name] || 0);
+					const unitVal = (perUnit[c.name] || 0);
 
-				return `
-					<!-- Material -->
-					<td class="col-num">
-						<input type="number" class="est-cost-input est-material-input" value="${matVal.toFixed(2)}"
-							data-item="${item.name}" data-field="${matField}" step="0.01" min="0" aria-label="Estimated Material Cost" ${disabledAttr} ${tabindexAttr}>
-					</td>
-					<!-- Labour -->
-					<td class="col-num">
-						<input type="number" class="est-cost-input est-labour-input" value="${labVal.toFixed(2)}"
-							data-item="${item.name}" data-field="${labField}" step="0.01" min="0" aria-label="Estimated Labour Cost" ${disabledAttr} ${tabindexAttr}>
-					</td>
-					<!-- Asset -->
-					<td class="col-num">
-						<input type="number" class="est-cost-input est-asset-input" value="${assVal.toFixed(2)}"
-							data-item="${item.name}" data-field="${assField}" step="0.01" min="0" aria-label="Estimated Asset Cost" ${disabledAttr} ${tabindexAttr}>
-					</td>
-					<!-- Subcontract -->
-					<td class="col-num">
-						<input type="number" class="est-cost-input est-subcontract-input" value="${subVal.toFixed(2)}"
-							data-item="${item.name}" data-field="${subField}" step="0.01" min="0" aria-label="Estimated Subcontract Cost" ${disabledAttr} ${tabindexAttr}>
-					</td>
-					<!-- Other -->
-					<td class="col-num">
-						<input type="number" class="est-cost-input est-other-input" value="${othVal.toFixed(2)}"
-							data-item="${item.name}" data-field="${othField}" step="0.01" min="0" aria-label="Estimated Other Cost" ${disabledAttr} ${tabindexAttr}>
-					</td>
+					const unitReadonly = isUnitActive ? '' : 'readonly style="background:#f8fafc;color:#64748b;"';
+					const totalReadonly = isUnitActive ? 'readonly style="background:#f8fafc;color:#64748b;"' : '';
+
+					estCellsHtml += `
+						<!-- ${c.label} (Unit) -->
+						<td class="col-num">
+							<input type="number" class="est-cost-input est-${c.name}-unit-input" value="${unitVal.toFixed(2)}"
+								data-item="${item.name}" data-field="estimated_${c.name}_cost_per_unit"
+								data-cost="${totalVal.toFixed(2)}" data-unit-cost="${unitVal.toFixed(2)}"
+								step="0.01" min="0" aria-label="Estimated ${c.label} Unit Rate" ${disabledAttr} ${unitReadonly} ${tabindexAttr}>
+						</td>
+						<!-- ${c.label} (Total) -->
+						<td class="col-num">
+							<input type="number" class="est-cost-input est-${c.name}-total-input" value="${totalVal.toFixed(2)}"
+								data-item="${item.name}" data-field="estimated_${c.name}_cost"
+								data-cost="${totalVal.toFixed(2)}" data-unit-cost="${unitVal.toFixed(2)}"
+								step="0.01" min="0" aria-label="Estimated ${c.label} Total Cost" ${disabledAttr} ${totalReadonly} ${tabindexAttr}>
+						</td>
+					`;
+				});
+
+				return estCellsHtml + `
 					<!-- Total Est. Cost -->
 					<td class="col-num font-bold est-total-cell" data-item="${item.name}">${format_currency(estimated.total || 0)}</td>
 				`;
@@ -966,16 +941,28 @@ function attach_table_events(container, frm) {
 		});
 	});
 
-	// Handle Estimated Cost category mode selector change (/ Unit vs Total)
-	container.find('.cat-mode-select').on('change', function (e) {
+	// Handle global Estimated Cost mode selector change (Per Unit vs Total)
+	container.find('.global-est-mode-select').off('change.global_mode').on('change.global_mode', function (e) {
 		e.stopPropagation();
-		const cat = $(this).data('cat');
-		const mode = $(this).val();
-		window._boq_cat_modes = window._boq_cat_modes || {};
-		window._boq_cat_modes[cat] = mode;
-		if (cur_frm && cur_frm.fields_dict.construction_dashboard) {
-			render_construction_dashboard(cur_frm);
-		}
+		const mode = $(this).val(); // 'unit' or 'total'
+		window._boq_global_est_mode = mode;
+		const isUnit = mode === 'unit';
+
+		container.find('tr.item-row').each(function () {
+			const row = $(this);
+			['material', 'labour', 'asset', 'subcontract', 'other'].forEach(cat => {
+				const $uInput = row.find('.est-' + cat + '-unit-input');
+				const $tInput = row.find('.est-' + cat + '-total-input');
+
+				if (isUnit) {
+					$uInput.prop('readonly', false).css({ background: '', color: '' });
+					$tInput.prop('readonly', true).css({ background: '#f8fafc', color: '#64748b' });
+				} else {
+					$uInput.prop('readonly', true).css({ background: '#f8fafc', color: '#64748b' });
+					$tInput.prop('readonly', false).css({ background: '', color: '' });
+				}
+			});
+		});
 	});
 
 	// Handle Estimated Cost inline input change
@@ -1006,13 +993,23 @@ function attach_table_events(container, frm) {
 					const data = r.message;
 					const estCosts = data.estimated_costs || {};
 					const perUnit = estCosts.per_unit || {};
-					const modes = window._boq_cat_modes || {};
 
-					row.find('.est-material-input').val((modes.material === 'unit' ? (perUnit.material || 0) : (estCosts.material || 0)).toFixed(2));
-					row.find('.est-labour-input').val((modes.labour === 'unit' ? (perUnit.labour || 0) : (estCosts.labour || 0)).toFixed(2));
-					row.find('.est-asset-input').val((modes.asset === 'unit' ? (perUnit.asset || 0) : (estCosts.asset || 0)).toFixed(2));
-					row.find('.est-subcontract-input').val((modes.subcontract === 'unit' ? (perUnit.subcontract || 0) : (estCosts.subcontract || 0)).toFixed(2));
-					row.find('.est-other-input').val((modes.other === 'unit' ? (perUnit.other || 0) : (estCosts.other || 0)).toFixed(2));
+					const updateInputState = function (category) {
+						const totalVal = estCosts[category] || 0;
+						const unitVal = perUnit[category] || 0;
+						const $uInput = row.find('.est-' + category + '-unit-input');
+						const $tInput = row.find('.est-' + category + '-total-input');
+
+						$uInput.data('cost', totalVal).attr('data-cost', totalVal.toFixed(2))
+						       .data('unit-cost', unitVal).attr('data-unit-cost', unitVal.toFixed(2))
+						       .val(unitVal.toFixed(2));
+
+						$tInput.data('cost', totalVal).attr('data-cost', totalVal.toFixed(2))
+						       .data('unit-cost', unitVal).attr('data-unit-cost', unitVal.toFixed(2))
+						       .val(totalVal.toFixed(2));
+					};
+
+					['material', 'labour', 'asset', 'subcontract', 'other'].forEach(updateInputState);
 
 					row.find('.est-total-cell[data-item="' + itemName + '"]').text(format_currency(estCosts.total || 0));
 

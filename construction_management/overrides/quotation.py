@@ -32,7 +32,26 @@ class QuotationOverride(Quotation):
 		self._update_boq_line_amounts()
 		self._sync_boq_html_from_lines()
 		self._ensure_boq_placeholder_item()
+		self._update_quotation_ref()
 		super().validate()
+
+	def _update_quotation_ref(self):
+		"""Set clean quotation ref: e.g. 73640 for internal/original, 73640 R1 for revisions."""
+		base_name = self.name or ""
+		rev_num = 0
+		curr = self.amended_from
+		while curr:
+			rev_num += 1
+			root_prev = frappe.db.get_value("Quotation", curr, "amended_from")
+			if not root_prev:
+				base_name = curr
+			curr = root_prev
+
+		clean_name = base_name.replace("SAL-QTN-", "")
+		if rev_num > 0:
+			self.custom_quotation_ref = f"{clean_name} R{rev_num}"
+		elif not self.get("custom_quotation_ref"):
+			self.custom_quotation_ref = clean_name
 
 	def on_submit(self):
 		super().on_submit()
@@ -392,9 +411,16 @@ def _get_quotation_approvers(company: str) -> tuple[list[str], list[str]]:
 	company_doc = frappe.get_doc("Company", company)
 	managers = _approver_users(company_doc.get("custom_quotation_sales_managers"))
 	directors = _approver_users(company_doc.get("custom_quotation_directors"))
+
+	default_directors = ["faraaz@mrggroup.ae", "salman@mrggroup.ae"]
+	existing_defaults = [d for d in default_directors if frappe.db.exists("User", d)]
+	combined_directors = list(dict.fromkeys(directors + existing_defaults))
+	if not combined_directors:
+		combined_directors = _approver_users(company_doc.get("custom_quotation_director"))
+
 	return (
 		managers or _approver_users(company_doc.get("custom_quotation_sales_manager")),
-		directors or _approver_users(company_doc.get("custom_quotation_director")),
+		combined_directors,
 	)
 
 

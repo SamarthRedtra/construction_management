@@ -354,9 +354,36 @@
 	</div>
 	{% endif %}
 
+	{% if q.retention_terms %}
+	<div class="terms">
+		<div class="section-label">Retention Terms</div>
+		<div class="terms-body">
+			{{ q.retention_terms }}
+		</div>
+	</div>
+	{% endif %}
+
+	{% if q.warranty_terms %}
+	<div class="terms">
+		<div class="section-label">Warranty Certificate</div>
+		<div class="terms-body">
+			{{ q.warranty_terms }}
+		</div>
+	</div>
+	{% endif %}
+
+	{% if q.specific_exclusion %}
+	<div class="terms">
+		<div class="section-label">Specific Quotation Exclusions</div>
+		<div class="terms-body">
+			{{ q.specific_exclusion }}
+		</div>
+	</div>
+	{% endif %}
+
 	{% if q.exclusion %}
 	<div class="terms">
-		<div class="section-label">Exclusions</div>
+		<div class="section-label">Common Exclusions</div>
 		<div class="terms-body">
 			{{ q.exclusion }}
 		</div>
