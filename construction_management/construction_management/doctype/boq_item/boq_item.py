@@ -148,6 +148,12 @@ class BOQItem(Document):
 	
 	def validate_current_qty(self):
 		"""Validate current qty doesn't exceed balance"""
+		# Used only by the cost-estimate update service.  That service does not
+		# modify billing quantities, so an existing billing variance must not
+		# prevent an unrelated material/labour estimate from being saved.
+		if getattr(self.flags, "skip_current_qty_validation", False):
+			return
+
 		if flt(self.current_qty) < 0:
 			frappe.throw(_("Current quantity cannot be negative"))
 		
@@ -880,4 +886,3 @@ def get_rate_split_summary(boq_item):
 		"total_qty": total_qty,
 		"rate_history": get_rate_history(boq_item),
 	}
-

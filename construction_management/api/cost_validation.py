@@ -79,6 +79,12 @@ def update_estimated_costs(boq_item: str, new_values: Any, old_values: Any) -> d
 	]
 	
 	for field in cost_fields:
+		# Cost editors may submit only the field(s) that changed.  Treat a
+		# missing key as "leave unchanged", not as a zero.  Otherwise editing a
+		# total from the grid can accidentally erase the saved per-unit costs.
+		if field not in new_values:
+			continue
+
 		old_val = flt(old_values.get(field, 0))
 		new_val = flt(new_values.get(field, 0))
 		
@@ -94,8 +100,11 @@ def update_estimated_costs(boq_item: str, new_values: Any, old_values: Any) -> d
 	if not changes:
 		return {"success": True, "message": _("No changes detected")}
 	
-	# Save the document
+	# A cost-only edit must not be blocked by a pre-existing billing variance.
+	# No quantity, rate or current-progress value is being changed here, so the
+	# over-billing validation is unrelated to this save.
 	doc.flags.ignore_permissions = True
+	doc.flags.skip_current_qty_validation = True
 	doc.save()
 	
 	# Create audit log entry using Version doctype
