@@ -16,6 +16,10 @@ function flt(value, precision = 5) {
 }
 
 const BOQ_QTY_PRECISION = 8;
+// A total estimate can be spread across a large quantity.  Two decimal places
+// can therefore display (and invite users to re-save) a valid unit cost as 0.
+const ESTIMATE_UNIT_COST_PRECISION = 6;
+const ESTIMATE_UNIT_COST_STEP = '0.000001';
 const BOQ_QTY_STEP = '0.00000001';
 
 /**
@@ -435,10 +439,10 @@ function render_item_row(item, frm, srNo) {
 					estCellsHtml += `
 						<!-- ${c.label} (Unit) -->
 						<td class="col-num">
-							<input type="number" class="est-cost-input est-${c.name}-unit-input" value="${unitVal.toFixed(2)}"
+							<input type="number" class="est-cost-input est-${c.name}-unit-input" value="${unitVal.toFixed(ESTIMATE_UNIT_COST_PRECISION)}"
 								data-item="${item.name}" data-field="estimated_${c.name}_cost_per_unit"
-								data-cost="${totalVal.toFixed(2)}" data-unit-cost="${unitVal.toFixed(2)}"
-								step="0.01" min="0" aria-label="Estimated ${c.label} Unit Rate" ${disabledAttr} ${unitReadonly} ${tabindexAttr}>
+								data-cost="${totalVal.toFixed(2)}" data-unit-cost="${unitVal.toFixed(ESTIMATE_UNIT_COST_PRECISION)}"
+								step="${ESTIMATE_UNIT_COST_STEP}" min="0" aria-label="Estimated ${c.label} Unit Rate" ${disabledAttr} ${unitReadonly} ${tabindexAttr}>
 						</td>
 						<!-- ${c.label} (Total) -->
 						<td class="col-num">
@@ -1001,8 +1005,8 @@ function attach_table_events(container, frm) {
 						const $tInput = row.find('.est-' + category + '-total-input');
 
 						$uInput.data('cost', totalVal).attr('data-cost', totalVal.toFixed(2))
-						       .data('unit-cost', unitVal).attr('data-unit-cost', unitVal.toFixed(2))
-						       .val(unitVal.toFixed(2));
+						       .data('unit-cost', unitVal).attr('data-unit-cost', unitVal.toFixed(ESTIMATE_UNIT_COST_PRECISION))
+						       .val(unitVal.toFixed(ESTIMATE_UNIT_COST_PRECISION));
 
 						$tInput.data('cost', totalVal).attr('data-cost', totalVal.toFixed(2))
 						       .data('unit-cost', unitVal).attr('data-unit-cost', unitVal.toFixed(2))

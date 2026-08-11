@@ -1998,6 +1998,11 @@ def update_boq_item_estimated_cost(boq_item: str, field: str, value: float) -> d
 		+ flt(item.estimated_other_cost)
 	)
 	item.total_estimated_cost = total_est
+	# Editing an estimate must remain possible when the BOQ item has an
+	# outstanding billing variance.  This endpoint changes only estimate fields;
+	# re-validating current_qty here incorrectly rejects the cost edit with an
+	# over-billing error.
+	item.flags.skip_current_qty_validation = True
 	item.save()
 
 	contract_val = flt(item.total_amount) or (flt(item.total_qty) * flt(item.rate))
@@ -2026,4 +2031,3 @@ def update_boq_item_estimated_cost(boq_item: str, field: str, value: float) -> d
 		"estimated_gp": est_gp,
 		"estimated_gp_percent": est_gp_pct,
 	}
-

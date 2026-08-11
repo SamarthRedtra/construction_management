@@ -253,18 +253,21 @@
    "fieldname": "estimated_material_cost_per_unit",
    "fieldtype": "Currency",
    "label": "Estimated Material Cost per Unit",
+   "precision": "6",
    "read_only": 1
   },
   {
    "fieldname": "estimated_labour_cost_per_unit",
    "fieldtype": "Currency",
    "label": "Estimated Labour Cost per Unit",
+   "precision": "6",
    "read_only": 1
   },
   {
    "fieldname": "estimated_subcontract_cost_per_unit",
    "fieldtype": "Currency",
    "label": "Estimated Subcontract Cost per Unit",
+   "precision": "6",
    "read_only": 1
   },
   {
@@ -296,12 +299,14 @@
    "fieldname": "estimated_asset_cost_per_unit",
    "fieldtype": "Currency",
    "label": "Estimated Asset Cost per Unit",
+   "precision": "6",
    "read_only": 1
   },
   {
    "fieldname": "estimated_other_cost_per_unit",
    "fieldtype": "Currency",
    "label": "Estimated Other Cost per Unit",
+   "precision": "6",
    "read_only": 1
   },
   {
