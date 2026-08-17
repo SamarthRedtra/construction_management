@@ -99,15 +99,20 @@ construction_management.project_commission.get_pay_cell_html = function (row, ca
 		return `<span class="text-muted">${__('No Permission')}</span>`;
 	}
 
+	const outstanding_amount = flt(row.outstanding_amount);
+	const paid_amount = flt(row.paid_amount);
+	const partial_label = paid_amount > 0 && outstanding_amount > 0
+		? `<small class="text-muted">${__('Partial')}</small><br>`
+		: '';
+
 	const attrs = [
 		`data-project="${frappe.utils.escape_html(row.project || '')}"`,
 		`data-employee="${frappe.utils.escape_html(row.employee || '')}"`,
 		`data-company="${frappe.utils.escape_html(row.company || '')}"`,
 		`data-invoice="${frappe.utils.escape_html(row.invoice_no || '')}"`,
-		`data-amount="${flt(row.commission_amount)}"`,
 	].join(' ');
 
-	return `<button type="button" class="commission-pay-btn" ${attrs}>${__('Pay')}</button>`;
+	return `${partial_label}<button type="button" class="commission-pay-btn" ${attrs}>${__('Pay')}</button>`;
 };
 
 construction_management.project_commission.bind_pay_actions = function ($container) {
@@ -128,7 +133,6 @@ construction_management.project_commission.bind_pay_actions = function ($contain
 				employee: $btn.attr('data-employee'),
 				company: $btn.attr('data-company'),
 				invoice_no: $btn.attr('data-invoice'),
-				commission_amount: $btn.attr('data-amount'),
 			},
 			freeze: true,
 			freeze_message: __('Preparing Payment Entry...'),
@@ -225,7 +229,8 @@ construction_management.project_commission.build_dashboard_html = function (data
 				? `${frappe.format(row.commission_pct, { fieldtype: 'Float', precision: 2 })}%`
 				: '';
 			const cheque_amt_disp = row.cheque_amount > 0 ? fmt(row.cheque_amount, 'Currency') : '';
-			const comm_recv_disp = row.commission_received > 0 ? fmt(row.commission_received, 'Currency') : '';
+			const comm_recv_disp = row.paid_amount > 0 ? fmt(row.paid_amount, 'Currency') : '';
+			const outstanding_disp = row.outstanding_amount > 0 ? fmt(row.outstanding_amount, 'Currency') : '';
 			const voucher_link = construction_management.project_commission.get_voucher_link(row);
 			const payout_details = construction_management.project_commission.get_commission_payout_details(row);
 			const remarks_cell = payout_details || (row.remarks
@@ -255,6 +260,7 @@ construction_management.project_commission.build_dashboard_html = function (data
 					<td class="text-center">${pct_disp}</td>
 					<td class="text-right">${row.commission_amount > 0 ? fmt(row.commission_amount, 'Currency') : ''}</td>
 					<td class="text-right">${comm_recv_disp}</td>
+					<td class="text-right">${outstanding_disp}</td>
 					<td>${frappe.utils.escape_html(row.commission_cheque_no || '')}</td>
 					<td>${remarks_cell}</td>
 					<td class="text-center commission-pay-cell">${pay_cell}</td>
@@ -268,7 +274,7 @@ construction_management.project_commission.build_dashboard_html = function (data
 		} else if (data.meta && data.meta.commission_account_missing) {
 			empty_msg = __('Configure Sales Person Commission Account in BOQ Settings.');
 		}
-		ledger_html = `<tr><td colspan="13" class="text-center text-muted">${empty_msg}</td></tr>`;
+		ledger_html = `<tr><td colspan="14" class="text-center text-muted">${empty_msg}</td></tr>`;
 	}
 
 	const summary = data.summary || {};
@@ -322,7 +328,8 @@ construction_management.project_commission.build_dashboard_html = function (data
 							</th>
 							<th style="width:90px;" class="text-center">${__('Commission %')}</th>
 							<th style="width:130px;" class="text-right">${__('Commission Amount')}</th>
-							<th style="width:130px;" class="text-right">${__('Commission Received')}</th>
+							<th style="width:130px;" class="text-right">${__('Paid Amount')}</th>
+							<th style="width:130px;" class="text-right">${__('Outstanding Amount')}</th>
 							<th style="width:100px;">${__('Cheque No.')}</th>
 							<th style="width:180px;">${__('Remarks')}</th>
 							<th style="width:90px;" class="text-center">${__('Action')}</th>

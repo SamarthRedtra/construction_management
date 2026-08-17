@@ -35,14 +35,14 @@ def get_project_commission_data(project: str) -> dict:
 def get_commission_pay_defaults(
 	project: str,
 	employee: str,
-	commission_amount: float | str,
 	invoice_no: str,
 	company: str | None = None,
+	commission_amount: float | str | None = None,
 ) -> dict:
 	return get_commission_payment_entry_defaults(
 		project=project,
 		employee=employee,
-		commission_amount=commission_amount,
 		invoice_no=invoice_no,
 		company=company,
+		commission_amount=commission_amount,
 	)

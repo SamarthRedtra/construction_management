@@ -12,6 +12,8 @@ from construction_management.api.project_commission_data import (
 	_get_commission_payout_resolution,
 	build_commission_ledger,
 	build_summary,
+	get_commission_payment_entry_defaults,
+	get_commission_payment_status,
 )
 from construction_management.construction_management.page.project_commission.project_commission import (
 	get_project_commission_data,
@@ -168,3 +170,118 @@ class TestProjectCommission(FrappeTestCase):
 		)
 
 		self.assertEqual(resolution["invoice_by_payment"], {"PE-COMM-001": "SI-COMM-001"})
+
+	def test_commission_payment_status_partial_payout(self):
+		status = get_commission_payment_status(
+			"SI-COMM-001",
+			"PROJ-001",
+			"Test Company",
+			7208.50,
+			payouts=[{"name": "PE-001", "paid_amount": 3000}],
+		)
+		self.assertEqual(status["paid_amount"], 3000)
+		self.assertEqual(status["outstanding_amount"], 4208.50)
+		self.assertFalse(status["commission_paid"])
+
+	def test_commission_payment_status_full_payout(self):
+		status = get_commission_payment_status(
+			"SI-COMM-001",
+			"PROJ-001",
+			"Test Company",
+			7208.50,
+			payouts=[{"name": "PE-001", "paid_amount": 7208.50}],
+		)
+		self.assertEqual(status["paid_amount"], 7208.50)
+		self.assertEqual(status["outstanding_amount"], 0)
+		self.assertTrue(status["commission_paid"])
+
+	def test_commission_payment_status_multiple_partial_payouts(self):
+		status = get_commission_payment_status(
+			"SI-COMM-001",
+			"PROJ-001",
+			"Test Company",
+			100,
+			payouts=[
+				{"name": "PE-001", "paid_amount": 30},
+				{"name": "PE-002", "paid_amount": 20},
+			],
+		)
+		self.assertEqual(status["paid_amount"], 50)
+		self.assertEqual(status["outstanding_amount"], 50)
+		self.assertFalse(status["commission_paid"])
+
+	@patch("construction_management.api.project_commission_data.get_commission_payment_status")
+	@patch("construction_management.api.project_commission_data._get_invoice_commission_amount", return_value=7208.50)
+	@patch("construction_management.api.sales_commission_gl.require_commission_posting_accounts")
+	@patch("erpnext.accounts.doctype.journal_entry.journal_entry.get_default_bank_cash_account")
+	def test_pay_defaults_use_outstanding_amount(
+		self,
+		mock_bank,
+		mock_require_accounts,
+		mock_commission_amount,
+		mock_payment_status,
+	):
+		mock_payment_status.return_value = {
+			"paid_amount": 3000,
+			"outstanding_amount": 4208.50,
+			"commission_paid": False,
+			"commission_payouts": [],
+		}
+		mock_bank.return_value = {"account": "Bank - TC", "account_currency": "AED"}
+		mock_require_accounts.return_value = {"payable_account": "Commission Payable - TC"}
+
+		defaults = get_commission_payment_entry_defaults(
+			project="PROJ-001",
+			employee="EMP-001",
+			invoice_no="SI-COMM-001",
+			company="Test Company",
+		)
+
+		self.assertEqual(defaults["paid_amount"], 4208.50)
+		self.assertEqual(defaults["received_amount"], 4208.50)
+		self.assertEqual(defaults["reference_no"], "SI-COMM-001")
+		self.assertEqual(defaults["custom_is_commission_payout"], 1)
+
+	@patch("construction_management.api.project_commission_data._build_journal_commission_rows")
+	@patch("construction_management.api.project_commission_data._get_commission_payout_resolution")
+	@patch("construction_management.api.project_commission_data._get_submitted_commission_payouts_by_invoice")
+	@patch("construction_management.api.project_commission_data._redtra_available", return_value=True)
+	def test_si_row_partial_payment_shows_pay_button(
+		self,
+		_mock_redtra,
+		mock_payouts_by_invoice,
+		mock_resolution,
+		mock_jv,
+	):
+		from construction_management.api.project_commission_data import _build_sales_invoice_commission_rows
+
+		mock_jv.return_value = []
+		mock_resolution.return_value = {"rows": [], "invoice_by_payment": {"PE-001": "SI-COMM-001"}}
+		mock_payouts_by_invoice.return_value = {
+			"SI-COMM-001": [{"name": "PE-001", "paid_amount": 3000, "reference_no": "CHQ-1"}],
+		}
+
+		with patch(
+			"redtra_customisation.redtra_customisation.report.sales_person_commission_payment_summary.sales_person_commission_payment_summary.get_entries"
+		) as mock_get_entries:
+			mock_get_entries.return_value = [
+				{
+					"source_name": "SI-COMM-001",
+					"posting_date": "2026-01-10",
+					"amount": 720850,
+					"commission_rate": 1,
+					"commission_amount": 7208.50,
+					"sales_person": "SP-1",
+					"employee": "EMP-001",
+					"employee_name": "Test Employee",
+					"company": "Test Company",
+				}
+			]
+			rows = _build_sales_invoice_commission_rows("PROJ-001", "Test Company")
+
+		self.assertEqual(len(rows), 1)
+		row = rows[0]
+		self.assertEqual(row["paid_amount"], 3000)
+		self.assertEqual(row["outstanding_amount"], 4208.50)
+		self.assertFalse(row["commission_paid"])
+		self.assertTrue(row["show_pay"])

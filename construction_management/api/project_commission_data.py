@@ -15,6 +15,7 @@ ROW_TYPE_JV = "Journal Entry"
 ROW_TYPE_PE = "Payment Entry"
 
 COMMISSION_PAYOUT_REMARK_PREFIX = "Commission payout for Sales Invoice "
+COMMISSION_PAYMENT_TOLERANCE = 0.005
 
 
 def build_services(project: str) -> tuple[list[dict], float, str]:
@@ -203,7 +204,6 @@ def _build_sales_invoice_commission_rows(project: str, company: str) -> list[dic
 	rows = []
 	pay_shown_for = set()
 	payout_resolution = _get_commission_payout_resolution(project, company, entries)
-	paid_out_invoices = set(payout_resolution["invoice_by_payment"].values())
 	payouts_by_invoice = _get_submitted_commission_payouts_by_invoice(payout_resolution)
 	for entry in entries:
 		invoice_name = entry.get("source_name")
@@ -211,9 +211,13 @@ def _build_sales_invoice_commission_rows(project: str, company: str) -> list[dic
 		commission_amount = flt(entry.get("commission_amount"))
 		employee = entry.get("employee") or ""
 		pay_key = (invoice_name, entry.get("sales_person") or "")
-		already_paid = invoice_name in paid_out_invoices
 		payouts = payouts_by_invoice.get(invoice_name, [])
-		payout_amount = sum(flt(payout.get("paid_amount")) for payout in payouts)
+		payment_status = get_commission_payment_status(
+			invoice_name, project, company, commission_amount, payouts=payouts
+		)
+		paid_amount = payment_status["paid_amount"]
+		outstanding_amount = payment_status["outstanding_amount"]
+		commission_paid = payment_status["commission_paid"]
 		payout_cheques = ", ".join(
 			str(payout.get("reference_no") or "") for payout in payouts if payout.get("reference_no")
 		)
@@ -222,9 +226,8 @@ def _build_sales_invoice_commission_rows(project: str, company: str) -> list[dic
 		# Payment Entry references (including small round-off adjustments).
 		show_pay = (
 			pay_key not in pay_shown_for
-			and commission_amount > 0
+			and outstanding_amount > COMMISSION_PAYMENT_TOLERANCE
 			and bool(employee)
-			and not already_paid
 		)
 		if show_pay:
 			pay_shown_for.add(pay_key)
@@ -242,7 +245,9 @@ def _build_sales_invoice_commission_rows(project: str, company: str) -> list[dic
 			"cheque_amount": flt(payment.get("allocated_amount")),
 			"commission_pct": flt(entry.get("commission_rate")),
 			"commission_amount": commission_amount,
-			"commission_received": payout_amount,
+			"paid_amount": paid_amount,
+			"outstanding_amount": outstanding_amount,
+			"commission_received": paid_amount,
 			"commission_cheque_no": payout_cheques,
 			"commission_payouts": payouts,
 			"remarks": "",
@@ -252,7 +257,7 @@ def _build_sales_invoice_commission_rows(project: str, company: str) -> list[dic
 			"company": entry.get("company") or company,
 			"project": project,
 			"show_pay": show_pay,
-			"commission_paid": already_paid,
+			"commission_paid": commission_paid,
 			"source_name": invoice_name,
 		})
 
@@ -357,6 +362,32 @@ def _extract_invoice_from_commission_pe(row) -> str | None:
 		if invoice and frappe.db.exists("Sales Invoice", invoice):
 			return invoice
 	return None
+
+
+def get_commission_payment_status(
+	invoice_no: str,
+	project: str,
+	company: str | None,
+	commission_amount: float,
+	payouts: list[dict] | None = None,
+	commission_entries: list[dict] | None = None,
+) -> dict:
+	"""Return paid/outstanding commission amounts for a Sales Invoice row."""
+	if payouts is None:
+		resolution = _get_commission_payout_resolution(project, company, commission_entries)
+		payouts_by_invoice = _get_submitted_commission_payouts_by_invoice(resolution)
+		payouts = payouts_by_invoice.get(invoice_no, [])
+
+	paid_amount = sum(flt(payout.get("paid_amount")) for payout in payouts)
+	outstanding_amount = max(0.0, flt(commission_amount) - paid_amount)
+	commission_paid = outstanding_amount <= COMMISSION_PAYMENT_TOLERANCE
+
+	return {
+		"paid_amount": paid_amount,
+		"outstanding_amount": outstanding_amount,
+		"commission_paid": commission_paid,
+		"commission_payouts": payouts,
+	}
 
 
 def _get_paid_out_commission_invoices(
@@ -502,12 +533,41 @@ def _build_commission_payout_payment_rows(
 	return result
 
 
+def _get_invoice_commission_amount(invoice_no: str) -> float:
+	"""Return accrued commission amount for a submitted Sales Invoice."""
+	if not invoice_no or not frappe.db.exists("Sales Invoice", invoice_no):
+		frappe.throw(_("Sales Invoice {0} not found").format(invoice_no))
+
+	invoice = frappe.db.get_value(
+		"Sales Invoice",
+		invoice_no,
+		["total_commission", "docstatus"],
+		as_dict=True,
+	)
+	if not invoice or invoice.docstatus != 1:
+		frappe.throw(_("Sales Invoice {0} must be submitted").format(invoice_no))
+
+	commission_amount = flt(invoice.total_commission)
+	if commission_amount <= 0:
+		team_incentive = frappe.db.sql(
+			"""
+			SELECT COALESCE(SUM(incentives), 0) AS total
+			FROM `tabSales Team`
+			WHERE parent = %s AND parenttype = 'Sales Invoice'
+			""",
+			invoice_no,
+		)[0][0]
+		commission_amount = flt(team_incentive)
+
+	return commission_amount
+
+
 def get_commission_payment_entry_defaults(
 	project: str,
 	employee: str,
-	commission_amount: float,
 	invoice_no: str,
 	company: str | None = None,
+	commission_amount: float | None = None,
 ) -> dict:
 	"""Prefill values for a commission payout Payment Entry."""
 	from erpnext.accounts.doctype.journal_entry.journal_entry import get_default_bank_cash_account
@@ -518,14 +578,23 @@ def get_commission_payment_entry_defaults(
 		frappe.throw(_("Project is required"))
 	if not employee:
 		frappe.throw(_("Employee is required"))
-
-	amount = flt(commission_amount)
-	if amount <= 0:
-		frappe.throw(_("Commission amount must be greater than zero"))
+	if not invoice_no:
+		frappe.throw(_("Sales Invoice is required"))
 
 	company = company or frappe.db.get_value("Project", project, "company")
 	if not company:
 		frappe.throw(_("Company not found for project {0}").format(project))
+
+	accrued_amount = _get_invoice_commission_amount(invoice_no)
+	if commission_amount is not None and flt(commission_amount) > 0:
+		accrued_amount = flt(commission_amount)
+
+	payment_status = get_commission_payment_status(
+		invoice_no, project, company, accrued_amount
+	)
+	amount = payment_status["outstanding_amount"]
+	if amount <= COMMISSION_PAYMENT_TOLERANCE:
+		frappe.throw(_("No outstanding commission amount for Sales Invoice {0}").format(invoice_no))
 
 	cost_center = frappe.db.get_value("Project", project, "cost_center")
 	if not cost_center:
