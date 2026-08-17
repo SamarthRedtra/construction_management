@@ -364,8 +364,17 @@ def _pe_has_commission_payout_flag() -> bool:
 	return frappe.db.has_column("Payment Entry", "custom_is_commission_payout")
 
 
+def _pe_has_commission_invoice_link_field() -> bool:
+	return frappe.db.has_column("Payment Entry", "custom_commission_sales_invoice")
+
+
 def _extract_invoice_from_commission_pe(row) -> str | None:
 	"""Resolve Sales Invoice name from a commission payout Payment Entry row."""
+	if _pe_has_commission_invoice_link_field():
+		linked = (row.get("custom_commission_sales_invoice") or "").strip()
+		if linked and frappe.db.exists("Sales Invoice", linked):
+			return linked
+
 	ref = (row.get("reference_no") or "").strip()
 	if ref and frappe.db.exists("Sales Invoice", ref):
 		return ref
@@ -430,17 +439,87 @@ def _get_submitted_commission_payouts_by_invoice(resolution: dict) -> dict[str, 
 	return payouts_by_invoice
 
 
+def _build_employee_commission_candidates(
+	commission_entries: list[dict] | None,
+	paid_by_invoice: dict[str, float],
+) -> dict[str, list[dict]]:
+	employee_candidates: dict[str, list[dict]] = {}
+	for entry in commission_entries or []:
+		invoice = entry.get("source_name") or entry.get("invoice_no")
+		employee = entry.get("employee") or ""
+		commission_amount = flt(entry.get("commission_amount"))
+		if not invoice or not employee or commission_amount <= 0:
+			continue
+		already_paid = paid_by_invoice.get(invoice, 0.0)
+		outstanding = max(0.0, commission_amount - already_paid)
+		employee_candidates.setdefault(employee, []).append({
+			"invoice": invoice,
+			"commission_amount": commission_amount,
+			"outstanding": outstanding,
+			"posting_date": entry.get("posting_date") or "",
+		})
+
+	for candidates in employee_candidates.values():
+		candidates.sort(key=lambda row: (row.get("posting_date") or "", row.get("invoice") or ""))
+
+	return employee_candidates
+
+
+def _link_commission_payouts_by_amount_match(
+	rows: list,
+	commission_entries: list[dict] | None,
+	invoice_by_payment: dict,
+	company: str | None,
+) -> None:
+	"""Link payout PEs when paid_amount uniquely matches invoice outstanding or commission."""
+	paid_by_invoice: dict[str, float] = {}
+	for pe_name, invoice in invoice_by_payment.items():
+		pe_row = next((row for row in rows if row.name == pe_name), None)
+		if pe_row:
+			paid_by_invoice[invoice] = paid_by_invoice.get(invoice, 0.0) + flt(pe_row.paid_amount)
+
+	employee_candidates = _build_employee_commission_candidates(commission_entries, paid_by_invoice)
+
+	for row in rows:
+		if row.name in invoice_by_payment or row.docstatus != 1:
+			continue
+		if not _is_commission_payout_pe(row, company):
+			continue
+
+		paid_amount = round(flt(row.paid_amount), 2)
+		if paid_amount <= 0:
+			continue
+
+		employee = row.get("employee") or ""
+		matches = []
+		for candidate in employee_candidates.get(employee, []):
+			if candidate["outstanding"] <= COMMISSION_PAYMENT_TOLERANCE:
+				continue
+			outstanding = round(candidate["outstanding"], 2)
+			commission_amount = round(candidate["commission_amount"], 2)
+			if paid_amount == outstanding or paid_amount == commission_amount:
+				matches.append(candidate["invoice"])
+
+		unique_matches = list(dict.fromkeys(matches))
+		if len(unique_matches) != 1:
+			continue
+
+		invoice = unique_matches[0]
+		invoice_by_payment[row.name] = invoice
+		paid_by_invoice[invoice] = paid_by_invoice.get(invoice, 0.0) + flt(row.paid_amount)
+		for candidate in employee_candidates.get(employee, []):
+			if candidate["invoice"] == invoice:
+				candidate["outstanding"] = max(0.0, candidate["outstanding"] - flt(row.paid_amount))
+				break
+
+
 def _link_commission_payouts_by_employee_outstanding(
 	rows: list,
 	commission_entries: list[dict] | None,
 	invoice_by_payment: dict,
 	company: str | None,
 ) -> None:
-	"""Link commission payout PEs to invoices via employee + outstanding balance (FIFO).
-
-	Supports partial payments where reference_no is a cheque number rather than the
-	Sales Invoice name, and where paid_amount does not equal commission_amount.
-	"""
+	"""Link payout PEs only when the employee has exactly one outstanding commission invoice."""
 	paid_by_invoice: dict[str, float] = {}
 	for pe_name, invoice in invoice_by_payment.items():
 		pe_row = next((row for row in rows if row.name == pe_name), None)
@@ -464,9 +543,6 @@ def _link_commission_payouts_by_employee_outstanding(
 			"posting_date": entry.get("posting_date") or "",
 		})
 
-	for outstanding_rows in employee_outstanding.values():
-		outstanding_rows.sort(key=lambda row: (row.get("posting_date") or "", row.get("invoice") or ""))
-
 	for row in rows:
 		if row.name in invoice_by_payment or row.docstatus != 1:
 			continue
@@ -474,27 +550,17 @@ def _link_commission_payouts_by_employee_outstanding(
 			continue
 
 		employee = row.get("employee") or ""
-		candidates = employee_outstanding.get(employee, [])
-		if not candidates:
+		candidates = [
+			candidate for candidate in employee_outstanding.get(employee, [])
+			if candidate["outstanding"] > COMMISSION_PAYMENT_TOLERANCE
+		]
+		if len(candidates) != 1:
 			continue
 
-		if len(candidates) == 1:
-			invoice = candidates[0]["invoice"]
-			invoice_by_payment[row.name] = invoice
-			paid_by_invoice[invoice] = paid_by_invoice.get(invoice, 0.0) + flt(row.paid_amount)
-			candidates[0]["outstanding"] = max(
-				0.0, candidates[0]["outstanding"] - flt(row.paid_amount)
-			)
-			continue
-
-		for candidate in candidates:
-			if candidate["outstanding"] <= COMMISSION_PAYMENT_TOLERANCE:
-				continue
-			invoice = candidate["invoice"]
-			invoice_by_payment[row.name] = invoice
-			paid_by_invoice[invoice] = paid_by_invoice.get(invoice, 0.0) + flt(row.paid_amount)
-			candidate["outstanding"] = max(0.0, candidate["outstanding"] - flt(row.paid_amount))
-			break
+		invoice = candidates[0]["invoice"]
+		invoice_by_payment[row.name] = invoice
+		paid_by_invoice[invoice] = paid_by_invoice.get(invoice, 0.0) + flt(row.paid_amount)
+		candidates[0]["outstanding"] = max(0.0, candidates[0]["outstanding"] - flt(row.paid_amount))
 
 
 def _get_commission_payout_resolution(
@@ -512,6 +578,8 @@ def _get_commission_payout_resolution(
 
 	has_flag = _pe_has_commission_payout_flag()
 	flag_column = ", IFNULL(custom_is_commission_payout, 0) AS is_commission_payout" if has_flag else ", 0 AS is_commission_payout"
+	has_invoice_link = _pe_has_commission_invoice_link_field()
+	invoice_link_column = ", custom_commission_sales_invoice" if has_invoice_link else ", '' AS custom_commission_sales_invoice"
 	company_clause = " AND company = %s" if company else ""
 	params = [project]
 	if company:
@@ -519,7 +587,7 @@ def _get_commission_payout_resolution(
 	rows = frappe.db.sql(
 		f"""
 		SELECT name, docstatus, posting_date, creation, party AS employee, paid_amount,
-			reference_no, remarks, company, paid_to{flag_column}
+			reference_no, remarks, company, paid_to{flag_column}{invoice_link_column}
 		FROM `tabPayment Entry`
 		WHERE project = %s{company_clause}
 		  AND docstatus < 2
@@ -565,6 +633,9 @@ def _get_commission_payout_resolution(
 			invoice_by_payment[row.name] = matches[0]
 			used_invoices.add(matches[0])
 
+	_link_commission_payouts_by_amount_match(
+		rows, commission_entries, invoice_by_payment, company
+	)
 	_link_commission_payouts_by_employee_outstanding(
 		rows, commission_entries, invoice_by_payment, company
 	)
@@ -705,6 +776,7 @@ def get_commission_payment_entry_defaults(
 		"custom_remarks": 1,
 		"reference_no": invoice_no,
 		"custom_is_commission_payout": 1,
+		"custom_commission_sales_invoice": invoice_no,
 		"paid_to": payable_account,
 	}
 	if payable_currency:

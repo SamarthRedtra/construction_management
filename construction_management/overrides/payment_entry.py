@@ -14,6 +14,11 @@ def before_validate(doc, method=None):
 	if doc.payment_type != "Pay" or doc.party_type != "Employee" or not doc.company:
 		return
 
+	from construction_management.api.project_commission_data import (
+		COMMISSION_PAYOUT_REMARK_PREFIX,
+		_commission_payout_remark,
+		_extract_invoice_from_commission_pe,
+	)
 	from construction_management.api.sales_commission_gl import require_commission_posting_accounts
 
 	try:
@@ -27,18 +32,26 @@ def before_validate(doc, method=None):
 	if not cint(doc.get("custom_is_commission_payout")):
 		return
 
+	linked_invoice = (doc.get("custom_commission_sales_invoice") or "").strip()
+	if not linked_invoice:
+		linked_invoice = _extract_invoice_from_commission_pe(doc) or ""
+		if linked_invoice and frappe.db.has_column("Payment Entry", "custom_commission_sales_invoice"):
+			doc.custom_commission_sales_invoice = linked_invoice
+
+	if linked_invoice:
+		doc.remarks = _commission_payout_remark(linked_invoice)
+		doc.custom_remarks = 1
+	elif doc.get("reference_no") and not (doc.remarks or "").startswith(COMMISSION_PAYOUT_REMARK_PREFIX):
+		if frappe.db.exists("Sales Invoice", doc.reference_no):
+			doc.remarks = _commission_payout_remark(doc.reference_no)
+			if frappe.db.has_column("Payment Entry", "custom_commission_sales_invoice"):
+				doc.custom_commission_sales_invoice = doc.reference_no
+			doc.custom_remarks = 1
+
 	doc.paid_to = payable_account
 	doc.paid_to_account_currency = frappe.db.get_value(
 		"Account", payable_account, "account_currency"
 	)
-	doc.custom_remarks = 1
-	if doc.get("reference_no") and not (doc.remarks or "").startswith(
-		"Commission payout for Sales Invoice "
-	):
-		from construction_management.api.project_commission_data import _commission_payout_remark
-
-		if frappe.db.exists("Sales Invoice", doc.reference_no):
-			doc.remarks = _commission_payout_remark(doc.reference_no)
 
 
 def on_submit(doc, method):

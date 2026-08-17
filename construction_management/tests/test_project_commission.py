@@ -315,6 +315,7 @@ class TestProjectCommission(FrappeTestCase):
 				"is_commission_payout": 0,
 				"paid_to": "Sales Commission Payable - MRG",
 				"company": "M R G INSULATION WORKS L.L.C",
+				"custom_commission_sales_invoice": "",
 			})
 		]
 		entries = [
@@ -331,14 +332,82 @@ class TestProjectCommission(FrappeTestCase):
 			return_value="Sales Commission Payable - MRG",
 		):
 			with patch(
-				"construction_management.api.project_commission_data.frappe.db.sql",
-				return_value=rows,
+				"construction_management.api.project_commission_data._pe_has_commission_invoice_link_field",
+				return_value=True,
 			):
-				resolution = _get_commission_payout_resolution(
-					"1145", "M R G INSULATION WORKS L.L.C", entries
-				)
+				with patch(
+					"construction_management.api.project_commission_data.frappe.db.sql",
+					return_value=rows,
+				):
+					resolution = _get_commission_payout_resolution(
+						"1145", "M R G INSULATION WORKS L.L.C", entries
+					)
 
 		self.assertEqual(
 			resolution["invoice_by_payment"],
 			{"MRG-PE-00467": "ACC-SINV-2026-00229"},
+		)
+
+	def test_commission_payout_links_by_custom_invoice_field(self):
+		from construction_management.api.project_commission_data import _extract_invoice_from_commission_pe
+
+		row = frappe._dict({
+			"custom_commission_sales_invoice": "ACC-SINV-2026-00247-1",
+			"reference_no": "107919",
+			"remarks": "Commission payout for Sales Invoice ACC-SINV-2026-00247-1",
+		})
+		with patch(
+			"construction_management.api.project_commission_data._pe_has_commission_invoice_link_field",
+			return_value=True,
+		):
+			with patch("construction_management.api.project_commission_data.frappe.db.exists", return_value=True):
+				self.assertEqual(
+					_extract_invoice_from_commission_pe(row),
+					"ACC-SINV-2026-00247-1",
+				)
+
+	def test_commission_payout_amount_match_prefers_correct_invoice(self):
+		from construction_management.api.project_commission_data import (
+			_link_commission_payouts_by_amount_match,
+		)
+
+		rows = [
+			frappe._dict({
+				"name": "MRG-PE-00570",
+				"docstatus": 1,
+				"employee": "SK0016",
+				"paid_amount": 18704.762,
+				"reference_no": "107919",
+				"remarks": "",
+				"paid_to": "Sales Commission Payable - MRG",
+				"company": "M R G INSULATION WORKS L.L.C",
+			})
+		]
+		entries = [
+			{
+				"source_name": "ACC-SINV-2026-00113",
+				"employee": "SK0016",
+				"commission_amount": 340.603,
+				"posting_date": "2026-01-01",
+			},
+			{
+				"source_name": "ACC-SINV-2026-00247-1",
+				"employee": "SK0016",
+				"commission_amount": 18704.762,
+				"posting_date": "2026-07-15",
+			},
+		]
+		invoice_by_payment = {}
+
+		with patch(
+			"construction_management.api.project_commission_data._get_commission_payable_account",
+			return_value="Sales Commission Payable - MRG",
+		):
+			_link_commission_payouts_by_amount_match(
+				rows, entries, invoice_by_payment, "M R G INSULATION WORKS L.L.C"
+			)
+
+		self.assertEqual(
+			invoice_by_payment,
+			{"MRG-PE-00570": "ACC-SINV-2026-00247-1"},
 		)
