@@ -139,7 +139,9 @@ construction_management.project_commission.bind_pay_actions = function ($contain
 			callback(r) {
 				$btn.prop('disabled', false);
 				if (r.message) {
-					frappe.new_doc('Payment Entry', r.message);
+					const defaults = r.message || {};
+					defaults.custom_is_commission_payout = 1;
+					frappe.new_doc('Payment Entry', defaults);
 				}
 			},
 			error() {

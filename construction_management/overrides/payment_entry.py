@@ -14,11 +14,6 @@ def before_validate(doc, method=None):
 	if doc.payment_type != "Pay" or doc.party_type != "Employee" or not doc.company:
 		return
 
-	from construction_management.api.project_commission_data import (
-		COMMISSION_PAYOUT_REMARK_PREFIX,
-		_commission_payout_remark,
-		_extract_invoice_from_commission_pe,
-	)
 	from construction_management.api.sales_commission_gl import require_commission_posting_accounts
 
 	try:
@@ -26,38 +21,26 @@ def before_validate(doc, method=None):
 	except Exception:
 		return
 
-	if doc.paid_to == payable_account:
-		doc.custom_is_commission_payout = 1
-
-	if not cint(doc.get("custom_is_commission_payout")):
+	if not _is_commission_payout_entry(doc):
 		return
 
-	linked_invoice = (doc.get("custom_commission_sales_invoice") or "").strip()
-	if not linked_invoice:
-		linked_invoice = _extract_invoice_from_commission_pe(doc) or ""
-		if linked_invoice and frappe.db.has_column("Payment Entry", "custom_commission_sales_invoice"):
-			doc.custom_commission_sales_invoice = linked_invoice
+	doc.custom_is_commission_payout = 1
+	_sync_commission_payout_link(doc)
 
-	if linked_invoice:
-		doc.remarks = _commission_payout_remark(linked_invoice)
-		doc.custom_remarks = 1
-	elif doc.get("reference_no") and not (doc.remarks or "").startswith(COMMISSION_PAYOUT_REMARK_PREFIX):
-		if frappe.db.exists("Sales Invoice", doc.reference_no):
-			doc.remarks = _commission_payout_remark(doc.reference_no)
-			if frappe.db.has_column("Payment Entry", "custom_commission_sales_invoice"):
-				doc.custom_commission_sales_invoice = doc.reference_no
-			doc.custom_remarks = 1
-
-	doc.paid_to = payable_account
-	doc.paid_to_account_currency = frappe.db.get_value(
-		"Account", payable_account, "account_currency"
-	)
+	if payable_account:
+		doc.paid_to = payable_account
+		doc.paid_to_account_currency = frappe.db.get_value(
+			"Account", payable_account, "account_currency"
+		)
 
 
 def validate(doc, method=None):
-	"""Commission payout must always carry a Sales Invoice link."""
-	if not cint(doc.get("custom_is_commission_payout")):
+	"""Commission payout must carry a Sales Invoice link; normal PEs are unaffected."""
+	if not _is_commission_payout_entry(doc):
 		return
+
+	_sync_commission_payout_link(doc)
+
 	if not frappe.db.has_column("Payment Entry", "custom_commission_sales_invoice"):
 		return
 	if not (doc.get("custom_commission_sales_invoice") or "").strip():
@@ -66,20 +49,51 @@ def validate(doc, method=None):
 		)
 
 
-def _stamp_commission_payout_invoice_link(doc):
-	if not cint(doc.get("custom_is_commission_payout")):
-		return
-	if not frappe.db.has_column("Payment Entry", "custom_commission_sales_invoice"):
-		return
+def _is_commission_payout_entry(doc) -> bool:
+	"""True only when this PE is explicitly a commission payout, not every employee payment."""
+	from construction_management.api.project_commission_data import COMMISSION_PAYOUT_REMARK_PREFIX
 
+	if cint(doc.get("custom_is_commission_payout")):
+		return True
+	if (doc.get("custom_commission_sales_invoice") or "").strip():
+		return True
+	if COMMISSION_PAYOUT_REMARK_PREFIX in (doc.get("remarks") or ""):
+		return True
+	return False
+
+
+def _sync_commission_payout_link(doc) -> None:
+	"""Populate commission invoice link + remarks from any available source."""
 	from construction_management.api.project_commission_data import (
 		_commission_payout_remark,
 		_extract_invoice_from_commission_pe,
 	)
 
+	if not frappe.db.has_column("Payment Entry", "custom_commission_sales_invoice"):
+		return
+
 	linked_invoice = (doc.get("custom_commission_sales_invoice") or "").strip()
 	if not linked_invoice:
 		linked_invoice = _extract_invoice_from_commission_pe(doc) or ""
+
+	if linked_invoice:
+		doc.custom_commission_sales_invoice = linked_invoice
+		doc.remarks = _commission_payout_remark(linked_invoice)
+		doc.custom_remarks = 1
+
+
+def _stamp_commission_payout_invoice_link(doc):
+	if not _is_commission_payout_entry(doc):
+		return
+	if not frappe.db.has_column("Payment Entry", "custom_commission_sales_invoice"):
+		return
+
+	from construction_management.api.project_commission_data import _commission_payout_remark
+
+	linked_invoice = (doc.get("custom_commission_sales_invoice") or "").strip()
+	if not linked_invoice:
+		_sync_commission_payout_link(doc)
+		linked_invoice = (doc.get("custom_commission_sales_invoice") or "").strip()
 
 	if linked_invoice and doc.custom_commission_sales_invoice != linked_invoice:
 		frappe.db.set_value(
@@ -115,10 +129,8 @@ def on_submit(doc, method):
 				)
 
 		elif ref.reference_doctype == "Purchase Invoice":
-			# Get the latest state of the purchase invoice
 			pi = frappe.get_doc("Purchase Invoice", ref.reference_name)
 
-			# Check if it's an advance purchase invoice and if it's now Paid
 			if pi.get("custom_is_advance") and pi.status == "Paid" and pi.docstatus == 1:
 				from construction_management.overrides.purchase_invoice import (
 					_is_subcontractor_purchase,
