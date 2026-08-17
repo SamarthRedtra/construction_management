@@ -71,6 +71,7 @@ doctype_js = {
 		"public/js/quotation.js",
 		"public/js/quotation_boq_easy_entry.js",
 	],
+	"Payment Entry": "public/js/payment_entry.js",
 	"Project Tab Access": "public/js/project_tab_access.js",
 }
 
@@ -224,8 +225,9 @@ doc_events = {
 	},
 	"Payment Entry": {
 		"before_validate": "construction_management.overrides.payment_entry.before_validate",
+		"validate": "construction_management.overrides.payment_entry.validate",
 		"on_submit": "construction_management.overrides.payment_entry.on_submit",
-		"on_cancel": "construction_management.overrides.payment_entry.on_cancel"
+		"on_cancel": "construction_management.overrides.payment_entry.on_cancel",
 	},
 	"Journal Entry": {
 		"on_submit": "construction_management.api.boq_opening_balance.sync_opening_journal_entry",

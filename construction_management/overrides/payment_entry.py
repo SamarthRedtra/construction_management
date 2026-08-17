@@ -54,8 +54,50 @@ def before_validate(doc, method=None):
 	)
 
 
+def validate(doc, method=None):
+	"""Commission payout must always carry a Sales Invoice link."""
+	if not cint(doc.get("custom_is_commission_payout")):
+		return
+	if not frappe.db.has_column("Payment Entry", "custom_commission_sales_invoice"):
+		return
+	if not (doc.get("custom_commission_sales_invoice") or "").strip():
+		frappe.throw(
+			frappe._("Commission Sales Invoice is required for commission payout Payment Entries")
+		)
+
+
+def _stamp_commission_payout_invoice_link(doc):
+	if not cint(doc.get("custom_is_commission_payout")):
+		return
+	if not frappe.db.has_column("Payment Entry", "custom_commission_sales_invoice"):
+		return
+
+	from construction_management.api.project_commission_data import (
+		_commission_payout_remark,
+		_extract_invoice_from_commission_pe,
+	)
+
+	linked_invoice = (doc.get("custom_commission_sales_invoice") or "").strip()
+	if not linked_invoice:
+		linked_invoice = _extract_invoice_from_commission_pe(doc) or ""
+
+	if linked_invoice and doc.custom_commission_sales_invoice != linked_invoice:
+		frappe.db.set_value(
+			"Payment Entry",
+			doc.name,
+			{
+				"custom_commission_sales_invoice": linked_invoice,
+				"remarks": _commission_payout_remark(linked_invoice),
+				"custom_remarks": 1,
+				"custom_is_commission_payout": 1,
+			},
+			update_modified=False,
+		)
+
+
 def on_submit(doc, method):
 	"""Handle Payment Entry submission to check for linked advance invoices"""
+	_stamp_commission_payout_invoice_link(doc)
 	for ref in doc.get("references"):
 		if ref.reference_doctype == "Sales Invoice":
 			si = frappe.get_doc("Sales Invoice", ref.reference_name)

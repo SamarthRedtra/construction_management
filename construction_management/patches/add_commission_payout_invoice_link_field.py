@@ -18,94 +18,72 @@ def execute():
 		"fieldtype": "Link",
 		"options": "Sales Invoice",
 		"read_only": 1,
-		"hidden": 1,
+		"hidden": 0,
 		"insert_after": "custom_is_commission_payout",
 		"no_copy": 1,
 	})
 
-	backfill_commission_sales_invoice_links()
+	_ensure_commission_invoice_field_visible()
+	relink_all_commission_payouts()
 	frappe.clear_cache(doctype="Payment Entry")
 	frappe.db.commit()
 
 
-def backfill_commission_sales_invoice_links():
+def _ensure_commission_invoice_field_visible():
+	"""Show the linked invoice on Payment Entry — required for commission payouts."""
+	fieldname = "Payment Entry-custom_commission_sales_invoice"
+	if frappe.db.exists("Custom Field", fieldname):
+		frappe.db.set_value(
+			"Custom Field",
+			fieldname,
+			{"hidden": 0, "read_only": 1, "label": "Commission Sales Invoice"},
+			update_modified=False,
+		)
+
+
+def relink_all_commission_payouts():
+	"""Recompute invoice links for every commission payout Payment Entry."""
 	if not frappe.db.has_column("Payment Entry", "custom_commission_sales_invoice"):
 		return
 
-	has_flag = frappe.db.has_column("Payment Entry", "custom_is_commission_payout")
-	flag_filter = " OR IFNULL(custom_is_commission_payout, 0) = 1" if has_flag else ""
-
 	rows = frappe.db.sql(
-		f"""
-		SELECT name, company, project, party AS employee, paid_amount, reference_no, remarks, paid_to
-		FROM `tabPayment Entry`
-		WHERE IFNULL(custom_commission_sales_invoice, '') = ''
-		  AND payment_type = 'Pay'
-		  AND party_type = 'Employee'
-		  AND docstatus < 2
-		  AND IFNULL(project, '') != ''
-		  AND (
-			remarks LIKE %s
-			{flag_filter}
-		  )
-		""",
-		(f"{COMMISSION_PAYOUT_REMARK_PREFIX}%",),
-		as_dict=True,
-	)
-
-	payable_rows = frappe.db.sql(
 		"""
-		SELECT pe.name, pe.company, pe.project, pe.party AS employee, pe.paid_amount,
-			pe.reference_no, pe.remarks, pe.paid_to
+		SELECT pe.name, pe.company, pe.project
 		FROM `tabPayment Entry` pe
 		INNER JOIN `tabBOQ Settings` bs ON bs.name = pe.company
-		WHERE IFNULL(pe.custom_commission_sales_invoice, '') = ''
-		  AND pe.payment_type = 'Pay'
+		WHERE pe.payment_type = 'Pay'
 		  AND pe.party_type = 'Employee'
 		  AND pe.docstatus < 2
 		  AND IFNULL(pe.project, '') != ''
 		  AND pe.paid_to = bs.sales_commission_payable_account
+		ORDER BY pe.posting_date ASC, pe.name ASC
 		""",
 		as_dict=True,
 	)
 
-	seen = {row.name for row in rows}
-	for row in payable_rows:
-		if row.name not in seen:
-			rows.append(row)
-			seen.add(row.name)
-
+	# Clear stale links first so resolution is recomputed from scratch.
 	for row in rows:
-		invoice = _extract_invoice(row)
-		if not invoice:
-			invoice = _infer_invoice_from_project_payout(row)
-		if invoice:
-			frappe.db.set_value(
-				"Payment Entry",
-				row.name,
-				{
-					"custom_commission_sales_invoice": invoice,
-					"custom_is_commission_payout": 1,
-					"remarks": f"{COMMISSION_PAYOUT_REMARK_PREFIX}{invoice}",
-					"custom_remarks": 1,
-				},
-				update_modified=False,
-			)
+		frappe.db.set_value(
+			"Payment Entry",
+			row.name,
+			"custom_commission_sales_invoice",
+			None,
+			update_modified=False,
+		)
+
+	projects = sorted({(row.project, row.company) for row in rows if row.project and row.company})
+	for project, company in projects:
+		_relink_project_commission_payouts(project, company)
 
 
-def _infer_invoice_from_project_payout(row) -> str | None:
+def _relink_project_commission_payouts(project: str, company: str) -> None:
 	try:
 		from construction_management.api.project_commission_data import _get_commission_payout_resolution
 		from redtra_customisation.redtra_customisation.report.sales_person_commission_payment_summary.sales_person_commission_payment_summary import (
 			get_entries,
 		)
 	except ImportError:
-		return None
-
-	project = row.get("project")
-	company = row.get("company")
-	if not project or not company:
-		return None
+		return
 
 	entries = get_entries({
 		"company": company,
@@ -113,7 +91,22 @@ def _infer_invoice_from_project_payout(row) -> str | None:
 		"doc_type": "Sales Invoice",
 	}) or []
 	resolution = _get_commission_payout_resolution(project, company, entries)
-	return resolution.get("invoice_by_payment", {}).get(row.name)
+	for pe_name, invoice in (resolution.get("invoice_by_payment") or {}).items():
+		frappe.db.set_value(
+			"Payment Entry",
+			pe_name,
+			{
+				"custom_commission_sales_invoice": invoice,
+				"custom_is_commission_payout": 1,
+				"remarks": f"{COMMISSION_PAYOUT_REMARK_PREFIX}{invoice}",
+				"custom_remarks": 1,
+			},
+			update_modified=False,
+		)
+
+
+def backfill_commission_sales_invoice_links():
+	relink_all_commission_payouts()
 
 
 def _extract_invoice(row) -> str | None:

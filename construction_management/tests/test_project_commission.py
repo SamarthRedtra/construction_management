@@ -239,8 +239,9 @@ class TestProjectCommission(FrappeTestCase):
 
 		self.assertEqual(defaults["paid_amount"], 4208.50)
 		self.assertEqual(defaults["received_amount"], 4208.50)
-		self.assertEqual(defaults["reference_no"], "SI-COMM-001")
+		self.assertEqual(defaults["custom_commission_sales_invoice"], "SI-COMM-001")
 		self.assertEqual(defaults["custom_is_commission_payout"], 1)
+		self.assertNotIn("reference_no", defaults)
 
 	@patch("construction_management.api.project_commission_data._build_journal_commission_rows")
 	@patch("construction_management.api.project_commission_data._get_commission_payout_resolution")

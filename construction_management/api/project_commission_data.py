@@ -491,20 +491,26 @@ def _link_commission_payouts_by_amount_match(
 			continue
 
 		employee = row.get("employee") or ""
-		matches = []
+		exact_matches = []
+		partial_matches = []
 		for candidate in employee_candidates.get(employee, []):
 			if candidate["outstanding"] <= COMMISSION_PAYMENT_TOLERANCE:
 				continue
 			outstanding = round(candidate["outstanding"], 2)
 			commission_amount = round(candidate["commission_amount"], 2)
 			if paid_amount == outstanding or paid_amount == commission_amount:
-				matches.append(candidate["invoice"])
+				exact_matches.append(candidate["invoice"])
+			elif paid_amount < outstanding:
+				partial_matches.append(candidate["invoice"])
 
-		unique_matches = list(dict.fromkeys(matches))
-		if len(unique_matches) != 1:
-			continue
-
-		invoice = unique_matches[0]
+		unique_matches = list(dict.fromkeys(exact_matches))
+		if len(unique_matches) == 1:
+			invoice = unique_matches[0]
+		else:
+			unique_partial = list(dict.fromkeys(partial_matches))
+			if len(unique_partial) != 1:
+				continue
+			invoice = unique_partial[0]
 		invoice_by_payment[row.name] = invoice
 		paid_by_invoice[invoice] = paid_by_invoice.get(invoice, 0.0) + flt(row.paid_amount)
 		for candidate in employee_candidates.get(employee, []):
@@ -774,7 +780,6 @@ def get_commission_payment_entry_defaults(
 		"target_exchange_rate": 1,
 		"remarks": _commission_payout_remark(invoice_no),
 		"custom_remarks": 1,
-		"reference_no": invoice_no,
 		"custom_is_commission_payout": 1,
 		"custom_commission_sales_invoice": invoice_no,
 		"paid_to": payable_account,
