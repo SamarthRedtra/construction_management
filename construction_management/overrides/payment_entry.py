@@ -11,16 +11,22 @@ from construction_management.overrides.sales_invoice import (
 
 def before_validate(doc, method=None):
 	"""Keep commission payout PE on Sales Commission Payable (not Employee payable)."""
-	if not cint(doc.get("custom_is_commission_payout")):
-		return
-	if doc.payment_type != "Pay" or doc.party_type != "Employee":
-		return
-	if not doc.company:
+	if doc.payment_type != "Pay" or doc.party_type != "Employee" or not doc.company:
 		return
 
 	from construction_management.api.sales_commission_gl import require_commission_posting_accounts
 
-	payable_account = require_commission_posting_accounts(doc.company)["payable_account"]
+	try:
+		payable_account = require_commission_posting_accounts(doc.company)["payable_account"]
+	except Exception:
+		return
+
+	if doc.paid_to == payable_account:
+		doc.custom_is_commission_payout = 1
+
+	if not cint(doc.get("custom_is_commission_payout")):
+		return
+
 	doc.paid_to = payable_account
 	doc.paid_to_account_currency = frappe.db.get_value(
 		"Account", payable_account, "account_currency"
@@ -31,7 +37,8 @@ def before_validate(doc, method=None):
 	):
 		from construction_management.api.project_commission_data import _commission_payout_remark
 
-		doc.remarks = _commission_payout_remark(doc.reference_no)
+		if frappe.db.exists("Sales Invoice", doc.reference_no):
+			doc.remarks = _commission_payout_remark(doc.reference_no)
 
 
 def on_submit(doc, method):
