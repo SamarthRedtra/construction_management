@@ -17,6 +17,19 @@ function extract_commission_invoice_from_remarks(remarks) {
 	return (rest.trim().split(/\s+/)[0] || '').trim();
 }
 
+function apply_commission_payout_fields(frm, invoice) {
+	if (!invoice || !frm.fields_dict.custom_commission_sales_invoice) {
+		return;
+	}
+
+	frm.set_value('custom_commission_sales_invoice', invoice);
+	frm.set_value('custom_is_commission_payout', 1);
+	frm.set_value('remarks', `${COMMISSION_PAYOUT_REMARK_PREFIX}${invoice}`);
+	frm.set_value('custom_remarks', 1);
+	frm.set_df_property('custom_commission_sales_invoice', 'hidden', 0);
+	frm.set_df_property('custom_commission_sales_invoice', 'read_only', 1);
+}
+
 function sync_commission_payout_fields(frm) {
 	if (!is_commission_payout_entry(frm)) {
 		return;
@@ -26,33 +39,22 @@ function sync_commission_payout_fields(frm) {
 	if (!invoice) {
 		invoice = extract_commission_invoice_from_remarks(frm.doc.remarks);
 	}
+	if (!invoice && frappe.commission_payout_invoice) {
+		invoice = frappe.commission_payout_invoice;
+	}
 
 	if (invoice) {
-		frm.doc.custom_commission_sales_invoice = invoice;
-		frm.doc.custom_is_commission_payout = 1;
-		frm.doc.remarks = `${COMMISSION_PAYOUT_REMARK_PREFIX}${invoice}`;
-		frm.doc.custom_remarks = 1;
+		apply_commission_payout_fields(frm, invoice);
 	}
-}
-
-function configure_commission_payout_form(frm) {
-	if (!is_commission_payout_entry(frm)) {
-		return;
-	}
-
-	sync_commission_payout_fields(frm);
-
-	frm.set_df_property('custom_commission_sales_invoice', 'hidden', 0);
-	frm.set_df_property('custom_commission_sales_invoice', 'read_only', 1);
 }
 
 frappe.ui.form.on('Payment Entry', {
 	onload(frm) {
-		configure_commission_payout_form(frm);
+		sync_commission_payout_fields(frm);
 	},
 
 	refresh(frm) {
-		configure_commission_payout_form(frm);
+		sync_commission_payout_fields(frm);
 	},
 
 	before_save(frm) {

@@ -138,11 +138,30 @@ construction_management.project_commission.bind_pay_actions = function ($contain
 			freeze_message: __('Preparing Payment Entry...'),
 			callback(r) {
 				$btn.prop('disabled', false);
-				if (r.message) {
-					const defaults = r.message || {};
-					defaults.custom_is_commission_payout = 1;
-					frappe.new_doc('Payment Entry', defaults);
+				if (!r.message) {
+					return;
 				}
+				const defaults = r.message || {};
+				const invoice_no = defaults.custom_commission_sales_invoice || $btn.attr('data-invoice');
+				defaults.custom_is_commission_payout = 1;
+				if (invoice_no) {
+					defaults.custom_commission_sales_invoice = invoice_no;
+					defaults.remarks = `Commission payout for Sales Invoice ${invoice_no}`;
+					defaults.custom_remarks = 1;
+					frappe.commission_payout_invoice = invoice_no;
+				}
+
+				frappe.new_doc('Payment Entry', defaults).then(() => {
+					if (cur_frm && invoice_no) {
+						cur_frm.set_value('custom_commission_sales_invoice', invoice_no);
+						cur_frm.set_value('custom_is_commission_payout', 1);
+						cur_frm.set_value('remarks', `Commission payout for Sales Invoice ${invoice_no}`);
+						cur_frm.set_value('custom_remarks', 1);
+						cur_frm.set_df_property('custom_commission_sales_invoice', 'hidden', 0);
+						cur_frm.set_df_property('custom_commission_sales_invoice', 'read_only', 1);
+					}
+					frappe.commission_payout_invoice = null;
+				});
 			},
 			error() {
 				$btn.prop('disabled', false);

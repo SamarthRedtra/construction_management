@@ -20,7 +20,7 @@ def execute():
 		"read_only": 1,
 		"hidden": 0,
 		"insert_after": "custom_is_commission_payout",
-		"no_copy": 1,
+		"no_copy": 0,
 	})
 
 	_ensure_commission_invoice_field_visible()
@@ -36,7 +36,16 @@ def _ensure_commission_invoice_field_visible():
 		frappe.db.set_value(
 			"Custom Field",
 			fieldname,
-			{"hidden": 0, "read_only": 1, "label": "Commission Sales Invoice"},
+			{"hidden": 0, "read_only": 1, "label": "Commission Sales Invoice", "no_copy": 0},
+			update_modified=False,
+		)
+
+	flag_field = "Payment Entry-custom_is_commission_payout"
+	if frappe.db.exists("Custom Field", flag_field):
+		frappe.db.set_value(
+			"Custom Field",
+			flag_field,
+			{"no_copy": 0},
 			update_modified=False,
 		)
 
