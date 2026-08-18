@@ -193,6 +193,21 @@ class TestProjectCommission(FrappeTestCase):
 		)
 		self.assertEqual(status["paid_amount"], 7208.50)
 		self.assertEqual(status["outstanding_amount"], 0)
+		self.assertEqual(status["extra_paid_amount"], 0)
+		self.assertTrue(status["commission_paid"])
+
+	def test_commission_payment_status_extra_payout(self):
+		status = get_commission_payment_status(
+			"ACC-SINV-2026-00113",
+			"PROJ-001",
+			"Test Company",
+			340.603,
+			payouts=[{"name": "PE-001", "paid_amount": 467.97}],
+		)
+		self.assertEqual(status["paid_amount"], 467.97)
+		self.assertEqual(status["commission_paid_amount"], 340.603)
+		self.assertEqual(status["extra_paid_amount"], 127.367)
+		self.assertEqual(status["outstanding_amount"], 0)
 		self.assertTrue(status["commission_paid"])
 
 	def test_commission_payment_status_multiple_partial_payouts(self):

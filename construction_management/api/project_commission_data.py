@@ -18,6 +18,21 @@ COMMISSION_PAYOUT_REMARK_PREFIX = "Commission payout for Sales Invoice "
 COMMISSION_PAYMENT_TOLERANCE = 0.005
 
 
+def _annotate_payout_amounts(payouts: list[dict], commission_amount: float) -> list[dict]:
+	"""Split each payout into commission vs extra paid portions."""
+	remaining_commission = flt(commission_amount)
+	annotated = []
+	for payout in payouts or []:
+		row = dict(payout)
+		paid = flt(row.get("paid_amount"))
+		applied = min(paid, max(0.0, remaining_commission))
+		row["commission_paid_amount"] = applied
+		row["extra_paid_amount"] = max(0.0, paid - applied)
+		remaining_commission = max(0.0, remaining_commission - applied)
+		annotated.append(row)
+	return annotated
+
+
 def build_services(project: str) -> tuple[list[dict], float, str]:
 	source_project = resolve_boq_source_project(project)
 	boq_items = fetch_scope_boq_items(source_project)
@@ -117,6 +132,17 @@ def build_summary(project: str, ledger_rows: list[dict]) -> dict:
 			commission_received_total += flt(row.get("commission_received"))
 	commission_balance = commission_total - commission_received_total
 
+	seen_extra_rows = set()
+	commission_extra_paid_total = 0.0
+	for row in ledger_rows:
+		if row["row_type"] != ROW_TYPE_SI:
+			continue
+		invoice_no = row.get("invoice_no")
+		if not invoice_no or invoice_no in seen_extra_rows:
+			continue
+		seen_extra_rows.add(invoice_no)
+		commission_extra_paid_total += flt(row.get("extra_paid_amount"))
+
 	retention_amount = frappe.db.sql(
 		"""
 		SELECT COALESCE(SUM(ABS(sii.amount)), 0) AS total
@@ -156,6 +182,7 @@ def build_summary(project: str, ledger_rows: list[dict]) -> dict:
 		"commission_total": commission_total,
 		"commission_received_total": commission_received_total,
 		"commission_balance": commission_balance,
+		"commission_extra_paid_total": commission_extra_paid_total,
 		"retention_amount": retention_amount,
 		"any_deduction": any_deduction,
 	}
@@ -212,11 +239,14 @@ def _build_sales_invoice_commission_rows(project: str, company: str) -> list[dic
 		employee = entry.get("employee") or ""
 		pay_key = (invoice_name, entry.get("sales_person") or "")
 		payouts = payouts_by_invoice.get(invoice_name, [])
+		payouts = _annotate_payout_amounts(payouts, commission_amount)
 		payment_status = get_commission_payment_status(
 			invoice_name, project, company, commission_amount, payouts=payouts
 		)
 		paid_amount = payment_status["paid_amount"]
 		outstanding_amount = payment_status["outstanding_amount"]
+		extra_paid_amount = payment_status["extra_paid_amount"]
+		commission_paid_amount = payment_status["commission_paid_amount"]
 		commission_paid = payment_status["commission_paid"]
 		payout_cheques = ", ".join(
 			str(payout.get("reference_no") or "") for payout in payouts if payout.get("reference_no")
@@ -246,6 +276,8 @@ def _build_sales_invoice_commission_rows(project: str, company: str) -> list[dic
 			"commission_pct": flt(entry.get("commission_rate")),
 			"commission_amount": commission_amount,
 			"paid_amount": paid_amount,
+			"commission_paid_amount": commission_paid_amount,
+			"extra_paid_amount": extra_paid_amount,
 			"outstanding_amount": outstanding_amount,
 			"commission_received": paid_amount,
 			"commission_cheque_no": payout_cheques,
@@ -404,11 +436,16 @@ def get_commission_payment_status(
 		payouts = payouts_by_invoice.get(invoice_no, [])
 
 	paid_amount = sum(flt(payout.get("paid_amount")) for payout in payouts)
-	outstanding_amount = max(0.0, flt(commission_amount) - paid_amount)
+	commission_due = flt(commission_amount)
+	outstanding_amount = max(0.0, commission_due - paid_amount)
+	extra_paid_amount = max(0.0, paid_amount - commission_due)
+	commission_paid_amount = min(paid_amount, commission_due)
 	commission_paid = outstanding_amount <= COMMISSION_PAYMENT_TOLERANCE
 
 	return {
 		"paid_amount": paid_amount,
+		"commission_paid_amount": commission_paid_amount,
+		"extra_paid_amount": extra_paid_amount,
 		"outstanding_amount": outstanding_amount,
 		"commission_paid": commission_paid,
 		"commission_payouts": payouts,

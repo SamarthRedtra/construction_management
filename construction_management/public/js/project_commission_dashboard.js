@@ -87,6 +87,10 @@ construction_management.project_commission.get_pay_cell_html = function (row, ca
 		return '';
 	}
 	if (row.commission_paid) {
+		const extra = flt(row.extra_paid_amount);
+		if (extra > 0) {
+			return `<span class="text-muted">${__('Paid')}</span><br><small class="commission-extra-label">${__('Extra')}: ${frappe.format(extra, { fieldtype: 'Currency' })}</small>`;
+		}
 		return `<span class="text-muted">${__('Paid')}</span>`;
 	}
 	if (!row.employee) {
@@ -202,7 +206,19 @@ construction_management.project_commission.get_commission_payout_details = funct
 			: '';
 		const timestamp = payout.creation || payout.posting_date;
 		const paid_at = timestamp ? frappe.datetime.str_to_user(timestamp) : '';
-		return `<div>${link}${paid_at ? `<br><small class="text-muted">${__('Paid')} · ${paid_at}</small>` : ''}</div>`;
+		const paid_amt = flt(payout.paid_amount);
+		const extra_amt = flt(payout.extra_paid_amount);
+		const amount_bits = [];
+		if (paid_amt > 0) {
+			amount_bits.push(`${__('Paid')}: ${frappe.format(paid_amt, { fieldtype: 'Currency' })}`);
+		}
+		if (extra_amt > 0) {
+			amount_bits.push(`${__('Extra')}: ${frappe.format(extra_amt, { fieldtype: 'Currency' })}`);
+		}
+		const amount_line = amount_bits.length
+			? `<br><small class="text-muted">${amount_bits.join(' · ')}</small>`
+			: '';
+		return `<div>${link}${paid_at ? `<br><small class="text-muted">${paid_at}</small>` : ''}${amount_line}</div>`;
 	});
 
 	return payouts.join('');
@@ -251,6 +267,7 @@ construction_management.project_commission.build_dashboard_html = function (data
 				: '';
 			const cheque_amt_disp = row.cheque_amount > 0 ? fmt(row.cheque_amount, 'Currency') : '';
 			const comm_recv_disp = row.paid_amount > 0 ? fmt(row.paid_amount, 'Currency') : '';
+			const extra_paid_disp = row.extra_paid_amount > 0 ? fmt(row.extra_paid_amount, 'Currency') : '';
 			const outstanding_disp = row.outstanding_amount > 0 ? fmt(row.outstanding_amount, 'Currency') : '';
 			const voucher_link = construction_management.project_commission.get_voucher_link(row);
 			const payout_details = construction_management.project_commission.get_commission_payout_details(row);
@@ -281,6 +298,7 @@ construction_management.project_commission.build_dashboard_html = function (data
 					<td class="text-center">${pct_disp}</td>
 					<td class="text-right">${row.commission_amount > 0 ? fmt(row.commission_amount, 'Currency') : ''}</td>
 					<td class="text-right">${comm_recv_disp}</td>
+					<td class="text-right">${extra_paid_disp ? `<span class="commission-extra-label">${extra_paid_disp}</span>` : ''}</td>
 					<td class="text-right">${outstanding_disp}</td>
 					<td>${frappe.utils.escape_html(row.commission_cheque_no || '')}</td>
 					<td>${remarks_cell}</td>
@@ -295,7 +313,7 @@ construction_management.project_commission.build_dashboard_html = function (data
 		} else if (data.meta && data.meta.commission_account_missing) {
 			empty_msg = __('Configure Sales Person Commission Account in BOQ Settings.');
 		}
-		ledger_html = `<tr><td colspan="14" class="text-center text-muted">${empty_msg}</td></tr>`;
+		ledger_html = `<tr><td colspan="15" class="text-center text-muted">${empty_msg}</td></tr>`;
 	}
 
 	const summary = data.summary || {};
@@ -350,6 +368,7 @@ construction_management.project_commission.build_dashboard_html = function (data
 							<th style="width:90px;" class="text-center">${__('Commission %')}</th>
 							<th style="width:130px;" class="text-right">${__('Commission Amount')}</th>
 							<th style="width:130px;" class="text-right">${__('Paid Amount')}</th>
+							<th style="width:130px;" class="text-right">${__('Extra Paid')}</th>
 							<th style="width:130px;" class="text-right">${__('Outstanding Amount')}</th>
 							<th style="width:100px;">${__('Cheque No.')}</th>
 							<th style="width:180px;">${__('Remarks')}</th>
@@ -383,6 +402,10 @@ construction_management.project_commission.build_dashboard_html = function (data
 					<div class="commission-summary-item">
 						<span class="summary-label">${__('Commission Balance')}</span>
 						<span class="summary-value red-text">${fmt(summary.commission_balance, 'Currency')}</span>
+					</div>
+					<div class="commission-summary-item">
+						<span class="summary-label">${__('Extra Paid')}</span>
+						<span class="summary-value commission-extra-label">${fmt(summary.commission_extra_paid_total, 'Currency')}</span>
 					</div>
 					<div class="commission-summary-item">
 						<span class="summary-label">${__('Retention Amount(w/o VAT)')}</span>
