@@ -4,7 +4,9 @@
 import frappe
 from frappe import _
 from frappe.utils import flt
+from construction_management.api.drum_uom_utils import apply_drum_uom_conversion_for_items
 from construction_management.api.purchase_receipt_utils import (
+	get_purchase_billable_amounts,
 	get_purchase_deduction_percentages,
 	get_warehouse_project,
 	is_subcontractor_purchase,
@@ -25,6 +27,7 @@ def validate(doc, method):
 
 def before_validate(doc, method):
 	"""Run before standard validate"""
+	apply_drum_uom_conversion_for_items(doc.get("items"))
 	scale_fixed_discount(doc)
 
 
@@ -210,10 +213,7 @@ def apply_purchase_deductions(doc):
 		return
 
 	# Calculate total billable amount (exclude deduction items)
-	total_billable = sum(
-		flt(item.amount) for item in doc.items
-		if item.item_code not in DEDUCTION_ITEM_CODES
-	)
+	total_billable, advance_billable = get_purchase_billable_amounts(doc)
 
 	if total_billable <= 0:
 		return
@@ -260,10 +260,10 @@ def apply_purchase_deductions(doc):
 				item.description = f"Retention deduction ({retention_pct}%)"
 				break
 
-	if advance_pct <= 0:
+	if advance_pct <= 0 or advance_billable <= 0:
 		_remove_purchase_deduction_items(doc, item_codes={"ADVANCE-DEDUCTION"})
 	elif not any(item.item_code == "ADVANCE-DEDUCTION" for item in doc.items):
-		advance_amount = flt(total_billable * advance_pct / 100, 2)
+		advance_amount = flt(advance_billable * advance_pct / 100, 2)
 		if advance_amount > 0:
 			doc.append("items", {
 				"item_code": "ADVANCE-DEDUCTION",
@@ -285,7 +285,7 @@ def apply_purchase_deductions(doc):
 	else:
 		for item in doc.items:
 			if item.item_code == "ADVANCE-DEDUCTION":
-				advance_amount = flt(total_billable * advance_pct / 100, 2)
+				advance_amount = flt(advance_billable * advance_pct / 100, 2)
 				item.rate = -advance_amount
 				item.amount = -advance_amount
 				item.base_rate = -advance_amount * conversion_rate
@@ -309,10 +309,16 @@ def apply_purchase_deductions(doc):
 				item.stock_uom = item.uom
 			if not item.get("conversion_factor"):
 				item.conversion_factor = 1.0
+			if not item.get("stock_qty"):
+				item.stock_qty = flt(item.qty) * flt(item.conversion_factor)
 			if not item.get("base_rate"):
 				item.base_rate = flt(item.rate) * conversion_rate
 			if not item.get("base_amount"):
 				item.base_amount = flt(item.amount) * conversion_rate
+			if frappe.get_meta(item.doctype).has_field("site") and not item.get("site"):
+				item.site = "Transit"
+			if frappe.get_meta(item.doctype).has_field("rejected_site") and not item.get("rejected_site"):
+				item.rejected_site = "Transit"
 
 
 def _remove_purchase_deduction_items(doc, item_codes=None):

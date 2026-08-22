@@ -418,6 +418,12 @@ class PurchaseInvoiceOverride(CustomPurchaseInvoice):
 
 		return _ensure_supplier_party_on_gl_entries(self, new_entries)
 
+	def get_pc_payable_print_context(self):
+		"""Build dict for Payment Certificate (Payable) Jinja print format."""
+		from construction_management.pc_payable_print_context import build_pc_payable_print_context
+
+		return build_pc_payable_print_context(self)
+
 
 def _ensure_supplier_party_on_gl_entries(doc, gl_entries):
 	"""ERPNext requires Supplier on Payable account GL rows; retention/advance paths may omit it."""
@@ -439,12 +445,6 @@ def _ensure_supplier_party_on_gl_entries(doc, gl_entries):
 			entry["party"] = supplier
 
 	return gl_entries
-
-	def get_pc_payable_print_context(self):
-		"""Build dict for Payment Certificate (Payable) Jinja print format."""
-		from construction_management.pc_payable_print_context import build_pc_payable_print_context
-
-		return build_pc_payable_print_context(self)
 
 
 def _po_progress_row_applicable(item) -> bool:
@@ -620,9 +620,10 @@ def validate(doc, method):
 
 	for item in doc.items:
 		if item.item_code in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION") and not doc.get("custom_is_advance"):
-			# Keep explicit liability override if user has set it on the row.
-			if not item.get("custom_liability_account"):
-				item.expense_account = default_expense_account
+			# Deduction GL redirect expects these rows on the company default expense account.
+			item.custom_liability_account = None
+			item.expense_account = default_expense_account
+			_populate_pi_deduction_row_fields(doc, item)
 
 	# After deductions (if any) so new rows exist; ERPNext validate already ran (amounts final)
 	set_po_line_progress(doc, persist="memory")
@@ -633,6 +634,9 @@ def _apply_custom_liability_account_override(doc):
 	default_liability_account = doc.get("custom_liability_account")
 
 	for item in doc.items:
+		if item.item_code in _PO_PROGRESS_DEDUCTION_ITEMS:
+			continue
+
 		liability_account = item.get("custom_liability_account")
 
 		# If row-level field is blank, inherit from Purchase Invoice header.
@@ -673,6 +677,10 @@ def _set_default_target_warehouse(doc):
 	project_wh_cache = {}
 
 	for row in doc.get("items", []):
+		if row.item_code in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"):
+			_populate_pi_deduction_row_fields(doc, row)
+			continue
+
 		if row.item_code in NO_STOCK_ITEMS:
 			continue
 		# For PI there is no 'warehouse' field on items (it's a service/accounting doc),
@@ -699,6 +707,37 @@ def _set_default_target_warehouse(doc):
 			row.site = "Transit"
 		if not row.get("rejected_site") and frappe.get_meta(row.doctype).has_field("rejected_site"):
 			row.rejected_site = "Transit"
+
+
+def _populate_pi_deduction_row_fields(doc, row):
+	"""Fill mandatory PI item fields on auto-added retention/advance deduction rows."""
+	if row.item_code not in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"):
+		return
+
+	conversion_rate = flt(doc.get("conversion_rate") or 1.0)
+	qty = flt(row.qty) or 1.0
+	rate = flt(row.rate)
+	amount = flt(row.amount) if row.get("amount") is not None else rate * qty
+
+	row.qty = qty
+	row.rate = rate
+	row.amount = amount
+	row.uom = row.uom or "Nos"
+	row.stock_uom = row.stock_uom or row.uom
+	row.conversion_factor = flt(row.conversion_factor) or 1.0
+	row.stock_qty = flt(row.stock_qty) or qty * row.conversion_factor
+	row.received_qty = flt(row.received_qty) or row.stock_qty
+	row.base_rate = rate * conversion_rate
+	row.base_amount = amount * conversion_rate
+
+	if not row.get("project"):
+		row.project = doc.get("project")
+
+	item_meta = frappe.get_meta(row.doctype)
+	if item_meta.has_field("site") and not row.get("site"):
+		row.site = "Transit"
+	if item_meta.has_field("rejected_site") and not row.get("rejected_site"):
+		row.rejected_site = "Transit"
 
 
 def scale_fixed_discount(doc):
@@ -788,6 +827,8 @@ def apply_purchase_deductions(doc):
 	Auto-add RETENTION-DEDUCTION and ADVANCE-DEDUCTION items based on
 	linked Purchase Order's retention/advance percentages.
 	"""
+	from construction_management.api.purchase_receipt_utils import get_purchase_billable_amounts
+
 	if not doc.project:
 		return
 
@@ -809,10 +850,7 @@ def apply_purchase_deductions(doc):
 	pr_has_retention, pr_has_advance = _check_pr_deductions(doc)
 
 	# Calculate total billable amount (exclude deduction items)
-	total_billable = sum(
-		flt(item.amount) for item in doc.items
-		if item.item_code not in ["RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"]
-	)
+	total_billable, advance_billable = get_purchase_billable_amounts(doc)
 
 	if total_billable <= 0:
 		return
@@ -843,6 +881,7 @@ def apply_purchase_deductions(doc):
 					item.rate = -retention_amount
 					item.amount = -retention_amount
 					item.description = f"Retention deduction ({retention_pct}%)"
+					_populate_pi_deduction_row_fields(doc, item)
 					found = True
 					break
 			if not found:
@@ -865,7 +904,7 @@ def apply_purchase_deductions(doc):
 
 	# 2. Add/Update Advance Deduction — capped to remaining un-deducted advance for this PO
 	advance_item = "ADVANCE-DEDUCTION"
-	if advance_pct > 0 and not pr_has_advance:
+	if advance_pct > 0 and not pr_has_advance and advance_billable > 0:
 		# Total advance given (from advance PIs) for this PO
 		total_advance_given = _get_total_advance_given(purchase_order)
 		# Total advance already deducted on previous submitted PIs for this PO
@@ -875,7 +914,7 @@ def apply_purchase_deductions(doc):
 		if remaining_advance > 0:
 			# Advance deduction for this invoice — proportional to billable amount, capped at remaining
 			advance_amount = min(
-				flt(total_billable * advance_pct / 100, 2),
+				flt(advance_billable * advance_pct / 100, 2),
 				remaining_advance
 			)
 			if advance_amount > 0:
@@ -885,6 +924,7 @@ def apply_purchase_deductions(doc):
 						item.rate = -advance_amount
 						item.amount = -advance_amount
 						item.description = f"Advance deduction ({advance_pct}%) — remaining: {remaining_advance}"
+						_populate_pi_deduction_row_fields(doc, item)
 						found = True
 						break
 				if not found:
@@ -906,6 +946,8 @@ def apply_purchase_deductions(doc):
 				doc.set("items", [item for item in doc.items if item.item_code != advance_item])
 		else:
 			doc.set("items", [item for item in doc.items if item.item_code != advance_item])
+	elif advance_pct > 0 and not pr_has_advance:
+		doc.set("items", [item for item in doc.items if item.item_code != advance_item])
 
 
 def _get_linked_purchase_order(doc):

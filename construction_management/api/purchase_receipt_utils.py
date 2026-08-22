@@ -1,11 +1,14 @@
 # Copyright (c) 2024, Construction Management
 # License: MIT
 
+import json
+
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 DEDUCTION_ITEM_CODES = {"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"}
+PURCHASE_DEDUCTION_ITEM_CODES = {"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION", "PURCHASE-ADVANCE"}
 
 
 @frappe.whitelist()
@@ -181,6 +184,79 @@ def get_purchase_deduction_percentages(doc, po_doc):
 		flt(po_doc.get("custom_retention_")),
 		flt(po_doc.get("custom_advance_")),
 	)
+
+
+def _purchase_line_skips_advance(item, skip_boq_items=None) -> bool:
+	"""True when this purchase line must not count toward advance recovery."""
+	skip_boq_items = skip_boq_items or set()
+	if cint(item.get("custom_skip_advance_deduction")):
+		return True
+	boq_item = item.get("boq_item")
+	return bool(boq_item and boq_item in skip_boq_items)
+
+
+def _sum_purchase_billable_lines(items, skip_boq_items=None, for_advance=False):
+	"""Sum non-deduction line amounts, optionally excluding advance-skipped lines."""
+	skip_boq_items = skip_boq_items or set()
+	return sum(
+		flt(item.get("amount"))
+		for item in items
+		if item.get("item_code") not in PURCHASE_DEDUCTION_ITEM_CODES
+		and not (for_advance and _purchase_line_skips_advance(item, skip_boq_items))
+	)
+
+
+def get_purchase_billable_amounts(doc):
+	"""
+	Return (total_billable, advance_billable) for purchase PI/PR deduction logic.
+
+	Retention uses total_billable (all non-deduction lines).
+	Advance uses advance_billable (excludes lines with custom_skip_advance_deduction,
+	BOQ items with skip_advance_deduction, and doc-level skip).
+	"""
+	from construction_management.api.boq_invoice import (
+		doc_skips_advance_deduction,
+		get_boq_items_skip_advance,
+	)
+
+	items = doc.get("items") or []
+	total_billable = _sum_purchase_billable_lines(items)
+
+	if doc_skips_advance_deduction(doc):
+		return total_billable, 0.0
+
+	boq_names = [item.get("boq_item") for item in items if item.get("boq_item")]
+	skip_set = get_boq_items_skip_advance(boq_names)
+	advance_billable = _sum_purchase_billable_lines(items, skip_boq_items=skip_set, for_advance=True)
+	return total_billable, advance_billable
+
+
+@frappe.whitelist()
+def get_purchase_advance_billable_for_form(items, skip_doc_advance=0):
+	"""Client-side helper: advance billable base for PI/PR deduction recalculation."""
+	if isinstance(items, str):
+		items = json.loads(items)
+
+	items = items or []
+	total_billable = _sum_purchase_billable_lines(items)
+
+	if cint(skip_doc_advance):
+		return {
+			"total_billable": total_billable,
+			"advance_billable": 0.0,
+			"skip_boq_items": [],
+		}
+
+	from construction_management.api.boq_invoice import get_boq_items_skip_advance
+
+	boq_names = [item.get("boq_item") for item in items if item.get("boq_item")]
+	skip_set = get_boq_items_skip_advance(boq_names)
+	advance_billable = _sum_purchase_billable_lines(items, skip_boq_items=skip_set, for_advance=True)
+	return {
+		"total_billable": total_billable,
+		"advance_billable": advance_billable,
+		"skip_boq_items": list(skip_set),
+	}
 
 
 @frappe.whitelist()

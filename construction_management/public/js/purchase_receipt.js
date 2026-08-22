@@ -100,6 +100,25 @@ frappe.ui.form.on('Purchase Receipt', {
 				item.rejected_site = 'Transit';
 			}
 		});
+	},
+
+	custom_skip_advance_deduction: function (frm) {
+		if (frm.doc.docstatus !== 0) {
+			return;
+		}
+		if (cint(frm.doc.custom_skip_advance_deduction)) {
+			const advance_row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
+			if (advance_row) {
+				frappe.model.clear_doc(advance_row.doctype, advance_row.name);
+				frm.refresh_field('items');
+			}
+			frappe.show_alert({
+				message: __('Advance deduction skipped for this receipt'),
+				indicator: 'blue',
+			});
+			return;
+		}
+		schedule_pr_deduction_recalc(frm);
 	}
 });
 
@@ -158,6 +177,16 @@ frappe.ui.form.on('Purchase Receipt Item', {
 	amount: function (frm, cdt, cdn) {
 		if (is_pr_deduction_row(cdt, cdn) || frm._pr_deduction_busy) return;
 		schedule_pr_deduction_recalc(frm);
+	},
+
+	boq_item: function (frm, cdt, cdn) {
+		if (is_pr_deduction_row(cdt, cdn) || frm._pr_deduction_busy) return;
+		schedule_pr_deduction_recalc(frm);
+	},
+
+	custom_skip_advance_deduction: function (frm, cdt, cdn) {
+		if (is_pr_deduction_row(cdt, cdn) || frm._pr_deduction_busy) return;
+		schedule_pr_deduction_recalc(frm);
 	}
 });
 
@@ -189,6 +218,14 @@ function recalculate_pr_deductions(frm) {
 		return;
 	}
 
+	if (cint(frm.doc.custom_skip_advance_deduction)) {
+		const advance_row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
+		if (advance_row) {
+			frappe.model.clear_doc(advance_row.doctype, advance_row.name);
+			frm.refresh_field('items');
+		}
+	}
+
 	let purchase_order = frm.doc.custom_purchase_order;
 	if (!purchase_order) {
 		for (let item of (frm.doc.items || [])) {
@@ -202,23 +239,39 @@ function recalculate_pr_deductions(frm) {
 	if (!purchase_order) return;
 
 	const is_subcontractor = frm.doc.custom_suppliersubcontractor === 'Subcontractor';
+	const form_items = (frm.doc.items || []).map((item) => ({
+		item_code: item.item_code,
+		amount: item.amount,
+		boq_item: item.boq_item,
+		custom_skip_advance_deduction: item.custom_skip_advance_deduction,
+	}));
 
-	frappe.db.get_value('Purchase Order', purchase_order,
-		['custom_retention_', 'custom_advance_', 'custom_suppliersubcontractor', 'project'])
-		.then(r => {
-			if (!r.message) return;
-			if (!is_subcontractor && r.message.custom_suppliersubcontractor !== 'Subcontractor') return;
+	Promise.all([
+		frappe.db.get_value('Purchase Order', purchase_order,
+			['custom_retention_', 'custom_advance_', 'custom_suppliersubcontractor', 'project']),
+		frappe.call({
+			method: 'construction_management.api.purchase_receipt_utils.get_purchase_advance_billable_for_form',
+			args: {
+				items: form_items,
+				skip_doc_advance: cint(frm.doc.custom_skip_advance_deduction),
+			},
+		}),
+	]).then(([poResult, billableResult]) => {
+		if (!poResult.message) return;
+		if (!is_subcontractor && poResult.message.custom_suppliersubcontractor !== 'Subcontractor') return;
 
-			let retention_pct = flt(r.message.custom_retention_);
-			let advance_pct = flt(r.message.custom_advance_);
+		let retention_pct = flt(poResult.message.custom_retention_);
+		let advance_pct = flt(poResult.message.custom_advance_);
 
-			if (retention_pct <= 0 && advance_pct <= 0) {
-				remove_pr_deduction_rows(frm);
-				return;
-			}
+		if (retention_pct <= 0 && advance_pct <= 0) {
+			remove_pr_deduction_rows(frm);
+			return;
+		}
 
-			apply_pr_deduction_amounts(frm, retention_pct, advance_pct);
-		});
+		const total_billable = flt(billableResult.message && billableResult.message.total_billable);
+		const advance_billable = flt(billableResult.message && billableResult.message.advance_billable);
+		apply_pr_deduction_amounts(frm, retention_pct, advance_pct, total_billable, advance_billable);
+	});
 }
 
 function remove_pr_deduction_rows(frm) {
@@ -243,43 +296,48 @@ function set_deduction_row_value(row, fieldname, value) {
 	return true;
 }
 
-function apply_pr_deduction_amounts(frm, retention_pct, advance_pct) {
+function get_pr_deduction_row_values(frm, item_code, amount, description) {
+	const line_amount = -flt(amount);
+	return {
+		item_code,
+		item_name: item_code === 'RETENTION-DEDUCTION' ? 'Retention Deduction' : 'Advance Deduction',
+		uom: 'Nos',
+		stock_uom: 'Nos',
+		qty: 1,
+		received_qty: 1,
+		conversion_factor: 1,
+		stock_qty: 1,
+		rate: line_amount,
+		amount: line_amount,
+		description,
+		project: frm.doc.project,
+		site: 'Transit',
+	};
+}
+
+function apply_pr_deduction_row_values(row, frm, amount, description) {
+	Object.assign(row, get_pr_deduction_row_values(frm, row.item_code, amount, description));
+}
+
+function apply_pr_deduction_amounts(frm, retention_pct, advance_pct, total_billable, advance_billable) {
 	frm._pr_deduction_busy = true;
 	try {
-		let total_billable = 0;
-		for (let item of (frm.doc.items || [])) {
-			if (!is_pr_deduction_item(item.item_code)) {
-				total_billable += flt(item.amount);
-			}
-		}
-
 		let changed = false;
 
 		if (retention_pct > 0) {
 			const retention_amount = flt(total_billable * retention_pct / 100, 2);
 			if (retention_amount > 0) {
 				let retention_row = (frm.doc.items || []).find(i => i.item_code === 'RETENTION-DEDUCTION');
+				const retention_desc = `Retention deduction (${retention_pct}%)`;
 				if (retention_row) {
-					changed = set_deduction_row_value(retention_row, 'rate', -retention_amount) || changed;
-					changed = set_deduction_row_value(retention_row, 'amount', -retention_amount) || changed;
-					const desc = `Retention deduction (${retention_pct}%)`;
-					if (retention_row.description !== desc) {
-						retention_row.description = desc;
-						changed = true;
-					}
+					apply_pr_deduction_row_values(retention_row, frm, retention_amount, retention_desc);
+					changed = true;
 				} else {
 					const new_row = frm.add_child('items');
-					Object.assign(new_row, {
-						item_code: 'RETENTION-DEDUCTION',
-						item_name: 'Retention Deduction',
-						uom: 'Nos',
-						qty: 1,
-						received_qty: 1,
-						rate: -retention_amount,
-						amount: -retention_amount,
-						description: `Retention deduction (${retention_pct}%)`,
-						project: frm.doc.project
-					});
+					Object.assign(
+						new_row,
+						get_pr_deduction_row_values(frm, 'RETENTION-DEDUCTION', retention_amount, retention_desc)
+					);
 					changed = true;
 				}
 			} else {
@@ -298,30 +356,19 @@ function apply_pr_deduction_amounts(frm, retention_pct, advance_pct) {
 		}
 
 		if (advance_pct > 0) {
-			const advance_amount = flt(total_billable * advance_pct / 100, 2);
+			const advance_amount = flt(advance_billable * advance_pct / 100, 2);
 			if (advance_amount > 0) {
 				let advance_row = (frm.doc.items || []).find(i => i.item_code === 'ADVANCE-DEDUCTION');
+				const advance_desc = `Advance deduction (${advance_pct}%)`;
 				if (advance_row) {
-					changed = set_deduction_row_value(advance_row, 'rate', -advance_amount) || changed;
-					changed = set_deduction_row_value(advance_row, 'amount', -advance_amount) || changed;
-					const desc = `Advance deduction (${advance_pct}%)`;
-					if (advance_row.description !== desc) {
-						advance_row.description = desc;
-						changed = true;
-					}
+					apply_pr_deduction_row_values(advance_row, frm, advance_amount, advance_desc);
+					changed = true;
 				} else {
 					const new_row = frm.add_child('items');
-					Object.assign(new_row, {
-						item_code: 'ADVANCE-DEDUCTION',
-						item_name: 'Advance Deduction',
-						uom: 'Nos',
-						qty: 1,
-						received_qty: 1,
-						rate: -advance_amount,
-						amount: -advance_amount,
-						description: `Advance deduction (${advance_pct}%)`,
-						project: frm.doc.project
-					});
+					Object.assign(
+						new_row,
+						get_pr_deduction_row_values(frm, 'ADVANCE-DEDUCTION', advance_amount, advance_desc)
+					);
 					changed = true;
 				}
 			} else {
