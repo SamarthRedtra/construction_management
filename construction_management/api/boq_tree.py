@@ -1664,6 +1664,20 @@ def get_boq_item_transactions_with_ledger(boq_item: str) -> list:
 		if entry.proforma_invoice and entry.proforma_invoice in cancelled_pis:
 			continue
 
+		# Exclude cancelled tax invoices / sales orders / direct invoices
+		if entry.tax_invoice:
+			tax_docstatus = frappe.db.get_value("Sales Invoice", entry.tax_invoice, "docstatus")
+			if tax_docstatus == 2:
+				continue
+		if entry.reference_doctype == "Sales Invoice":
+			ref_docstatus = frappe.db.get_value("Sales Invoice", entry.reference_name, "docstatus")
+			if ref_docstatus == 2:
+				continue
+		if entry.reference_doctype == "Sales Order":
+			so_docstatus = frappe.db.get_value("Sales Order", entry.reference_name, "docstatus")
+			if so_docstatus == 2:
+				continue
+
 		if entry.proforma_invoice:
 			if entry.proforma_invoice not in billing_cycles:
 				billing_cycles[entry.proforma_invoice] = []
@@ -1739,8 +1753,17 @@ def get_boq_item_transactions_with_ledger(boq_item: str) -> list:
 			
 			processed_transactions.append(winner)
 	
-	# Add independent entries (e.g. manual adjustments)
+	# Add independent entries (e.g. manual adjustments, sales orders, direct invoices)
+	seen_tax_on_so = {
+		e.tax_invoice for e in ledger_entries
+		if e.reference_doctype == "Sales Order" and e.tax_invoice
+	}
 	for entry in independent_entries:
+		if (
+			entry.reference_doctype == "Sales Invoice"
+			and entry.reference_name in seen_tax_on_so
+		):
+			continue
 		processed_transactions.append(entry)
 	
 	# Sort by Date

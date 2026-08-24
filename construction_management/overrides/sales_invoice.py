@@ -10,6 +10,7 @@ from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
 from erpnext.controllers.stock_controller import StockController
 from construction_management.overrides.unearned_revenue import (
 	find_journal_entry_by_so,
+	get_remaining_so_unbilled_balance,
 	SO_UNEARNED_EXCLUDED_ITEM_CODES,
 )
 from erpnext.accounts.utils import update_voucher_outstanding
@@ -726,74 +727,98 @@ class SalesInvoiceOverride(SalesInvoice):
 			if not boq_settings.enable_so_unearned_revenue_jv:
 				return gl_entries
 
-		# Store the SO recognition percentage against each invoice row.  The
-		# reversal amount itself must be calculated from the final invoice income
-		# entry, after any invoice discount or retention/advance gross-up.
-		# Using the source Sales Order line amount here left part of a 100%
-		# recognised invoice credited to Sales.
-		unearned_reversal_pct_by_item_row = {}
-		unearned_reversal_pct_by_boq_item = {}
+		# Reverse the remaining SO unbilled JV balance on invoice (not a % of invoice).
+		# Sales on tax invoice = invoice gross (after retention gross-up) minus full
+		# remaining unbilled booked at Sales Order (capped by line / invoice amount).
 		unbilled_revenue_acc = boq_settings.so_unearned_revenue_debit_account
-		
-		if boq_settings.get("enable_so_unearned_revenue_jv") and unbilled_revenue_acc:
-			excluded = set(SO_UNEARNED_EXCLUDED_ITEM_CODES)
-			if variance_item_code:
-				excluded.add(variance_item_code)
+		excluded = set(SO_UNEARNED_EXCLUDED_ITEM_CODES)
+		if variance_item_code:
+			excluded.add(variance_item_code)
 
-			so_list = list(set(item.sales_order for item in self.items if item.sales_order))
-			for so_name in so_list:
+		item_so_map = {}
+		item_gross_by_row = {}
+		boq_item_so_map = {}
+		so_reversal_budget = {}
+
+		if boq_settings.get("enable_so_unearned_revenue_jv") and unbilled_revenue_acc:
+			exclude_si = self.name if self.docstatus == 1 else None
+			for item in self.items:
+				if not item.sales_order or item.item_code in excluded:
+					continue
+				item_so_map[item.name] = item.sales_order
+				if item.boq_item:
+					boq_item_so_map[item.boq_item] = item.sales_order
+				if flt(item.amount) > 0:
+					item_gross_by_row[item.name] = flt(item.base_amount) or flt(item.amount)
+
+			for so_name in {item.sales_order for item in self.items if item.sales_order}:
 				if not find_journal_entry_by_so(so_name):
 					continue
-
-				pct = flt(
-					frappe.get_cached_value("Sales Order", so_name, "custom_unbilled_revenue_percentage")
-					or 100
-				) / 100.0
-				if pct <= 0:
-					continue
-
-				inv_lines = [
-					it
-					for it in self.items
-					if it.sales_order == so_name and it.item_code not in excluded
-				]
-				for item in inv_lines:
-					unearned_reversal_pct_by_item_row[item.name] = pct
-					if item.boq_item:
-						unearned_reversal_pct_by_boq_item[item.boq_item] = pct
+				remaining = get_remaining_so_unbilled_balance(
+					so_name, unbilled_revenue_acc, exclude_si=exclude_si
+				)
+				if remaining > 0:
+					so_reversal_budget[so_name] = remaining
 
 		applied_unearned_boq_items = set()
 
-		def _get_unearned_reversal_amount(entry):
+		def _resolve_so_for_entry(entry):
 			voucher_detail_no = entry.get("voucher_detail_no")
-			if voucher_detail_no and voucher_detail_no in unearned_reversal_pct_by_item_row:
-				return flt(entry.get("credit")) * unearned_reversal_pct_by_item_row[voucher_detail_no]
-
+			if voucher_detail_no and voucher_detail_no in item_so_map:
+				return item_so_map[voucher_detail_no]
 			boq_item = entry.get("boq_item")
-			if (
-				boq_item
-				and boq_item in unearned_reversal_pct_by_boq_item
-				and boq_item not in applied_unearned_boq_items
-			):
-				return flt(entry.get("credit")) * unearned_reversal_pct_by_boq_item[boq_item]
-			return 0
+			if boq_item and boq_item in boq_item_so_map:
+				return boq_item_so_map[boq_item]
+			return None
+
+		def _get_gross_for_entry(entry):
+			voucher_detail_no = entry.get("voucher_detail_no")
+			if voucher_detail_no and voucher_detail_no in item_gross_by_row:
+				return item_gross_by_row[voucher_detail_no]
+			boq_item = entry.get("boq_item")
+			if boq_item:
+				for item in self.items:
+					if (
+						item.boq_item == boq_item
+						and flt(item.amount) > 0
+						and item.item_code not in excluded
+					):
+						return flt(item.base_amount) or flt(item.amount)
+			return flt(entry.get("credit"))
+
+		def _get_unearned_reversal_amount(entry):
+			so_name = _resolve_so_for_entry(entry)
+			if not so_name or so_name not in so_reversal_budget:
+				return 0
+
+			budget = flt(so_reversal_budget[so_name])
+			if budget <= 0:
+				return 0
+
+			gross_cap = _get_gross_for_entry(entry)
+			rev_amt = min(budget, gross_cap, flt(entry.get("credit")))
+			if rev_amt <= 0:
+				return 0
+
+			so_reversal_budget[so_name] = budget - rev_amt
+			return rev_amt
 
 		def _apply_unearned_reversal(entry, rev_amt):
 			if not rev_amt:
 				return
 
-			rev_amt = min(flt(rev_amt), flt(entry.get("credit")))
+			gross_target = _get_gross_for_entry(entry)
+			rev_amt = min(flt(rev_amt), flt(gross_target), flt(entry.get("credit")))
 			if not rev_amt:
 				return
 
-			entry["credit"] = flt(entry.get("credit", 0)) - rev_amt
+			new_credit = flt(gross_target) - rev_amt
+			entry["credit"] = new_credit
 
 			if "credit_in_account_currency" in entry:
-				entry["credit_in_account_currency"] = flt(entry.get("credit_in_account_currency", 0)) - rev_amt
+				entry["credit_in_account_currency"] = new_credit
 			if "credit_in_transaction_currency" in entry:
-				entry["credit_in_transaction_currency"] = flt(
-					entry.get("credit_in_transaction_currency", 0)
-				) - rev_amt
+				entry["credit_in_transaction_currency"] = new_credit
 
 			boq_item = entry.get("boq_item")
 			voucher_detail_no = entry.get("voucher_detail_no")
@@ -842,11 +867,7 @@ class SalesInvoiceOverride(SalesInvoice):
 					"item_code": item.item_code
 				})
 
-		if (
-			not deductions
-			and not unearned_reversal_pct_by_item_row
-			and not unearned_reversal_pct_by_boq_item
-		):
+		if not deductions and not so_reversal_budget:
 			return gl_entries
 
 		# 2. Reconstruct entries

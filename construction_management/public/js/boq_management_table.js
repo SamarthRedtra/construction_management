@@ -1525,9 +1525,11 @@ function renderTransactionHistorySection(itemName, data, colSpan) {
 						</div>
 					</div>
 					
-					${viewMode === 'grouped' && groupedTransactions.length > 0 ?
-			renderGroupedTransactionsSection(groupedTransactions) :
-			renderRawTransactionsSection(ledgerEntries, paymentCertificates, pendingProformas)
+					${viewMode === 'grouped' ?
+			(groupedTransactions.length > 0
+				? renderGroupedTransactionsSection(groupedTransactions)
+				: '<div class="no-entries">No billing cycles found</div>')
+			: renderRawTransactionsSection(ledgerEntries, paymentCertificates, pendingProformas)
 		}
 				</div>
 				${getTransactionHistoryStyles()}
@@ -1589,9 +1591,7 @@ function renderGroupedTransactionsTable(groupedTransactions) {
 			<thead>
 				<tr>
 					<th>Billing Cycle</th>
-					<th>Order</th>
-					<th>Payment Certificate</th>
-					<th>Tax Invoice</th>
+					<th>Billing Documents</th>
 					<th class="text-right">Prev Qty</th>
 					<th class="text-right">Curr Qty</th>
 					<th class="text-right">Accum Qty</th>
@@ -1622,26 +1622,8 @@ function renderGroupedTransactionsTable(groupedTransactions) {
 						</button>
 					</div>
 				</td>
-				<td class="doc-name">
-					${cycle.proforma_invoice ?
-				`<a href="/app/sales-invoice/${cycle.proforma_invoice.name}" target="_blank" title="${cycle.proforma_invoice.date}">
-							${cycle.proforma_invoice.name}
-						</a>` : '-'
-			}
-				</td>
-				<td class="doc-name">
-					${cycle.payment_certificate ?
-				`<a href="/app/payment-certificate/${cycle.payment_certificate.name}" target="_blank" title="${cycle.payment_certificate.date}">
-							${cycle.payment_certificate.name}
-						</a>` : '-'
-			}
-				</td>
-				<td class="doc-name">
-					${cycle.tax_invoice ?
-				`<a href="/app/sales-invoice/${cycle.tax_invoice.name}" target="_blank" title="${cycle.tax_invoice.date}">
-							${cycle.tax_invoice.name}
-						</a>` : '-'
-			}
+				<td class="doc-name billing-documents-cell">
+					${renderBillingDocumentsCell(cycle)}
 				</td>
 				<td class="text-right">${format_number(consolidated.prev_qty || 0)}</td>
 				<td class="text-right highlight-current">${format_number(consolidated.current_qty || 0)}</td>
@@ -1669,7 +1651,7 @@ function renderGroupedTransactionsTable(groupedTransactions) {
 				</td>
 			</tr>
 			<tr class="cycle-details-row" id="cycle-details-${cycle.cycle_id}" style="display: none;">
-				<td colspan="13">
+				<td colspan="11">
 					${renderCycleDetails(cycle)}
 				</td>
 			</tr>
@@ -1839,11 +1821,64 @@ function getDocumentTypeLabel(docType) {
 function getDocumentRoute(docType) {
 	const routes = {
 		'proforma_invoice': 'sales-invoice',
+		'sales_order': 'sales-order',
 		'payment_certificate': 'payment-certificate',
 		'tax_invoice': 'sales-invoice'
 	};
 	return routes[docType] || docType;
 }
+
+function renderBillingDocumentsCell(cycle) {
+	const docs = cycle.billing_documents || [];
+	if (docs.length) {
+		return docs.map((doc, idx) => {
+			const route = doc.route || getDocumentRoute(doc.type);
+			const link = `<a href="/app/${route}/${doc.name}" target="_blank">${doc.name}</a>`;
+			return idx === 0 ? link : `<span class="billing-doc-separator">→</span> ${link}`;
+		}).join(' ');
+	}
+
+	const parts = [];
+	if (cycle.proforma_invoice) {
+		const route = cycle.proforma_invoice.doctype === 'Sales Order' ? 'sales-order' : 'sales-invoice';
+		parts.push(`<a href="/app/${route}/${cycle.proforma_invoice.name}" target="_blank">${cycle.proforma_invoice.name}</a>`);
+	}
+	if (cycle.payment_certificate) {
+		parts.push(`<a href="/app/payment-certificate/${cycle.payment_certificate.name}" target="_blank">${cycle.payment_certificate.name}</a>`);
+	}
+	if (cycle.tax_invoice) {
+		parts.push(`<a href="/app/sales-invoice/${cycle.tax_invoice.name}" target="_blank">${cycle.tax_invoice.name}</a>`);
+	}
+	return parts.length ? parts.join('<span class="billing-doc-separator">→</span>') : '-';
+}
+
+function renderBillingDocumentLabel(entry) {
+	const proformaName = entry.reference_doctype === 'Sales Order' ? entry.reference_name : null;
+	const taxName = entry.tax_invoice || (
+		entry.reference_doctype === 'Sales Invoice' && !entry.is_proforma ? entry.reference_name : null
+	);
+
+	if (proformaName && taxName) {
+		const proformaRoute = entry.reference_doctype === 'Sales Order' ? 'sales-order' : 'sales-invoice';
+		return `<a href="/app/${proformaRoute}/${proformaName}" target="_blank">${proformaName}</a>` +
+			`<span class="billing-doc-separator">→</span>` +
+			`<a href="/app/sales-invoice/${taxName}" target="_blank">${taxName}</a>`;
+	}
+	if (taxName) {
+		return `<a href="/app/sales-invoice/${taxName}" target="_blank">${taxName}</a>`;
+	}
+	if (proformaName) {
+		return `<a href="/app/sales-order/${proformaName}" target="_blank">${proformaName}</a>`;
+	}
+	if (entry.reference_name) {
+		const route = entry.reference_doctype === 'Sales Order' ? 'sales-order'
+			: entry.reference_doctype === 'Payment Certificate' ? 'payment-certificate'
+				: 'sales-invoice';
+		return `<a href="/app/${route}/${entry.reference_name}" target="_blank">${entry.reference_name}</a>`;
+	}
+	return '-';
+}
+
 function renderLedgerEntriesTable(entries) {
 	let html = `
 		<table class="ledger-entries-table">
@@ -1869,29 +1904,30 @@ function renderLedgerEntriesTable(entries) {
 	entries.forEach(entry => {
 		const hasTaxInvoice = !!entry.tax_invoice;
 		let docTypeLabel = entry.reference_doctype || '-';
-		let docName = hasTaxInvoice ? entry.tax_invoice : entry.reference_name;
-		let docRouteType = hasTaxInvoice ? 'Sales Invoice' : entry.reference_doctype;
 
-		if (hasTaxInvoice) {
+		if (hasTaxInvoice && entry.reference_doctype === 'Sales Order') {
+			docTypeLabel = 'Order → Tax Invoice';
+		} else if (hasTaxInvoice) {
 			docTypeLabel = 'Tax Invoice';
-			docRouteType = 'Sales Invoice';
 		} else if (entry.reference_doctype === 'Sales Invoice') {
 			const isOrder = entry.source === 'Order';
-			docTypeLabel = isOrder ? 'Sales Order' : (entry.reference_doctype || 'Invoice');
+			docTypeLabel = isOrder ? 'Sales Order' : (entry.is_proforma ? 'Proforma' : 'Tax Invoice');
+		} else if (entry.reference_doctype === 'Sales Order') {
+			docTypeLabel = 'Sales Order';
 		}
 
 		const displayStatus = hasTaxInvoice
 			? 'Tax Invoiced'
-			: (entry.reference_doctype === 'Sales Order' ? 'Order' : (entry.invoice_status || 'Draft'));
+			: (entry.reference_doctype === 'Sales Order' ? 'Order' : (entry.invoice_status || entry.source || 'Draft'));
 
 		const docTypeClass = getDocTypeClass(docTypeLabel);
 		const statusClass = getStatusClass(displayStatus);
 		const pcLink = entry.payment_certificate || entry.pay_cert;
 
 		html += `
-			<tr class="ledger-entry-row" onclick="openDocument('${docRouteType}', '${docName}')">
+			<tr class="ledger-entry-row">
 				<td>${entry.posting_date || '-'}</td>
-				<td class="doc-name">${docName || '-'}</td>
+				<td class="doc-name billing-documents-cell">${renderBillingDocumentLabel(entry)}</td>
 				<td><span class="doc-type-badge ${docTypeClass}">${docTypeLabel}</span></td>
 				<td class="text-right">${format_number(entry.prev_qty || 0)}</td>
 				<td class="text-right highlight-current">${format_number(entry.current_qty || 0)}</td>

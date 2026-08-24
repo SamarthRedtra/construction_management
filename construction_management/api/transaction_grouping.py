@@ -10,11 +10,20 @@ logical billing cycles while preserving the underlying BOQ Ledger data integrity
 """
 
 import frappe
-from frappe.utils import flt, getdate, cstr
+from frappe.utils import flt, getdate, cstr, cint
 from typing import Dict, List, Any, Optional, Tuple
 import uuid
 import json
 from datetime import datetime
+
+
+def _row_get(row: Any, key: str, default=None):
+    """Read dict-like or object-like API rows consistently."""
+    if row is None:
+        return default
+    if isinstance(row, dict):
+        return row.get(key, default)
+    return getattr(row, key, default)
 
 
 class TransactionGrouper:
@@ -131,41 +140,269 @@ class TransactionGrouper:
             # Clear all cache
             self.grouped_cache.clear()
     
-    def _create_billing_cycle_mapping(self, ledger_entries: List[Dict], 
+    def _create_billing_cycle_mapping(self, ledger_entries: List[Dict],
                                     payment_certificates: List[Dict]) -> Dict[str, Dict]:
-        """
-        Create initial billing cycle mapping based on Proforma Invoices.
-        
-        Returns:
-            Dict mapping cycle IDs to billing cycle data
-        """
+        """Build one billing cycle per proforma / sales order / direct invoice group."""
+        pc_by_proforma, pc_by_so, pc_by_tax = self._build_pc_lookups(payment_certificates)
+        entry_groups = self._group_ledger_entries(ledger_entries, pc_by_proforma, pc_by_so, pc_by_tax)
+
         billing_cycles = {}
-        
-        # Create mapping of proforma invoices to payment certificates
-        proforma_to_pc = {}
-        for pc in payment_certificates:
-            if pc.proforma_invoice:
-                proforma_to_pc[pc.proforma_invoice] = pc
-        
-        # Process ledger entries to identify billing cycles
-        for entry in ledger_entries:
-            if entry.reference_doctype == 'Proforma Invoice':
-                cycle_id = self._generate_cycle_id(entry.reference_name)
-                
-                if cycle_id not in billing_cycles:
-                    billing_cycles[cycle_id] = self._initialize_billing_cycle(
-                        cycle_id, entry, proforma_to_pc.get(entry.reference_name)
-                    )
-            
-            elif entry.reference_doctype == 'Sales Invoice':
-                # Handle tax invoices - find their parent cycle through payment certificate
-                parent_cycle_id = self._find_parent_cycle_for_tax_invoice(
-                    entry.reference_name, payment_certificates
-                )
-                if parent_cycle_id and parent_cycle_id in billing_cycles:
-                    billing_cycles[parent_cycle_id]['tax_invoice'] = self._create_tax_invoice_record(entry)
-        
+        for cycle_key, entries in entry_groups.items():
+            cycle_id = f"BC-{cycle_key}"
+            billing_cycles[cycle_id] = self._initialize_billing_cycle_from_group(
+                cycle_id, entries, payment_certificates, pc_by_proforma, pc_by_so, pc_by_tax
+            )
+
         return billing_cycles
+
+    def _build_pc_lookups(self, payment_certificates: List[Dict]) -> Tuple[Dict, Dict, Dict]:
+        pc_by_proforma, pc_by_so, pc_by_tax = {}, {}, {}
+        for pc in payment_certificates:
+            proforma = _row_get(pc, "proforma_invoice")
+            if proforma:
+                pc_by_proforma[proforma] = pc
+            sales_order = _row_get(pc, "sales_order")
+            if sales_order:
+                pc_by_so[sales_order] = pc
+            tax_invoice = _row_get(pc, "tax_invoice")
+            if tax_invoice:
+                pc_by_tax[tax_invoice] = pc
+        return pc_by_proforma, pc_by_so, pc_by_tax
+
+    def _group_ledger_entries(self, ledger_entries: List[Dict], pc_by_proforma: Dict,
+                              pc_by_so: Dict, pc_by_tax: Dict) -> Dict[str, List[Dict]]:
+        groups: Dict[str, List[Dict]] = {}
+        for entry in ledger_entries:
+            cycle_key = self._resolve_cycle_key(entry, pc_by_proforma, pc_by_so, pc_by_tax)
+            groups.setdefault(cycle_key, []).append(entry)
+        return groups
+
+    def _resolve_cycle_key(self, entry: Dict, pc_by_proforma: Dict,
+                           pc_by_so: Dict, pc_by_tax: Dict) -> str:
+        proforma_invoice = _row_get(entry, "proforma_invoice")
+        if proforma_invoice:
+            return f"PI-{proforma_invoice}"
+
+        ref_doctype = _row_get(entry, "reference_doctype")
+        ref_name = _row_get(entry, "reference_name")
+
+        if ref_doctype == "Sales Order" and ref_name:
+            return f"SO-{ref_name}"
+        if ref_doctype == "Proforma Invoice" and ref_name:
+            return f"PI-{ref_name}"
+        if ref_doctype == "Payment Certificate" and ref_name:
+            pc = pc_by_proforma.get(ref_name) or {"proforma_invoice": ref_name}
+            if _row_get(pc, "proforma_invoice"):
+                return f"PI-{_row_get(pc, 'proforma_invoice')}"
+            return f"PC-{ref_name}"
+
+        if ref_doctype == "Sales Invoice" and ref_name:
+            linked_pc = pc_by_tax.get(ref_name)
+            if linked_pc:
+                if _row_get(linked_pc, "proforma_invoice"):
+                    return f"PI-{_row_get(linked_pc, 'proforma_invoice')}"
+                if _row_get(linked_pc, "sales_order"):
+                    return f"SO-{_row_get(linked_pc, 'sales_order')}"
+            if cint(_row_get(entry, "is_proforma")):
+                if ref_name in pc_by_proforma:
+                    return f"PI-{ref_name}"
+                return f"PF-{ref_name}"
+            return f"SI-{ref_name}"
+
+        return f"LEDGER-{_row_get(entry, 'name')}"
+
+    def _pick_winner_entry(self, entries: List[Dict]) -> Dict:
+        for entry in entries:
+            if _row_get(entry, "tax_invoice"):
+                return entry
+        for entry in entries:
+            if _row_get(entry, "payment_certificate"):
+                return entry
+        for entry in entries:
+            if _row_get(entry, "reference_doctype") in ("Proforma Invoice", "Sales Order"):
+                return entry
+        return entries[-1]
+
+    def _resolve_payment_certificate(self, entries: List[Dict], payment_certificates: List[Dict],
+                                     pc_by_proforma: Dict, pc_by_so: Dict,
+                                     pc_by_tax: Dict) -> Optional[Dict]:
+        for entry in entries:
+            pc_name = _row_get(entry, "payment_certificate")
+            if pc_name:
+                for pc in payment_certificates:
+                    if _row_get(pc, "name") == pc_name:
+                        return pc
+
+        for entry in entries:
+            ref_doctype = _row_get(entry, "reference_doctype")
+            ref_name = _row_get(entry, "reference_name")
+            if ref_doctype == "Payment Certificate" and ref_name:
+                for pc in payment_certificates:
+                    if _row_get(pc, "name") == ref_name:
+                        return pc
+            if ref_doctype == "Sales Order" and ref_name and ref_name in pc_by_so:
+                return pc_by_so[ref_name]
+            if ref_doctype == "Sales Invoice" and ref_name and ref_name in pc_by_tax:
+                return pc_by_tax[ref_name]
+
+        for entry in entries:
+            proforma = _row_get(entry, "proforma_invoice")
+            if proforma and proforma in pc_by_proforma:
+                return pc_by_proforma[proforma]
+
+        return None
+
+    def _initialize_billing_cycle_from_group(self, cycle_id: str, entries: List[Dict],
+                                             payment_certificates: List[Dict],
+                                             pc_by_proforma: Dict, pc_by_so: Dict,
+                                             pc_by_tax: Dict) -> Dict:
+        winner = self._pick_winner_entry(entries)
+        payment_certificate = self._resolve_payment_certificate(
+            entries, payment_certificates, pc_by_proforma, pc_by_so, pc_by_tax
+        )
+
+        proforma_record = self._resolve_proforma_record(entries, winner, payment_certificate)
+        tax_record = self._resolve_tax_record(entries, winner, payment_certificate)
+
+        current_qty = flt(_row_get(winner, "current_qty"))
+        current_amount = flt(_row_get(winner, "current_amount"))
+        if payment_certificate:
+            current_amount = flt(_row_get(payment_certificate, "accepted_amount")) or current_amount
+        elif tax_record:
+            current_amount = flt(tax_record.get("amount")) or current_amount
+
+        cycle = {
+            "cycle_id": cycle_id,
+            "posting_date": _row_get(winner, "posting_date"),
+            "proforma_invoice": proforma_record,
+            "payment_certificate": self._create_payment_certificate_record(payment_certificate)
+            if payment_certificate else None,
+            "tax_invoice": tax_record,
+            "adjustments": [],
+            "consolidated_values": {
+                "prev_qty": flt(_row_get(winner, "prev_qty")),
+                "prev_amount": flt(_row_get(winner, "prev_amount")),
+                "current_qty": current_qty,
+                "current_amount": current_amount,
+                "accumulated_qty": flt(_row_get(winner, "accumulated_qty")),
+                "accumulated_amount": flt(_row_get(winner, "accumulated_amount")),
+            },
+            "variance": {"amount": 0, "percentage": 0},
+            "workflow_status": "proforma_created",
+            "documents": [],
+            "billing_documents": self._build_billing_documents(proforma_record, payment_certificate, tax_record),
+        }
+
+        if payment_certificate:
+            cycle["variance"] = self._calculate_variance(payment_certificate)
+            cycle["workflow_status"] = self._determine_workflow_status(payment_certificate)
+        elif tax_record:
+            cycle["workflow_status"] = "tax_invoice_generated"
+        elif proforma_record:
+            cycle["workflow_status"] = "proforma_created"
+
+        cycle["documents"] = self._build_documents_list(cycle)
+        return cycle
+
+    def _resolve_proforma_record(self, entries: List[Dict], winner: Dict,
+                                 payment_certificate: Optional[Dict]) -> Optional[Dict]:
+        for entry in entries:
+            if _row_get(entry, "reference_doctype") == "Sales Order" and _row_get(entry, "reference_name"):
+                return self._create_sales_order_record(entry)
+            if _row_get(entry, "reference_doctype") == "Proforma Invoice" and _row_get(entry, "reference_name"):
+                return self._create_proforma_record(entry)
+            if cint(_row_get(entry, "is_proforma")) and _row_get(entry, "reference_doctype") == "Sales Invoice":
+                return self._create_proforma_record(entry)
+
+        proforma_name = _row_get(winner, "proforma_invoice")
+        if proforma_name:
+            return {
+                "name": proforma_name,
+                "date": _row_get(winner, "posting_date"),
+                "amount": flt(_row_get(winner, "proforma_amount")) or flt(_row_get(winner, "current_amount")),
+                "qty": flt(_row_get(winner, "current_qty")),
+                "status": "Submitted",
+                "docstatus": 1,
+                "doctype": "Proforma Invoice",
+            }
+
+        if payment_certificate and _row_get(payment_certificate, "proforma_invoice"):
+            return {
+                "name": _row_get(payment_certificate, "proforma_invoice"),
+                "date": _row_get(payment_certificate, "posting_date"),
+                "amount": flt(_row_get(payment_certificate, "proforma_amount")),
+                "qty": flt(_row_get(winner, "current_qty")),
+                "status": "Submitted",
+                "docstatus": 1,
+                "doctype": "Sales Invoice",
+            }
+
+        return None
+
+    def _resolve_tax_record(self, entries: List[Dict], winner: Dict,
+                            payment_certificate: Optional[Dict]) -> Optional[Dict]:
+        for entry in entries:
+            tax_name = _row_get(entry, "tax_invoice")
+            if tax_name:
+                return {
+                    "name": tax_name,
+                    "date": _row_get(entry, "posting_date"),
+                    "amount": flt(_row_get(entry, "tax_invoice_amount")) or flt(_row_get(entry, "current_amount")),
+                    "qty": flt(_row_get(entry, "current_qty")),
+                    "status": _row_get(entry, "tax_invoice_status") or _row_get(entry, "invoice_status") or "Submitted",
+                    "docstatus": _row_get(entry, "tax_invoice_docstatus") or _row_get(entry, "invoice_docstatus") or 1,
+                }
+
+        if _row_get(winner, "reference_doctype") == "Sales Invoice" and not cint(_row_get(winner, "is_proforma")):
+            return self._create_tax_invoice_record(winner)
+
+        if payment_certificate and _row_get(payment_certificate, "tax_invoice"):
+            return {
+                "name": _row_get(payment_certificate, "tax_invoice"),
+                "date": _row_get(payment_certificate, "posting_date"),
+                "amount": flt(_row_get(payment_certificate, "accepted_amount")),
+                "qty": flt(_row_get(winner, "current_qty")),
+                "status": "Submitted",
+                "docstatus": 1,
+            }
+
+        return None
+
+    def _create_sales_order_record(self, entry: Dict) -> Dict:
+        return {
+            "name": _row_get(entry, "reference_name"),
+            "date": _row_get(entry, "posting_date"),
+            "amount": flt(_row_get(entry, "current_amount")),
+            "qty": flt(_row_get(entry, "current_qty")),
+            "status": "Submitted",
+            "docstatus": 1,
+            "doctype": "Sales Order",
+        }
+
+    def _build_billing_documents(self, proforma_record: Optional[Dict],
+                                 payment_certificate: Optional[Dict],
+                                 tax_record: Optional[Dict]) -> List[Dict]:
+        documents = []
+        if proforma_record:
+            route = "sales-order" if proforma_record.get("doctype") == "Sales Order" else "sales-invoice"
+            documents.append({
+                "type": "proforma_invoice" if proforma_record.get("doctype") != "Sales Order" else "sales_order",
+                "name": proforma_record.get("name"),
+                "route": route,
+            })
+        if payment_certificate:
+            documents.append({
+                "type": "payment_certificate",
+                "name": _row_get(payment_certificate, "name"),
+                "route": "payment-certificate",
+            })
+        if tax_record:
+            documents.append({
+                "type": "tax_invoice",
+                "name": tax_record.get("name"),
+                "route": "sales-invoice",
+            })
+        return documents
     
     def _initialize_billing_cycle(self, cycle_id: str, proforma_entry: Dict, 
                                  payment_certificate: Optional[Dict]) -> Dict:
@@ -217,46 +454,47 @@ class TransactionGrouper:
     
     def _create_proforma_record(self, entry: Dict) -> Dict:
         """Create proforma invoice record for billing cycle."""
-        # Check if invoice_status is present (from LEFT JOIN query), otherwise default to Draft
-        status = 'Submitted' if entry.docstatus == 1 else 'Draft'
-        if hasattr(entry, 'invoice_status') and entry.invoice_status:
-            status = entry.invoice_status
-            
+        status = 'Submitted' if _row_get(entry, 'docstatus') == 1 else 'Draft'
+        invoice_status = _row_get(entry, 'invoice_status')
+        if invoice_status:
+            status = invoice_status
+
         return {
-            'name': entry.reference_name,
-            'date': entry.posting_date,
-            'amount': flt(entry.current_amount),
-            'qty': flt(entry.current_qty),
+            'name': _row_get(entry, 'reference_name'),
+            'date': _row_get(entry, 'posting_date'),
+            'amount': flt(_row_get(entry, 'current_amount')),
+            'qty': flt(_row_get(entry, 'current_qty')),
             'status': status,
-            'docstatus': entry.docstatus if hasattr(entry, 'docstatus') else 1
+            'docstatus': _row_get(entry, 'docstatus') or 1,
+            'doctype': _row_get(entry, 'reference_doctype') or 'Sales Invoice',
         }
     
     def _create_payment_certificate_record(self, pc: Dict) -> Dict:
         """Create payment certificate record for billing cycle."""
         return {
-            'name': pc.name,
-            'date': pc.posting_date,
-            'proforma_amount': flt(pc.proforma_amount),
-            'accepted_amount': flt(pc.accepted_amount),
-            'status': pc.status or 'Draft',
-            'tax_invoice': pc.tax_invoice
+            'name': _row_get(pc, 'name'),
+            'date': _row_get(pc, 'posting_date'),
+            'proforma_amount': flt(_row_get(pc, 'proforma_amount')),
+            'accepted_amount': flt(_row_get(pc, 'accepted_amount')),
+            'status': _row_get(pc, 'status') or 'Draft',
+            'tax_invoice': _row_get(pc, 'tax_invoice')
         }
     
     def _create_tax_invoice_record(self, entry: Dict) -> Dict:
         """Create tax invoice record for billing cycle."""
         return {
-            'name': entry.reference_name,
-            'date': entry.posting_date,
-            'amount': flt(entry.current_amount),
-            'qty': flt(entry.current_qty),
-            'status': entry.invoice_status or 'Draft',
-            'docstatus': entry.invoice_docstatus
+            'name': _row_get(entry, 'reference_name'),
+            'date': _row_get(entry, 'posting_date'),
+            'amount': flt(_row_get(entry, 'current_amount')),
+            'qty': flt(_row_get(entry, 'current_qty')),
+            'status': _row_get(entry, 'invoice_status') or 'Draft',
+            'docstatus': _row_get(entry, 'invoice_docstatus')
         }
     
     def _calculate_variance(self, payment_certificate: Dict) -> Dict:
         """Calculate variance between proforma and payment certificate amounts."""
-        proforma_amount = flt(payment_certificate.proforma_amount)
-        accepted_amount = flt(payment_certificate.accepted_amount)
+        proforma_amount = flt(_row_get(payment_certificate, 'proforma_amount'))
+        accepted_amount = flt(_row_get(payment_certificate, 'accepted_amount'))
         variance_amount = proforma_amount - accepted_amount
         variance_percentage = (variance_amount / proforma_amount * 100) if proforma_amount else 0
         
@@ -267,9 +505,9 @@ class TransactionGrouper:
     
     def _determine_workflow_status(self, payment_certificate: Dict) -> str:
         """Determine workflow status based on payment certificate data."""
-        if payment_certificate.tax_invoice:
+        if _row_get(payment_certificate, 'tax_invoice'):
             return 'tax_invoice_generated'
-        elif payment_certificate.status == 'Submitted':
+        elif _row_get(payment_certificate, 'status') == 'Submitted':
             return 'pc_approved'
         else:
             return 'pc_draft'
@@ -323,24 +561,26 @@ class TransactionGrouper:
             Updated billing cycles with consolidated adjustments
         """
         for entry in ledger_entries:
-            # Skip entries already processed as main transactions
-            if (entry.reference_doctype == 'Proforma Invoice' or 
-                (entry.reference_doctype == 'Sales Invoice' and 
-                 self._is_tax_invoice_in_cycles(entry.reference_name, billing_cycles))):
+            ref_doctype = _row_get(entry, 'reference_doctype')
+            ref_name = _row_get(entry, 'reference_name')
+            if (ref_doctype == 'Proforma Invoice' or
+                (ref_doctype == 'Sales Invoice' and
+                 self._is_tax_invoice_in_cycles(ref_name, billing_cycles))):
                 continue
             
             # Process deduction/adjustment entries
-            if flt(entry.current_amount) < 0 or 'adjustment' in (entry.remarks or '').lower():
+            remarks = _row_get(entry, 'remarks') or ''
+            if flt(_row_get(entry, 'current_amount')) < 0 or 'adjustment' in remarks.lower():
                 parent_cycle_id = self._find_parent_cycle_for_adjustment(entry, billing_cycles)
                 if parent_cycle_id:
                     billing_cycles[parent_cycle_id]['adjustments'].append({
-                        'name': entry.name,
-                        'date': entry.posting_date,
-                        'amount': flt(entry.current_amount),
-                        'qty': flt(entry.current_qty),
-                        'reference': entry.reference_name,
-                        'remarks': entry.remarks,
-                        'type': 'deduction' if flt(entry.current_amount) < 0 else 'adjustment'
+                        'name': _row_get(entry, 'name'),
+                        'date': _row_get(entry, 'posting_date'),
+                        'amount': flt(_row_get(entry, 'current_amount')),
+                        'qty': flt(_row_get(entry, 'current_qty')),
+                        'reference': ref_name,
+                        'remarks': remarks,
+                        'type': 'deduction' if flt(_row_get(entry, 'current_amount')) < 0 else 'adjustment'
                     })
         
         return billing_cycles
@@ -353,8 +593,11 @@ class TransactionGrouper:
         billing cycle, taking into account adjustments and variances.
         """
         # Sort cycles by date for progressive calculation
-        sorted_cycles = sorted(billing_cycles.values(), 
-                             key=lambda x: x['proforma_invoice']['date'] if x['proforma_invoice'] else '')
+        sorted_cycles = sorted(
+            billing_cycles.values(),
+            key=lambda x: x.get('posting_date')
+            or (x['proforma_invoice']['date'] if x.get('proforma_invoice') else '')
+        )
         
         running_qty = 0
         running_amount = 0
@@ -388,19 +631,23 @@ class TransactionGrouper:
         
         return billing_cycles
     
-    def _validate_grouped_totals(self, billing_cycles: List[Dict], ledger_entries: List[Dict]):
+    def _validate_grouped_totals(self, billing_cycles: Dict[str, Dict], ledger_entries: List[Dict]):
         """
-        Validate that grouped transaction totals match underlying ledger totals.
-        
-        This ensures data integrity and catches any grouping errors.
+        Validate grouped totals against ledger totals when rows are not consolidated.
         """
-        # Calculate totals from grouped data
-        grouped_total_qty = sum(flt(cycle['consolidated_values']['current_qty']) for cycle in billing_cycles)
-        grouped_total_amount = sum(flt(cycle['consolidated_values']['current_amount']) for cycle in billing_cycles)
+        if len(billing_cycles) != len(ledger_entries):
+            return
+
+        grouped_total_qty = sum(
+            flt(cycle['consolidated_values']['current_qty']) for cycle in billing_cycles.values()
+        )
+        grouped_total_amount = sum(
+            flt(cycle['consolidated_values']['current_amount']) for cycle in billing_cycles.values()
+        )
         
         # Calculate totals from raw ledger entries
-        ledger_total_qty = sum(flt(entry.current_qty) for entry in ledger_entries)
-        ledger_total_amount = sum(flt(entry.current_amount) for entry in ledger_entries)
+        ledger_total_qty = sum(flt(_row_get(entry, 'current_qty')) for entry in ledger_entries)
+        ledger_total_amount = sum(flt(_row_get(entry, 'current_amount')) for entry in ledger_entries)
         
         # Check for discrepancies
         qty_diff = abs(grouped_total_qty - ledger_total_qty)
@@ -421,28 +668,27 @@ class TransactionGrouper:
                                          payment_certificates: List[Dict]) -> Optional[str]:
         """Find parent billing cycle for a tax invoice through payment certificate."""
         for pc in payment_certificates:
-            if pc.tax_invoice == tax_invoice_name and pc.proforma_invoice:
-                return self._generate_cycle_id(pc.proforma_invoice)
+            if _row_get(pc, 'tax_invoice') == tax_invoice_name and _row_get(pc, 'proforma_invoice'):
+                return self._generate_cycle_id(_row_get(pc, 'proforma_invoice'))
         return None
     
     def _find_parent_cycle_for_adjustment(self, adjustment_entry: Dict, 
                                         billing_cycles: Dict[str, Dict]) -> Optional[str]:
         """Find parent billing cycle for an adjustment entry."""
-        # Try to match by reference document
-        if adjustment_entry.reference_name:
+        ref_name = _row_get(adjustment_entry, 'reference_name')
+        if ref_name:
             for cycle_id, cycle in billing_cycles.items():
-                if (cycle['proforma_invoice'] and 
-                    cycle['proforma_invoice']['name'] == adjustment_entry.reference_name):
+                if (cycle.get('proforma_invoice') and
+                    cycle['proforma_invoice'].get('name') == ref_name):
                     return cycle_id
-                if (cycle['tax_invoice'] and 
-                    cycle['tax_invoice']['name'] == adjustment_entry.reference_name):
+                if (cycle.get('tax_invoice') and
+                    cycle['tax_invoice'].get('name') == ref_name):
                     return cycle_id
         
-        # Try to match by date proximity (within 30 days)
-        adjustment_date = getdate(adjustment_entry.posting_date)
+        adjustment_date = getdate(_row_get(adjustment_entry, 'posting_date'))
         for cycle_id, cycle in billing_cycles.items():
-            if cycle['proforma_invoice']:
-                proforma_date = getdate(cycle['proforma_invoice']['date'])
+            if cycle.get('proforma_invoice'):
+                proforma_date = getdate(cycle['proforma_invoice'].get('date'))
                 if abs((adjustment_date - proforma_date).days) <= 30:
                     return cycle_id
         

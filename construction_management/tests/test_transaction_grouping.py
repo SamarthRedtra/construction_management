@@ -76,7 +76,7 @@ class TestTransactionGrouping(unittest.TestCase):
         self.assertEqual(len(grouped_transactions), 1, "Should create one billing cycle")
         
         cycle = grouped_transactions[0]
-        self.assertEqual(cycle['cycle_id'], 'BC-SI-001', "Cycle ID should be based on proforma invoice")
+        self.assertTrue(cycle['cycle_id'].startswith('BC-PI-SI-001'), "Cycle ID should be based on proforma invoice")
         self.assertIsNotNone(cycle['proforma_invoice'], "Should have proforma invoice")
         self.assertIsNotNone(cycle['payment_certificate'], "Should have payment certificate")
         self.assertIsNotNone(cycle['tax_invoice'], "Should have tax invoice")

@@ -182,6 +182,63 @@ def find_journal_entry_by_so(sales_order_name):
 	return None
 
 
+def get_so_unbilled_jv_amount(sales_order_name):
+	"""Submitted SO unearned JV amount (Dr Unbilled / Cr Sales at order)."""
+	journal_entry_name = find_journal_entry_by_so(sales_order_name)
+	if not journal_entry_name:
+		return 0
+
+	source = get_source_accounts_and_amount(journal_entry_name)
+	if not source:
+		return 0
+
+	return flt(source.get("amount"))
+
+
+def get_unbilled_reversed_on_invoices(sales_order_name, unbilled_account, exclude_si=None):
+	"""Unbilled balance already cleared via credits on submitted Sales Invoices for this SO."""
+	si_names = frappe.db.sql(
+		"""
+		SELECT DISTINCT si.name
+		FROM `tabSales Invoice` si
+		INNER JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
+		WHERE sii.sales_order = %s
+			AND si.docstatus = 1
+			AND (%s IS NULL OR si.name != %s)
+		""",
+		(sales_order_name, exclude_si, exclude_si),
+		pluck="name",
+	)
+	if not si_names:
+		return 0
+
+	return flt(
+		frappe.db.sql(
+			"""
+			SELECT COALESCE(SUM(credit), 0)
+			FROM `tabGL Entry`
+			WHERE voucher_type = 'Sales Invoice'
+				AND voucher_no IN %(si_names)s
+				AND account = %(account)s
+				AND is_cancelled = 0
+			""",
+			{"si_names": tuple(si_names), "account": unbilled_account},
+		)[0][0]
+	)
+
+
+def get_remaining_so_unbilled_balance(sales_order_name, unbilled_account, exclude_si=None):
+	"""Remaining SO unbilled asset to reverse on the next invoice(s)."""
+	jv_amount = get_so_unbilled_jv_amount(sales_order_name)
+	if jv_amount <= 0:
+		return 0
+
+	reversed_amount = get_unbilled_reversed_on_invoices(
+		sales_order_name, unbilled_account, exclude_si=exclude_si
+	)
+	return max(0, flt(jv_amount - reversed_amount, 2))
+
+
 def get_source_accounts_and_amount(journal_entry):
 	rows = frappe.db.get_all(
 		"Journal Entry Account",

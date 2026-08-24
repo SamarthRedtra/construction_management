@@ -946,6 +946,8 @@ def get_boq_invoice_history(boq_item: str, grouped_view: int = 0) -> dict:
 			pl.source,
 			pl.reference_doctype,
 			pl.reference_name,
+			pl.proforma_invoice,
+			pl.proforma_amount,
 			pl.payment_certificate,
 			pl.certified_amount,
 			pl.tax_invoice,
@@ -962,12 +964,19 @@ def get_boq_invoice_history(boq_item: str, grouped_view: int = 0) -> dict:
 			si.status as invoice_status,
 			si.docstatus as invoice_docstatus,
 			si.outstanding_amount,
-			si.custom_is_proforma as is_proforma
+			si.custom_is_proforma as is_proforma,
+			tax_si.status as tax_invoice_status,
+			tax_si.docstatus as tax_invoice_docstatus,
+			so.docstatus as so_docstatus
 		FROM `tabBOQ Progress Ledger` pl
 		LEFT JOIN `tabSales Invoice` si 
 			ON pl.reference_name = si.name 
 			AND pl.reference_doctype = 'Sales Invoice'
-			AND si.docstatus != 2
+		LEFT JOIN `tabSales Invoice` tax_si
+			ON pl.tax_invoice = tax_si.name
+		LEFT JOIN `tabSales Order` so
+			ON pl.reference_name = so.name
+			AND pl.reference_doctype = 'Sales Order'
 		WHERE pl.boq_item = %s
 		ORDER BY pl.posting_date ASC, pl.creation ASC
 	""", boq_item, as_dict=True)
@@ -977,6 +986,10 @@ def get_boq_invoice_history(boq_item: str, grouped_view: int = 0) -> dict:
 	acc_amount = 0
 	for entry in ledger_entries:
 		if entry.reference_doctype == "Sales Invoice" and entry.invoice_docstatus == 2:
+			continue
+		if entry.reference_doctype == "Sales Order" and entry.so_docstatus == 2:
+			continue
+		if entry.tax_invoice and entry.tax_invoice_docstatus == 2:
 			continue
 		
 		# Add unit and rate from BOQ Item
@@ -990,6 +1003,17 @@ def get_boq_invoice_history(boq_item: str, grouped_view: int = 0) -> dict:
 		entry["accumulated_amount"] = acc_amount
 		
 		filtered_entries.append(entry)
+	
+	ledger_so_refs = {
+		e.reference_name for e in filtered_entries if e.reference_doctype == "Sales Order"
+	}
+	invoiced_so_refs = {
+		e.reference_name for e in filtered_entries
+		if e.reference_doctype == "Sales Order" and e.tax_invoice
+	}
+	ledger_tax_refs = {
+		e.tax_invoice for e in filtered_entries if e.tax_invoice
+	}
 	
 	# Get Sales Orders (at item level for this BOQ Item)
 	sales_orders = frappe.db.sql("""
@@ -1006,6 +1030,19 @@ def get_boq_invoice_history(boq_item: str, grouped_view: int = 0) -> dict:
 		AND so.docstatus = 1
 		ORDER BY so.transaction_date DESC
 	""", boq_item, as_dict=True)
+	
+	deduped_sales_orders = {}
+	for so in sales_orders:
+		existing = deduped_sales_orders.get(so.name)
+		if not existing:
+			deduped_sales_orders[so.name] = so
+			continue
+		# Prefer the main billing line over adjustment lines (qty=1 negative rows)
+		if abs(flt(so.qty)) > abs(flt(existing.qty)):
+			deduped_sales_orders[so.name] = so
+		elif flt(so.amount) > flt(existing.amount):
+			deduped_sales_orders[so.name] = so
+	sales_orders = list(deduped_sales_orders.values())
 	
 	# Get Payment Certificates (at item level for this BOQ Item)
 	payment_certificates = frappe.db.sql("""
@@ -1025,13 +1062,15 @@ def get_boq_invoice_history(boq_item: str, grouped_view: int = 0) -> dict:
 		ORDER BY pc.posting_date DESC
 	""", boq_item, as_dict=True)
 	
-	# Pending Sales Orders
+	# Pending Sales Orders not already represented in ledger history
 	pending_orders = []
 	for so in sales_orders:
-		if not any(pc.sales_order == so.name for pc in payment_certificates):
-			# Calculate age in days
-			so["age_days"] = (getdate(today()) - getdate(so.posting_date)).days
-			pending_orders.append(so)
+		if so.name in invoiced_so_refs or so.name in ledger_so_refs:
+			continue
+		if any(pc.sales_order == so.name for pc in payment_certificates):
+			continue
+		so["age_days"] = (getdate(today()) - getdate(so.posting_date)).days
+		pending_orders.append(so)
 	
 	# Calculate summary
 	latest_accumulated_qty = acc_qty
@@ -1086,34 +1125,6 @@ def get_boq_invoice_history(boq_item: str, grouped_view: int = 0) -> dict:
 			frappe.log_error(f"Grouping failed: {str(e)}")
 			response["view_mode"] = "raw"
 			
-	return response
-	
-	# Add grouped transaction view if requested
-	if grouped_view:
-		from construction_management.api.transaction_grouping import (
-			group_transactions_by_billing_cycle, 
-			get_grouped_transaction_summary
-		)
-		
-		try:
-			# Group transactions by billing cycle
-			grouped_transactions = group_transactions_by_billing_cycle(filtered_entries, payment_certificates)
-			grouping_summary = get_grouped_transaction_summary(grouped_transactions)
-			
-			response.update({
-				"grouped_transactions": grouped_transactions,
-				"grouping_summary": grouping_summary,
-				"view_mode": "grouped"
-			})
-		except Exception as e:
-			# Fallback to raw view if grouping fails
-			frappe.log_error(f"Transaction grouping failed for BOQ Item {boq_item}: {str(e)}", 
-							"Transaction Grouping Error")
-			response["view_mode"] = "raw"
-			response["grouping_error"] = str(e)
-	else:
-		response["view_mode"] = "raw"
-	
 	return response
 
 
