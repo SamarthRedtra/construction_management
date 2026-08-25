@@ -94,6 +94,12 @@ def _consolidate_income_gl_by_boq_item(gl_map, income_accounts, unbilled_revenue
 	return result
 
 
+def _gl_map_debit_credit_diff(gl_map, precision=2):
+	debit = sum(flt(e.get("debit")) for e in gl_map)
+	credit = sum(flt(e.get("credit")) for e in gl_map)
+	return flt(debit - credit, precision)
+
+
 class SalesInvoiceOverride(SalesInvoice):
 	def validate(self):
 		if self.get("custom_is_advance_release"):
@@ -767,6 +773,69 @@ class SalesInvoiceOverride(SalesInvoice):
 			)
 		return kept + [debit, credit]
 
+	def _settle_additional_discount_to_sales(self, gl_entries, income_accounts=None):
+		"""If additional discount left credits high, reduce Sales (or debit it) so books balance."""
+		discount = flt(self.base_discount_amount) or flt(self.discount_amount)
+		if discount <= 0 or not gl_entries:
+			return gl_entries
+
+		precision = self.precision("base_grand_total") or 2
+		diff = _gl_map_debit_credit_diff(gl_entries, precision)
+		if diff >= -0.5:
+			return gl_entries
+
+		amount = flt(min(-diff, discount), precision)
+		if amount <= 0:
+			return gl_entries
+
+		income_accounts = income_accounts or {
+			item.income_account for item in self.items if item.income_account
+		}
+		template = next(
+			(entry for entry in gl_entries if entry.get("account") in income_accounts),
+			None,
+		)
+		income_account = (template or {}).get("account") or next(iter(income_accounts), None)
+		if not income_account:
+			return gl_entries
+
+		for entry in gl_entries:
+			if entry.get("account") != income_account:
+				continue
+			credit = flt(entry.get("credit"))
+			if credit < amount:
+				continue
+			entry["credit"] = flt(credit - amount, precision)
+			for field in (
+				"credit_in_account_currency",
+				"credit_in_transaction_currency",
+				"credit_in_reporting_currency",
+			):
+				if field in entry and entry.get(field) is not None:
+					entry[field] = flt(flt(entry.get(field)) - amount, precision)
+			return gl_entries
+
+		cost_center = (template or {}).get("cost_center") or self.cost_center
+		debit_entry = self.get_gl_dict(
+			{
+				"account": income_account,
+				"against": self.customer,
+				"debit": amount,
+				"project": self.project,
+				"cost_center": cost_center,
+				"remarks": _("Additional discount for {0}").format(self.name),
+			}
+		)
+		debit_entry.update(
+			{
+				"transaction_currency": self.currency,
+				"transaction_exchange_rate": self.get("conversion_rate") or 1,
+				"debit_in_transaction_currency": amount,
+			}
+		)
+		gl_entries.append(debit_entry)
+		return gl_entries
+
 	def get_gl_entries(self, warehouse_account=None):
 		gl_entries = super().get_gl_entries(warehouse_account)
 
@@ -788,18 +857,17 @@ class SalesInvoiceOverride(SalesInvoice):
 		if not (retention_account or advance_account or variance_account):
 			# Still need to check if unearned revenue is enabled
 			if not boq_settings.enable_so_unearned_revenue_jv:
-				return gl_entries
+				return self._settle_additional_discount_to_sales(gl_entries)
 
 		# Reverse the remaining SO unbilled JV balance on invoice (not a % of invoice).
-		# Sales on tax invoice = invoice gross (after retention gross-up) minus full
-		# remaining unbilled booked at Sales Order (capped by line / invoice amount).
+		# Sales = remapped income credit (work after additional discount, after retention
+		# gross-up) minus remaining unbilled booked at Sales Order.
 		unbilled_revenue_acc = boq_settings.so_unearned_revenue_debit_account
 		excluded = set(SO_UNEARNED_EXCLUDED_ITEM_CODES)
 		if variance_item_code:
 			excluded.add(variance_item_code)
 
 		item_so_map = {}
-		item_gross_by_row = {}
 		boq_item_so_map = {}
 		so_reversal_budget = {}
 
@@ -811,8 +879,6 @@ class SalesInvoiceOverride(SalesInvoice):
 				item_so_map[item.name] = item.sales_order
 				if item.boq_item:
 					boq_item_so_map[item.boq_item] = item.sales_order
-				if flt(item.amount) > 0:
-					item_gross_by_row[item.name] = flt(item.base_amount) or flt(item.amount)
 
 			for so_name in {item.sales_order for item in self.items if item.sales_order}:
 				if not find_journal_entry_by_so(so_name):
@@ -834,32 +900,14 @@ class SalesInvoiceOverride(SalesInvoice):
 				return boq_item_so_map[boq_item]
 			return None
 
-		def _get_gross_for_entry(entry):
-			voucher_detail_no = entry.get("voucher_detail_no")
-			if voucher_detail_no and voucher_detail_no in item_gross_by_row:
-				return item_gross_by_row[voucher_detail_no]
-			boq_item = entry.get("boq_item")
-			if boq_item:
-				for item in self.items:
-					if (
-						item.boq_item == boq_item
-						and flt(item.amount) > 0
-						and item.item_code not in excluded
-					):
-						return flt(item.base_amount) or flt(item.amount)
-			return flt(entry.get("credit"))
-
 		def _get_unearned_reversal_amount(entry):
 			so_name = _resolve_so_for_entry(entry)
 			if not so_name or so_name not in so_reversal_budget:
 				return 0
 
 			budget = flt(so_reversal_budget[so_name])
-			if budget <= 0:
-				return 0
-
-			gross_cap = _get_gross_for_entry(entry)
-			rev_amt = min(budget, gross_cap, flt(entry.get("credit")))
+			credit = flt(entry.get("credit"))
+			rev_amt = min(budget, credit)
 			if rev_amt <= 0:
 				return 0
 
@@ -870,12 +918,11 @@ class SalesInvoiceOverride(SalesInvoice):
 			if not rev_amt:
 				return
 
-			gross_target = _get_gross_for_entry(entry)
-			rev_amt = min(flt(rev_amt), flt(gross_target), flt(entry.get("credit")))
+			rev_amt = min(flt(rev_amt), flt(entry.get("credit")))
 			if not rev_amt:
 				return
 
-			new_credit = flt(gross_target) - rev_amt
+			new_credit = flt(entry.get("credit")) - rev_amt
 			entry["credit"] = new_credit
 
 			if "credit_in_account_currency" in entry:
@@ -931,7 +978,7 @@ class SalesInvoiceOverride(SalesInvoice):
 				})
 
 		if not deductions and not so_reversal_budget:
-			return gl_entries
+			return self._settle_additional_discount_to_sales(gl_entries, income_accounts)
 
 		# 2. Reconstruct entries
 		new_entries = []
@@ -1064,7 +1111,7 @@ class SalesInvoiceOverride(SalesInvoice):
 			income_accounts,
 			unbilled_revenue_acc,
 		)
-		return new_entries
+		return self._settle_additional_discount_to_sales(new_entries, income_accounts)
 
 
 

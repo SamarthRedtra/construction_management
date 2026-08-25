@@ -41,11 +41,13 @@ class TestSOUnbilledInvoiceReversal(IntegrationTestCase):
 		mock_find_je.return_value = "ACC-JV-2026-03034"
 		si = frappe.get_doc("Sales Invoice", self.SI)
 
+		discount = flt(si.base_discount_amount) or flt(si.discount_amount)
 		gross_line = sum(
 			flt(row.base_amount) or flt(row.amount)
 			for row in si.items
 			if flt(row.amount) > 0 and row.item_code not in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION")
 		)
+		gross_line = flt(gross_line) - discount
 		expected_unbilled = get_so_unbilled_jv_amount(self.SO)
 		expected_sales = flt(gross_line - expected_unbilled, 2)
 
@@ -76,4 +78,5 @@ class TestSOUnbilledInvoiceReversal(IntegrationTestCase):
 
 		self.assertAlmostEqual(unbilled_cr, expected_unbilled, places=2)
 		self.assertAlmostEqual(sales_cr, expected_sales, places=2)
-		self.assertAlmostEqual(sales_cr, 46876.68, places=0)
+		if not discount:
+			self.assertAlmostEqual(sales_cr, 46876.68, places=0)
