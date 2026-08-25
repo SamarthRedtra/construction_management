@@ -10,7 +10,7 @@ from frappe.utils import cint, flt, getdate
 
 PO_NAME = "SKD-LPO-00371-1"
 PATCH_JE_REMARK = "construction_management: SKD-LPO-00371-1 fixed asset capitalization"
-ASSET_CATEGORY = "Plant & Machinery- Office"
+ASSET_CATEGORY = "POWER TOOLS"
 ASSET_NAMING_SERIES = "ACC-ASS-.YYYY.-"
 DEFAULT_ASSET_LOCATION = "SKD-50"
 
