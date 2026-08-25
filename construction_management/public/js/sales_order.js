@@ -55,6 +55,31 @@ frappe.ui.form.on('Sales Order', {
 
 		construction_management.deduction_summary.render(frm);
 
+		if (!frm.is_new()) {
+			frm.add_custom_button(
+				__('BOQ Progress Excel'),
+				function () {
+					frappe.call({
+						method:
+							'construction_management.api.so_boq_progress_excel.export_sales_order_boq_progress_excel',
+						args: { sales_order: frm.doc.name },
+						freeze: true,
+						freeze_message: __('Exporting Excel...'),
+						callback: function (r) {
+							if (r.message) {
+								window.open(r.message);
+								frappe.show_alert({
+									message: __('Excel exported'),
+									indicator: 'green',
+								});
+							}
+						},
+					});
+				},
+				__('Print')
+			);
+		}
+
 		// Combined tax invoice from this SO + other proformas on the same project
 		if (
 			frm.doc.docstatus === 1 &&

@@ -1,0 +1,266 @@
+{% set p = get_so_boq_progress_print_context(doc) %}
+{% macro cur(v) -%}{{ frappe.format_value(v, {"fieldtype": "Currency", "options": p.currency}) }}{%- endmacro %}
+{% macro qty(v) -%}{{ "{:,.2f}".format(v) }}{%- endmacro %}
+
+{% if letter_head %}
+    {{ letter_head }}
+{% endif %}
+
+<style>
+@page {
+    size: A4;
+    margin: 5mm;
+}
+
+* {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+}
+
+.print-format {
+    width: 100%;
+    font-family: Helvetica, Arial, sans-serif;
+    font-size: 8pt;
+    color: #000;
+    padding: 5mm;
+    box-sizing: border-box;
+    display: block;
+}
+
+.header-title {
+    text-align: center;
+    font-size: 13pt;
+    font-weight: bold;
+    text-decoration: underline;
+    margin-bottom: 15px;
+    text-transform: uppercase;
+}
+
+.header-table {
+    width: 100%;
+    border: none;
+    margin-bottom: 10px;
+}
+
+.header-table td {
+    vertical-align: top;
+    border: none;
+    padding: 0;
+}
+
+.info-label { font-weight: bold; width: 100px; display: inline-block; }
+
+.boq-table {
+    width: 100% !important;
+    border-collapse: collapse;
+    table-layout: fixed;
+    margin-top: 10px;
+}
+
+.boq-table th,
+.boq-table td {
+    border: 1px solid #000 !important;
+    padding: 8px 6px;
+    vertical-align: middle;
+    word-wrap: break-word;
+}
+
+.boq-table th {
+    background-color: #f2f2f2 !important;
+    font-size: 7.5pt;
+    text-align: center;
+}
+
+.col-idx   { width: 25px; text-align: center; }
+.col-desc  {
+    width: auto;
+    vertical-align: top;
+    line-height: 1.5;
+    padding: 12px 8px;
+    min-height: 56px;
+    white-space: pre-wrap;
+}
+.col-terms { width: 45px; text-align: center; }
+.col-unit  { width: 35px; text-align: center; }
+.col-qty   { width: 55px; text-align: right; font-size: 7pt; }
+.col-rate  { width: 65px; text-align: right; font-size: 7pt; }
+.col-amt   { width: 75px; text-align: right; font-size: 7pt; }
+
+.text-bold { font-weight: bold; }
+.text-right { text-align: right; }
+.boq-progress-row td { background-color: #fafafa !important; font-weight: 600; }
+.boq-progress-row .col-desc, .boq-progress-row .col-terms { text-align: center; }
+
+.terms-section {
+    margin-top: 15px;
+    page-break-inside: avoid;
+}
+
+.print-footer {
+    width: 100%;
+    margin-top: 20px;
+    page-break-inside: avoid;
+}
+
+.footer-table {
+    width: 100%;
+    margin-top: 40px;
+    border: none;
+}
+
+.footer-table td {
+    width: 50%;
+    border: none;
+    vertical-align: top;
+}
+</style>
+
+<div class="print-format">
+    <div class="header-title">Proforma Invoice</div>
+
+    <table class="header-table">
+        <tr>
+            <td style="width: 50%;">
+                <div class="text-bold" style="font-size: 9pt; margin-bottom: 5px;">{{ p.header.customer_name }}</div>
+                {% if p.header.customer_tel %}
+                <div><span class="info-label">Tel:</span>{{ p.header.customer_tel }}</div>
+                {% endif %}
+                <div><span class="info-label">Customer TRN:</span>{{ p.header.customer_trn }}</div>
+                <div><span class="info-label">Subject:</span>{{ p.header.subject }}</div>
+            </td>
+            <td style="width: 50%; text-align: right;">
+                <div><span class="info-label">Date :</span>{{ p.header.date }}</div>
+                <div><span class="info-label">Invoice No. :</span>{{ p.header.invoice_no }}</div>
+                <div><span class="info-label">Project :</span>{{ p.header.project_name }}</div>
+                {% if p.header.company_trn %}
+                <div><span class="info-label">{{ p.header.company_trn_label }} :</span>{{ p.header.company_trn }}</div>
+                {% endif %}
+            </td>
+        </tr>
+    </table>
+
+    <table class="boq-table">
+        <thead>
+            <tr>
+                <th rowspan="2" class="col-idx">#</th>
+                <th rowspan="2" class="col-desc">Description</th>
+                <th rowspan="2" class="col-terms">Payment Terms</th>
+                <th rowspan="2" class="col-unit">Unit</th>
+                <th colspan="3">Progress (Qty %)</th>
+                <th rowspan="2" class="col-rate">Unit Price</th>
+                <th colspan="3">Amount ({{ p.currency }})</th>
+            </tr>
+            <tr>
+                <th class="col-qty">Previous</th>
+                <th class="col-qty">Current</th>
+                <th class="col-qty">Total</th>
+                <th class="col-amt">Previous</th>
+                <th class="col-amt">Current</th>
+                <th class="col-amt">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in p.rows %}
+            <tr>
+                <td class="col-idx">{{ item.idx }}</td>
+                <td class="col-desc">{{ item.description }}</td>
+                <td class="col-terms"></td>
+                <td class="col-unit">{{ item.uom }}</td>
+                <td class="col-qty"></td>
+                <td class="col-qty"></td>
+                <td class="col-qty"></td>
+                <td class="col-rate"></td>
+                <td class="col-amt"></td>
+                <td class="col-amt"></td>
+                <td class="col-amt"></td>
+            </tr>
+            <tr class="boq-progress-row">
+                <td class="col-idx"></td>
+                <td class="col-desc">Progress</td>
+                <td class="col-terms">{{ item.percentage }}%</td>
+                <td class="col-unit"></td>
+                <td class="col-qty">{{ qty(item.prev_qty) }}</td>
+                <td class="col-qty">{{ qty(item.current_qty) }}</td>
+                <td class="col-qty">{{ qty(item.total_qty) }}</td>
+                <td class="col-rate">{{ cur(item.rate) }}</td>
+                <td class="col-amt">{{ cur(item.prev_amount) }}</td>
+                <td class="col-amt">{{ cur(item.current_amount) }}</td>
+                <td class="col-amt">{{ cur(item.total_amount) }}</td>
+            </tr>
+            {% endfor %}
+
+            <tr class="text-bold" style="background-color: #f9f9f9 !important;">
+                <td colspan="8" class="text-right">TOTAL WORK DONE</td>
+                <td class="col-amt">{{ cur(p.totals.gross_p) }}</td>
+                <td class="col-amt">{{ cur(p.totals.gross_c) }}</td>
+                <td class="col-amt">{{ cur(p.totals.gross_t) }}</td>
+            </tr>
+            <tr>
+                <td colspan="8" class="text-right">Retention ({{ p.totals.ret_percent }}%)</td>
+                <td class="col-amt">({{ cur(p.totals.ret_p) }})</td>
+                <td class="col-amt">({{ cur(p.totals.ret_c) }})</td>
+                <td class="col-amt">({{ cur(p.totals.ret_t) }})</td>
+            </tr>
+            <tr>
+                <td colspan="8" class="text-right">Advance Deduction</td>
+                <td class="col-amt">({{ cur(p.totals.adv_p) }})</td>
+                <td class="col-amt">({{ cur(p.totals.adv_c) }})</td>
+                <td class="col-amt">({{ cur(p.totals.adv_t) }})</td>
+            </tr>
+            <tr>
+                <td colspan="8" class="text-right">VAT ({{ p.totals.vat_rate }}%)</td>
+                <td class="col-amt">{{ cur(p.totals.tax_p) }}</td>
+                <td class="col-amt">{{ cur(p.totals.tax_c) }}</td>
+                <td class="col-amt">{{ cur(p.totals.tax_t) }}</td>
+            </tr>
+            <tr>
+                <td colspan="8" class="text-right">Additional Deduction / Discount</td>
+                <td class="col-amt">0.00</td>
+                <td class="col-amt">({{ cur(p.totals.disc_c) }})</td>
+                <td class="col-amt">({{ cur(p.totals.disc_c) }})</td>
+            </tr>
+            <tr>
+                <td colspan="8" class="text-right">Previous Payment (Invoiced)</td>
+                <td class="col-amt">({{ cur(p.totals.prev_paid) }})</td>
+                <td class="col-amt">0.00</td>
+                <td class="col-amt">({{ cur(p.totals.prev_paid) }})</td>
+            </tr>
+            <tr class="text-bold" style="background-color:#e6e6e6 !important;">
+                <td colspan="9" class="text-right" style="font-size: 8.5pt;">NET AMOUNT DUE</td>
+                <td colspan="2" class="col-amt" style="font-size: 10pt;">
+                    {{ cur(p.totals.net_c) }}
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    {% if p.terms %}
+    <div class="terms-section">
+        <div class="terms-header">Terms and Conditions:</div>
+        <div class="terms-body">{{ p.terms }}</div>
+    </div>
+    {% endif %}
+
+    <div class="print-footer">
+        <div style="margin-bottom: 5px;"><b>Amount in words:</b> {{ p.amount_in_words }}</div>
+        <div style="margin-bottom: 5px;">
+            <b>Note:</b> All cheques to be made in the name of <b>{{ p.company }}</b>
+        </div>
+        <div style="font-style: italic; font-size: 7.5pt; margin-bottom: 20px;">
+            "The Client should notify in writing of any dispute within seven (7) days, otherwise the invoice is final and accepted."
+        </div>
+
+        <table class="footer-table">
+            <tr>
+                <td>
+                    <b>For {{ p.company }}</b><br><br><br><br>
+                    Authorized Signatory
+                </td>
+                <td style="text-align: right;">
+                    <b>Received By:</b><br><br><br><br>
+                    {{ p.customer_name }}
+                </td>
+            </tr>
+        </table>
+    </div>
+</div>

@@ -49,6 +49,7 @@ page_js = {
 	"project-soa": "public/js/project_soa_dashboard.js",
 	"project-commission": "public/js/project_commission_dashboard.js",
 	"project-collection": "public/js/project_collection_dashboard.js",
+	"print": "public/js/print_boq_progress_excel.js",
 }
 
 # include js in doctype views
@@ -109,11 +110,11 @@ doctype_list_js = {
 # Jinja
 # ----------
 
-# add methods and filters to jinja environment
-# jinja = {
-# 	"methods": "construction_management.utils.jinja_methods",
-# 	"filters": "construction_management.utils.jinja_filters"
-# }
+jinja = {
+	"methods": [
+		"construction_management.so_boq_progress_print_context.get_so_boq_progress_print_context",
+	],
+}
 
 # Installation
 # ------------
@@ -393,6 +394,7 @@ fixtures = [
 			"Daily Roster",
 			"Payment Certificate Payable",
 			"Project Completion Report",
+			"Sales Order BOQ Progress",
 		]]]
 	},
 ]
