@@ -14,6 +14,9 @@ frappe.ui.form.on('Sales Invoice', {
 	},
 	custom_is_advanced: function (frm) {
 		if (frm.doc.custom_is_advanced) {
+			if (cint(frm.doc.custom_is_advance_release)) {
+				frm.set_value("custom_is_advance_release", 0);
+			}
 			frm.set_df_property("custom_advanced_percentage", "reqd", 1);
 			frm.set_df_property("project", "reqd", 1);
 			calculate_advance_amount(frm);
@@ -23,9 +26,25 @@ frappe.ui.form.on('Sales Invoice', {
 		}
 	},
 
+	custom_is_advance_release: function (frm) {
+		if (frm.doc.docstatus !== 0) {
+			return;
+		}
+		if (frm.doc.custom_is_advance_release) {
+			if (cint(frm.doc.custom_is_advanced)) {
+				frm.set_value("custom_is_advanced", 0);
+			}
+			frm.set_df_property("project", "reqd", 1);
+			fill_advance_release_from_project(frm);
+		}
+	},
+
 	project: function (frm) {
 		if (frm.doc.custom_is_advanced) {
 			calculate_advance_amount(frm);
+		}
+		if (frm.doc.custom_is_advance_release) {
+			fill_advance_release_from_project(frm);
 		}
 	},
 
@@ -71,7 +90,8 @@ frappe.ui.form.on('Sales Invoice', {
 		}
 
 		const skip_advance = cint(frm.doc.custom_skip_advance_deduction);
-		if (frm.doc.docstatus === 0 && frm.doc.project) {
+		const is_advance_release = cint(frm.doc.custom_is_advance_release);
+		if (frm.doc.docstatus === 0 && frm.doc.project && !is_advance_release) {
 			frm.add_custom_button(__('Pull Retention'), () => {
 				recalculate_si_deductions(frm);
 			}, __('Get Deductions'));
@@ -578,6 +598,29 @@ function pull_advance_deduction(frm) {
 	recalculate_si_deductions(frm);
 }
 
+function fill_advance_release_from_project(frm) {
+	if (frm.doc.docstatus !== 0 || !frm.doc.project) {
+		return;
+	}
+	if (frm.is_new()) {
+		frappe.show_alert({
+			message: __('Save the invoice to load leftover advance lines'),
+			indicator: 'blue',
+		});
+		return;
+	}
+	frappe.call({
+		method: 'construction_management.api.advance_release.fill_advance_release_items',
+		args: { sales_invoice: frm.doc.name },
+		freeze: true,
+		callback: (r) => {
+			if (r.message && r.message.status === 'ok') {
+				frm.reload_doc();
+			}
+		},
+	});
+}
+
 function calculate_advance_amount(frm) {
 	if (!frm.doc.project || !frm.doc.custom_advanced_percentage || !frm.doc.custom_is_advanced) return;
 
@@ -625,7 +668,7 @@ function recalculate_deductions(frm) {
 	// Only recalculate if we have a project and the document is in draft
 	// Skip if this is an advance invoice or from payment certificate/proforma
 	if (!frm.doc.project || frm.doc.docstatus !== 0 ||
-		frm.doc.custom_is_advanced || frm.doc.custom_payment_certificate ||
+		frm.doc.custom_is_advanced || frm.doc.custom_is_advance_release || frm.doc.custom_payment_certificate ||
 		frm.doc.custom_proforma_invoice || frm.doc.custom_is_proforma) {
 		return;
 	}

@@ -5,6 +5,8 @@
 Project Closure API - Advance and Retention helpers
 """
 
+from __future__ import annotations
+
 import frappe
 from frappe import _
 from frappe.utils import flt
@@ -30,6 +32,13 @@ def get_existing_project_closure(project: str) -> dict:
 		order_by="creation desc"
 	)
 	return {"name": name} if name else {}
+
+
+@frappe.whitelist()
+def prepare_advance_release_sales_invoice(project: str, amount: float | None = None) -> dict:
+	from construction_management.api.advance_release import prepare_advance_release_sales_invoice as _prepare
+
+	return _prepare(project, amount)
 
 
 @frappe.whitelist()

@@ -96,10 +96,20 @@ def _consolidate_income_gl_by_boq_item(gl_map, income_accounts, unbilled_revenue
 
 class SalesInvoiceOverride(SalesInvoice):
 	def validate(self):
+		if self.get("custom_is_advance_release"):
+			from construction_management.api.advance_release import validate_advance_release
+
+			validate_advance_release(self)
 		super().validate()
+		if self.get("custom_is_advance_release"):
+			self.allocate_advances_automatically = 0
+			self.set("taxes", [])
+			self.taxes_and_charges = None
+			self.calculate_taxes_and_totals()
 		if (
 			self.project
 			and not self.custom_is_advanced
+			and not self.get("custom_is_advance_release")
 			and (self.is_bill_invoice() or self.has_additional_service_deduction_items())
 			and self.docstatus == 0
 			and not self.flags.get("ignore_deduction_recalc")
@@ -706,6 +716,57 @@ class SalesInvoiceOverride(SalesInvoice):
 		)
 		self.set("items", [item for item in self.items if item not in rows[1:]])
 
+	def _advance_release_gl_entries(self, gl_entries, boq_settings):
+		"""Net-zero invoice: Dr Advance from Customer / Cr Sales. Ignore merged income lines."""
+		advance_account = boq_settings.advance_account
+		if not advance_account:
+			frappe.throw(_("Set Advance Account in BOQ Settings for {0}").format(self.company))
+
+		amount = sum(
+			abs(flt(item.base_amount) or flt(item.amount))
+			for item in self.items
+			if item.item_code == "ADVANCE-DEDUCTION"
+		)
+		income_account = next(
+			(
+				item.income_account
+				for item in self.items
+				if item.item_code == "ADVANCE-RELEASE" and item.income_account
+			),
+			None,
+		)
+		if amount <= 0 or not income_account:
+			return gl_entries
+
+		income_accounts = {item.income_account for item in self.items if item.income_account}
+		kept = [
+			entry
+			for entry in gl_entries
+			if entry.get("account") not in income_accounts
+			and (flt(entry.get("debit")) or flt(entry.get("credit")))
+		]
+		cost_center = self.cost_center or frappe.get_cached_value("Company", self.company, "cost_center")
+		common = {
+			"project": self.project,
+			"cost_center": cost_center,
+			"against": self.customer,
+		}
+		debit = self.get_gl_dict(
+			{"account": advance_account, "debit": amount, **common}
+		)
+		credit = self.get_gl_dict(
+			{"account": income_account, "credit": amount, **common}
+		)
+		for entry, field in ((debit, "debit"), (credit, "credit")):
+			entry.update(
+				{
+					"transaction_currency": self.currency,
+					"transaction_exchange_rate": self.get("conversion_rate") or 1,
+					f"{field}_in_transaction_currency": amount,
+				}
+			)
+		return kept + [debit, credit]
+
 	def get_gl_entries(self, warehouse_account=None):
 		gl_entries = super().get_gl_entries(warehouse_account)
 
@@ -717,6 +778,8 @@ class SalesInvoiceOverride(SalesInvoice):
 		if not frappe.db.exists("BOQ Settings", self.company):
 			return gl_entries
 		boq_settings = frappe.get_doc("BOQ Settings", self.company)
+		if self.get("custom_is_advance_release"):
+			return self._advance_release_gl_entries(gl_entries, boq_settings)
 		retention_account = boq_settings.retention_account
 		advance_account = boq_settings.advance_account
 		variance_account = boq_settings.varience_account_debit
@@ -740,7 +803,7 @@ class SalesInvoiceOverride(SalesInvoice):
 		boq_item_so_map = {}
 		so_reversal_budget = {}
 
-		if boq_settings.get("enable_so_unearned_revenue_jv") and unbilled_revenue_acc:
+		if boq_settings.get("enable_so_unearned_revenue_jv") and unbilled_revenue_acc and not self.get("custom_is_advance_release"):
 			exclude_si = self.name if self.docstatus == 1 else None
 			for item in self.items:
 				if not item.sales_order or item.item_code in excluded:

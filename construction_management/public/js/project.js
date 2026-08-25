@@ -1128,6 +1128,10 @@ function render_action_bar(container, frm) {
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
 				Release Retention
 			</button>
+			<button class="btn-modern btn-outline" onclick="release_advance_to_revenue('${frm.doc.name}')" title="${__('Convert leftover customer advance to revenue')}">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22"></path><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+				Release Advance to Revenue
+			</button>
 			` : ''}
 			<button class="btn-modern btn-outline" onclick="view_payment_certificates('${frm.doc.name}')">
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
@@ -4489,6 +4493,20 @@ window.release_retention_payment = function (project) {
 				frappe.msgprint(r.message.error);
 			} else if (r.exc) {
 				frappe.msgprint(__('Failed to create retention release invoice'));
+			}
+		}
+	});
+};
+
+window.release_advance_to_revenue = function (project) {
+	frappe.call({
+		method: 'construction_management.api.project_closure_api.prepare_advance_release_sales_invoice',
+		args: { project: project },
+		callback: function (r) {
+			if (r.message && r.message.invoice_name) {
+				frappe.set_route('Form', 'Sales Invoice', r.message.invoice_name);
+			} else if (r.message && r.message.error) {
+				frappe.msgprint(r.message.error);
 			}
 		}
 	});

@@ -1810,6 +1810,7 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 		frappe.throw(_("Set Project before recalculating deductions."))
 	if (
 		doc.get("custom_is_advanced")
+		or doc.get("custom_is_advance_release")
 		or doc.get("custom_payment_certificate")
 		or doc.get("custom_proforma_invoice")
 		or doc.get("custom_is_proforma")
