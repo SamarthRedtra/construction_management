@@ -21,6 +21,10 @@ function setup_po_line_progress_columns(frm) {
 	}
 }
 
+function clear_project_requirement(frm) {
+	frm.set_df_property('project', 'reqd', 0);
+}
+
 function apply_item_liability_account_row(frm, cdt, cdn) {
 	const row = locals[cdt] && locals[cdt][cdn];
 	if (!row) return;
@@ -57,9 +61,9 @@ frappe.ui.form.on('Purchase Invoice', {
 	},
 
 	custom_is_advance: function (frm) {
-		if (frm.doc.custom_is_advance) {
-			frm.set_df_property("project", "reqd", 1);
+		clear_project_requirement(frm);
 
+		if (frm.doc.custom_is_advance) {
 			// Auto-add advance item based on PO advance percentage
 			let purchase_order = null;
 			for (let item of (frm.doc.items || [])) {
@@ -102,7 +106,6 @@ frappe.ui.form.on('Purchase Invoice', {
 					});
 			}
 		} else {
-			frm.set_df_property("project", "reqd", 0);
 			// Remove advance item if unticked
 			let advance_row = (frm.doc.items || []).find(i => i.item_code === 'PURCHASE-ADVANCE');
 			if (advance_row) {
@@ -126,10 +129,7 @@ frappe.ui.form.on('Purchase Invoice', {
 			construction_management.dimension_utils.setup_child_table_dimension_filters(frm, 'items');
 		}
 
-		// Set project required if is_advance is checked
-		if (frm.doc.custom_is_advance) {
-			frm.set_df_property("project", "reqd", 1);
-		}
+		clear_project_requirement(frm);
 
 	},
 

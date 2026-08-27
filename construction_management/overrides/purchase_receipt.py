@@ -28,7 +28,7 @@ def before_submit(doc, method):
 	"""Validate Purchase Receipt before submit"""
 	_set_default_target_warehouse(doc)
 	validate_items_in_purchase_order(doc)
-	ensure_item_projects(doc, make_mandatory=True)
+	ensure_item_projects(doc)
 
 
 def scale_fixed_discount(doc):
@@ -274,10 +274,12 @@ def apply_purchase_deductions(doc):
 			item.expense_account = default_expense_account
 
 
-def ensure_item_projects(doc, make_mandatory=False):
+def ensure_item_projects(doc):
 	"""
-	Ensure each item has project set by pulling from the row or linked warehouses.
-	This safeguards against client-side values being cleared during save/submit.
+	Populate each item Project from a linked warehouse when one exists.
+
+	A Project remains optional for standard ERPNext buying transactions. This only
+	preserves the useful automatic assignment for project-specific warehouses.
 	"""
 	for row in doc.get("items", []):
 		# Skip deduction items for project requirement
@@ -304,13 +306,6 @@ def ensure_item_projects(doc, make_mandatory=False):
 				)
 
 			row.project = project
-		elif make_mandatory:
-			frappe.throw(
-				_("Row {0}: Please set a Project for warehouse {1}").format(
-					row.idx or row.name, row.warehouse or row.rejected_warehouse
-				),
-				title=_("Project Required"),
-			)
 
 
 def validate_extra_accounting_entries(doc):
