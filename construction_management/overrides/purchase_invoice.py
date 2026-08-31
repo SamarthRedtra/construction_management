@@ -115,11 +115,8 @@ class PurchaseInvoiceOverride(CustomPurchaseInvoice):
 			return _ensure_supplier_party_on_gl_entries(self, gl_entries)
 
 		# If subcontractor purchase, redirect deduction entries directly to target accounts and do not gross up (Case A),
-		# or if they are merged, gross up and add custom entries (Case B).
+		# or if they are merged into Accrued, gross up and add custom entries (Case B).
 		if _is_subcontractor_purchase(self):
-			new_entries = []
-			processed_deductions = []
-
 			def add_party_if_needed(gl_dict, account):
 				acc_type = frappe.db.get_value("Account", account, "account_type")
 				if acc_type in ["Receivable", "Payable"]:
@@ -132,39 +129,9 @@ class PurchaseInvoiceOverride(CustomPurchaseInvoice):
 					)
 				return gl_dict
 
-			# First Pass: Try to match and redirect negative standard entries directly (Case A)
-			for entry in gl_entries:
-				debit_val = flt(entry.get("debit"))
-				credit_val = flt(entry.get("credit"))
-				val = debit_val if debit_val != 0 else -credit_val
-				if val < 0:
-					for idx, d in enumerate(deductions):
-						if idx in processed_deductions:
-							continue
-						if entry.get("account") == d["expense_account"] and abs(abs(val) - d["amount"]) < 0.01:
-							target_currency = frappe.get_cached_value("Account", d["target_account"], "account_currency") or self.company_currency
-							
-							entry["account"] = d["target_account"]
-							entry["credit"] = d["amount"]
-							entry["debit"] = 0
-							entry["account_currency"] = target_currency
-							if "credit_in_account_currency" in entry:
-								entry["credit_in_account_currency"] = d["amount"] if target_currency == self.company_currency else d["transaction_amount"]
-							if "debit_in_account_currency" in entry:
-								entry["debit_in_account_currency"] = 0
-							if "credit_in_transaction_currency" in entry:
-								entry["credit_in_transaction_currency"] = d["transaction_amount"]
-							if "debit_in_transaction_currency" in entry:
-								entry["debit_in_transaction_currency"] = 0
-							if "credit_in_reporting_currency" in entry:
-								entry["credit_in_reporting_currency"] = d["amount"]
-							if "debit_in_reporting_currency" in entry:
-								entry["debit_in_reporting_currency"] = 0
-								
-							add_party_if_needed(entry, d["target_account"])
-							processed_deductions.append(idx)
-							break
-				new_entries.append(entry)
+			new_entries, processed_deductions = _redirect_subcontractor_deduction_credits(
+				self, gl_entries, deductions, add_party_if_needed
+			)
 
 			# Second Pass: Handle remaining unmatched merged entries (Case B)
 			final_entries = []
@@ -423,6 +390,121 @@ class PurchaseInvoiceOverride(CustomPurchaseInvoice):
 		from construction_management.pc_payable_print_context import build_pc_payable_print_context
 
 		return build_pc_payable_print_context(self)
+
+
+def _signed_gl_amount(entry) -> float:
+	debit_val = flt(entry.get("debit"))
+	credit_val = flt(entry.get("credit"))
+	return debit_val if debit_val != 0 else -credit_val
+
+
+def _apply_deduction_credit_fields(entry, deduction, company_currency):
+	"""Rewrite a negative expense GLE into a credit on the BOQ deduction account."""
+	target_currency = (
+		frappe.get_cached_value("Account", deduction["target_account"], "account_currency") or company_currency
+	)
+	entry["account"] = deduction["target_account"]
+	entry["credit"] = deduction["amount"]
+	entry["debit"] = 0
+	entry["account_currency"] = target_currency
+	if "credit_in_account_currency" in entry:
+		entry["credit_in_account_currency"] = (
+			deduction["amount"] if target_currency == company_currency else deduction["transaction_amount"]
+		)
+	if "debit_in_account_currency" in entry:
+		entry["debit_in_account_currency"] = 0
+	if "credit_in_transaction_currency" in entry:
+		entry["credit_in_transaction_currency"] = deduction["transaction_amount"]
+	if "debit_in_transaction_currency" in entry:
+		entry["debit_in_transaction_currency"] = 0
+	if "credit_in_reporting_currency" in entry:
+		entry["credit_in_reporting_currency"] = deduction["amount"]
+	if "debit_in_reporting_currency" in entry:
+		entry["debit_in_reporting_currency"] = 0
+
+
+def _make_deduction_credit_gl(doc, deduction, add_party_if_needed):
+	target_currency = (
+		frappe.get_cached_value("Account", deduction["target_account"], "account_currency") or doc.company_currency
+	)
+	entry = doc.get_gl_dict(
+		add_party_if_needed(
+			{
+				"account": deduction["target_account"],
+				"credit": deduction["amount"],
+				"credit_in_account_currency": (
+					deduction["amount"]
+					if target_currency == doc.company_currency
+					else deduction["transaction_amount"]
+				),
+				"project": deduction["project"],
+				"boq_item": deduction["boq_item"],
+				"bill_no": deduction["bill_no"],
+				"cost_center": deduction["cost_center"],
+				"against": doc.supplier,
+				"remarks": f"{deduction['item_code']} for {doc.name}",
+			},
+			deduction["target_account"],
+		),
+		account_currency=target_currency,
+	)
+	entry.update(
+		{
+			"transaction_currency": doc.currency,
+			"transaction_exchange_rate": doc.get("conversion_rate") or 1,
+			"credit_in_transaction_currency": deduction["transaction_amount"],
+		}
+	)
+	return entry
+
+
+def _redirect_subcontractor_deduction_credits(doc, gl_entries, deductions, add_party_if_needed):
+	"""Case A: move expense credits for retention/advance onto BOQ accounts without grossing Accrued.
+
+	ERPNext merge_similar_entries often collapses both deduction credits into one COGS line.
+	Match 1:1 first; if the credit equals the remaining sum on that expense account, split it.
+	"""
+	new_entries = []
+	processed = []
+
+	for entry in gl_entries:
+		val = _signed_gl_amount(entry)
+		if val >= 0:
+			new_entries.append(entry)
+			continue
+
+		credit_amt = abs(val)
+		one_to_one = None
+		for idx, deduction in enumerate(deductions):
+			if idx in processed:
+				continue
+			if entry.get("account") == deduction["expense_account"] and abs(credit_amt - deduction["amount"]) < 0.01:
+				one_to_one = (idx, deduction)
+				break
+
+		if one_to_one:
+			idx, deduction = one_to_one
+			_apply_deduction_credit_fields(entry, deduction, doc.company_currency)
+			add_party_if_needed(entry, deduction["target_account"])
+			processed.append(idx)
+			new_entries.append(entry)
+			continue
+
+		remaining = [
+			(idx, deduction)
+			for idx, deduction in enumerate(deductions)
+			if idx not in processed and deduction["expense_account"] == entry.get("account")
+		]
+		merged_total = sum(deduction["amount"] for _idx, deduction in remaining)
+		if remaining and abs(merged_total - credit_amt) < 0.05:
+			for idx, deduction in remaining:
+				new_entries.append(_make_deduction_credit_gl(doc, deduction, add_party_if_needed))
+				processed.append(idx)
+			continue
+
+		new_entries.append(entry)
+
+	return new_entries, processed
 
 
 def _ensure_supplier_party_on_gl_entries(doc, gl_entries):
