@@ -900,19 +900,28 @@ class SalesInvoiceOverride(SalesInvoice):
 				return boq_item_so_map[boq_item]
 			return None
 
-		def _get_unearned_reversal_amount(entry):
-			so_name = _resolve_so_for_entry(entry)
-			if not so_name or so_name not in so_reversal_budget:
-				return 0
-
-			budget = flt(so_reversal_budget[so_name])
-			credit = flt(entry.get("credit"))
+		def _consume_unearned_budget(so_name, credit):
+			budget = flt(so_reversal_budget.get(so_name))
 			rev_amt = min(budget, credit)
 			if rev_amt <= 0:
 				return 0
-
 			so_reversal_budget[so_name] = budget - rev_amt
 			return rev_amt
+
+		def _get_unearned_reversal_amount(entry):
+			credit = flt(entry.get("credit"))
+			if credit <= 0:
+				return 0
+
+			so_name = _resolve_so_for_entry(entry)
+			if so_name and so_name in so_reversal_budget:
+				return _consume_unearned_budget(so_name, credit)
+
+			# Extra / unlinked Sales lines still take leftover SO unearned on this invoice.
+			for leftover_so, leftover in so_reversal_budget.items():
+				if leftover > 0:
+					return _consume_unearned_budget(leftover_so, credit)
+			return 0
 
 		def _apply_unearned_reversal(entry, rev_amt):
 			if not rev_amt:

@@ -80,3 +80,53 @@ class TestSOUnbilledInvoiceReversal(IntegrationTestCase):
 		self.assertAlmostEqual(sales_cr, expected_sales, places=2)
 		if not discount:
 			self.assertAlmostEqual(sales_cr, 46876.68, places=0)
+
+
+class TestSOUnbilledLeftoverOnUnlinkedLine(IntegrationTestCase):
+	"""Unlinked Sales lines must still consume leftover SO unearned (ACC-SINV-2026-00268)."""
+
+	SO = "SAL-ORD-2026-00261-2"
+	SI = "ACC-SINV-2026-00268"
+	UNBILLED = "Unbilled Receivables - MRG"
+	SALES = "Sales - MRG"
+	RETENTION = "Project Retention - MRG"
+	EXPECTED_UNBILLED = 635663.30
+	EXPECTED_SALES = 2605.57
+	EXPECTED_RETENTION = 78650.89
+
+	def setUp(self):
+		if not frappe.db.exists("Sales Invoice", self.SI):
+			self.skipTest(f"{self.SI} not on site")
+
+	@patch("construction_management.overrides.sales_invoice.get_remaining_so_unbilled_balance")
+	@patch("construction_management.overrides.sales_invoice.find_journal_entry_by_so")
+	def test_unlinked_line_consumes_leftover_unearned(self, mock_find_je, mock_remaining):
+		from construction_management.overrides.sales_invoice import SalesInvoiceOverride
+
+		mock_find_je.return_value = "ACC-JV-2026-03933"
+		mock_remaining.return_value = self.EXPECTED_UNBILLED
+		si = frappe.get_doc("Sales Invoice", self.SI)
+
+		orig = frappe.db.get_single_value
+
+		def patched(dt, fn, *a, **k):
+			if dt == "Accounts Settings" and fn == "book_stock_expense_gl_entries":
+				return 0
+			return orig(dt, fn, *a, **k)
+
+		frappe.db.get_single_value = patched
+		try:
+			gl = SalesInvoiceOverride.get_gl_entries(si) or []
+		finally:
+			frappe.db.get_single_value = orig
+
+		sales_cr = sum(flt(e.get("credit")) for e in gl if e.get("account") == self.SALES)
+		unbilled_cr = sum(flt(e.get("credit")) for e in gl if e.get("account") == self.UNBILLED)
+		retention_dr = sum(flt(e.get("debit")) for e in gl if e.get("account") == self.RETENTION)
+		total_debit = sum(flt(e.get("debit")) for e in gl)
+		total_credit = sum(flt(e.get("credit")) for e in gl)
+
+		self.assertAlmostEqual(unbilled_cr, self.EXPECTED_UNBILLED, places=2)
+		self.assertAlmostEqual(sales_cr, self.EXPECTED_SALES, places=2)
+		self.assertAlmostEqual(retention_dr, self.EXPECTED_RETENTION, places=2)
+		self.assertAlmostEqual(total_debit, total_credit, places=2)
