@@ -7,6 +7,7 @@ from frappe.utils import flt, getdate
 
 from construction_management.api.boq_tree import get_project_cost_breakdown
 from construction_management.api.project_boq_scope import fetch_scope_boq_items, resolve_boq_source_project
+from construction_management.api.project_revenue import get_project_billed_revenue
 
 
 INVOICE_TYPE_TAX = "Tax Invoice"
@@ -24,7 +25,7 @@ def get_project_soa_data(project: str) -> dict:
 	invoice_rows = _build_invoice_rows(project)
 	summary = _build_summary(project, invoice_rows)
 	expenses = _build_expenses(project)
-	profit_loss = summary["total_received_amount"] - expenses[-1]["cost"]
+	profit_loss = summary["total_revenue"] - expenses[-1]["cost"]
 	follow_ups = get_project_soa_follow_ups(project)
 
 	return {
@@ -245,14 +246,8 @@ def _payment_rows_for_reference(
 	amount: float,
 	payment_certificate: str = "",
 ) -> list[dict]:
-	payment_ref_doctype = reference_doctype
-	if reference_doctype == "Payment Certificate":
-		payment_ref_doctype = "Payment Certificate"
-	elif reference_doctype == "Sales Order":
-		payment_ref_doctype = "Sales Order"
-
 	payments = []
-	if payment_ref_doctype in ("Sales Invoice", "Proforma Invoice"):
+	if reference_doctype in ("Sales Invoice", "Proforma Invoice"):
 		payments = frappe.db.sql(
 			"""
 			SELECT pe.reference_no, pe.posting_date, per.allocated_amount
@@ -263,7 +258,7 @@ def _payment_rows_for_reference(
 			  AND per.reference_name = %s
 			ORDER BY pe.posting_date ASC, pe.name ASC
 			""",
-			(payment_ref_doctype, reference_name),
+			(reference_doctype, reference_name),
 			as_dict=True,
 		)
 
@@ -279,17 +274,22 @@ def _payment_rows_for_reference(
 		"amount": amount,
 	}
 
-	if not payments:
-		return [{**base, "cheque_no": "", "cheque_date": "", "cheque_amount": 0.0}]
-
+	payment_details = [
+		{
+			"cheque_no": payment.reference_no or "",
+			"cheque_date": payment.posting_date,
+			"cheque_amount": flt(payment.allocated_amount),
+		}
+		for payment in payments
+	]
 	return [
 		{
 			**base,
-			"cheque_no": pe.reference_no or "",
-			"cheque_date": pe.posting_date,
-			"cheque_amount": flt(pe.allocated_amount),
+			"payments": payment_details,
+			"cheque_no": ", ".join(filter(None, (row["cheque_no"] for row in payment_details))),
+			"cheque_date": payment_details[-1]["cheque_date"] if payment_details else "",
+			"cheque_amount": sum(row["cheque_amount"] for row in payment_details),
 		}
-		for pe in payments
 	]
 
 
@@ -303,6 +303,7 @@ def _build_summary(project: str, invoice_rows: list[dict]) -> dict:
 
 	total_received_amount = sum(row["cheque_amount"] for row in invoice_rows)
 	balance = total_invoice_amount - total_received_amount
+	total_revenue = get_project_billed_revenue(project)
 
 	retention_amount = frappe.db.sql(
 		"""
@@ -338,6 +339,7 @@ def _build_summary(project: str, invoice_rows: list[dict]) -> dict:
 
 	return {
 		"total_invoice_amount": total_invoice_amount,
+		"total_revenue": total_revenue,
 		"total_received_amount": total_received_amount,
 		"balance": balance,
 		"retention_amount": retention_amount,

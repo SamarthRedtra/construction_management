@@ -6,9 +6,11 @@ from collections import defaultdict
 import frappe
 from frappe import _
 from frappe.utils import cint, flt
-from redtra_customisation.override.purchase_invoice import CustomPurchaseInvoice
 from erpnext.accounts.doctype.purchase_invoice.purchase_invoice import PurchaseInvoice
 from erpnext.accounts.utils import update_voucher_outstanding
+from redtra_customisation.override.purchase_invoice import CustomPurchaseInvoice
+
+LEGACY_FIXED_ASSET_PO = "SKD-LPO-00371-1"
 
 _PO_PROGRESS_DEDUCTION_ITEMS = frozenset(
 	{"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION", "PURCHASE-ADVANCE"}
@@ -25,6 +27,10 @@ _PO_PROGRESS_FIELDS = (
 
 
 class PurchaseInvoiceOverride(CustomPurchaseInvoice):
+	def set_expense_account(self, for_validate=False):
+		super().set_expense_account(for_validate)
+		_set_legacy_fixed_asset_stock_clearing_account(self)
+
 	def validate_with_previous_doc(self):
 		"""Allow PI project/warehouse to differ from PO (e.g. receive into another site warehouse)."""
 		super(PurchaseInvoice, self).validate_with_previous_doc(
@@ -390,6 +396,38 @@ class PurchaseInvoiceOverride(CustomPurchaseInvoice):
 		from construction_management.pc_payable_print_context import build_pc_payable_print_context
 
 		return build_pc_payable_print_context(self)
+
+
+def _set_legacy_fixed_asset_stock_clearing_account(doc) -> None:
+	"""Clear the stock accrual used before this PO was converted to fixed assets."""
+	stock_received_but_not_billed = doc.get_company_default("stock_received_but_not_billed")
+	if not stock_received_but_not_billed:
+		return
+
+	receipt_names = {
+		row.purchase_receipt
+		for row in doc.get("items") or []
+		if row.purchase_order == LEGACY_FIXED_ASSET_PO and row.purchase_receipt
+	}
+	if not receipt_names:
+		return
+
+	receipts_using_stock_accrual = set(
+		frappe.get_all(
+			"GL Entry",
+			filters={
+				"voucher_type": "Purchase Receipt",
+				"voucher_no": ["in", list(receipt_names)],
+				"account": stock_received_but_not_billed,
+				"is_cancelled": 0,
+			},
+			pluck="voucher_no",
+			distinct=True,
+		)
+	)
+	for row in doc.get("items") or []:
+		if row.purchase_order == LEGACY_FIXED_ASSET_PO and row.purchase_receipt in receipts_using_stock_accrual:
+			row.expense_account = stock_received_but_not_billed
 
 
 def _signed_gl_amount(entry) -> float:

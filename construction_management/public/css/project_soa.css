@@ -261,6 +261,10 @@
 	color: #4a5568;
 }
 
+.cheque-box + .cheque-box {
+	margin-top: 4px;
+}
+
 .cheque-divider {
 	color: #a0aec0;
 	padding: 0 6px;

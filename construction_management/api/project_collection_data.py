@@ -89,7 +89,10 @@ def get_collection_invoice_portfolio(company: str, filters: dict | None = None) 
 	filters = filters or {}
 	conditions = [
 		"p.company = %(company)s",
-		"EXISTS (SELECT 1 FROM `tabSales Invoice` si WHERE si.project = p.name AND si.docstatus = 1)",
+		"""(
+			EXISTS (SELECT 1 FROM `tabSales Invoice` si WHERE si.project = p.name AND si.docstatus = 1)
+			OR EXISTS (SELECT 1 FROM `tabSales Order` so WHERE so.project = p.name AND so.docstatus = 1)
+		)""",
 	]
 	values = {"company": company}
 	if filters.get("customer"):
@@ -113,7 +116,7 @@ def get_collection_invoice_portfolio(company: str, filters: dict | None = None) 
 		for row in detail.get("rows") or []:
 			if row.get("reference_doctype") not in ("Sales Invoice", "Sales Order"):
 				continue
-			document_date = row.get("ti_date") or row.get("pi_date")
+			document_date = _collection_filter_date(row)
 			if filters.get("from_date") and (not document_date or getdate(document_date) < getdate(filters["from_date"])):
 				continue
 			if filters.get("to_date") and (not document_date or getdate(document_date) > getdate(filters["to_date"])):
@@ -175,11 +178,22 @@ def get_collection_invoice_portfolio(company: str, filters: dict | None = None) 
 		rows.extend(project_rows)
 
 	# Keep each project together while showing its newest documents first.
-	rows.sort(key=lambda row: (getdate(row.get("ti_date") or row.get("pi_date") or "1900-01-01"), row.get("invoice_no") or ""), reverse=True)
+	rows.sort(
+		key=lambda row: (
+			getdate(_collection_filter_date(row) or "1900-01-01"),
+			row.get("invoice_no") or "",
+		),
+		reverse=True,
+	)
 	rows.sort(key=lambda row: (row.get("project_name") or "", row.get("project") or ""))
 	for idx, row in enumerate(rows, start=1):
 		row["sr_no"] = idx
 	return rows
+
+
+def _collection_filter_date(row: dict):
+	"""Use the Sales Order/proforma date before the later Tax Invoice date."""
+	return row.get("pi_date") or row.get("ti_date")
 
 
 def get_collection_expected_payments(company: str, filters: dict | None = None) -> dict:
@@ -330,8 +344,10 @@ def _build_collection_cycles(project: str, client_name: str, pm_engg: str, workd
 		as_dict=True,
 	)
 
+	standard_so_by_invoice = _get_standard_sales_order_links([row.name for row in si_list])
 	proforma_names = {r.custom_proforma_invoice for r in si_list if r.custom_proforma_invoice}
 	so_names = {r.custom_sales_order for r in si_list if r.custom_sales_order}
+	so_names.update(standard_so_by_invoice.values())
 	pc_names = {r.custom_payment_certificate for r in si_list if r.custom_payment_certificate}
 
 	pfi_map = {}
@@ -378,12 +394,13 @@ def _build_collection_cycles(project: str, client_name: str, pm_engg: str, workd
 	for si in si_list:
 		pi_amount = None
 		pi_date = None
+		sales_order = si.custom_sales_order or standard_so_by_invoice.get(si.name)
 		if si.custom_proforma_invoice and si.custom_proforma_invoice in pfi_map:
 			pf = pfi_map[si.custom_proforma_invoice]
 			pi_amount = flt(pf.grand_total or pf.get("amount"))
 			pi_date = pf.posting_date
-		elif si.custom_sales_order and si.custom_sales_order in so_map:
-			so = so_map[si.custom_sales_order]
+		elif sales_order and sales_order in so_map:
+			so = so_map[sales_order]
 			pi_amount = flt(so.grand_total)
 			pi_date = so.transaction_date
 
@@ -528,6 +545,25 @@ def _build_collection_cycles(project: str, client_name: str, pm_engg: str, workd
 		r.get("invoice_no") or "",
 	))
 	return rows
+
+
+def _get_standard_sales_order_links(invoice_names: list[str]) -> dict[str, str]:
+	if not invoice_names:
+		return {}
+
+	links = {}
+	for row in frappe.get_all(
+		"Sales Invoice Item",
+		filters={
+			"parent": ["in", invoice_names],
+			"docstatus": 1,
+			"sales_order": ["is", "set"],
+		},
+		fields=["parent", "sales_order"],
+		order_by="parent, idx",
+	):
+		links.setdefault(row.parent, row.sales_order)
+	return links
 
 
 def _shape_collection_row(

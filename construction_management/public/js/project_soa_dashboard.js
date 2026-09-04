@@ -124,9 +124,22 @@ construction_management.project_soa.build_dashboard_html = function (data, optio
 			const badge_slug = badge_slugs[row.invoice_type] || row.invoice_type.toLowerCase().replace(/\s+/g, '-');
 			const proforma_date_disp = row.proforma_date ? frappe.datetime.str_to_user(row.proforma_date) : '';
 			const tax_invoice_date_disp = row.tax_invoice_date ? frappe.datetime.str_to_user(row.tax_invoice_date) : '';
-			const cheque_no_disp = row.cheque_no ? row.cheque_no : '';
-			const cheque_date_disp = row.cheque_date ? frappe.datetime.str_to_user(row.cheque_date) : '';
-			const cheque_amt_disp = row.cheque_amount > 0 ? fmt(row.cheque_amount, 'Currency') : '';
+			const payments = row.payments?.length
+				? row.payments
+				: (row.cheque_no || row.cheque_amount > 0 ? [{
+					cheque_no: row.cheque_no,
+					cheque_date: row.cheque_date,
+					cheque_amount: row.cheque_amount,
+				}] : []);
+			const payments_html = payments.map((payment) => `
+				<div class="cheque-box">
+					<span class="cheque-no">${frappe.utils.escape_html(payment.cheque_no || '')}</span>
+					<span class="cheque-divider">|</span>
+					<span class="cheque-date">${payment.cheque_date ? frappe.datetime.str_to_user(payment.cheque_date) : ''}</span>
+					<span class="cheque-divider">|</span>
+					<span class="cheque-amt">${payment.cheque_amount > 0 ? fmt(payment.cheque_amount, 'Currency') : ''}</span>
+				</div>
+			`).join('');
 			const ref_doctype = row.reference_doctype || '';
 			const ref_name = row.reference_name || row.invoice_no;
 
@@ -140,15 +153,7 @@ construction_management.project_soa.build_dashboard_html = function (data, optio
 					<td><span class="badge-type ${badge_slug}">${row.invoice_type}</span></td>
 					<td class="text-right font-medium">${fmt(row.amount, 'Currency')}</td>
 					<td>
-						${row.cheque_no || row.cheque_amount > 0 ? `
-							<div class="cheque-box">
-								<span class="cheque-no">${cheque_no_disp}</span>
-								<span class="cheque-divider">|</span>
-								<span class="cheque-date">${cheque_date_disp}</span>
-								<span class="cheque-divider">|</span>
-								<span class="cheque-amt">${cheque_amt_disp}</span>
-							</div>
-						` : ''}
+						${payments_html}
 						<div class="soa-row-actions">
 							<span class="soa-action-link soa-add-follow-up"
 								data-project="${frappe.utils.escape_html(project)}"
@@ -280,6 +285,10 @@ construction_management.project_soa.build_dashboard_html = function (data, optio
 					<div class="soa-summary-item">
 						<span class="summary-label">${__('Total Invoice Amount')}</span>
 						<span class="summary-value red-text">${fmt(data.summary.total_invoice_amount, 'Currency')}</span>
+					</div>
+					<div class="soa-summary-item">
+						<span class="summary-label">${__('Revenue (Excl. VAT)')}</span>
+						<span class="summary-value blue-text">${fmt(data.summary.total_revenue, 'Currency')}</span>
 					</div>
 					<div class="soa-summary-item">
 						<span class="summary-label">${__('Total Received Amount')}</span>

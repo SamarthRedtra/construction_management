@@ -6,6 +6,7 @@ from frappe import _
 from frappe.utils import flt
 
 from construction_management.api.gl_hook import get_project_expense_total_from_gl
+from construction_management.api.project_revenue import get_project_billed_revenue
 
 @frappe.whitelist()
 def get_boq_tree_data(project: str, start: int = 0, page_length: int = 20) -> dict:
@@ -84,19 +85,7 @@ def get_boq_kpi(project: str) -> dict:
 		_si_adv_clause = " AND IFNULL(si.custom_is_advanced, 0) = 0 "
 
 	# Total billed (ex-VAT): BOQ lines on submitted SIs — not ledger (ledger books base+tax)
-	total_billed = frappe.db.sql(
-		f"""
-		SELECT COALESCE(SUM(sii.base_net_amount), 0) AS total
-		FROM `tabSales Invoice Item` sii
-		INNER JOIN `tabSales Invoice` si ON si.name = sii.parent
-		WHERE si.project = %s
-			AND si.docstatus = 1
-			{_si_adv_clause}
-			AND IFNULL(sii.boq_item, '') != ''
-			AND IFNULL(sii.item_code, '') NOT IN ('RETENTION-DEDUCTION', 'ADVANCE-DEDUCTION')
-		""",
-		project,
-	)[0][0] or 0
+	total_billed = get_project_billed_revenue(project)
 
 	# Invoice collected (ex-VAT): same line basis, paid invoices only
 	invoice_collected = frappe.db.sql(

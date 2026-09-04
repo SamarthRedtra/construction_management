@@ -6,6 +6,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
 
+from construction_management.api.project_revenue import get_project_billed_revenue
+
 
 class ProjectClosure(Document):
 	def validate(self):
@@ -181,18 +183,8 @@ def fetch_project_data(project):
 		+ total_act_expense
 	)
 
-	# Get revenue from BOQ Progress Ledger
-	total_revenue = (
-		frappe.db.sql(
-			"""
-		SELECT COALESCE(SUM(amount), 0)
-		FROM `tabBOQ Progress Ledger`
-		WHERE project = %s AND source = 'Invoice'
-	""",
-			project,
-		)[0][0]
-		or 0
-	)
+	# Keep closure revenue aligned with Project SOA and the BOQ dashboard.
+	total_revenue = get_project_billed_revenue(project)
 
 	# Get retention and advance summary
 	from construction_management.api.boq_tree import get_retention_summary, get_advance_summary
