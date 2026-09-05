@@ -54,9 +54,16 @@ def execute() -> None:
 	if not po:
 		return
 	if po.company != COMPANY or po.docstatus != 1:
-		frappe.throw(f"{PO_NAME} must be a submitted Purchase Order for {COMPANY}")
+		frappe.logger("construction_management").info(
+			f"Skip {PO_NAME}: not a submitted Purchase Order for {COMPANY} "
+			f"(company={po.company}, docstatus={po.docstatus})"
+		)
+		return
 	if not frappe.db.exists("Asset Category", TARGET_CATEGORY):
-		frappe.throw(f"Asset Category {TARGET_CATEGORY} not found")
+		frappe.logger("construction_management").info(
+			f"Skip {PO_NAME}: Asset Category {TARGET_CATEGORY} not found"
+		)
+		return
 
 	item_codes = _get_item_codes()
 	receipt_names = _get_receipt_names()
