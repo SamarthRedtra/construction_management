@@ -53,9 +53,9 @@ def execute() -> None:
 	po = frappe.db.get_value("Purchase Order", PO_NAME, ["company", "docstatus"], as_dict=True)
 	if not po:
 		return
-	if po.company != COMPANY or po.docstatus != 1:
+	if po.company != COMPANY or po.docstatus not in (1, 2):
 		frappe.logger("construction_management").info(
-			f"Skip {PO_NAME}: not a submitted Purchase Order for {COMPANY} "
+			f"Skip {PO_NAME}: not a submitted or cancelled Purchase Order for {COMPANY} "
 			f"(company={po.company}, docstatus={po.docstatus})"
 		)
 		return
@@ -90,7 +90,7 @@ def execute() -> None:
 def _get_item_codes() -> list[str]:
 	return frappe.get_all(
 		"Purchase Order Item",
-		filters={"parent": PO_NAME, "docstatus": 1},
+		filters={"parent": PO_NAME, "docstatus": ["in", [1, 2]]},
 		pluck="item_code",
 		distinct=True,
 	)
