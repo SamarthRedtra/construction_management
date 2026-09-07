@@ -66,15 +66,26 @@ def execute() -> None:
 		return
 
 	item_codes = _get_item_codes()
+	if not item_codes:
+		frappe.logger("construction_management").info(f"Skip {PO_NAME}: no Purchase Order items")
+		return
+
 	receipt_names = _get_receipt_names()
 	asset_names = _get_asset_names(item_codes, receipt_names)
-	_validate_target_counts(item_codes, asset_names)
-
-	_ensure_accounts()
-	_ensure_category_account_mapping()
 	updated_rows = _update_asset_categories(item_codes, receipt_names, asset_names)
 	_update_draft_invoice_clearing_account()
 
+	if not _has_expected_local_set(item_codes, asset_names):
+		frappe.logger("construction_management").info(
+			f"Skip {PO_NAME} journal rewrite: expected {EXPECTED_ITEM_COUNT} items / "
+			f"{EXPECTED_ASSET_COUNT} assets, found {len(item_codes)} / {len(asset_names)}. "
+			f"Updated {updated_rows} item/receipt rows."
+		)
+		frappe.clear_cache(doctype="Asset Category")
+		return
+
+	_ensure_accounts()
+	_ensure_category_account_mapping()
 	capitalization_journals = _rewrite_capitalization_journal(item_codes)
 	depreciation_journals = _rewrite_depreciation_journals(asset_names)
 	journal_names = capitalization_journals | depreciation_journals
@@ -99,7 +110,7 @@ def _get_item_codes() -> list[str]:
 def _get_receipt_names() -> list[str]:
 	return frappe.get_all(
 		"Purchase Receipt Item",
-		filters={"purchase_order": PO_NAME, "docstatus": 1},
+		filters={"purchase_order": PO_NAME, "docstatus": ["in", [1, 2]]},
 		pluck="parent",
 		distinct=True,
 	)
@@ -119,11 +130,8 @@ def _get_asset_names(item_codes: list[str], receipt_names: list[str]) -> list[st
 	)
 
 
-def _validate_target_counts(item_codes: list[str], asset_names: list[str]) -> None:
-	if len(item_codes) != EXPECTED_ITEM_COUNT:
-		frappe.throw(f"Expected {EXPECTED_ITEM_COUNT} items for {PO_NAME}, found {len(item_codes)}")
-	if len(asset_names) != EXPECTED_ASSET_COUNT:
-		frappe.throw(f"Expected {EXPECTED_ASSET_COUNT} active assets for {PO_NAME}, found {len(asset_names)}")
+def _has_expected_local_set(item_codes: list[str], asset_names: list[str]) -> bool:
+	return len(item_codes) == EXPECTED_ITEM_COUNT and len(asset_names) == EXPECTED_ASSET_COUNT
 
 
 def _ensure_accounts() -> None:
@@ -201,22 +209,25 @@ def _update_asset_categories(
 	item_codes: list[str], receipt_names: list[str], asset_names: list[str]
 ) -> int:
 	updated = 0
-	updated += _update_rows(
-		"Item", {"name": ["in", item_codes]}, {"asset_category": TARGET_CATEGORY}
-	)
-	updated += _update_rows(
-		"Purchase Receipt Item",
-		{"parent": ["in", receipt_names], "purchase_order": PO_NAME, "docstatus": 1},
-		{"asset_category": TARGET_CATEGORY},
-	)
+	if item_codes:
+		updated += _update_rows(
+			"Item", {"name": ["in", item_codes]}, {"asset_category": TARGET_CATEGORY}
+		)
+	if receipt_names:
+		updated += _update_rows(
+			"Purchase Receipt Item",
+			{"parent": ["in", receipt_names], "purchase_order": PO_NAME, "docstatus": ["in", [1, 2]]},
+			{"asset_category": TARGET_CATEGORY},
+		)
 	updated += _update_rows(
 		"Purchase Invoice Item",
 		{"purchase_order": PO_NAME, "docstatus": ["!=", 2]},
 		{"asset_category": TARGET_CATEGORY},
 	)
-	updated += _update_rows(
-		"Asset", {"name": ["in", asset_names]}, {"asset_category": TARGET_CATEGORY}
-	)
+	if asset_names:
+		updated += _update_rows(
+			"Asset", {"name": ["in", asset_names]}, {"asset_category": TARGET_CATEGORY}
+		)
 	return updated
 
 
@@ -237,7 +248,10 @@ def _update_draft_invoice_clearing_account() -> None:
 		"Company", COMPANY, "stock_received_but_not_billed"
 	)
 	if not stock_received_but_not_billed:
-		frappe.throw(f"Stock Received But Not Billed account is not configured for {COMPANY}")
+		frappe.logger("construction_management").info(
+			f"Skip draft PI clearing-account update: Stock Received But Not Billed not set for {COMPANY}"
+		)
+		return
 	_update_rows(
 		"Purchase Invoice Item",
 		{"purchase_order": PO_NAME, "docstatus": 0},
@@ -252,7 +266,10 @@ def _rewrite_capitalization_journal(item_codes: list[str]) -> set[str]:
 		pluck="name",
 	)
 	if len(journal_names) != 1:
-		frappe.throw(f"Expected one submitted capitalization Journal Entry for {PO_NAME}")
+		frappe.logger("construction_management").info(
+			f"Skip {PO_NAME} capitalization rewrite: expected 1 journal, found {len(journal_names)}"
+		)
+		return set()
 
 	journal_name = journal_names[0]
 	rows = frappe.get_all(
@@ -264,7 +281,10 @@ def _rewrite_capitalization_journal(item_codes: list[str]) -> set[str]:
 	if len(asset_rows) != EXPECTED_ITEM_COUNT or flt(sum(row.debit for row in asset_rows)) != flt(
 		EXPECTED_CAPITALIZATION_AMOUNT
 	):
-		frappe.throw(f"Unexpected capitalization rows or amount in {journal_name}")
+		frappe.logger("construction_management").info(
+			f"Skip {journal_name}: unexpected capitalization rows or amount"
+		)
+		return set()
 
 	changed = False
 	for row in asset_rows:
