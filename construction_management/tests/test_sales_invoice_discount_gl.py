@@ -298,3 +298,22 @@ class TestSalesInvoiceDiscountGL(IntegrationTestCase):
 			flt(e.get("credit")) for e in disc_gl if e.get("account") == self.unbilled_account
 		)
 		self.assertGreater(unbilled, 0)
+
+	@patch("construction_management.overrides.sales_invoice.find_journal_entry_by_so", return_value="JV-DISC-GL")
+	@patch(
+		"construction_management.overrides.sales_invoice.get_remaining_so_unbilled_balance",
+		return_value=15000,
+	)
+	def test_unbilled_above_work_debits_sales(self, _mock_remaining, _mock_je):
+		so_name = f"SAL-ORD-DISC-{frappe.generate_hash(length=4)}"
+		inv = self._make_invoice(discount=self.DISCOUNT, sales_order=so_name)
+		gl = self._gl(inv)
+		self._assert_balanced(gl)
+
+		work_after_discount = 10000 - self.DISCOUNT
+		unbilled = sum(
+			flt(e.get("credit")) for e in gl if e.get("account") == self.unbilled_account
+		)
+		sales_net = self._net_sales(gl)
+		self.assertAlmostEqual(unbilled, 15000, places=2)
+		self.assertAlmostEqual(sales_net, flt(work_after_discount - 15000, 2), places=2)

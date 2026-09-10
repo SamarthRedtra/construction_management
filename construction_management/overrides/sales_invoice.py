@@ -94,6 +94,81 @@ def _consolidate_income_gl_by_boq_item(gl_map, income_accounts, unbilled_revenue
 	return result
 
 
+def _flush_leftover_so_unbilled(
+	si, new_entries, so_reversal_budget, income_accounts, unbilled_revenue_acc, add_party_if_needed
+):
+	"""Debit Sales for SO unbilled that exceeds invoice work (after discount)."""
+	income_account = next(
+		(
+			item.income_account
+			for item in si.get("items", [])
+			if item.income_account and item.item_code not in SO_UNEARNED_EXCLUDED_ITEM_CODES
+		),
+		next(iter(income_accounts), None),
+	)
+	if not income_account or not unbilled_revenue_acc:
+		return
+
+	template = next(
+		(entry for entry in new_entries if entry.get("account") == unbilled_revenue_acc),
+		next((entry for entry in new_entries if entry.get("account") in income_accounts), None),
+	)
+	cost_center = (template or {}).get("cost_center") or si.cost_center
+	project = (template or {}).get("project") or si.project
+	boq_item = (template or {}).get("boq_item")
+	rate = si.get("conversion_rate") or 1
+
+	for so_name, leftover in list(so_reversal_budget.items()):
+		amount = flt(leftover, 2)
+		if amount <= 0:
+			continue
+
+		sales_entry = si.get_gl_dict(
+			{
+				"account": income_account,
+				"against": si.customer,
+				"debit": amount,
+				"project": project,
+				"cost_center": cost_center,
+				"boq_item": boq_item,
+				"remarks": f"Decrease vs SO unbilled for {si.name}",
+			}
+		)
+		sales_entry.update(
+			{
+				"transaction_currency": si.currency,
+				"transaction_exchange_rate": rate,
+				"debit_in_transaction_currency": amount,
+			}
+		)
+
+		unearned_entry = si.get_gl_dict(
+			add_party_if_needed(
+				{
+					"account": unbilled_revenue_acc,
+					"credit": amount,
+					"project": project,
+					"boq_item": boq_item,
+					"cost_center": cost_center,
+					"against": si.customer,
+					"remarks": f"Unearned revenue reversal for {si.name}",
+				},
+				unbilled_revenue_acc,
+			)
+		)
+		unearned_entry.update(
+			{
+				"transaction_currency": si.currency,
+				"transaction_exchange_rate": rate,
+				"credit_in_transaction_currency": amount,
+			}
+		)
+
+		new_entries.append(sales_entry)
+		new_entries.append(unearned_entry)
+		so_reversal_budget[so_name] = 0
+
+
 def _gl_map_debit_credit_diff(gl_map, precision=2):
 	debit = sum(flt(e.get("debit")) for e in gl_map)
 	credit = sum(flt(e.get("credit")) for e in gl_map)
@@ -860,8 +935,9 @@ class SalesInvoiceOverride(SalesInvoice):
 				return self._settle_additional_discount_to_sales(gl_entries)
 
 		# Reverse the remaining SO unbilled JV balance on invoice (not a % of invoice).
-		# Sales = remapped income credit (work after additional discount, after retention
-		# gross-up) minus remaining unbilled booked at Sales Order.
+		# Sales = remapped income (work after additional discount, after retention/advance
+		# remap) minus remaining unbilled booked at Sales Order. If work is below that
+		# unbilled amount, Sales is debited for the shortfall.
 		unbilled_revenue_acc = boq_settings.so_unearned_revenue_debit_account
 		excluded = set(SO_UNEARNED_EXCLUDED_ITEM_CODES)
 		if variance_item_code:
@@ -1110,6 +1186,15 @@ class SalesInvoiceOverride(SalesInvoice):
 				})
 				
 				new_entries.append(deduction_entry)
+
+		_flush_leftover_so_unbilled(
+			self,
+			new_entries,
+			so_reversal_budget,
+			income_accounts,
+			unbilled_revenue_acc,
+			add_party_if_needed,
+		)
 		# Final safety: filter out any entries where both debit and credit are 0
 		new_entries = [
 			e for e in new_entries

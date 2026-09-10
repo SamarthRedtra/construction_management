@@ -341,6 +341,12 @@ class DailyProgressRecord(Document):
 		if not company:
 			company = frappe.db.get_single_value("Global Defaults", "default_company")
 		return company
+
+	def _apply_dpr_posting_date(self, doc):
+		"""Keep voucher posting_date as the DPR date. Stock Entry resets to today without set_posting_time."""
+		doc.posting_date = self.date
+		if doc.meta.has_field("set_posting_time"):
+			doc.set_posting_time = 1
 	
 	def create_stock_entries(self):
 		"""Create Stock Entries for materials"""
@@ -361,7 +367,7 @@ class DailyProgressRecord(Document):
 			try:
 				se = frappe.new_doc("Stock Entry")
 				se.stock_entry_type = "Material Issue"
-				se.posting_date = self.date
+				self._apply_dpr_posting_date(se)
 				se.project = self.project
 				se.company = self.get_company()
 				if se.meta.has_field("project_sites") and self.project_sites:
@@ -462,7 +468,7 @@ class DailyProgressRecord(Document):
 		try:
 			je = frappe.new_doc("Journal Entry")
 			je.voucher_type = "Journal Entry"
-			je.posting_date = self.date
+			self._apply_dpr_posting_date(je)
 			je.company = company
 			je.user_remark = f"Asset costs for DPR {self.name}"
 			# Dimensions on header if available
@@ -525,7 +531,7 @@ class DailyProgressRecord(Document):
 		try:
 			je = frappe.new_doc("Journal Entry")
 			je.voucher_type = "Journal Entry"
-			je.posting_date = self.date
+			self._apply_dpr_posting_date(je)
 			je.company = company
 			je.user_remark = f"Labour costs for DPR {self.name}"
 			if hasattr(je, "project"):
@@ -600,7 +606,7 @@ class DailyProgressRecord(Document):
 		try:
 			je = frappe.new_doc("Journal Entry")
 			je.voucher_type = "Journal Entry"
-			je.posting_date = self.date
+			self._apply_dpr_posting_date(je)
 			je.company = company
 			je.user_remark = f"Overhead costs for DPR {self.name}"
 			if hasattr(je, "project"):
@@ -684,7 +690,7 @@ class DailyProgressRecord(Document):
 		try:
 			je = frappe.new_doc("Journal Entry")
 			je.voucher_type = "Journal Entry"
-			je.posting_date = self.date
+			self._apply_dpr_posting_date(je)
 			je.company = company
 			je.user_remark = f"Expense costs for DPR {self.name}"
 			if hasattr(je, "project"):

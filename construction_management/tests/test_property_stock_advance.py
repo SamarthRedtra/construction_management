@@ -13,7 +13,7 @@ These tests validate the following properties:
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import flt, today
+from frappe.utils import add_days, cint, flt, getdate, today
 
 
 class TestStockAvailabilityValidation(FrappeTestCase):
@@ -189,6 +189,39 @@ class TestStockEntryCreation(FrappeTestCase):
 		
 		# Cleanup
 		dpr.cancel()
+
+	def test_dpr_stock_entry_keeps_selected_date(self):
+		"""DPR Material Issue posting_date must stay the selected DPR date, not today."""
+		dpr_date = add_days(today(), -5)
+		dpr = frappe.new_doc("Daily Progress Record")
+		dpr.project = self.test_project
+		dpr.boq_item = self.test_boq_item
+		dpr.date = dpr_date
+		dpr.append("materials", {
+			"item_code": self.test_item,
+			"warehouse": self.test_warehouse,
+			"qty": 2,
+			"rate": 100
+		})
+		try:
+			dpr.insert()
+			dpr.submit()
+		except Exception:
+			self.skipTest("Could not submit backdated DPR on this site")
+
+		if not dpr.stock_entries:
+			if dpr.docstatus == 1:
+				dpr.cancel()
+			self.skipTest("DPR submit did not create a Stock Entry")
+
+		try:
+			se_name = dpr.stock_entries.split(",")[0].strip()
+			se = frappe.get_doc("Stock Entry", se_name)
+			self.assertEqual(getdate(se.posting_date), getdate(dpr_date))
+			self.assertEqual(cint(se.set_posting_time), 1)
+		finally:
+			if dpr.docstatus == 1:
+				dpr.cancel()
 
 
 class TestBillItemAdvanceAggregation(FrappeTestCase):

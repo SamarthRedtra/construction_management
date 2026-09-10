@@ -130,3 +130,68 @@ class TestSOUnbilledLeftoverOnUnlinkedLine(IntegrationTestCase):
 		self.assertAlmostEqual(sales_cr, self.EXPECTED_SALES, places=2)
 		self.assertAlmostEqual(retention_dr, self.EXPECTED_RETENTION, places=2)
 		self.assertAlmostEqual(total_debit, total_credit, places=2)
+
+
+class TestSOUnbilledDecreaseDebitsSales(IntegrationTestCase):
+	"""Invoice work below SO unbilled (discount) must reverse the full JV and debit Sales.
+
+	Suhana example SAL-ORD-2026-00292 / ACC-SINV-2026-00266-2:
+	Unbilled Cr 83655.38, Sales Dr 17032.28, discount stays in the sales pot.
+	"""
+
+	SO = "SAL-ORD-2026-00292"
+	SI = "ACC-SINV-2026-00266-2"
+	UNBILLED = "Unbilled Receivables - MRG"
+	SALES = "Sales - MRG"
+	RETENTION = "Project Retention - MRG"
+	ADVANCE = "Advance from customer - MRG"
+	DEBTORS = "Debtors - MRG"
+	VAT = "VAT 5% - MRG"
+	EXPECTED_UNBILLED = 83655.38
+	EXPECTED_SALES_DR = 17032.28
+	EXPECTED_RETENTION = 10632.81
+	EXPECTED_ADVANCE = 2658.20
+
+	def setUp(self):
+		if not frappe.db.exists("Sales Invoice", self.SI):
+			self.skipTest(f"{self.SI} not on site")
+
+	@patch("construction_management.overrides.sales_invoice.get_remaining_so_unbilled_balance")
+	@patch("construction_management.overrides.sales_invoice.find_journal_entry_by_so")
+	def test_shortfall_reverses_full_unbilled_and_debits_sales(self, mock_find_je, mock_remaining):
+		from construction_management.overrides.sales_invoice import SalesInvoiceOverride
+
+		mock_find_je.return_value = "ACC-JV-2026-02056"
+		mock_remaining.return_value = self.EXPECTED_UNBILLED
+		si = frappe.get_doc("Sales Invoice", self.SI)
+
+		orig = frappe.db.get_single_value
+
+		def patched(dt, fn, *a, **k):
+			if dt == "Accounts Settings" and fn == "book_stock_expense_gl_entries":
+				return 0
+			return orig(dt, fn, *a, **k)
+
+		frappe.db.get_single_value = patched
+		try:
+			gl = SalesInvoiceOverride.get_gl_entries(si) or []
+		finally:
+			frappe.db.get_single_value = orig
+
+		sales_cr = sum(flt(e.get("credit")) for e in gl if e.get("account") == self.SALES)
+		sales_dr = sum(flt(e.get("debit")) for e in gl if e.get("account") == self.SALES)
+		unbilled_cr = sum(flt(e.get("credit")) for e in gl if e.get("account") == self.UNBILLED)
+		retention_dr = sum(flt(e.get("debit")) for e in gl if e.get("account") == self.RETENTION)
+		advance_dr = sum(flt(e.get("debit")) for e in gl if e.get("account") == self.ADVANCE)
+		debtors_dr = sum(flt(e.get("debit")) for e in gl if e.get("account") == self.DEBTORS)
+		vat_cr = sum(flt(e.get("credit")) for e in gl if e.get("account") == self.VAT)
+		total_debit = sum(flt(e.get("debit")) for e in gl)
+		total_credit = sum(flt(e.get("credit")) for e in gl)
+
+		self.assertAlmostEqual(unbilled_cr, self.EXPECTED_UNBILLED, places=2)
+		self.assertAlmostEqual(sales_dr - sales_cr, self.EXPECTED_SALES_DR, places=2)
+		self.assertAlmostEqual(retention_dr, self.EXPECTED_RETENTION, places=2)
+		self.assertAlmostEqual(advance_dr, self.EXPECTED_ADVANCE, places=2)
+		self.assertAlmostEqual(debtors_dr, 55998.69, places=2)
+		self.assertAlmostEqual(vat_cr, 2666.60, places=2)
+		self.assertAlmostEqual(total_debit, total_credit, places=2)
