@@ -69,13 +69,16 @@ def _stock_entry_names(dpr) -> set[str]:
 def _journal_entry_names(dpr) -> set[str]:
 	names = set(_split_names(dpr.journal_entries))
 	for prefix in JE_REMARK_PREFIXES:
-		names.update(
-			frappe.get_all(
-				"Journal Entry",
-				filters={"user_remark": f"{prefix} {dpr.name}", "docstatus": 1},
-				pluck="name",
-			)
+		needle = f"%{prefix} {dpr.name}%"
+		found = frappe.db.sql(
+			"""
+			SELECT name FROM `tabJournal Entry`
+			WHERE docstatus = 1
+				AND (IFNULL(user_remark, '') LIKE %(needle)s OR IFNULL(remark, '') LIKE %(needle)s)
+			""",
+			{"needle": needle},
 		)
+		names.update(row[0] for row in found)
 	for child_dt in ("DPR Overhead", "DPR Expense"):
 		names.update(
 			frappe.get_all(
@@ -85,6 +88,62 @@ def _journal_entry_names(dpr) -> set[str]:
 			)
 		)
 	return {name for name in names if name}
+
+
+def _gl_needs_update(voucher_type: str, voucher_no: str, target) -> bool:
+	return bool(
+		frappe.db.sql(
+			"""
+			SELECT 1 FROM `tabGL Entry`
+			WHERE voucher_type = %s AND voucher_no = %s
+				AND is_cancelled = 0 AND posting_date != %s
+			LIMIT 1
+			""",
+			(voucher_type, voucher_no, target),
+		)
+	)
+
+
+def _sle_needs_update(voucher_no: str, target) -> bool:
+	if not frappe.db.table_exists("Stock Ledger Entry"):
+		return False
+	return bool(
+		frappe.db.sql(
+			"""
+			SELECT 1 FROM `tabStock Ledger Entry`
+			WHERE voucher_type = 'Stock Entry' AND voucher_no = %s
+				AND is_cancelled = 0 AND posting_date != %s
+			LIMIT 1
+			""",
+			(voucher_no, target),
+		)
+	)
+
+
+def _sync_gl_posting_date(voucher_type: str, voucher_no: str, target) -> None:
+	frappe.db.sql(
+		"""
+		UPDATE `tabGL Entry`
+		SET posting_date = %s
+		WHERE voucher_type = %s
+			AND voucher_no = %s
+			AND is_cancelled = 0
+			AND posting_date != %s
+		""",
+		(target, voucher_type, voucher_no, target),
+	)
+	if frappe.db.table_exists("Payment Ledger Entry"):
+		frappe.db.sql(
+			"""
+			UPDATE `tabPayment Ledger Entry`
+			SET posting_date = %s
+			WHERE voucher_type = %s
+				AND voucher_no = %s
+				AND IFNULL(delinked, 0) = 0
+				AND posting_date != %s
+			""",
+			(target, voucher_type, voucher_no, target),
+		)
 
 
 def _align_stock_entry(se_name: str, target) -> bool:
@@ -98,21 +157,29 @@ def _align_stock_entry(se_name: str, target) -> bool:
 	)
 	if not row or row.docstatus != 1:
 		return False
-	if getdate(row.posting_date) == target:
+
+	header_mismatch = getdate(row.posting_date) != target
+	ledger_mismatch = _gl_needs_update("Stock Entry", se_name, target) or _sle_needs_update(
+		se_name, target
+	)
+	if not header_mismatch and not ledger_mismatch:
 		return False
 
-	frappe.db.set_value(
-		"Stock Entry",
-		se_name,
-		{"posting_date": target, "set_posting_time": 1},
-		update_modified=False,
-	)
-	try:
-		_repost_stock_entry(se_name, row.company, target, row.posting_time)
-	except Exception:
-		LOGGER.warning(
-			f"Could not repost Stock Entry {se_name} to {target}: {frappe.get_traceback()}"
+	if header_mismatch:
+		frappe.db.set_value(
+			"Stock Entry",
+			se_name,
+			{"posting_date": target, "set_posting_time": 1},
+			update_modified=False,
 		)
+		try:
+			_repost_stock_entry(se_name, row.company, target, row.posting_time)
+		except Exception:
+			LOGGER.warning(
+				f"Could not repost Stock Entry {se_name} to {target}: {frappe.get_traceback()}"
+			)
+
+	_sync_gl_posting_date("Stock Entry", se_name, target)
 	return True
 
 
@@ -127,20 +194,15 @@ def _align_journal_entry(je_name: str, target) -> bool:
 	)
 	if not row or row.docstatus != 1:
 		return False
-	if getdate(row.posting_date) == target:
+
+	header_mismatch = getdate(row.posting_date) != target
+	ledger_mismatch = _gl_needs_update("Journal Entry", je_name, target)
+	if not header_mismatch and not ledger_mismatch:
 		return False
 
-	frappe.db.set_value("Journal Entry", je_name, "posting_date", target, update_modified=False)
-	frappe.db.sql(
-		"""
-		UPDATE `tabGL Entry`
-		SET posting_date = %s
-		WHERE voucher_type = 'Journal Entry'
-			AND voucher_no = %s
-			AND is_cancelled = 0
-		""",
-		(target, je_name),
-	)
+	if header_mismatch:
+		frappe.db.set_value("Journal Entry", je_name, "posting_date", target, update_modified=False)
+	_sync_gl_posting_date("Journal Entry", je_name, target)
 	return True
 
 
