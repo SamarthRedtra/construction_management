@@ -14,6 +14,8 @@ frappe.ui.form.on('Stock Entry', {
 	},
 
 	refresh: function (frm) {
+		show_stock_entry_key_fields(frm);
+
 		// Re-setup on refresh to ensure filters are applied after form loads
 		if (typeof construction_management !== 'undefined' && construction_management.dimension_utils) {
 			construction_management.dimension_utils.setup_accounting_dimension_filters(frm);
@@ -34,6 +36,15 @@ frappe.ui.form.on('Stock Entry', {
 		schedule_posting_date_balance_refresh(frm);
 	}
 });
+
+function show_stock_entry_key_fields(frm) {
+	// These fields are required for historical stock and project accounting.
+	frm.set_df_property('posting_date', 'hidden', 0);
+	frm.set_df_property('posting_time', 'hidden', 0);
+	frm.set_df_property('set_posting_time', 'hidden', 0);
+	frm.set_df_property('accounting_dimensions_section', 'hidden', 0);
+	frm.set_df_property('project', 'hidden', 0);
+}
 
 function schedule_posting_date_balance_refresh(frm) {
 	if (frm.doc.docstatus !== 0 || !frm.doc.posting_date || !frm.doc.posting_time) {
