@@ -140,12 +140,13 @@ def _header(doc) -> dict:
 			company_trn_label = f"{company.abbr} TRN"
 
 	name = doc.name or ""
+	document_date = doc.get("transaction_date") or doc.get("posting_date")
 	return {
 		"customer_name": doc.customer_name or "",
 		"customer_tel": customer_tel,
 		"customer_trn": customer_trn or "N/A",
 		"subject": f"Invoice # : {name.split('-')[-1] if name else ''}",
-		"date": formatdate(doc.transaction_date) if doc.transaction_date else "",
+		"date": formatdate(document_date) if document_date else "",
 		"invoice_no": name,
 		"project_name": project_name,
 		"company_trn": company_trn,

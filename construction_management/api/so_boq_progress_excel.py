@@ -22,7 +22,34 @@ def export_sales_order_boq_progress_excel(sales_order: str) -> str:
 		frappe.throw(_("Sales Order is required"))
 	if not frappe.has_permission("Sales Order", "read", sales_order):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	return _export_boq_progress_excel(
+		doctype="Sales Order",
+		docname=sales_order,
+		title="PROFORMA INVOICE",
+		file_prefix=PRINT_FORMAT,
+	)
 
+
+@frappe.whitelist()
+def export_sales_invoice_boq_progress_excel(sales_invoice: str) -> str:
+	if not sales_invoice:
+		frappe.throw(_("Sales Invoice is required"))
+	if not frappe.has_permission("Sales Invoice", "read", sales_invoice):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	return _export_boq_progress_excel(
+		doctype="Sales Invoice",
+		docname=sales_invoice,
+		title="TAX INVOICE",
+		file_prefix="Sales Invoice BOQ Progress",
+	)
+
+
+def _export_boq_progress_excel(
+	doctype: str,
+	docname: str,
+	title: str,
+	file_prefix: str,
+) -> str:
 	try:
 		from openpyxl import Workbook
 		from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -30,7 +57,7 @@ def export_sales_order_boq_progress_excel(sales_order: str) -> str:
 	except ImportError:
 		frappe.throw(_("openpyxl is required for Excel export. Please install it."))
 
-	doc = frappe.get_doc("Sales Order", sales_order)
+	doc = frappe.get_doc(doctype, docname)
 	ctx = build(doc)
 	wb = Workbook()
 	ws = wb.active
@@ -51,7 +78,7 @@ def export_sales_order_boq_progress_excel(sales_order: str) -> str:
 	center = Alignment(horizontal="center", vertical="center")
 
 	ws.merge_cells("A1:K1")
-	ws["A1"] = "PROFORMA INVOICE"
+	ws["A1"] = title
 	ws["A1"].font = Font(bold=True, size=16)
 	ws["A1"].alignment = Alignment(horizontal="center")
 
@@ -205,16 +232,16 @@ def export_sales_order_boq_progress_excel(sales_order: str) -> str:
 	wb.save(output)
 	output.seek(0)
 
-	file_name = f"{PRINT_FORMAT}_{sales_order}_{now_datetime().strftime('%Y%m%d_%H%M%S')}.xlsx"
+	file_name = f"{file_prefix}_{docname}_{now_datetime().strftime('%Y%m%d_%H%M%S')}.xlsx"
 	file_args = {
 		"doctype": "File",
 		"file_name": file_name,
 		"content": output.getvalue(),
 		"is_private": 1,
 	}
-	if frappe.db.exists("Sales Order", sales_order):
-		file_args["attached_to_doctype"] = "Sales Order"
-		file_args["attached_to_name"] = sales_order
+	if frappe.db.exists(doctype, docname):
+		file_args["attached_to_doctype"] = doctype
+		file_args["attached_to_name"] = docname
 	file_doc = frappe.get_doc(file_args)
 	file_doc.save(ignore_permissions=True)
 	return file_doc.file_url

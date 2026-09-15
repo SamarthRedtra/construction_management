@@ -7,7 +7,10 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt, money_in_words, today
 
-from construction_management.api.so_boq_progress_excel import export_sales_order_boq_progress_excel
+from construction_management.api.so_boq_progress_excel import (
+	export_sales_invoice_boq_progress_excel,
+	export_sales_order_boq_progress_excel,
+)
 from construction_management.so_boq_progress_print_context import build
 
 
@@ -122,3 +125,46 @@ class TestSOBOQProgressPrint(FrappeTestCase):
 		self.assertIn("NET AMOUNT DUE", joined)
 		self.assertIn("157486", joined.replace(",", ""))
 		self.assertIn("Amount in words", joined)
+
+	def test_sales_invoice_excel_export_uses_tax_invoice_heading(self):
+		doc = self._doc(
+			name="SINV-TEST-BOQ-PROGRESS-PRINT",
+			transaction_date=None,
+			posting_date=today(),
+		)
+		with patch(
+			"construction_management.so_boq_progress_print_context.frappe.get_all",
+			return_value=self._ledger(),
+		), patch(
+			"construction_management.so_boq_progress_print_context.frappe.db.has_column",
+			return_value=False,
+		):
+			ctx = build(doc)
+
+		real_get_doc = frappe.get_doc
+
+		def fake_get_doc(*args, **kwargs):
+			first = args[0] if args else None
+			if first == "Sales Invoice":
+				return doc
+			return real_get_doc(*args, **kwargs)
+
+		with patch(
+			"construction_management.api.so_boq_progress_excel.frappe.has_permission",
+			return_value=True,
+		), patch(
+			"construction_management.api.so_boq_progress_excel.frappe.get_doc",
+			side_effect=fake_get_doc,
+		), patch(
+			"construction_management.api.so_boq_progress_excel.build",
+			return_value=ctx,
+		):
+			url = export_sales_invoice_boq_progress_excel(doc.name)
+
+		file_doc = real_get_doc("File", {"file_url": url})
+		from openpyxl import load_workbook
+
+		workbook = load_workbook(file_doc.get_full_path())
+		self.assertEqual(workbook.active["A1"].value, "TAX INVOICE")
+		self.assertIn("Sales Invoice BOQ Progress", file_doc.file_name)
+		self.assertTrue(url.endswith(".xlsx"))
