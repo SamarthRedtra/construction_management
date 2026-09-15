@@ -13,12 +13,44 @@ from construction_management.api.project_collection_data import (
 	_set_conversion_status,
 )
 from construction_management.api.project_revenue import get_project_billed_revenue
+from construction_management.api.stock_entry_balance import get_item_balances
 from construction_management.construction_management.page.project_soa.project_soa import (
 	_payment_rows_for_reference,
 )
 
 
 class TestProjectReportingFixes(UnitTestCase):
+	@patch(
+		"construction_management.api.stock_entry_balance.get_stock_balance",
+		return_value=600,
+	)
+	@patch(
+		"construction_management.api.stock_entry_balance.frappe.has_permission",
+		return_value=True,
+	)
+	def test_stock_entry_balance_uses_selected_posting_timestamp(
+		self, _has_permission, get_stock_balance
+	):
+		balances = get_item_balances(
+			items=[
+				{
+					"name": "ROW-1",
+					"item_code": "ITEM-1",
+					"s_warehouse": "Stores - MRG",
+				}
+			],
+			posting_date="2026-08-14",
+			posting_time="03:28:29",
+		)
+
+		self.assertEqual(balances, [{"name": "ROW-1", "actual_qty": 600.0}])
+		get_stock_balance.assert_called_once_with(
+			"ITEM-1",
+			"Stores - MRG",
+			posting_date="2026-08-14",
+			posting_time="03:28:29",
+		)
+
 	def test_collection_filter_prefers_proforma_date(self):
 		row = {"pi_date": "2026-01-10", "ti_date": "2026-02-15"}
 		self.assertEqual(_collection_filter_date(row), "2026-01-10")

@@ -105,6 +105,44 @@ def patch_payment_ledger_entry_submit_compatibility():
 patch_payment_ledger_entry_submit_compatibility()
 
 
+def patch_invoice_outstanding_primary_account():
+	"""Keep retention PLE rows from replacing the invoice's main outstanding."""
+	from erpnext.accounts.doctype.payment_ledger_entry.payment_ledger_entry import (
+		PaymentLedgerEntry,
+	)
+	from construction_management.overrides.invoice_outstanding import (
+		update_primary_account_outstanding,
+	)
+
+	if getattr(PaymentLedgerEntry.on_update, "_cm_primary_account_patched", False):
+		return
+
+	original = PaymentLedgerEntry.on_update
+
+	def _patched_on_update(self):
+		invoice_doctypes = ("Sales Invoice", "Purchase Invoice")
+		should_update = self.flags.update_outstanding == "Yes"
+		if self.against_voucher_type not in invoice_doctypes or not should_update:
+			return original(self)
+
+		self.flags.update_outstanding = "No"
+		try:
+			original(self)
+		finally:
+			self.flags.update_outstanding = "Yes"
+
+		update_primary_account_outstanding(
+			self.against_voucher_type, self.against_voucher_no
+		)
+
+	_patched_on_update._cm_primary_account_patched = True
+	PaymentLedgerEntry.on_update = _patched_on_update
+	frappe.logger().info("Applied primary invoice outstanding account patch")
+
+
+patch_invoice_outstanding_primary_account()
+
+
 def patch_gl_entry_submit_compatibility():
 	"""Keep ERPNext GL posting compatible when GL Entry is non-submittable in site metadata."""
 	from erpnext.accounts import general_ledger

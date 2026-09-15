@@ -13,7 +13,9 @@ from construction_management.overrides.unearned_revenue import (
 	get_remaining_so_unbilled_balance,
 	SO_UNEARNED_EXCLUDED_ITEM_CODES,
 )
-from erpnext.accounts.utils import update_voucher_outstanding
+from construction_management.overrides.invoice_outstanding import (
+	update_primary_account_outstanding,
+)
 
 
 def _consolidate_income_gl_by_boq_item(gl_map, income_accounts, unbilled_revenue_account):
@@ -419,10 +421,8 @@ class SalesInvoiceOverride(SalesInvoice):
 
 		# Fix outstanding_amount field:
 		# Custom GL entries create multiple Payment Ledger Entries (Net + Retention).
-		# We re-trigger update_voucher_outstanding for the main debit_to account.
-		update_voucher_outstanding(
-			self.doctype, self.name, self.debit_to, "Customer", self.customer
-		)
+		# Only the main debit_to account represents the amount due on this invoice.
+		update_primary_account_outstanding(self.doctype, self.name)
 
 	def on_cancel(self):
 		super().on_cancel()
