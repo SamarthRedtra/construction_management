@@ -7,8 +7,10 @@ import frappe
 from frappe.tests import UnitTestCase
 
 from construction_management.api.project_collection_data import (
+	_allocate_invoice_total,
 	_collection_filter_date,
 	_get_standard_sales_order_links,
+	_set_conversion_status,
 )
 from construction_management.api.project_revenue import get_project_billed_revenue
 from construction_management.construction_management.page.project_soa.project_soa import (
@@ -20,6 +22,34 @@ class TestProjectReportingFixes(UnitTestCase):
 	def test_collection_filter_prefers_proforma_date(self):
 		row = {"pi_date": "2026-01-10", "ti_date": "2026-02-15"}
 		self.assertEqual(_collection_filter_date(row), "2026-01-10")
+
+	def test_combined_tax_invoice_allocation_preserves_total(self):
+		allocations = _allocate_invoice_total(
+			215638.337,
+			{"SO-1": 6510.277, "SO-2": 131722.907, "SO-3": 89955.532},
+		)
+
+		self.assertEqual(sum(allocations.values()), 215638.337)
+		self.assertEqual(allocations["SO-1"], 6152.212)
+		self.assertEqual(allocations["SO-2"], 124478.147)
+		self.assertEqual(allocations["SO-3"], 85007.978)
+
+	def test_proforma_conversion_status_uses_linked_net_value(self):
+		row = {
+			"proforma_net_amount": 1000,
+			"invoiced_net_amount": 600,
+			"tax_invoices": [{"name": "SINV-1"}],
+		}
+		_set_conversion_status(row)
+		self.assertEqual(row["conversion_status"], "Partially Converted")
+
+		row["invoiced_net_amount"] = 1000
+		_set_conversion_status(row)
+		self.assertEqual(row["conversion_status"], "Converted")
+
+		row["tax_invoices"] = []
+		_set_conversion_status(row)
+		self.assertEqual(row["conversion_status"], "Not Converted")
 
 	@patch("construction_management.api.project_collection_data.frappe.get_all")
 	def test_standard_sales_order_link_is_used(self, get_all):

@@ -244,6 +244,7 @@ doc_events = {
 		"after_insert": "construction_management.tasks.delete_special_item_price_on_insert"
 	},
 	"Stock Entry": {
+		"before_validate": "construction_management.api.drum_uom_utils.apply_stock_entry_uom_conversion",
 		"on_cancel": "construction_management.overrides.stock_entry.on_cancel",
 	},
 }

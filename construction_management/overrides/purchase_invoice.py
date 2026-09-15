@@ -10,6 +10,8 @@ from erpnext.accounts.doctype.purchase_invoice.purchase_invoice import PurchaseI
 from erpnext.accounts.utils import update_voucher_outstanding
 from redtra_customisation.override.purchase_invoice import CustomPurchaseInvoice
 
+from construction_management.api.drum_uom_utils import apply_drum_uom_conversion_for_items
+
 LEGACY_FIXED_ASSET_PO = "SKD-LPO-00371-1"
 
 _PO_PROGRESS_DEDUCTION_ITEMS = frozenset(
@@ -697,6 +699,7 @@ def clear_po_line_progress(doc):
 
 def before_validate(doc, method):
 	"""Run before standard validate"""
+	apply_drum_uom_conversion_for_items(doc.get("items"))
 	scale_fixed_discount(doc)
 
 

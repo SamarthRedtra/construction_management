@@ -83,7 +83,7 @@ def get_collection_portfolio(company: str, filters: dict | None = None) -> list[
 
 
 def get_collection_invoice_portfolio(company: str, filters: dict | None = None) -> list[dict]:
-	"""Collection rows grouped by invoiced project, including its Sales Order proformas."""
+	"""Return one collection row per submitted Sales Order/proforma."""
 	if not company:
 		frappe.throw(_("Company is required"))
 	filters = filters or {}
@@ -99,9 +99,19 @@ def get_collection_invoice_portfolio(company: str, filters: dict | None = None) 
 		conditions.append("p.customer = %(customer)s")
 		values["customer"] = filters["customer"]
 
+	project_fields = "p.name, p.project_name"
+	if frappe.db.has_column("Project", "custom_collection_overdue_basis"):
+		project_fields += ", p.custom_collection_overdue_basis"
+	else:
+		project_fields += ", 'Tax Invoice' AS custom_collection_overdue_basis"
+	if frappe.db.has_column("Project", "custom_collection_overdue_days"):
+		project_fields += ", p.custom_collection_overdue_days"
+	else:
+		project_fields += ", 0 AS custom_collection_overdue_days"
+
 	projects = frappe.db.sql(
 		f"""
-		SELECT p.name, p.project_name
+		SELECT {project_fields}
 		FROM `tabProject` p
 		WHERE {' AND '.join(conditions)}
 		ORDER BY p.project_name ASC, p.name ASC
@@ -116,13 +126,18 @@ def get_collection_invoice_portfolio(company: str, filters: dict | None = None) 
 		for row in detail.get("rows") or []:
 			if row.get("reference_doctype") not in ("Sales Invoice", "Sales Order"):
 				continue
-			document_date = _collection_filter_date(row)
-			if filters.get("from_date") and (not document_date or getdate(document_date) < getdate(filters["from_date"])):
-				continue
-			if filters.get("to_date") and (not document_date or getdate(document_date) > getdate(filters["to_date"])):
+			# Tax Invoices are attached after the Sales Order date filter. Filtering
+			# them here loses combined invoices whose orders belong to different months.
+			if row.get("reference_doctype") == "Sales Order" and not _date_matches_filters(
+				row.get("pi_date"), filters
+			):
 				continue
 			row["project_name"] = project.project_name or project.name
-			row["document_type"] = "Tax Invoice" if row.get("reference_doctype") == "Sales Invoice" else "Proforma (Sales Order)"
+			row["document_type"] = (
+				"Tax Invoice"
+				if row.get("reference_doctype") == "Sales Invoice"
+				else "Proforma (Sales Order)"
+			)
 			project_rows.append(row)
 
 		# A Sales Order linked to a submitted Tax Invoice is intentionally omitted by
@@ -131,9 +146,13 @@ def get_collection_invoice_portfolio(company: str, filters: dict | None = None) 
 		# rows must receive the same PC/follow-up overlay as the original rows;
 		# otherwise a PC saved against the Sales Order cannot be found by the
 		# Collection Manager filter.
-		existing_sales_orders = {row.get("reference_name") for row in project_rows if row.get("reference_doctype") == "Sales Order"}
+		existing_sales_orders = {
+			row.get("reference_name")
+			for row in project_rows
+			if row.get("reference_doctype") == "Sales Order"
+		}
 		supplemental_sales_order_rows = []
-		sales_order_fields = ["name", "transaction_date", "grand_total"]
+		sales_order_fields = ["name", "transaction_date", "net_total", "grand_total"]
 		if frappe.db.has_column("Sales Order", "remarks"):
 			sales_order_fields.append("remarks")
 		for sales_order in frappe.get_all(
@@ -145,9 +164,7 @@ def get_collection_invoice_portfolio(company: str, filters: dict | None = None) 
 			if sales_order.name in existing_sales_orders:
 				continue
 			document_date = sales_order.transaction_date
-			if filters.get("from_date") and (not document_date or getdate(document_date) < getdate(filters["from_date"])):
-				continue
-			if filters.get("to_date") and (not document_date or getdate(document_date) > getdate(filters["to_date"])):
+			if not _date_matches_filters(document_date, filters):
 				continue
 			supplemental_sales_order_rows.append(
 				_shape_collection_row(
@@ -164,6 +181,7 @@ def get_collection_invoice_portfolio(company: str, filters: dict | None = None) 
 					remarks=sales_order.remarks or "",
 				)
 			)
+			supplemental_sales_order_rows[-1]["proforma_net_amount"] = flt(sales_order.net_total)
 			supplemental_sales_order_rows[-1]["project_name"] = project.project_name or project.name
 			supplemental_sales_order_rows[-1]["document_type"] = "Proforma (Sales Order)"
 
@@ -175,7 +193,17 @@ def get_collection_invoice_portfolio(company: str, filters: dict | None = None) 
 			merge_collection_pc_overlays(supplemental_sales_order_rows, follow_ups)
 			project_rows.extend(supplemental_sales_order_rows)
 
+		project_rows = _consolidate_project_collection_rows(project_rows, filters)
+		_apply_overdue_rules(
+			project_rows,
+			{
+				"basis": project.custom_collection_overdue_basis or "Tax Invoice",
+				"days": cint(project.custom_collection_overdue_days),
+			},
+		)
 		rows.extend(project_rows)
+
+	rows.extend(_get_unlinked_tax_invoices_without_project(company, filters))
 
 	# Keep each project together while showing its newest documents first.
 	rows.sort(
@@ -194,6 +222,310 @@ def get_collection_invoice_portfolio(company: str, filters: dict | None = None) 
 def _collection_filter_date(row: dict):
 	"""Use the Sales Order/proforma date before the later Tax Invoice date."""
 	return row.get("pi_date") or row.get("ti_date")
+
+
+def _date_matches_filters(document_date, filters: dict) -> bool:
+	if filters.get("from_date") and (
+		not document_date or getdate(document_date) < getdate(filters["from_date"])
+	):
+		return False
+	if filters.get("to_date") and (
+		not document_date or getdate(document_date) > getdate(filters["to_date"])
+	):
+		return False
+	return True
+
+
+def _consolidate_project_collection_rows(rows: list[dict], filters: dict) -> list[dict]:
+	proforma_rows = {
+		row.get("reference_name"): row
+		for row in rows
+		if row.get("reference_doctype") == "Sales Order"
+	}
+	tax_invoice_rows = [
+		row for row in rows if row.get("reference_doctype") == "Sales Invoice"
+	]
+	allocations = _get_invoice_sales_order_allocations(
+		[row.get("reference_name") for row in tax_invoice_rows]
+	)
+
+	for row in proforma_rows.values():
+		_prepare_proforma_collection_row(row)
+
+	unlinked_rows = []
+	for invoice_row in tax_invoice_rows:
+		linked_to_visible_proforma = False
+		for sales_order, allocation in allocations.get(invoice_row.get("reference_name"), {}).items():
+			proforma_row = proforma_rows.get(sales_order)
+			if not proforma_row:
+				continue
+			_merge_tax_invoice_into_proforma(proforma_row, invoice_row, allocation)
+			linked_to_visible_proforma = True
+
+		if not allocations.get(invoice_row.get("reference_name")) and _date_matches_filters(
+			invoice_row.get("ti_date"), filters
+		):
+			unlinked_rows.append(_as_unlinked_tax_invoice_row(invoice_row))
+		elif not linked_to_visible_proforma:
+			# The invoice is linked, but its submitted Sales Order is outside the
+			# selected period. It belongs to that Proforma month, not the TI month.
+			continue
+
+	for row in proforma_rows.values():
+		_set_conversion_status(row)
+	return [*proforma_rows.values(), *unlinked_rows]
+
+
+def _prepare_proforma_collection_row(row: dict) -> None:
+	row["row_group"] = "proforma"
+	row["tax_invoice_no"] = ""
+	row["tax_invoices"] = []
+	row["conversion_status"] = "Not Converted"
+	row["invoiced_net_amount"] = 0.0
+	row["proforma_net_amount"] = flt(row.get("proforma_net_amount") or row.get("pi_amount"))
+	row["ti_amt"] = 0.0
+	row["ti_date"] = None
+
+
+def _merge_tax_invoice_into_proforma(
+	proforma_row: dict, invoice_row: dict, allocation: dict
+) -> None:
+	invoice_name = invoice_row.get("reference_name")
+	allocated_amount = flt(allocation.get("allocated_grand_total"))
+	proforma_row["tax_invoices"].append(
+		{
+			"name": invoice_name,
+			"posting_date": invoice_row.get("ti_date"),
+			"allocated_amount": allocated_amount,
+		}
+	)
+	proforma_row["tax_invoice_no"] = ", ".join(
+		invoice["name"] for invoice in proforma_row["tax_invoices"]
+	)
+	proforma_row["ti_amt"] = flt(proforma_row.get("ti_amt")) + allocated_amount
+	proforma_row["invoiced_net_amount"] = flt(proforma_row.get("invoiced_net_amount")) + flt(
+		allocation.get("linked_net_amount")
+	)
+	proforma_row["ti_date"] = _latest_date(
+		proforma_row.get("ti_date"), invoice_row.get("ti_date")
+	)
+	if not proforma_row.get("collection_due_date"):
+		proforma_row["due_date"] = _latest_date(
+			proforma_row.get("due_date"), invoice_row.get("due_date")
+		)
+
+	_merge_payment_display(proforma_row, invoice_row)
+	_copy_invoice_pc_fallback(proforma_row, invoice_row)
+	proforma_row["is_advance"] = cint(proforma_row.get("is_advance")) or cint(
+		invoice_row.get("is_advance")
+	)
+
+
+def _merge_payment_display(proforma_row: dict, invoice_row: dict) -> None:
+	proforma_row["payment_date"] = _latest_date(
+		proforma_row.get("payment_date"), invoice_row.get("payment_date")
+	)
+	for fieldname in ("payment_mode", "cheque_no"):
+		values = []
+		for value in (proforma_row.get(fieldname), invoice_row.get(fieldname)):
+			for part in str(value or "").split(","):
+				part = part.strip()
+				if part and part not in values:
+					values.append(part)
+		proforma_row[fieldname] = ", ".join(values)
+
+
+def _copy_invoice_pc_fallback(proforma_row: dict, invoice_row: dict) -> None:
+	for fieldname in (
+		"payment_certificate",
+		"pc_date",
+		"pc_amt",
+		"pc_attachment",
+		"follow_up_name",
+		"follow_up_status",
+		"follow_up_attachment",
+	):
+		if not proforma_row.get(fieldname) and invoice_row.get(fieldname):
+			proforma_row[fieldname] = invoice_row[fieldname]
+	if not proforma_row.get("remarks") and invoice_row.get("remarks"):
+		proforma_row["remarks"] = invoice_row["remarks"]
+
+
+def _set_conversion_status(row: dict) -> None:
+	if not row.get("tax_invoices"):
+		row["conversion_status"] = "Not Converted"
+		return
+
+	proforma_net = flt(row.get("proforma_net_amount"))
+	invoiced_net = flt(row.get("invoiced_net_amount"))
+	tolerance = max(0.01, abs(proforma_net) * 0.00001)
+	row["conversion_status"] = "Converted"
+	if proforma_net and invoiced_net + tolerance < proforma_net:
+		row["conversion_status"] = "Partially Converted"
+
+
+def _as_unlinked_tax_invoice_row(row: dict) -> dict:
+	row = dict(row)
+	row["row_group"] = "unlinked_tax_invoice"
+	row["conversion_status"] = "No Proforma Link"
+	row["tax_invoice_no"] = row.get("reference_name") or row.get("invoice_no")
+	row["tax_invoices"] = [
+		{
+			"name": row["tax_invoice_no"],
+			"posting_date": row.get("ti_date"),
+			"allocated_amount": flt(row.get("ti_amt")),
+		}
+	]
+	row["document_type"] = "Unlinked Tax Invoice"
+	return row
+
+
+def _get_invoice_sales_order_allocations(
+	invoice_names: list[str],
+) -> dict[str, dict[str, dict]]:
+	invoice_names = list({name for name in invoice_names if name})
+	if not invoice_names:
+		return {}
+
+	invoices = {
+		row.name: row
+		for row in frappe.get_all(
+			"Sales Invoice",
+			filters={"name": ("in", invoice_names), "docstatus": 1},
+			fields=["name", "grand_total", "net_total", "custom_sales_order"],
+		)
+	}
+	weights: dict[str, dict[str, float]] = {}
+	for item in frappe.get_all(
+		"Sales Invoice Item",
+		filters={
+			"parent": ("in", invoice_names),
+			"docstatus": 1,
+			"sales_order": ("is", "set"),
+		},
+		fields=["parent", "sales_order", "net_amount"],
+	):
+		invoice_weights = weights.setdefault(item.parent, {})
+		invoice_weights[item.sales_order] = flt(invoice_weights.get(item.sales_order)) + flt(
+			item.net_amount
+		)
+
+	result = {}
+	for invoice_name, invoice in invoices.items():
+		invoice_weights = {
+			sales_order: amount
+			for sales_order, amount in weights.get(invoice_name, {}).items()
+			if amount > 0
+		}
+		if not invoice_weights and invoice.custom_sales_order:
+			invoice_weights[invoice.custom_sales_order] = flt(invoice.net_total) or flt(
+				invoice.grand_total
+			)
+		if not invoice_weights:
+			continue
+
+		allocated_totals = _allocate_invoice_total(flt(invoice.grand_total), invoice_weights)
+		result[invoice_name] = {
+			sales_order: {
+				"linked_net_amount": linked_net,
+				"allocated_grand_total": allocated_totals[sales_order],
+			}
+			for sales_order, linked_net in invoice_weights.items()
+		}
+	return result
+
+
+def _allocate_invoice_total(
+	grand_total: float, weights: dict[str, float]
+) -> dict[str, float]:
+	positive_weights = {
+		key: flt(value) for key, value in weights.items() if flt(value) > 0
+	}
+	weight_total = sum(positive_weights.values())
+	if not weight_total:
+		return {}
+
+	allocations = {}
+	allocated = 0.0
+	items = list(positive_weights.items())
+	for index, (key, weight) in enumerate(items):
+		if index == len(items) - 1:
+			amount = flt(grand_total) - allocated
+		else:
+			amount = flt(flt(grand_total) * weight / weight_total, 3)
+			allocated += amount
+		allocations[key] = flt(amount, 3)
+	return allocations
+
+
+def _latest_date(first, second):
+	if not first:
+		return second
+	if not second:
+		return first
+	return max(getdate(first), getdate(second))
+
+
+def _get_unlinked_tax_invoices_without_project(company: str, filters: dict) -> list[dict]:
+	conditions = [
+		"si.company = %(company)s",
+		"si.docstatus = 1",
+		"IFNULL(si.custom_is_proforma, 0) = 0",
+		"IFNULL(si.project, '') = ''",
+		"IFNULL(si.custom_sales_order, '') = ''",
+		"""NOT EXISTS (
+			SELECT 1 FROM `tabSales Invoice Item` sii
+			WHERE sii.parent = si.name AND IFNULL(sii.sales_order, '') != ''
+		)""",
+	]
+	values = {"company": company}
+	if filters.get("customer"):
+		conditions.append("si.customer = %(customer)s")
+		values["customer"] = filters["customer"]
+	if filters.get("from_date"):
+		conditions.append("si.posting_date >= %(from_date)s")
+		values["from_date"] = filters["from_date"]
+	if filters.get("to_date"):
+		conditions.append("si.posting_date <= %(to_date)s")
+		values["to_date"] = filters["to_date"]
+
+	invoices = frappe.db.sql(
+		f"""
+		SELECT si.name, si.customer, COALESCE(c.customer_name, si.customer) AS client_name,
+			si.posting_date, si.grand_total, si.due_date, si.remarks
+		FROM `tabSales Invoice` si
+		LEFT JOIN `tabCustomer` c ON c.name = si.customer
+		WHERE {' AND '.join(conditions)}
+		ORDER BY si.posting_date DESC, si.name DESC
+		""",
+		values,
+		as_dict=True,
+	)
+	payments = _payment_aggregate("Sales Invoice", [invoice.name for invoice in invoices])
+	rows = []
+	for invoice in invoices:
+		payment = payments.get(("Sales Invoice", invoice.name)) or {}
+		row = _shape_collection_row(
+			project="",
+			reference_doctype="Sales Invoice",
+			reference_name=invoice.name,
+			invoice_no=invoice.name,
+			stage="Tax Invoice",
+			client_name=invoice.client_name or "",
+			pm_engg="",
+			workdone="",
+			ti_date=invoice.posting_date,
+			ti_amt=flt(invoice.grand_total),
+			due_date=invoice.due_date,
+			payment_mode=payment.get("mode_of_payment") or "",
+			payment_date=payment.get("payment_date"),
+			cheque_no=payment.get("reference_no") or "",
+			remarks=invoice.remarks or "",
+		)
+		rows.append(_as_unlinked_tax_invoice_row(row))
+	_apply_pdc_overlay(rows)
+	_apply_overdue_rules(rows)
+	return rows
 
 
 def get_collection_expected_payments(company: str, filters: dict | None = None) -> dict:
@@ -511,7 +843,7 @@ def _build_collection_cycles(project: str, client_name: str, pm_engg: str, workd
 	so_remarks_field = ", remarks" if frappe.db.has_column("Sales Order", "remarks") else ", '' AS remarks"
 	for so in frappe.db.sql(
 		f"""
-		SELECT name, transaction_date, grand_total{so_remarks_field}
+		SELECT name, transaction_date, net_total, grand_total{so_remarks_field}
 		FROM `tabSales Order`
 		WHERE project = %s AND docstatus = 1
 		ORDER BY transaction_date ASC, name ASC
@@ -539,6 +871,7 @@ def _build_collection_cycles(project: str, client_name: str, pm_engg: str, workd
 			pi_date=so.transaction_date,
 			remarks=so.remarks or "",
 		))
+		rows[-1]["proforma_net_amount"] = flt(so.net_total)
 
 	rows.sort(key=lambda r: (
 		getdate(r.get("pi_date") or r.get("pc_date") or r.get("ti_date") or "1900-01-01"),

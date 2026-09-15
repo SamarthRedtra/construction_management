@@ -120,6 +120,27 @@ construction_management.project_collection.has_pc_update = function (row) {
 	);
 };
 
+construction_management.project_collection.get_conversion_badge = function (status) {
+	const badges = {
+		'Not Converted': { label: __('Not Converted'), slug: 'proforma' },
+		'Partially Converted': { label: __('Partially Converted'), slug: 'pc-pending' },
+		Converted: { label: __('Converted'), slug: 'paid' },
+		'No Proforma Link': { label: __('No Proforma Link'), slug: 'unpaid' },
+	};
+	const badge = badges[status];
+	return badge ? `<span class="badge-status ${badge.slug}">${badge.label}</span>` : '';
+};
+
+construction_management.project_collection.get_tax_invoice_links = function (row) {
+	const invoices = row.tax_invoices || [];
+	if (invoices.length) {
+		return invoices.map((invoice) => (
+			construction_management.project_collection.get_doc_link('Sales Invoice', invoice.name)
+		)).join('<br>');
+	}
+	return construction_management.project_collection.get_doc_link('Sales Invoice', row.tax_invoice_no);
+};
+
 construction_management.project_collection._build_billing_row_html = function (row, project, fmt, fmt_date) {
 	const status = construction_management.project_collection.get_row_status(row);
 	const category = construction_management.project_collection.get_payment_category(row);
@@ -129,6 +150,8 @@ construction_management.project_collection._build_billing_row_html = function (r
 	const project_link = row.project ? `<a href="/app/project/${encodeURIComponent(row.project)}" target="_blank" class="document-link">${frappe.utils.escape_html(row.project)}</a>` : '';
 	const document_type = row.document_type || (ref_doctype === 'Sales Order' ? __('Proforma (Sales Order)') : row.stage || '');
 	const document_type_slug = ref_doctype === 'Sales Order' ? 'proforma' : 'tax-invoice';
+	const conversion_badge = construction_management.project_collection.get_conversion_badge(row.conversion_status);
+	const tax_invoice_links = construction_management.project_collection.get_tax_invoice_links(row);
 	const payment_mode_disp = [row.payment_mode, row.cheque_no].filter(Boolean).join(' · ');
 	const pc_name = row.payment_certificate || (row.stage === 'Payment Certificate' ? row.invoice_no : '');
 	const pc_attachment = row.pc_attachment || row.follow_up_attachment || '';
@@ -193,6 +216,8 @@ construction_management.project_collection._build_billing_row_html = function (r
 				${has_saved_pc ? `<span class="badge badge-success">${__('PC Saved')}</span>` : ''}
 			</td>
 			<td><span class="collection-document-type ${document_type_slug}">${frappe.utils.escape_html(document_type)}</span></td>
+			<td>${conversion_badge}</td>
+			<td>${tax_invoice_links}</td>
 			<td>${frappe.utils.escape_html(row.client_name || '')}</td>
 			<td>${frappe.utils.escape_html(row.pm_engg || '')}</td>
 			<td>${frappe.utils.escape_html(row.workdone || '')}</td>
@@ -298,7 +323,7 @@ construction_management.project_collection._build_grouped_billing_rows = functio
 		const cat_total = cat_rows.reduce((sum, row) => sum + flt(row.ti_amt || row.pc_amt || row.pi_amount || 0), 0);
 		html += `
 			<tr class="collection-category-header" data-category="${cat.key}">
-				<td colspan="17">
+				<td colspan="19">
 					<span class="badge-status ${cat.slug}">${cat.label}</span>
 					<span class="category-meta">${cat_rows.length} ${__('rows')} · ${fmt(cat_total, 'Currency')}</span>
 				</td>
@@ -431,33 +456,44 @@ construction_management.project_collection.render_invoice_portfolio = function (
 construction_management.project_collection.build_invoice_portfolio_html = function (rows) {
 	const fmt = construction_management.project_collection.format_num;
 	const fmtDate = construction_management.project_collection.format_date;
-	const tax_invoices = rows.filter((row) => row.reference_doctype === 'Sales Invoice');
-	const total_invoiced = tax_invoices.reduce((total, row) => total + flt(row.ti_amt || 0), 0);
-	const paid_count = tax_invoices.filter((row) => row.payment_date).length;
-	const awaiting_pc_count = tax_invoices.filter((row) => !row.pc_date).length;
+	const tax_invoice_rows = rows.filter((row) => row.tax_invoice_no);
+	const total_invoiced = tax_invoice_rows.reduce((total, row) => total + flt(row.ti_amt || 0), 0);
+	const paid_count = tax_invoice_rows.filter((row) => row.payment_date).length;
+	const awaiting_pc_count = tax_invoice_rows.filter((row) => !row.pc_date).length;
 	const pc_updated_count = rows.filter(construction_management.project_collection.has_pc_update).length;
-	const overdue_count = tax_invoices.filter((row) => row.is_overdue).length;
+	const overdue_count = tax_invoice_rows.filter((row) => row.is_overdue).length;
 	let body = '';
 	if (rows.length) {
+		const proforma_rows = rows.filter((row) => row.row_group !== 'unlinked_tax_invoice');
+		const unlinked_rows = rows.filter((row) => row.row_group === 'unlinked_tax_invoice');
 		let active_project = '';
 		let serial = 0;
-		body = rows.map((row) => {
+		body = proforma_rows.map((row) => {
 			let group_header = '';
 			if (row.project !== active_project) {
 				active_project = row.project;
-				group_header = `<tr class="collection-project-group-header"><td colspan="17"><span>${frappe.utils.escape_html(row.project_name || row.project)}</span><small>${frappe.utils.escape_html(row.client_name || '')}${row.pm_engg ? ` · ${frappe.utils.escape_html(row.pm_engg)}` : ''}</small></td></tr>`;
+				group_header = `<tr class="collection-project-group-header"><td colspan="19"><span>${frappe.utils.escape_html(row.project_name || row.project)}</span><small>${frappe.utils.escape_html(row.client_name || '')}${row.pm_engg ? ` · ${frappe.utils.escape_html(row.pm_engg)}` : ''}</small></td></tr>`;
 			}
 			serial += 1;
 			return group_header + construction_management.project_collection._build_billing_row_html(
 				Object.assign({}, row, { sr_no: serial }), row.project, fmt, fmtDate
 			);
 		}).join('');
+		if (unlinked_rows.length) {
+			body += `<tr class="collection-project-group-header"><td colspan="19"><span>${__('Unlinked Tax Invoices')}</span><small>${__('Submitted Tax Invoices without a Sales Order link')}</small></td></tr>`;
+			body += unlinked_rows.map((row) => {
+				serial += 1;
+				return construction_management.project_collection._build_billing_row_html(
+					Object.assign({}, row, { sr_no: serial }), row.project, fmt, fmtDate
+				);
+			}).join('');
+		}
 	} else {
-		body = `<tr><td colspan="17" class="text-center text-muted">${__('No invoiced projects match the selected filters')}</td></tr>`;
+		body = `<tr><td colspan="19" class="text-center text-muted">${__('No Proformas or unlinked Tax Invoices match the selected filters')}</td></tr>`;
 	}
 	return `<div class="project-collection-dashboard collection-register-dashboard">
 		<div class="collection-register-heading">
-			<div><p class="collection-eyebrow">${__('Collection control centre')}</p><h2 class="collection-section-title">${__('Invoice Register')}</h2><p class="collection-section-sub">${__('Submitted invoices only · newest invoices first')}</p></div>
+			<div><p class="collection-eyebrow">${__('Collection control centre')}</p><h2 class="collection-section-title">${__('Invoice Register')}</h2><p class="collection-section-sub">${__('Submitted Proformas with their Tax Invoice conversion status')}</p></div>
 			<div class="collection-register-note">${__('Add a PC date, certified amount, or upload the certificate directly from the invoice row.')}</div>
 		</div>
 		<div class="collection-register-kpis">
@@ -474,7 +510,7 @@ construction_management.project_collection.build_invoice_portfolio_html = functi
 		</div>
 		<div class="collection-table-toolbar"><span>${__('Invoice details and collection progress')}</span><span>${__('Scroll horizontally to view all fields')} →</span></div>
 		<div class="collection-grid-scroll"><table class="collection-table border-table collection-billing-grid"><thead><tr>
-			<th>${__('Sr No')}</th><th>${__('Document No')}</th><th>${__('Document Type')}</th><th>${__('Client Name')}</th><th>${__('PM / Engg')}</th><th>${__('Workdone')}</th>
+			<th>${__('Sr No')}</th><th>${__('Document No')}</th><th>${__('Document Type')}</th><th>${__('Conversion Status')}</th><th>${__('Tax Invoice No')}</th><th>${__('Client Name')}</th><th>${__('PM / Engg')}</th><th>${__('Workdone')}</th>
 			<th class="text-right">${__('PI Amount')}</th><th>${__('PI Date')}</th><th>${__('PC Date')}</th><th class="text-right">${__('PC Amt')}</th>
 			<th>${__('TI Date')}</th><th class="text-right">${__('TI Amt')}</th><th>${__('Due Date')}</th><th>${__('Payment Mode')}</th><th>${__('Payment Date')}</th><th>${__('Project No')}</th><th>${__('Remarks / Action')}</th>
 		</tr></thead><tbody>${body}</tbody></table></div></div>`;
@@ -565,7 +601,7 @@ construction_management.project_collection.build_detail_html = function (data, p
 		category_summary_html = construction_management.project_collection._build_billing_category_summary(rows, fmt);
 		grid_rows = construction_management.project_collection._build_grouped_billing_rows(rows, project, fmt, fmt_date);
 	} else {
-		grid_rows = `<tr><td colspan="17" class="text-center text-muted">${__('No billing cycles for this project')}</td></tr>`;
+		grid_rows = `<tr><td colspan="19" class="text-center text-muted">${__('No billing cycles for this project')}</td></tr>`;
 	}
 
 	let follow_up_html = '';
@@ -648,6 +684,8 @@ construction_management.project_collection.build_detail_html = function (data, p
 								<th>${__('Sr No')}</th>
 								<th>${__('Invoice No')}</th>
 								<th>${__('Document Type')}</th>
+								<th>${__('Conversion Status')}</th>
+								<th>${__('Tax Invoice No')}</th>
 								<th>${__('Client Name')}</th>
 								<th>${__('PM / Engg')}</th>
 								<th>${__('Workdone')}</th>

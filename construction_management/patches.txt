@@ -1,6 +1,7 @@
 [pre_model_sync]
 # Patches added in this section will be executed before doctypes are migrated
 # Read docs to understand patches: https://frappeframework.com/docs/v14/user/en/database-migrations
+construction_management.patches.rename_workspace_customization_to_custom_workspace
 
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
@@ -91,3 +92,5 @@ construction_management.patches.unset_three_star_invoice_24_stock
 construction_management.patches.sync_sales_order_boq_progress_print
 construction_management.patches.add_advance_release_sales_invoice_field
 construction_management.patches.align_dpr_voucher_posting_dates #4
+construction_management.patches.repair_workbook_material_uom_valuation
+construction_management.patches.fix_workbook_dpr_stock_entry_amounts
