@@ -212,6 +212,119 @@ def get_effective_tax_rate(doc):
 	return total_tax_rate / 100  # Convert percentage to decimal
 
 
+def _build_boq_ledger_values(doc):
+	"""Return cumulative BOQ values represented by a Sales Order."""
+	variance_item_code = None
+	company = doc.company or frappe.defaults.get_user_default("Company")
+	if frappe.db.exists("BOQ Settings", company):
+		variance_item_code = frappe.db.get_value("BOQ Settings", company, "varience_item")
+
+	boq_items = {}
+	global_deductions = {"retention": 0.0, "advance": 0.0, "variance": 0.0}
+	item_deductions = {}
+	total_boq_amount = 0.0
+
+	for item in doc.items:
+		is_retention = item.item_code == "RETENTION-DEDUCTION"
+		is_advance = item.item_code == "ADVANCE-DEDUCTION"
+		is_variance = variance_item_code and item.item_code == variance_item_code
+
+		if not (is_retention or is_advance or is_variance) and item.get("boq_item"):
+			values = boq_items.setdefault(
+				item.boq_item,
+				{"qty": 0.0, "gross_amount": 0.0, "billing_percentage": 0.0},
+			)
+			values["qty"] += flt(item.qty)
+			values["gross_amount"] += flt(item.amount)
+			values["billing_percentage"] = max(
+				values["billing_percentage"], flt(item.get("custom_billing_percentage"))
+			)
+			total_boq_amount += flt(item.amount)
+		elif is_retention or is_advance or is_variance:
+			target = item.get("boq_item")
+			bucket = item_deductions.setdefault(
+				target, {"retention": 0.0, "advance": 0.0, "variance": 0.0}
+			) if target else global_deductions
+			if is_retention:
+				bucket["retention"] += flt(item.amount)
+			elif is_advance:
+				bucket["advance"] += flt(item.amount)
+			elif is_variance:
+				bucket["variance"] += flt(item.amount)
+
+	tax_rate = get_effective_tax_rate(doc)
+	discount_amount = flt(getattr(doc, "discount_amount", 0))
+	discount_share = discount_amount / len(boq_items) if discount_amount and boq_items else 0.0
+
+	for boq_item, values in boq_items.items():
+		deductions = item_deductions.get(
+			boq_item, {"retention": 0.0, "advance": 0.0, "variance": 0.0}
+		).copy()
+		if total_boq_amount:
+			share = values["gross_amount"] / total_boq_amount
+			for fieldname in deductions:
+				deductions[fieldname] += global_deductions[fieldname] * share
+
+		base_amount = values["gross_amount"] + sum(deductions.values())
+		if doc.apply_discount_on == "Net Total" and discount_share > 0:
+			base_amount = max(0, base_amount - discount_share)
+
+		net_amount = base_amount * (1 + tax_rate)
+		if doc.apply_discount_on == "Grand Total" and discount_share > 0:
+			net_amount = max(0, net_amount - discount_share)
+
+		values.update({
+			"amount": flt(net_amount),
+			"retention": abs(flt(deductions["retention"])),
+			"advance": abs(flt(deductions["advance"])),
+			"variance": abs(flt(deductions["variance"])),
+		})
+
+	return boq_items
+
+
+def _get_previous_cumulative_values(doc, boq_item):
+	"""Get the last submitted cumulative certificate before this Sales Order."""
+	previous_name = frappe.db.sql(
+		"""
+		SELECT so.name
+		FROM `tabSales Order` so
+		INNER JOIN `tabSales Order Item` soi ON soi.parent = so.name
+		WHERE so.docstatus = 1
+		  AND so.name != %s
+		  AND soi.boq_item = %s
+		  AND COALESCE(soi.custom_billing_percentage, 0) > 0
+		  AND (
+			so.transaction_date < %s
+			OR (so.transaction_date = %s AND so.creation < %s)
+		  )
+		ORDER BY so.transaction_date DESC, so.creation DESC
+		LIMIT 1
+		""",
+		(doc.name, boq_item, doc.transaction_date, doc.transaction_date, doc.creation),
+	)
+	if not previous_name:
+		return None
+
+	previous_doc = frappe.get_doc("Sales Order", previous_name[0][0])
+	return _build_boq_ledger_values(previous_doc).get(boq_item)
+
+
+def _as_incremental_values(doc, boq_item, values):
+	"""Convert cumulative certificate values into this period's movement."""
+	result = values.copy()
+	if flt(values.get("billing_percentage")) <= 0:
+		return result
+
+	previous = _get_previous_cumulative_values(doc, boq_item)
+	if not previous:
+		return result
+
+	for fieldname in ("qty", "amount", "retention", "advance", "variance"):
+		result[fieldname] = flt(values.get(fieldname)) - flt(previous.get(fieldname))
+	return result
+
+
 
 def create_ledger_entries(doc):
 	"""
@@ -222,108 +335,10 @@ def create_ledger_entries(doc):
 	if not frappe.db.exists("DocType", "BOQ Progress Ledger"):
 		return
 
-	# 1. First Pass: Identify variance item code and total gross BOQ amount
-	variance_item_code = None
-	company = doc.company or frappe.defaults.get_user_default("Company")
-	if frappe.db.exists("BOQ Settings", company):
-		variance_item_code = frappe.db.get_value("BOQ Settings", company, "varience_item")
-		
-	# Buckets for allocation
-	boq_items_map = {} # {boq_item: {qty, amount, billing_percentage, tax, doc_item}} 
-	global_deductions = {
-		"retention": 0,
-		"advance": 0,
-		"variance": 0
-	}
-	item_specific_deductions = {} # {boq_item_id: {"retention": 0, "advance": 0, "variance": 0}}
-	
-	total_boq_amount = 0
-
-	for item in doc.items:
-		is_retention = item.item_code == "RETENTION-DEDUCTION"
-		is_advance = item.item_code == "ADVANCE-DEDUCTION"
-		is_variance = variance_item_code and item.item_code == variance_item_code
-		
-		if not (is_retention or is_advance or is_variance) and item.get("boq_item"):
-			# Aggregate main BOQ items
-			boq_id = item.boq_item
-			if boq_id not in boq_items_map:
-				boq_items_map[boq_id] = {
-					"qty": 0.0,
-					"amount": 0.0,
-					"billing_percentage": 0.0
-				}
-			
-			boq_items_map[boq_id]["qty"] += flt(item.qty)
-			boq_items_map[boq_id]["amount"] += flt(item.amount)
-			boq_items_map[boq_id]["billing_percentage"] = max(
-				boq_items_map[boq_id]["billing_percentage"], 
-				flt(item.get("custom_billing_percentage", 0))
-			)
-			
-			total_boq_amount += flt(item.amount)
-			
-		elif (is_retention or is_advance or is_variance):
-			target_boq_item = item.get("boq_item")
-			val = flt(item.amount) # Deductions are usually negative in rate/amount
-			
-			if target_boq_item:
-				if target_boq_item not in item_specific_deductions:
-					item_specific_deductions[target_boq_item] = {"retention": 0, "advance": 0, "variance": 0}
-				
-				if is_retention: item_specific_deductions[target_boq_item]["retention"] += val
-				if is_advance: item_specific_deductions[target_boq_item]["advance"] += val
-				if is_variance: item_specific_deductions[target_boq_item]["variance"] += val
-			else:
-				if is_retention: global_deductions["retention"] += val
-				if is_advance: global_deductions["advance"] += val
-				if is_variance: global_deductions["variance"] += val
-
-	# 2. Second Pass: Create ledger entries with combined deductions
-	# Get tax rate once for all items
-	tax_rate = get_effective_tax_rate(doc)
-	discount_amount = flt(getattr(doc, "discount_amount", 0))
-	discount_share = 0
-	if discount_amount > 0 and boq_items_map:
-		discount_share = discount_amount / len(boq_items_map)
-	
-	for boq_item, data in boq_items_map.items():
+	boq_items_map = _build_boq_ledger_values(doc)
+	for boq_item, cumulative_values in boq_items_map.items():
 		try:
-			gross_amount = flt(data["amount"])
-			
-			# Specific deductions
-			spec = item_specific_deductions.get(boq_item, {"retention": 0, "advance": 0, "variance": 0})
-			
-			# Pro-rated global deductions
-			allocated = {"retention": 0, "advance": 0, "variance": 0}
-			if total_boq_amount > 0:
-				share = gross_amount / total_boq_amount
-				allocated["retention"] = global_deductions["retention"] * share
-				allocated["advance"] = global_deductions["advance"] * share
-				allocated["variance"] = global_deductions["variance"] * share
-			
-			# Total deductions for this item (Values are usually negative)
-			item_retention = spec["retention"] + allocated["retention"]
-			item_advance = spec["advance"] + allocated["advance"]
-			item_variance = spec["variance"] + allocated["variance"]
-			
-			# Calculate base amount (after deductions)
-			# (Deductions are negative, so adding them reduces the amount)
-			base_amount = gross_amount + item_retention + item_advance + item_variance
-			
-			# Apply additional discount evenly across BOQ items
-			if doc.apply_discount_on == "Net Total"  and discount_share > 0:
-				base_amount = max(0, base_amount - discount_share)
-			
-			
-			# Calculate tax on the adjusted base amount
-			item_tax = base_amount * tax_rate
-			
-			# Final BOQ Value = Base Amount + Tax (calculated on adjusted amount)
-			net_amount = base_amount + item_tax
-
-			if doc.apply_discount_on == "Grand Total" and discount_share > 0:
-				net_amount = max(0, net_amount - discount_share)
+			data = _as_incremental_values(doc, boq_item, cumulative_values)
 			
 			# Create or update ledger entry
 			ledger_entry = None
@@ -354,12 +369,12 @@ def create_ledger_entries(doc):
 
 			update_data = {
 				"qty": flt(data["qty"]),
-				"amount": flt(net_amount),
-				"proforma_amount": flt(net_amount), # Using net amount as the tracked amount
-				"retention_amount": abs(item_retention),
-				"advance_deduction": abs(item_advance),
-				"variance": abs(item_variance),
-				"percentage": flt(data["billing_percentage"]),
+				"amount": flt(data["amount"]),
+				"proforma_amount": flt(data["amount"]),
+				"retention_amount": flt(data["retention"]),
+				"advance_deduction": flt(data["advance"]),
+				"variance": flt(data["variance"]),
+				"percentage": flt(cumulative_values["billing_percentage"]),
 				"posting_date": doc.transaction_date or today(),
 				"source": "Order",
 				"reference_doctype": "Sales Order",
@@ -373,17 +388,17 @@ def create_ledger_entries(doc):
 				create_ledger_entry(
 					boq_item=boq_item,
 					qty=flt(data["qty"]),
-					amount=flt(net_amount),
+					amount=flt(data["amount"]),
 					source="Order",
-					percentage=flt(data["billing_percentage"]),
+					percentage=flt(cumulative_values["billing_percentage"]),
 					reference_doctype="Sales Order",
 					reference_name=doc.name,
 					posting_date=doc.transaction_date or today(),
 					remarks=f"Sales Order {doc.name}",
-					proforma_amount=flt(net_amount),
-					retention_amount=abs(item_retention),
-					advance_deduction=abs(item_advance),
-					variance=abs(item_variance)
+					proforma_amount=flt(data["amount"]),
+					retention_amount=flt(data["retention"]),
+					advance_deduction=flt(data["advance"]),
+					variance=flt(data["variance"])
 				)
 
 			recalculate_ledger_for_item(boq_item)
@@ -459,10 +474,7 @@ def delete_ledger_entries(doc):
 
 
 def update_ledger_entries_on_revision(doc):
-	"""
-	Update BOQ Progress Ledger entries when Sales Order is revised.
-	"""
-	# Similar to create_ledger_entries but handles removed items
+	"""Resync a submitted Sales Order and clear rows removed by the revision."""
 	existing_entries = frappe.get_all(
 		"BOQ Progress Ledger",
 		filters={
@@ -471,59 +483,14 @@ def update_ledger_entries_on_revision(doc):
 		},
 		fields=["name", "boq_item"]
 	)
-	
-	existing_map = {e.boq_item: e for e in existing_entries}
-	
-	# Current items logic
-	retention_pct = 0
-	if doc.project:
-		retention_pct = flt(frappe.db.get_value("Project", doc.project, "retention_percentage"))
-	
-	total_order_amount = sum(flt(item.amount) for item in doc.items if item.boq_item)
-	total_retention = total_order_amount * (retention_pct / 100)
+	existing_map = {entry.boq_item: entry for entry in existing_entries}
+	current_boq_items = set(_build_boq_ledger_values(doc))
 
-	for item in doc.items:
-		if not item.boq_item:
-			continue
-			
-		retention_share = 0
-		if total_order_amount:
-			retention_share = total_retention * (flt(item.amount) / total_order_amount)
-			
-		existing = existing_map.get(item.boq_item)
-		if existing:
-			frappe.db.set_value(
-				"BOQ Progress Ledger",
-				existing.name,
-				{
-					"qty": flt(item.qty),
-					"amount": flt(item.amount),
-					"proforma_amount": flt(item.amount),
-					"retention_amount": flt(retention_share),
-					"posting_date": doc.transaction_date or today(),
-					"remarks": f"Revised Sales Order {doc.name}"
-				},
-				update_modified=False
-			)
-			del existing_map[item.boq_item]
-		else:
-			create_ledger_entry(
-				boq_item=item.boq_item,
-				qty=flt(item.qty),
-				amount=flt(item.amount),
-				source="Order",
-				reference_doctype="Sales Order",
-				reference_name=doc.name,
-				posting_date=doc.transaction_date or today(),
-				remarks=f"Added in revision of Sales Order {doc.name}",
-				proforma_amount=flt(item.amount),
-				retention_amount=flt(retention_share)
-			)
-		
-		recalculate_ledger_for_item(item.boq_item)
+	create_ledger_entries(doc)
 
 	# Handle removed items
-	for boq_item, existing in existing_map.items():
+	for boq_item in set(existing_map) - current_boq_items:
+		existing = existing_map[boq_item]
 		frappe.db.set_value(
 			"BOQ Progress Ledger",
 			existing.name,

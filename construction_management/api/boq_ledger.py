@@ -547,24 +547,9 @@ def recalculate_ledger_for_item(boq_item):
 	running_amount = 0.0
 	
 	if not entries:
-		# If no ledger entries exist, reset all progressive fields on BOQ Item
-		item_data = frappe.db.get_value("BOQ Item", boq_item, ["total_qty", "total_amount", "project"], as_dict=True)
-		if item_data:
-			frappe.db.set_value("BOQ Item", boq_item, {
-				"prev_qty": 0,
-				"prev_amount": 0,
-				"current_qty": 0,
-				"current_amount": 0,
-				"to_date_qty": 0,
-				"to_date_amount": 0,
-				"balance_qty": item_data.total_qty,
-				"balance_amount": item_data.total_amount,
-				"total_retention_amount": 0.0,
-				"total_advance_deducted": 0.0,
-				"billing_status": "Not Billed"
-			}, update_modified=False)
-			
-			update_project_financials(item_data.project)
+		project = _refresh_boq_item_summary(boq_item, 0, 0)
+		if project:
+			update_project_financials(project)
 		return
 
 	for entry in entries:
@@ -606,19 +591,80 @@ def recalculate_ledger_for_item(boq_item):
 			"accumulated_amount": running_amount
 		}, update_modified=False)
 	
-	# Update BOQ Item statistics
-	try:
-		item_doc = frappe.get_doc("BOQ Item", boq_item)
-		# limit what we calculate/update to avoid deep recursion if triggers are active
-		item_doc.calculate_amounts()
-		item_doc.db_update() # Use db_update to avoid triggering full validation/save hooks if not needed
-	except Exception as e:
-		frappe.log_error(f"Failed to update BOQ Item {boq_item} stats: {str(e)}", "BOQ Ledger Update")
+	project = _refresh_boq_item_summary(boq_item, running_qty, running_amount)
 	
 	# After recalculating ledger for item, update Project Financials
-	item_doc = frappe.db.get_value("BOQ Item", boq_item, "project", as_dict=True)
-	if item_doc:
-		update_project_financials(item_doc.project)
+	if project:
+		update_project_financials(project)
+
+
+def _refresh_boq_item_summary(boq_item, billed_qty, billed_amount):
+	"""Refresh legacy progress fields without depending on a DocType controller."""
+	item = frappe.db.get_value(
+		"BOQ Item",
+		boq_item,
+		[
+			"project",
+			"total_qty",
+			"rate",
+			"pricing_entry_mode",
+			"lump_sum_total",
+			"cost_to_date",
+		],
+		as_dict=True,
+	)
+	if not item:
+		return None
+
+	total_qty = flt(item.total_qty)
+	rate = flt(item.rate)
+	if item.pricing_entry_mode == "Lump Sum Total":
+		contract_amount = flt(item.lump_sum_total)
+		if total_qty:
+			rate = contract_amount / total_qty
+	else:
+		contract_amount = total_qty * rate
+
+	retention, advance = frappe.db.sql(
+		"""
+		SELECT
+			COALESCE(SUM(retention_amount), 0),
+			COALESCE(SUM(advance_deduction), 0)
+		FROM `tabBOQ Progress Ledger`
+		WHERE boq_item = %s
+		""",
+		boq_item,
+	)[0]
+	balance_qty = total_qty - flt(billed_qty)
+	if balance_qty <= 0:
+		billing_status = "Fully Billed"
+	elif flt(billed_qty) > 0:
+		billing_status = "Partially Billed"
+	else:
+		billing_status = "Not Billed"
+
+	frappe.db.set_value(
+		"BOQ Item",
+		boq_item,
+		{
+			"rate": rate,
+			"total_amount": contract_amount,
+			"prev_qty": flt(billed_qty),
+			"prev_amount": flt(billed_amount),
+			"current_qty": 0,
+			"current_amount": 0,
+			"to_date_qty": flt(billed_qty),
+			"to_date_amount": flt(billed_amount),
+			"balance_qty": balance_qty,
+			"balance_amount": contract_amount - flt(billed_amount),
+			"total_retention_amount": flt(retention),
+			"total_advance_deducted": flt(advance),
+			"billing_status": billing_status,
+			"margin": flt(billed_amount) - flt(item.cost_to_date),
+		},
+		update_modified=False,
+	)
+	return item.project
 
 def update_project_financials(project):
 	"""

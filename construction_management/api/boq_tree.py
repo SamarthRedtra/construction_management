@@ -1087,7 +1087,7 @@ def update_boq_item_current(boq_item: str, current_qty: float) -> dict:
 	to_date_qty = get_to_date_qty(boq_item)
 	balance_qty = flt(item.total_qty) - flt(to_date_qty)
 	
-	if current_qty > balance_qty:
+	if current_qty > 0 and current_qty > balance_qty:
 		# Check if overbilling is allowed
 		if not project_boq.allow_overbilling:
 			frappe.throw(
@@ -1100,9 +1100,39 @@ def update_boq_item_current(boq_item: str, current_qty: float) -> dict:
 	if current_qty < 0:
 		frappe.throw(_("Current quantity cannot be negative"))
 	
-	# Update the item
-	item.current_qty = current_qty
-	item.save()
+	# This site also has BuildSuite's newer BOQ Item controller installed. The
+	# legacy progress record cannot be saved through that controller because its
+	# mandatory fields belong to a different BOQ model, so update only the
+	# progress fields owned by this API.
+	from construction_management.api.boq_ledger import get_to_date_amount
+
+	previous_amount = get_to_date_amount(boq_item)
+	current_amount = current_qty * flt(item.rate)
+	to_date_amount = previous_amount + current_amount
+	to_date_qty = flt(to_date_qty) + current_qty
+	if flt(item.total_qty) - to_date_qty <= 0:
+		billing_status = "Fully Billed"
+	elif to_date_qty > 0:
+		billing_status = "Partially Billed"
+	else:
+		billing_status = "Not Billed"
+
+	frappe.db.set_value(
+		"BOQ Item",
+		boq_item,
+		{
+			"prev_qty": flt(to_date_qty) - current_qty,
+			"prev_amount": previous_amount,
+			"current_qty": current_qty,
+			"current_amount": current_amount,
+			"to_date_qty": to_date_qty,
+			"to_date_amount": to_date_amount,
+			"balance_qty": flt(item.total_qty) - to_date_qty,
+			"balance_amount": flt(item.total_amount) - to_date_amount,
+			"billing_status": billing_status,
+		},
+		update_modified=True,
+	)
 	
 	# Return updated values
 	return get_item_ledger_values(boq_item)

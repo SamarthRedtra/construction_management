@@ -156,6 +156,8 @@ class BOQItem(Document):
 
 		if flt(self.current_qty) < 0:
 			frappe.throw(_("Current quantity cannot be negative"))
+		if not flt(self.current_qty):
+			return
 		
 		# Calculate balance
 		from construction_management.api.boq_ledger import get_to_date_qty
@@ -180,26 +182,14 @@ class BOQItem(Document):
 		if flt(self.lump_sum_total) <= 0:
 			return
 
-		lump_sum = flt(self.lump_sum_total)
+		if flt(self.total_qty) > 0:
+			self.rate = flt(self.lump_sum_total) / flt(self.total_qty)
 
-		if not self.is_new():
-			gross_billed = self._get_gross_billed_amount()
-			if gross_billed:
-				billed_qty = flt(gross_billed.get("qty", 0))
-				billed_amount = flt(gross_billed.get("amount", 0))
-			else:
-				from construction_management.api.boq_ledger import get_previous_amount, get_previous_qty
-
-				billed_qty = get_previous_qty(self.name)
-				billed_amount = get_previous_amount(self.name)
-
-			remaining_qty = flt(self.total_qty) - billed_qty
-			if remaining_qty > 0:
-				self.rate = (lump_sum - billed_amount) / remaining_qty
-			elif flt(self.total_qty) > 0:
-				self.rate = lump_sum / flt(self.total_qty)
-		elif flt(self.total_qty) > 0:
-			self.rate = lump_sum / flt(self.total_qty)
+	def get_contract_amount(self):
+		"""Return the agreed BOQ value, independent of billing transactions."""
+		if getattr(self, "pricing_entry_mode", "Unit Rate") == "Lump Sum Total":
+			return flt(self.lump_sum_total)
+		return flt(self.total_qty) * flt(self.rate)
 
 	def calculate_amounts(self):
 		"""Calculate all amount fields"""
@@ -213,23 +203,12 @@ class BOQItem(Document):
 			self.prev_qty = get_previous_qty(self.name)
 			self.prev_amount = get_previous_amount(self.name)
 			
-			# Use gross SI amounts for total_amount (contract value) so that
-			# deductions don't deflate the displayed contract value.
-			gross_billed = self._get_gross_billed_amount()
-			if gross_billed:
-				billed_qty = flt(gross_billed.get("qty", 0))
-				billed_amount = flt(gross_billed.get("amount", 0))
-			else:
-				billed_qty = flt(self.prev_qty)
-				billed_amount = flt(self.prev_amount)
-
-			remaining_qty = flt(self.total_qty) - billed_qty
-			self.total_amount = billed_amount + remaining_qty * flt(self.rate)
+			self.total_amount = self.get_contract_amount()
 		else:
 			# For new items, standard calculation applies
 			self.prev_qty = 0
 			self.prev_amount = 0
-			self.total_amount = flt(self.total_qty) * flt(self.rate)
+			self.total_amount = self.get_contract_amount()
 		
 		# Current amount
 		self.current_amount = flt(self.current_qty) * flt(self.rate)

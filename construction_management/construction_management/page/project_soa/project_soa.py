@@ -42,18 +42,26 @@ def get_project_soa_data(project: str) -> dict:
 
 def _build_services(project: str) -> tuple[list[dict], float, str]:
 	source_project = resolve_boq_source_project(project)
-	boq_items = fetch_scope_boq_items(source_project)
+	boq_items = fetch_scope_boq_items(
+		source_project, extra_fields=["pricing_entry_mode", "lump_sum_total"]
+	)
 
 	services = []
 	total_project_value = 0.0
 	for idx, item in enumerate(boq_items, start=1):
-		amount = flt(item.total_amount)
+		area = flt(item.total_qty)
+		if item.pricing_entry_mode == "Lump Sum Total":
+			amount = flt(item.lump_sum_total)
+			unit_price = amount / area if area else 0.0
+		else:
+			unit_price = flt(item.rate)
+			amount = area * unit_price
 		total_project_value += amount
 		services.append({
 			"idx": idx,
 			"service": item.description or item.label or item.item_code,
-			"area": flt(item.total_qty),
-			"unit_price": flt(item.rate),
+			"area": area,
+			"unit_price": unit_price,
 			"total_amount": amount,
 		})
 
