@@ -181,13 +181,25 @@ def _rebuild_bins(item_codes: set[str]) -> None:
 			allow_negative_stock=True,
 			verbose=0,
 		)
-		_update_projected_qty(item_code)
+		_reset_empty_bin(item_code)
 
 
-def _update_projected_qty(item_code: str) -> None:
+def _reset_empty_bin(item_code: str) -> None:
+	# Older ERPNext leaves Bin.actual_qty when no SLE remain to replay.
 	bin_name = frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": WAREHOUSE})
 	if not bin_name:
 		return
+
+	frappe.db.set_value(
+		"Bin",
+		bin_name,
+		{
+			"actual_qty": 0.0,
+			"stock_value": 0.0,
+			"valuation_rate": 0.0,
+		},
+		update_modified=False,
+	)
 	bin_doc = frappe.get_doc("Bin", bin_name)
 	bin_doc.set_projected_qty()
 	bin_doc.db_set("projected_qty", bin_doc.projected_qty, update_modified=False)
