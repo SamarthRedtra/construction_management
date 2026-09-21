@@ -521,6 +521,8 @@ class SalesInvoiceOverride(SalesInvoice):
 				if item.get("boq_item") and item.item_code not in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"):
 					boq_amounts[item.boq_item] = flt(item.amount)
 
+			self._reassign_duplicate_boq_deductions(boq_amounts)
+
 			for item in self.items:
 				if not item.get("boq_item"):
 					continue
@@ -681,6 +683,8 @@ class SalesInvoiceOverride(SalesInvoice):
 			# by a prior BOQ invoice layout so they are never counted twice.
 			self._remove_additional_service_deduction_rows()
 
+		self._normalize_deduction_uoms()
+
 		# Recalculate totals to handle the updated items
 		self.run_method("calculate_taxes_and_totals")
 
@@ -694,6 +698,34 @@ class SalesInvoiceOverride(SalesInvoice):
 			],
 		)
 
+	def _reassign_duplicate_boq_deductions(self, boq_amounts: dict) -> None:
+		"""Move extra deduction rows onto BOQ items that are missing a pair."""
+		parent_boqs = set(boq_amounts)
+		for item_code in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"):
+			claimed = set()
+			extras = []
+			for row in self.items:
+				if row.item_code != item_code or cint(row.get("custom_service_deduction")):
+					continue
+				boq_item = row.get("boq_item")
+				if boq_item in parent_boqs and boq_item not in claimed:
+					claimed.add(boq_item)
+				else:
+					extras.append(row)
+			missing = [boq_item for boq_item in parent_boqs if boq_item not in claimed]
+			for row, boq_item in zip(extras, missing, strict=False):
+				row.boq_item = boq_item
+
+	def _normalize_deduction_uoms(self) -> None:
+		for item in self.items:
+			if item.item_code not in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"):
+				continue
+			item.uom = "Nos"
+			item.stock_uom = "Nos"
+			item.conversion_factor = flt(item.conversion_factor) or 1.0
+			item.qty = flt(item.qty) or 1.0
+			item.stock_qty = item.qty * item.conversion_factor
+
 	def _append_boq_deduction_row(self, item_code, amount, description, parent):
 		if amount <= 0:
 			return
@@ -704,9 +736,12 @@ class SalesInvoiceOverride(SalesInvoice):
 				"item_name": "Retention Deduction" if item_code == "RETENTION-DEDUCTION" else "Advance Deduction",
 				"description": description,
 				"qty": 1,
+				"stock_qty": 1,
 				"rate": -amount,
 				"amount": -amount,
-				"uom": parent.uom or "Nos",
+				"uom": "Nos",
+				"stock_uom": "Nos",
+				"conversion_factor": 1.0,
 				"project": parent.project or self.project,
 				"boq_item": parent.boq_item,
 				"bill_no": parent.bill_no,
@@ -791,6 +826,7 @@ class SalesInvoiceOverride(SalesInvoice):
 				"income_account": income_account,
 				"cost_center": cost_center,
 				"uom": "Nos",
+				"stock_uom": "Nos",
 				"conversion_factor": 1.0,
 				"custom_service_deduction": 1,
 			}
