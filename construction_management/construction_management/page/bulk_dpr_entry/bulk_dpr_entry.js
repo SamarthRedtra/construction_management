@@ -228,54 +228,88 @@ class BulkDPREntry {
 					});
 				});
 
-				const fetchData = async (page = 1) => {
+				const mastersLoadedFor = ref('');
+				const PAGE_METHOD = 'construction_management.construction_management.page.bulk_dpr_entry.bulk_dpr_entry';
+
+				const applyDayRows = (message) => {
+					totalRows.value = message.total_dprs || 0;
+					if (message.existing_dprs && message.existing_dprs.length) {
+						rows.value = message.existing_dprs.map(dpr => ({
+							...dpr,
+							selected: false,
+							site: dpr.site || '',
+							area_covered: dpr.area_covered || 0,
+							remarks: dpr.remarks || '',
+							employees: dpr.employees || [],
+							absent_employees: dpr.absent_employees || [],
+							materials: (dpr.materials || []).map(m => ({
+								...m,
+								name: m.item_code,
+								item_code: m.item_code
+							})),
+							overheads: (dpr.overheads || []).map(o => ({
+								...o,
+								name: o.account,
+								account: o.account
+							}))
+						}));
+					} else {
+						rows.value = [];
+						if (currentPage.value === 1) addRow();
+					}
+					rows.value.forEach(row => calculateRowCosts(row));
+				};
+
+				const fetchMasters = async () => {
+					const r = await frappe.call({
+						method: `${PAGE_METHOD}.get_master_data`,
+						args: {
+							project: project.value,
+							company: company.value,
+							date: date.value
+						}
+					});
+					if (r.message) {
+						masterData.value = r.message;
+						mastersLoadedFor.value = project.value;
+					}
+				};
+
+				const fetchDayRows = async (page = 1) => {
+					const r = await frappe.call({
+						method: `${PAGE_METHOD}.get_day_rows`,
+						args: {
+							project: project.value,
+							company: company.value,
+							date: date.value,
+							start: (page - 1) * pageSize.value,
+							page_length: pageSize.value
+						}
+					});
+					if (r.message) {
+						applyDayRows(r.message);
+					}
+				};
+
+				const refreshAssetsForDate = async () => {
+					const r = await frappe.call({
+						method: `${PAGE_METHOD}.get_project_assets_with_rates`,
+						args: { project: project.value, date: date.value }
+					});
+					if (r.message) {
+						masterData.value = { ...masterData.value, assets: r.message };
+					}
+				};
+
+				const fetchData = async (page = 1, reloadMasters = false) => {
 					if (!project.value) return;
 					loading.value = true;
 					currentPage.value = page;
-
 					try {
-						const r = await frappe.call({
-							method: 'construction_management.construction_management.page.bulk_dpr_entry.bulk_dpr_entry.get_initial_data',
-							args: {
-								project: project.value,
-								company: company.value,
-								date: date.value,
-								start: (page - 1) * pageSize.value,
-								page_length: pageSize.value
-							}
-						});
-						if (r.message) {
-							masterData.value = r.message;
-							totalRows.value = r.message.total_dprs || 0;
-
-							// Initialize rows with existing DPRs
-							if (r.message.existing_dprs && r.message.existing_dprs.length) {
-								rows.value = r.message.existing_dprs.map(dpr => ({
-									...dpr,
-									selected: false,
-									site: dpr.site || '',
-									area_covered: dpr.area_covered || 0,
-									remarks: dpr.remarks || '',
-									// ensure multiselects are arrays and standardized
-									employees: dpr.employees || [],
-									absent_employees: dpr.absent_employees || [],
-									materials: (dpr.materials || []).map(m => ({
-										...m,
-										name: m.item_code,
-										item_code: m.item_code
-									})),
-									overheads: (dpr.overheads || []).map(o => ({
-										...o,
-										name: o.account,
-										account: o.account
-									}))
-								}));
-							} else {
-								rows.value = [];
-								if (page === 1) addRow(); // Only auto-add on first page if empty
-							}
-							rows.value.forEach(row => calculateRowCosts(row));
+						if (reloadMasters || mastersLoadedFor.value !== project.value) {
+							await fetchMasters();
 						}
+						await fetchDayRows(page);
 					} catch (e) {
 						console.error(e);
 						frappe.msgprint(__('Error fetching data'));
@@ -412,7 +446,7 @@ class BulkDPREntry {
 								});
 							}
 
-							fetchData(currentPage.value);
+							fetchData(currentPage.value, true);
 						}
 					} catch (e) {
 						console.error(e);
@@ -486,7 +520,7 @@ class BulkDPREntry {
 								args: { names: selected.map(r => r.name) }
 							});
 							frappe.show_alert({ message: __('DPRs cancelled successfully'), indicator: 'green' });
-							fetchData(currentPage.value);
+							fetchData(currentPage.value, true);
 						} catch (e) {
 							console.error(e);
 						} finally {
@@ -531,7 +565,7 @@ class BulkDPREntry {
 						if (unnamed.length) {
 							rows.value = rows.value.filter(r => !(r.selected && !r.name));
 						}
-						fetchData(currentPage.value);
+						fetchData(currentPage.value, true);
 					});
 				};
 
@@ -630,6 +664,7 @@ class BulkDPREntry {
 					if (!project.value) {
 						rows.value = [];
 						totalRows.value = 0;
+						mastersLoadedFor.value = '';
 						masterData.value = {
 							boq_items: [],
 							sites: [],
@@ -640,12 +675,21 @@ class BulkDPREntry {
 						};
 						return;
 					}
-					fetchData();
+					fetchData(1, true);
 				});
-				
-				watch(date, () => {
-					if (project.value) {
-						fetchData(1);
+
+				watch(date, async () => {
+					if (!project.value) return;
+					loading.value = true;
+					currentPage.value = 1;
+					try {
+						await refreshAssetsForDate();
+						await fetchDayRows(1);
+					} catch (e) {
+						console.error(e);
+						frappe.msgprint(__('Error fetching data'));
+					} finally {
+						loading.value = false;
 					}
 				});
 
@@ -830,7 +874,7 @@ class BulkDPREntry {
 									<div id="project-field-wrapper"></div>
 								</div>
 								<div class="col-md-2">
-									<input type="date" class="form-control compact-date" v-model="date" @change="fetchData(1)">
+									<input type="date" class="form-control compact-date" v-model="date">
 								</div>
 								<div class="col-md-5 text-right d-flex justify-content-end gap-2 align-items-center flex-wrap">
 									<button class="btn btn-outline-secondary btn-sm px-3" @click="showHelpVideo" title="${__('Watch how to create DPR')}">

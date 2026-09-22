@@ -134,17 +134,51 @@ def get_boq_items_for_project(project: str) -> list:
 
 @frappe.whitelist()
 def get_employees_with_rates() -> list:
-	"""Get all active employees with their daily rates"""
+	"""Get all active employees with their daily rates."""
+	from construction_management.api.employee_rate_cache import get_all_employee_rates_from_cache
+
 	employees = frappe.get_all(
 		"Employee",
 		filters={"status": "Active"},
-		fields=["name", "employee_name", "designation"]
+		fields=["name", "employee_name", "designation"],
 	)
-	
+	cached = get_all_employee_rates_from_cache() or {}
+	missing = []
 	for emp in employees:
-		emp["rate_per_day"] = get_employee_daily_rate(emp.name)
-	
+		cached_row = cached.get(emp.name) or {}
+		rate = flt(cached_row.get("rate_per_day") if isinstance(cached_row, dict) else cached_row)
+		emp["rate_per_day"] = rate
+		if rate <= 0:
+			missing.append(emp.name)
+
+	if missing:
+		ssa_rates = _bulk_ssa_daily_rates(missing)
+		for emp in employees:
+			if flt(emp.get("rate_per_day")) <= 0:
+				emp["rate_per_day"] = flt(ssa_rates.get(emp.name))
 	return employees
+
+
+def _bulk_ssa_daily_rates(employee_ids: list) -> dict:
+	if not employee_ids:
+		return {}
+	rows = frappe.db.sql(
+		"""
+		SELECT employee, base, variable
+		FROM `tabSalary Structure Assignment`
+		WHERE employee IN %(employees)s AND docstatus = 1
+		ORDER BY from_date DESC
+		""",
+		{"employees": employee_ids},
+		as_dict=True,
+	)
+	rates = {}
+	for row in rows:
+		if row.employee in rates:
+			continue
+		monthly = flt(row.base) + flt(row.variable)
+		rates[row.employee] = monthly / 30 if monthly > 0 else 0
+	return rates
 
 
 @frappe.whitelist()

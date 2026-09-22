@@ -1,284 +1,89 @@
+import json
+
 import frappe
 from frappe import _
 from frappe.utils import flt
-import json
-from construction_management.api.boq_tree import get_item_ledger_values
 
 from construction_management.api.dpr_utils import (
+	_create_dpr_internal,
 	get_employees_with_rates,
-	get_assets_with_rates,
 	get_item_valuation_rate,
-	_create_dpr_internal
+)
+from construction_management.construction_management.page.bulk_dpr_entry.bulk_dpr_fetch import (
+	empty_day_payload,
+	empty_master_payload,
+	get_boq_items_with_balance,
+	get_day_totals,
+	get_existing_dprs,
+	get_materials,
+	get_overhead_accounts,
+	get_project_assets_with_rates as load_project_assets,
+	get_project_sites,
+	get_project_summary,
+	project_company_mismatch,
 )
 
+
 @frappe.whitelist()
-def get_initial_data(project: str, date: str = None, start: int = 0, page_length: int = 20, company: str = None) -> dict:
-	"""
-	Fetch initial data for Bulk DPR Entry page.
-	"""
-	if not date:
-		date = frappe.utils.today()
-	
-	start = int(start or 0)
-	page_length = int(page_length or 20)
+def get_master_data(project: str = None, company: str = None, date: str = None) -> dict:
+	if not project or project_company_mismatch(project, company):
+		return empty_master_payload(company)
 
-	if not project:
-		return {
-			"project": None,
-			"boq_items": [],
-			"sites": [],
-			"employees": get_employees_with_rates(),
-			"materials": [],
-			"assets": [],
-			"overhead_accounts": get_overhead_accounts(company),
-			"existing_dprs": [],
-			"total_dprs": 0,
-			"day_totals": {"labour_cost": 0, "material_cost": 0, "asset_cost": 0, "overhead_cost": 0, "total_cost": 0},
-			"help_video_url": ""
-		}
-
-	project_company = frappe.db.get_value("Project", project, "company")
-	if company and project_company and project_company != company:
-		return {
-			"project": None,
-			"boq_items": [],
-			"sites": [],
-			"employees": get_employees_with_rates(),
-			"materials": [],
-			"assets": [],
-			"overhead_accounts": get_overhead_accounts(company),
-			"existing_dprs": [],
-			"total_dprs": 0,
-			"day_totals": {"labour_cost": 0, "material_cost": 0, "asset_cost": 0, "overhead_cost": 0, "total_cost": 0},
-			"help_video_url": ""
-		}
-
-	existing_dprs_data = get_existing_dprs(project, date, start, page_length, company)
-	
-	total_costs = frappe.db.get_value(
-		"Daily Progress Record", 
-		filters={"project": project, "date": date, "docstatus": ["<", 2]},
-		fieldname=[
-			{"SUM": "labour_cost", "as": "labour_cost"},
-			{"SUM": "material_cost", "as": "material_cost"},
-			{"SUM": "asset_cost", "as": "asset_cost"},
-			{"SUM": "overhead_cost", "as": "overhead_cost"},
-			{"SUM": "total_cost", "as": "total_cost"}
-		],
-		as_dict=True
-	)
-
-	project_company = project_company or frappe.db.get_value("Project", project, "company")  # for overhead filter
-	help_video_url = None
+	project_row = get_project_summary(project)
+	project_company = (project_row.company if project_row else None) or company
+	help_video_url = ""
 	if project_company:
-		help_video_url = frappe.db.get_value("BOQ Settings", project_company, "bulk_dpr_help_video_url")
+		help_video_url = frappe.db.get_value(
+			"BOQ Settings", project_company, "bulk_dpr_help_video_url"
+		) or ""
 
 	return {
-		"project": frappe.get_doc("Project", project).as_dict(),
+		"project": project_row,
 		"boq_items": get_boq_items_with_balance(project),
 		"sites": get_project_sites(project),
 		"employees": get_employees_with_rates(),
 		"materials": get_materials(project),
-		"assets": get_assets_with_rates(project, date),
+		"assets": load_project_assets(project, date),
 		"overhead_accounts": get_overhead_accounts(project_company),
-		"existing_dprs": existing_dprs_data["dprs"],
-		"total_dprs": existing_dprs_data["total"],
-		"day_totals": total_costs,
-		"help_video_url": help_video_url or "",
+		"help_video_url": help_video_url,
 	}
 
-def get_boq_items_with_balance(project: str) -> list:
-	"""
-	Get all BOQ items for the project with their current balance quantity.
-	"""
-	# Get all BOQ items for the project
-	items = frappe.get_all(
-		"BOQ Item",
-		filters={"project": project},
-		fields=["name", "item_code", "description", "unit", "total_qty"],
-		order_by="idx"
-	)
 
-	result = []
-	for item in items:
-		# Calculate balance using existing logic
-		ledger_vals = get_item_ledger_values(item.name)
-		balance = ledger_vals.get("qty", {}).get("balance", 0)
-		
-		item["balance"] = balance
-		result.append(item)
-	
-	return result
+@frappe.whitelist()
+def get_day_rows(
+	project: str,
+	date: str = None,
+	start: int = 0,
+	page_length: int = 20,
+	company: str = None,
+) -> dict:
+	if not date:
+		date = frappe.utils.today()
+	start = int(start or 0)
+	page_length = int(page_length or 20)
+	if not project or project_company_mismatch(project, company):
+		return empty_day_payload()
 
-def get_project_sites(project: str) -> list:
-	return frappe.get_all(
-        "Project Sites", 
-        filters={"project": project}, 
-        fields=["name", "site_name"]
-    )
-
-def get_employees() -> list:
-	return frappe.get_all(
-        "Employee", 
-        filters={"status": "Active"}, 
-        fields=["name", "employee_name", "designation"]
-    )
-
-def get_overhead_accounts(company: str = None) -> list:
-	filters = {
-		"root_type": ["in", ["Expense"]],
-		"is_group": 0
+	existing = get_existing_dprs(project, date, start, page_length, company)
+	return {
+		"existing_dprs": existing["dprs"],
+		"total_dprs": existing["total"],
+		"day_totals": get_day_totals(project, date),
 	}
-	if company:
-		filters["company"] = company
-	accounts = frappe.get_all(
-		"Account",
-		filters=filters,
-		fields=["name", "account_name"]
-	)
-	for acc in accounts:
-		acc["display_label"] = f"{acc.get('name', '')} - {acc.get('account_name', '')}"
-	return accounts
 
-def get_materials(project: str = None) -> list:
-	"""
-	Fetch materials. If project is provided, fetch items available in Project's Site Warehouse
-	and include their current stock balance.
-	"""
-	filters = {"disabled": 0, "is_stock_item": 1}
-	warehouse = None
-	
-	if project:
-		warehouse = frappe.db.get_value("Project", project, "site_location")
-	
-	# If we have a warehouse, we can fetch items and their quantities from Bin
-	if warehouse:
-		# Fetch items with positive stock in the warehouse
-		bin_items = frappe.get_all(
-			"Bin",
-			filters={"warehouse": warehouse, "actual_qty": [">", 0]},
-			fields=["item_code", "actual_qty"]
-		)
-		
-		if not bin_items:
-			return []
-			
-		# Map item_code to qty
-		qty_map = {d.item_code: d.actual_qty for d in bin_items}
-		item_codes = list(qty_map.keys())
-		
-		# Fetch item details for these codes
-		items = frappe.get_all(
-			"Item", 
-			filters={"name": ["in", item_codes], "disabled": 0}, 
-			fields=["name", "item_name", "item_code", "stock_uom", "valuation_rate"]
-		)
-		
-		# Attach balance and ensure valuation rate is captured
-		for item in items:
-			item["balance"] = qty_map.get(item.name, 0)
-			if not item.get("valuation_rate"):
-				item["valuation_rate"] = get_item_valuation_rate(item.name, warehouse).get("valuation_rate", 0)
-			
-		return items
 
-	# If no project or no warehouse, return empty to enforce project warehouse stock
-	return []
+@frappe.whitelist()
+def get_initial_data(
+	project: str, date: str = None, start: int = 0, page_length: int = 20, company: str = None
+) -> dict:
+	masters = get_master_data(project, company, date)
+	rows = get_day_rows(project, date, start, page_length, company)
+	return {**masters, **rows}
 
-def get_existing_dprs(project: str, date: str, start: int = 0, page_length: int = 20, company: str = None) -> dict:
-	"""
-	Fetch existing DPRs with pagination.
-	"""
-	if company:
-		project_company = frappe.db.get_value("Project", project, "company")
-		if project_company and project_company != company:
-			return {"dprs": [], "total": 0}
 
-	filters = {"project": project, "date": date, "docstatus": ["<", 2]}
-	
-	total = frappe.db.count("Daily Progress Record", filters)
-	
-	dprs = frappe.get_all(
-		"Daily Progress Record",
-		filters=filters,
-		fields=[
-            "name", "boq_item", "project_sites as site", "remarks as comment", 
-            "warehouse", "docstatus", "asset_cost", "labour_cost", 
-			"material_cost", "overhead_cost", "expense_cost", "total_cost"
-        ],
-		start=start,
-		page_length=page_length,
-		order_by="creation desc"
-	)
-    
-	processed_dprs = []
-	for dpr in dprs:
-		doc = frappe.get_doc("Daily Progress Record", dpr.name)
-		
-		# Ensure child tables have necessary fields for SimpleMultiselect
-		# and other UI components
-		
-		processed_employees = []
-		for emp in doc.employees:
-			processed_employees.append({
-				"name": emp.employee,
-				"employee": emp.employee,
-				"employee_name": frappe.db.get_value("Employee", emp.employee, "employee_name"),
-				"hours": emp.hours,
-				"rate_per_day": emp.rate_per_day,
-				"amount": emp.amount
-			})
-
-		processed_materials = []
-		for mat in doc.materials:
-			processed_materials.append({
-				"name": mat.item_code,
-				"item_code": mat.item_code,
-				"item_name": frappe.db.get_value("Item", mat.item_code, "item_name"),
-				"qty": mat.qty,
-				"rate": mat.rate,
-				"amount": mat.amount,
-				"description": "" # We don't have it in child table, but keep it for UI consistency
-			})
-
-		processed_overheads = []
-		for ovh in doc.overheads:
-			processed_overheads.append({
-				"name": ovh.account,
-				"account": ovh.account,
-				"account_name": frappe.db.get_value("Account", ovh.account, "account_name"),
-				"description": ovh.description,
-				"amount": ovh.amount
-			})
-
-		processed_absent = []
-		for ae in getattr(doc, "absent_employees", []):
-			processed_absent.append({
-				"name": ae.employee,
-				"employee": ae.employee,
-				"employee_name": frappe.db.get_value("Employee", ae.employee, "employee_name")
-			})
-
-		processed_dprs.append({
-			"name": doc.name,
-			"docstatus": doc.docstatus,
-			"boq_item": doc.boq_item,
-			"site": doc.project_sites,
-			"area_covered": doc.area_covered if hasattr(doc, 'area_covered') else 0,
-			"remarks": doc.remarks,
-			"employees": processed_employees,
-			"absent_employees": processed_absent,
-			"materials": processed_materials,
-			"overheads": processed_overheads,
-			"labour_cost": doc.labour_cost,
-			"material_cost": doc.material_cost,
-			"asset_cost": doc.asset_cost,
-			"overhead_cost": doc.overhead_cost,
-			"expense_cost": doc.expense_cost,
-			"total_cost": doc.total_cost
-		})
-        
-	return {"dprs": processed_dprs, "total": total}
+@frappe.whitelist()
+def get_project_assets_with_rates(project: str, date: str = None) -> list:
+	return load_project_assets(project, date)
 
 @frappe.whitelist()
 def get_workers_from_daily_roster(project: str, date: str) -> list:
