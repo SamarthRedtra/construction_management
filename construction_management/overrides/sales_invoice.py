@@ -183,6 +183,8 @@ class SalesInvoiceOverride(SalesInvoice):
 			from construction_management.api.advance_release import validate_advance_release
 
 			validate_advance_release(self)
+		# Must run before ERPNext validate_with_previous_doc compares UOM to Sales Order Item.
+		self._normalize_deduction_uoms()
 		super().validate()
 		if self.get("custom_is_advance_release"):
 			self.allocate_advances_automatically = 0
@@ -717,11 +719,25 @@ class SalesInvoiceOverride(SalesInvoice):
 				row.boq_item = boq_item
 
 	def _normalize_deduction_uoms(self) -> None:
+		"""Fill conversion_factor; keep SO UOM when mapped (ERPNext compares uom on so_detail)."""
+		so_uoms = {}
+		so_details = [item.so_detail for item in self.items if item.get("so_detail")]
+		if so_details:
+			for row in frappe.get_all(
+				"Sales Order Item",
+				filters={"name": ["in", so_details]},
+				fields=["name", "uom"],
+			):
+				so_uoms[row.name] = row.uom
+
 		for item in self.items:
 			if item.item_code not in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"):
 				continue
-			item.uom = "Nos"
-			item.stock_uom = "Nos"
+			if item.get("so_detail") and so_uoms.get(item.so_detail):
+				item.uom = so_uoms[item.so_detail]
+			else:
+				item.uom = item.uom or "Nos"
+			item.stock_uom = item.stock_uom or "Nos"
 			item.conversion_factor = flt(item.conversion_factor) or 1.0
 			item.qty = flt(item.qty) or 1.0
 			item.stock_qty = item.qty * item.conversion_factor
@@ -729,6 +745,7 @@ class SalesInvoiceOverride(SalesInvoice):
 	def _append_boq_deduction_row(self, item_code, amount, description, parent):
 		if amount <= 0:
 			return
+		# New rows (no so_detail) use Nos. Mapped SO rows keep SO UOM via _normalize_deduction_uoms.
 		self.append(
 			"items",
 			{
