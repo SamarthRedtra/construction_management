@@ -294,6 +294,20 @@
 	margin-bottom: 25px;
 }
 
+.soa-expected-payment-notice {
+	margin-bottom: 14px;
+	padding: 10px 12px;
+	border: 1px solid #96d6d2;
+	border-radius: 6px;
+	background: #eaf8f7;
+	color: #145c63;
+	font-weight: 600;
+}
+
+.invoice-transactions-table .soa-expected-invoice-row td {
+	background: #fff8d9;
+}
+
 /* Middle summary bar styling */
 .soa-summary-bar {
 	display: flex;

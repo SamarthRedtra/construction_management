@@ -529,36 +529,151 @@ def _get_unlinked_tax_invoices_without_project(company: str, filters: dict) -> l
 
 
 def get_collection_expected_payments(company: str, filters: dict | None = None) -> dict:
-	"""Outstanding Tax Invoices grouped by customer for the next three due-date months."""
+	"""Return a rolling three-month forecast of outstanding tax invoices.
+
+	Each invoice lands in the month it is actually expected to be paid: its post-dated
+	cheque date, else its SOA follow-up collection due date, else the project's overdue
+	terms, else the invoice due date. Anything expected before the first month rolls into it.
+	"""
 	if not company:
 		frappe.throw(_("Company is required"))
 	filters = filters or {}
-	anchor = getdate(filters.get("from_date") or today()).replace(day=1)
+	anchor = _get_expected_payment_anchor(filters)
 	months = [getdate(add_months(anchor, offset)).replace(day=1) for offset in range(3)]
-	end_date = add_days(getdate(add_months(months[-1], 1)).replace(day=1), -1)
-	conditions = ["si.company = %(company)s", "si.docstatus = 1", "si.outstanding_amount > 0", "si.due_date BETWEEN %(start)s AND %(end)s"]
-	values = {"company": company, "start": months[0], "end": end_date}
+	end_date = getdate(add_days(getdate(add_months(months[-1], 1)).replace(day=1), -1))
+	conditions = [
+		"si.company = %(company)s",
+		"si.docstatus = 1",
+		"si.outstanding_amount > 0",
+	]
+	values = {"company": company}
 	if filters.get("customer"):
 		conditions.append("si.customer = %(customer)s")
 		values["customer"] = filters["customer"]
+	basis_field = (
+		"p.custom_collection_overdue_basis"
+		if frappe.db.has_column("Project", "custom_collection_overdue_basis")
+		else "'Tax Invoice'"
+	)
+	days_field = (
+		"p.custom_collection_overdue_days"
+		if frappe.db.has_column("Project", "custom_collection_overdue_days")
+		else "0"
+	)
 	entries = frappe.db.sql(
 		f"""
 		SELECT si.customer, COALESCE(c.customer_name, si.customer) AS customer_name,
-			si.due_date, si.outstanding_amount
+			si.name AS invoice, si.project, COALESCE(p.project_name, si.project) AS project_name,
+			si.due_date, si.posting_date, si.outstanding_amount,
+			{basis_field} AS overdue_basis, {days_field} AS overdue_days
 		FROM `tabSales Invoice` si
 		LEFT JOIN `tabCustomer` c ON c.name = si.customer
+		LEFT JOIN `tabProject` p ON p.name = si.project
 		WHERE {' AND '.join(conditions)}
 		""",
 		values,
 		as_dict=True,
 	)
+	lookups = _expected_payment_lookups([entry.invoice for entry in entries])
 	by_customer = {}
 	for entry in entries:
-		row = by_customer.setdefault(entry.customer, {"customer": entry.customer, "customer_name": entry.customer_name, "amounts": {}})
-		month_key = getdate(entry.due_date).replace(day=1).isoformat()
+		expected_date, basis = _expected_payment_date(entry, lookups)
+		if not expected_date or expected_date > end_date:
+			continue
+		row = by_customer.setdefault(entry.customer, {
+			"customer": entry.customer,
+			"customer_name": entry.customer_name,
+			"amounts": {},
+			"details": {},
+		})
+		expected_month = expected_date.replace(day=1)
+		forecast_month = max(expected_month, anchor)
+		month_key = forecast_month.isoformat()
 		row["amounts"][month_key] = flt(row["amounts"].get(month_key)) + flt(entry.outstanding_amount)
+		row["details"].setdefault(month_key, []).append({
+			"invoice": entry.invoice,
+			"project": entry.project or "",
+			"project_name": entry.project_name or entry.project or "",
+			"due_date": entry.due_date,
+			"expected_date": expected_date,
+			"basis": basis,
+			"outstanding_amount": flt(entry.outstanding_amount),
+			"carried_forward": expected_month < anchor,
+		})
 	rows = sorted(by_customer.values(), key=lambda row: row["customer_name"] or row["customer"])
 	return {"months": [{"key": month.isoformat(), "label": month.strftime("%b %Y")} for month in months], "rows": rows}
+
+
+def _expected_payment_date(entry, lookups: dict):
+	"""Pick the date an invoice is expected to be paid, and say which rule gave it."""
+	invoice = entry.invoice
+	if lookups["cheque_dates"].get(invoice):
+		return getdate(lookups["cheque_dates"][invoice]), _("Cheque")
+
+	sales_orders = lookups["invoice_sales_orders"].get(invoice) or []
+	follow_up = lookups["follow_up_dates"].get(invoice) or next(
+		(lookups["follow_up_dates"][so] for so in sales_orders if lookups["follow_up_dates"].get(so)), None
+	)
+	if follow_up:
+		return getdate(follow_up), _("Follow-up")
+
+	days = cint(entry.get("overdue_days"))
+	if days > 0:
+		if entry.get("overdue_basis") == "Proforma Invoice":
+			base_date = next(
+				(lookups["sales_order_dates"][so] for so in sales_orders if lookups["sales_order_dates"].get(so)), None
+			)
+		else:
+			base_date = entry.get("due_date") or entry.get("posting_date")
+		if base_date:
+			return getdate(add_days(getdate(base_date), days)), _("Project terms")
+
+	base_date = entry.get("due_date") or entry.get("posting_date")
+	return (getdate(base_date), _("Invoice due date")) if base_date else (None, "")
+
+
+def _expected_payment_lookups(invoice_names: list[str]) -> dict:
+	"""Batch-load cheque dates, follow-up dates and Sales Order links for the invoices."""
+	lookups = {"cheque_dates": {}, "follow_up_dates": {}, "invoice_sales_orders": {}, "sales_order_dates": {}}
+	if not invoice_names:
+		return lookups
+
+	allocations = _get_invoice_sales_order_allocations(invoice_names)
+	lookups["invoice_sales_orders"] = {invoice: list(orders) for invoice, orders in allocations.items()}
+	sales_orders = sorted({so for orders in lookups["invoice_sales_orders"].values() for so in orders})
+	if sales_orders:
+		lookups["sales_order_dates"] = dict(
+			frappe.get_all("Sales Order", filters={"name": ("in", sales_orders)}, fields=["name", "transaction_date"], as_list=True)
+		)
+
+	if frappe.db.table_exists("Project SOA Follow Up"):
+		# the latest follow-up that set a collection due date wins
+		for follow_up in frappe.get_all(
+			"Project SOA Follow Up",
+			filters={"reference_name": ("in", [*invoice_names, *sales_orders]), "collection_due_date": ("is", "set")},
+			fields=["reference_name", "collection_due_date"],
+			order_by="creation asc",
+		):
+			lookups["follow_up_dates"][follow_up.reference_name] = follow_up.collection_due_date
+
+	try:
+		from redtra_customisation.redtra_customisation.doctype.post_dated_cheques.post_dated_cheques import (
+			get_invoice_pdc_connections,
+		)
+	except ImportError:
+		return lookups
+	for invoice in invoice_names:
+		cheques = get_invoice_pdc_connections("Sales Invoice", invoice) or []
+		if cheques and cheques[0].get("reference_date"):
+			lookups["cheque_dates"][invoice] = cheques[0]["reference_date"]
+	return lookups
+
+
+def _get_expected_payment_anchor(filters: dict):
+	"""Start forecasts no earlier than the current calendar month."""
+	current_month = getdate(today()).replace(day=1)
+	from_month = getdate(filters.get("from_date") or current_month).replace(day=1)
+	return max(current_month, from_month)
 
 
 def get_collection_project_rows(project: str, include_follow_ups: bool = True) -> dict:

@@ -99,6 +99,7 @@ construction_management.project_soa.build_dashboard_html = function (data, optio
 	options = options || {};
 	const fmt = construction_management.project_soa.format_num;
 	const badge_slugs = construction_management.project_soa.INVOICE_BADGE_SLUGS;
+	const expected_invoice_names = new Set(options.expected_invoice_names || []);
 
 	let services_html = '';
 	if (data.services && data.services.length > 0) {
@@ -120,6 +121,8 @@ construction_management.project_soa.build_dashboard_html = function (data, optio
 	let invoice_html = '';
 	if (data.invoices && data.invoices.length > 0) {
 		data.invoices.forEach(function (row) {
+			const is_expected_invoice = row.invoice_type === 'Tax Invoice'
+				&& expected_invoice_names.has(row.invoice_no);
 			const invoice_link = construction_management.project_soa.get_invoice_link(row);
 			const badge_slug = badge_slugs[row.invoice_type] || row.invoice_type.toLowerCase().replace(/\s+/g, '-');
 			const proforma_date_disp = row.proforma_date ? frappe.datetime.str_to_user(row.proforma_date) : '';
@@ -144,7 +147,7 @@ construction_management.project_soa.build_dashboard_html = function (data, optio
 			const ref_name = row.reference_name || row.invoice_no;
 
 			invoice_html += `
-				<tr data-ref-doctype="${frappe.utils.escape_html(ref_doctype)}" data-ref-name="${frappe.utils.escape_html(ref_name)}">
+				<tr class="${is_expected_invoice ? 'soa-expected-invoice-row' : ''}" data-ref-doctype="${frappe.utils.escape_html(ref_doctype)}" data-ref-name="${frappe.utils.escape_html(ref_name)}">
 					<td class="text-center">${row.serial_no}</td>
 					<td class="text-center">${proforma_date_disp}</td>
 					<td class="text-center">${tax_invoice_date_disp}</td>
@@ -227,6 +230,9 @@ construction_management.project_soa.build_dashboard_html = function (data, optio
 	const profit_loss_class = data.profit_loss >= 0 ? 'profit-positive' : 'profit-negative';
 	const profit_loss_sign = data.profit_loss >= 0 ? '+' : '';
 	const embedded_class = options.embedded ? ' project-soa-embedded' : '';
+	const expected_payment_notice = expected_invoice_names.size
+		? `<div class="soa-expected-payment-notice">${__('Highlighted rows are the outstanding invoices selected from Expected Payments.')}</div>`
+		: '';
 
 	return `
 		<div class="project-soa-dashboard${embedded_class}">
@@ -257,6 +263,7 @@ construction_management.project_soa.build_dashboard_html = function (data, optio
 			</div>
 
 			<div class="soa-section-block">
+				${expected_payment_notice}
 				<table class="soa-table text-medium border-table invoice-transactions-table">
 					<thead>
 						<tr>

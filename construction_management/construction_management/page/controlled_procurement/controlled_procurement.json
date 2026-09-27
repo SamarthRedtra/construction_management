@@ -1,0 +1,17 @@
+{
+ "doctype": "Page",
+ "name": "controlled-procurement",
+ "page_name": "controlled-procurement",
+ "module": "Construction Management",
+ "standard": "Yes",
+ "system_page": 1,
+ "title": "Controlled Procurement",
+ "roles": [
+  {"role": "System Manager"},
+  {"role": "CEO"},
+  {"role": "Purchase User"},
+  {"role": "Purchase Manager"},
+  {"role": "Stock User"},
+  {"role": "Stock Manager"}
+ ]
+}

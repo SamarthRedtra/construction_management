@@ -524,12 +524,79 @@ construction_management.project_collection.render_expected_payments = function (
 			const data = r.message || { months: [], rows: [] };
 			const fmt = construction_management.project_collection.format_num;
 			const headers = (data.months || []).map((month) => `<th class="text-right">${frappe.utils.escape_html(month.label)}</th>`).join('');
-			const rows = (data.rows || []).map((row, index) => `<tr><td class="text-center">${index + 1}</td><td>${frappe.utils.escape_html(row.customer_name || row.customer)}</td>${data.months.map((month) => `<td class="text-right">${row.amounts[month.key] ? fmt(row.amounts[month.key], 'Currency') : ''}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${(data.months || []).length + 2}" class="text-center text-muted">${__('No outstanding payments due in these months')}</td></tr>`;
+			const rows = (data.rows || []).map((row, index) => `<tr><td class="text-center">${index + 1}</td><td>${frappe.utils.escape_html(row.customer_name || row.customer)}</td>${data.months.map((month) => construction_management.project_collection.build_expected_payment_cell(row, month, index, fmt)).join('')}</tr>`).join('') || `<tr><td colspan="${(data.months || []).length + 2}" class="text-center text-muted">${__('No outstanding payments due in these months')}</td></tr>`;
 			const totals = (data.months || []).map((month) => `<td class="text-right">${fmt((data.rows || []).reduce((sum, row) => sum + flt(row.amounts[month.key] || 0), 0), 'Currency')}</td>`).join('');
-			const html = `<div class="collection-expected-payments"><div class="collection-register-heading"><div><p class="collection-eyebrow">${__('Cash forecast')}</p><h2 class="collection-section-title">${__('Expected Payments by Customer')}</h2><p class="collection-section-sub">${__('Outstanding Tax Invoices grouped by due month')}</p></div></div><div class="collection-grid-scroll"><table class="collection-table border-table collection-expected-table"><thead><tr><th>${__('Sr No')}</th><th>${__('Customer')}</th>${headers}</tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="2">${__('Total')}</td>${totals}</tr></tfoot></table></div></div>`;
+			const html = `<div class="collection-expected-payments"><div class="collection-register-heading"><div><p class="collection-eyebrow">${__('Cash forecast')}</p><h2 class="collection-section-title">${__('Expected Payments by Customer')}</h2><p class="collection-section-sub">${__('Outstanding Tax Invoices grouped by expected payment date: cheque date, else follow-up collection date, else project terms, else invoice due date')}</p></div></div><div class="collection-grid-scroll"><table class="collection-table border-table collection-expected-table"><thead><tr><th>${__('Sr No')}</th><th>${__('Customer')}</th>${headers}</tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="2">${__('Total')}</td>${totals}</tr></tfoot></table></div></div>`;
 			if (replace) $container.html(html); else $container.append(html);
+			construction_management.project_collection.bind_expected_payment_events($container, data);
 		},
 	});
+};
+
+construction_management.project_collection.build_expected_payment_cell = function (row, month, row_index, fmt) {
+	const amount = flt(row.amounts?.[month.key] || 0);
+	if (!amount) {
+		return '<td class="text-right"></td>';
+	}
+	return `<td class="text-right"><button type="button" class="collection-expected-payment-link"
+		data-row-index="${row_index}" data-month-key="${frappe.utils.escape_html(month.key)}"
+		title="${__('View invoices and projects')}">${fmt(amount, 'Currency')}</button></td>`;
+};
+
+construction_management.project_collection.bind_expected_payment_events = function ($container, data) {
+	$container.off('click.collection-expected-payment').on('click.collection-expected-payment', '.collection-expected-payment-link', function () {
+		const row = (data.rows || [])[Number($(this).data('row-index'))];
+		const month_key = $(this).data('month-key');
+		const details = row?.details?.[month_key] || [];
+		if (row && details.length) {
+			construction_management.project_collection.show_expected_payment_dialog(row, month_key, details);
+		}
+	});
+};
+
+construction_management.project_collection.show_expected_payment_dialog = function (row, month_key, details) {
+	const fmt = construction_management.project_collection.format_num;
+	const project_groups = {};
+	details.forEach((detail) => {
+		const key = detail.project || '__unassigned__';
+		project_groups[key] = project_groups[key] || {
+			project: detail.project,
+			project_name: detail.project_name,
+			invoices: [],
+		};
+		project_groups[key].invoices.push(detail);
+	});
+
+	const project_html = Object.values(project_groups).map((group) => {
+		const invoices = group.invoices.map((invoice) => `
+			<tr>
+				<td><a href="/app/sales-invoice/${encodeURIComponent(invoice.invoice)}" target="_blank">${frappe.utils.escape_html(invoice.invoice)}</a></td>
+				<td>${invoice.expected_date ? frappe.datetime.str_to_user(invoice.expected_date) : ''}${invoice.basis ? ` <span class="text-muted">(${frappe.utils.escape_html(invoice.basis)})</span>` : ''}${invoice.carried_forward ? ` <span class="text-warning">${__('Carried forward')}</span>` : ''}</td>
+				<td>${invoice.due_date ? frappe.datetime.str_to_user(invoice.due_date) : ''}</td>
+				<td class="text-right">${fmt(invoice.outstanding_amount, 'Currency')}</td>
+			</tr>`).join('');
+		const project_action = group.project
+			? `<button type="button" class="btn btn-primary btn-xs collection-open-project-soa"
+				data-project="${frappe.utils.escape_html(group.project)}">${__('Open Project SOA')}</button>`
+			: `<span class="text-muted">${__('No project linked')}</span>`;
+		return `<section class="collection-expected-project-group">
+			<div class="collection-expected-project-heading"><strong>${frappe.utils.escape_html(group.project_name || __('Unassigned Project'))}</strong>${project_action}</div>
+			<table class="table table-bordered"><thead><tr><th>${__('Invoice')}</th><th>${__('Expected')}</th><th>${__('Invoice Due Date')}</th><th class="text-right">${__('Outstanding')}</th></tr></thead><tbody>${invoices}</tbody></table>
+		</section>`;
+	}).join('');
+
+	const dialog = new frappe.ui.Dialog({
+		title: __('Expected payment: {0}', [row.customer_name || row.customer]),
+		fields: [{ fieldtype: 'HTML', fieldname: 'payment_details', options: `<p class="text-muted">${frappe.datetime.str_to_user(month_key)} · ${__('Select a project to inspect its invoices in Project SOA.')}</p>${project_html}` }],
+	});
+	dialog.$wrapper.on('click', '.collection-open-project-soa', function () {
+		const project = $(this).data('project');
+		const invoice_names = (project_groups[project]?.invoices || []).map((invoice) => invoice.invoice);
+		frappe.route_options = { project, expected_invoice_names: invoice_names };
+		dialog.hide();
+		frappe.set_route('project-soa', project);
+	});
+	dialog.show();
 };
 
 construction_management.project_collection.build_portfolio_html = function (rows, options) {

@@ -1,0 +1,1615 @@
+{
+  "version": "item-tree-list-part-1-v1",
+  "checksum": "3aa168ddd5d9c5f1376e0aa3f358296f48a6cf42a11798659702f614cad60978",
+  "source_filename": "Item Tree List Part-1.xlsx",
+  "items": [
+    {
+      "row": 3,
+      "item_group": "PU FOAM",
+      "item_name": "ASMACO PUF 4040 (220KG DRUM)",
+      "supplier": "ANCHOR ALLIED FACTORY L.L.C",
+      "rate": 2574.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 4,
+      "item_group": "PU FOAM",
+      "item_name": "ASMACO PUF MDI (250KG DRUM)",
+      "supplier": "ANCHOR ALLIED FACTORY L.L.C",
+      "rate": 2925.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 5,
+      "item_group": "PU FOAM",
+      "item_name": "AWAZEL PU 111 ISOCYNATE (250KG DRUM)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 3125.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 6,
+      "item_group": "PU FOAM",
+      "item_name": "AWAZEL PU 4040 POLYOL (220KG DRUM)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 2750.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 7,
+      "item_group": "PU FOAM",
+      "item_name": "AWAZEL PU 4045 POLYOL (220KG DRUM)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 2750.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 8,
+      "item_group": "PU FOAM",
+      "item_name": "AWAZEL PU 4048 POLYOL (220KG DRUM)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 2750.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 9,
+      "item_group": "PU FOAM",
+      "item_name": "BETOFLEX PU-ISO BETOL (250KG DRUM)",
+      "supplier": "GEOBIT INDUSTRIES L.L.C",
+      "rate": 2200.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 10,
+      "item_group": "PU FOAM",
+      "item_name": "BETOFLEX PU-PPLY BETOL 220KG DRUM)",
+      "supplier": "GEOBIT INDUSTRIES L.L.C",
+      "rate": 2500.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 11,
+      "item_group": "PU FOAM",
+      "item_name": "CRESFOAM MDI (250KG DRUM)",
+      "supplier": "Kanz Chemical Ind LLC",
+      "rate": 2925.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 12,
+      "item_group": "PU FOAM",
+      "item_name": "CRESFOAM SF-45 (220KG DRUM)",
+      "supplier": "Kanz Chemical Ind LLC",
+      "rate": 2574.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 13,
+      "item_group": "PU FOAM",
+      "item_name": "DALTAFOAM TS (220KG DRUM)",
+      "supplier": "HUNTSMAN UAE FZE",
+      "rate": 2574.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 14,
+      "item_group": "PU FOAM",
+      "item_name": "HUNTSMAN 200 (250KG DRUM)",
+      "supplier": "HUNTSMAN UAE FZE",
+      "rate": 2662.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 15,
+      "item_group": "PU FOAM",
+      "item_name": "HUNTSMAN SP 40 (220KG DRUM)",
+      "supplier": "HUNTSMAN UAE FZE",
+      "rate": 2662.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 16,
+      "item_group": "PU FOAM",
+      "item_name": "HUNTSMAN SP 45 (220KG DRUM)",
+      "supplier": "HUNTSMAN UAE FZE",
+      "rate": 2596.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 17,
+      "item_group": "PU FOAM",
+      "item_name": "JK PROFIX PU MDI-B (250KG DRUM)",
+      "supplier": "JK CEMENT WORK  ( FUJAIRAH ) FZC",
+      "rate": 3062.5,
+      "uom": "Nos"
+    },
+    {
+      "row": 18,
+      "item_group": "PU FOAM",
+      "item_name": "JK PROFIX PU SPRAY 45-A (220KG DRUM)",
+      "supplier": "JK CEMENT WORK  ( FUJAIRAH ) FZC",
+      "rate": 3062.5,
+      "uom": "Nos"
+    },
+    {
+      "row": 19,
+      "item_group": "PU FOAM",
+      "item_name": "NEONATE MDI (250KG DRUM)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 2950.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 20,
+      "item_group": "PU FOAM",
+      "item_name": "NEOPOL SRS 40 (220KG DRUM)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 2596.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 21,
+      "item_group": "PU FOAM",
+      "item_name": "NEOPOL SRS 45  (220KG DRUM)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 2596.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 22,
+      "item_group": "PU FOAM",
+      "item_name": "POLYFOAM MDI PART B (250KG DRUM)",
+      "supplier": "S.R.R. Building Material Trading LLC",
+      "rate": 3475.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 23,
+      "item_group": "PU FOAM",
+      "item_name": "POLYFOAM SS45 PART A (220KG DRUM)",
+      "supplier": "S.R.R. Building Material Trading LLC",
+      "rate": 3058.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 24,
+      "item_group": "PU FOAM",
+      "item_name": "WEBERDRY SPF 45B -PART A (250KG DRUM)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 3100.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 25,
+      "item_group": "PU FOAM",
+      "item_name": "WEBERDRY SPF 45B -PART B (220KG DRUM)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 2728.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 26,
+      "item_group": "PU FOAM",
+      "item_name": "WEBERDRY SPF 45W -PART A (250KG DRUM)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 3100.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 27,
+      "item_group": "PU FOAM",
+      "item_name": "WEBERDRY SPF 45W -PART B (220KG DRUM)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 2728.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 30,
+      "item_group": "GEOTEXTILE",
+      "item_name": "AWAZEL TEX 100 GSM  (3 M *100 M)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 406.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 31,
+      "item_group": "GEOTEXTILE",
+      "item_name": "AWAZEL TEX 120 GSM  (2.9 M*100 M)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 464.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 32,
+      "item_group": "GEOTEXTILE",
+      "item_name": "AWAZEL TEX 150 GSM  (3 M *100 M)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 450.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 33,
+      "item_group": "GEOTEXTILE",
+      "item_name": "CRESGEO PET -100 GSM  (3M *100 M)",
+      "supplier": "Kanz Chemical Ind LLC",
+      "rate": 340.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 34,
+      "item_group": "GEOTEXTILE",
+      "item_name": "CRESGEO PET -120 GSM   (3 M *100 M)",
+      "supplier": "Kanz Chemical Ind LLC",
+      "rate": 360.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 35,
+      "item_group": "GEOTEXTILE",
+      "item_name": "GEOTEC -100 GSM GEOTEXTILE (3 M *100 M)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 340.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 36,
+      "item_group": "GEOTEXTILE",
+      "item_name": "GEOTEC -120 GSM GEOTEXTILE  (3 M *100 M)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 360.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 37,
+      "item_group": "GEOTEXTILE",
+      "item_name": "GEOTEC 250 GSM GEOTEXTILE  (6 M *100 M)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 1500.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 38,
+      "item_group": "GEOTEXTILE",
+      "item_name": "GEOTEXTILE WHITE PP 120 (3 M *100 M)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 580.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 39,
+      "item_group": "GEOTEXTILE",
+      "item_name": "NW 100 GSM PET -WHITE (3 M *100 M)",
+      "supplier": "GS ENTERPRISES FZ LLC",
+      "rate": 295.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 40,
+      "item_group": "GEOTEXTILE",
+      "item_name": "NW 120 GSM PET -WHITE (3 M *100 M)",
+      "supplier": "GS ENTERPRISES FZ LLC",
+      "rate": 355.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 41,
+      "item_group": "GEOTEXTILE",
+      "item_name": "NW 250 GSM PET -WHITE (3 M *100 M)",
+      "supplier": "GS ENTERPRISES FZ LLC",
+      "rate": 745.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 42,
+      "item_group": "GEOTEXTILE",
+      "item_name": "RHEOTEC GEOTEXTILE  120 GSM (3 M *100 M)",
+      "supplier": "Petrozo Energy L.L.C",
+      "rate": 388.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 45,
+      "item_group": "MEMBRANE",
+      "item_name": "4MM NEOFLEX S4180 180GSM (1M*10M ROLL)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 109.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 46,
+      "item_group": "MEMBRANE",
+      "item_name": "AWAZEL DS 40 250 High Performance APP (1M*10M ROLL)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 132.5,
+      "uom": "Nos"
+    },
+    {
+      "row": 47,
+      "item_group": "MEMBRANE",
+      "item_name": "AWAZEL DS 40 250 MINERAL APP (1M*10M ROLL)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 135.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 48,
+      "item_group": "MEMBRANE",
+      "item_name": "AWAZELBOND BS 1000 (1M*10M ROLL)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 280.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 49,
+      "item_group": "MEMBRANE",
+      "item_name": "BETOFLEX 4P (1*10 MTR ROLL)",
+      "supplier": "GEOBIT INDUSTRIES L.L.C",
+      "rate": 110.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 50,
+      "item_group": "MEMBRANE",
+      "item_name": "BIFLEX PL 4MM /180 GSM (1M*10M ROLL)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 134.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 51,
+      "item_group": "MEMBRANE",
+      "item_name": "BIFLEX PL 4MM /200 GSM (1*10 MTR ROLL)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 135.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 52,
+      "item_group": "MEMBRANE",
+      "item_name": "COLPHENE BSW H 3.5  (1*10 MTR ROLL)",
+      "supplier": "SOPREMA FOR MANUFACTURING MATERIALS-SOLE PROPRIETORSHIP LLC",
+      "rate": 240.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 53,
+      "item_group": "MEMBRANE",
+      "item_name": "DIEN 40 4MM SBS MEMBRANE 200gsm  (1M*10M ROLL)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 165.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 54,
+      "item_group": "MEMBRANE",
+      "item_name": "DIEN 40 4mm SBS MEMBRANE 180gsm (1M*10M ROLL)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 160.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 55,
+      "item_group": "MEMBRANE",
+      "item_name": "Dulas P 180 4MM SBS MEMBRANE   (1M*10M ROLL)",
+      "supplier": "Duproof L.L.C",
+      "rate": 122.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 56,
+      "item_group": "MEMBRANE",
+      "item_name": "Dulas P 180 5MM  SBS MEMBRANE (1M*10M ROLL)",
+      "supplier": "Duproof L.L.C",
+      "rate": 148.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 57,
+      "item_group": "MEMBRANE",
+      "item_name": "Dulas P 200 4MM  SBS MEMBRANE   (1M*10M ROLL)",
+      "supplier": "Duproof L.L.C",
+      "rate": 124.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 58,
+      "item_group": "MEMBRANE",
+      "item_name": "Dulas P 200 5MM  SBS MEMBRANE   (1M*10M ROLL)",
+      "supplier": "Duproof L.L.C",
+      "rate": 150.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 59,
+      "item_group": "MEMBRANE",
+      "item_name": "DUPLAST P 270 4MM APP MEMBRANE (1M*10M ROLL)",
+      "supplier": "Duproof L.L.C",
+      "rate": 148.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 60,
+      "item_group": "MEMBRANE",
+      "item_name": "DUPLAST P-MEMBRANE 4MM   (1M*10M ROLL)",
+      "supplier": "Duproof L.L.C",
+      "rate": 144.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 61,
+      "item_group": "MEMBRANE",
+      "item_name": "FG -RHEOSEAL 5S 180 -20 DEG   (1M*10M ROLL)",
+      "supplier": "Petrozo Energy L.L.C",
+      "rate": 128.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 62,
+      "item_group": "MEMBRANE",
+      "item_name": "MEMBRANE SELF ADHESIVE 1.6MM 60 M2 ALUMINUM (1M*10M ROLL)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 250.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 63,
+      "item_group": "MEMBRANE",
+      "item_name": "MONOGUM FLAM 270 4P10  (1*10 MTR ROLL)",
+      "supplier": "SOPREMA FOR MANUFACTURING MATERIALS-SOLE PROPRIETORSHIP LLC",
+      "rate": 145.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 64,
+      "item_group": "MEMBRANE",
+      "item_name": "NEOFLEX ANTI-ROOT WATERPROOFING MEMBRANE 4MM  (1M*10M ROLL)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 125.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 65,
+      "item_group": "MEMBRANE",
+      "item_name": "NEOFLEX MINERAL 4MM  (1M*10M ROLL)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 125.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 66,
+      "item_group": "MEMBRANE",
+      "item_name": "PLASIFLEX FLAM 180 4F   (1M*10M ROLL)",
+      "supplier": "SOPREMA FOR MANUFACTURING MATERIALS-SOLE PROPRIETORSHIP LLC",
+      "rate": 150.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 67,
+      "item_group": "MEMBRANE",
+      "item_name": "POLYFLEX GN MINERAL 180   (1M*10M ROLL)",
+      "supplier": "BITUMAT COMPANY LIMITED DUBAI BRANCH",
+      "rate": 145.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 68,
+      "item_group": "MEMBRANE",
+      "item_name": "POLYFLEX MS 270 APP MEMBRTANE    (1M*10M ROLL)",
+      "supplier": "BITUMAT COMPANY LIMITED DUBAI BRANCH",
+      "rate": 142.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 69,
+      "item_group": "MEMBRANE",
+      "item_name": "PY 40L 5mm  SBS MEMBRANE  180gsm  (1M*10M ROLL)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 167.5,
+      "uom": "Nos"
+    },
+    {
+      "row": 70,
+      "item_group": "MEMBRANE",
+      "item_name": "PY 40L 5mm  SBS MEMBRANE   200gsm   (1M*10M ROLL)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 172.5,
+      "uom": "Nos"
+    },
+    {
+      "row": 71,
+      "item_group": "MEMBRANE",
+      "item_name": "PY G40250E BSP 10M MEMBRANE SBS MODIFIED 200G  (1M*10M ROLL)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 165.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 72,
+      "item_group": "MEMBRANE",
+      "item_name": "PY40200L BSP 10 M MEMBRANE SBS MODIFIED 200G   (1M*10M ROLL)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 138.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 73,
+      "item_group": "MEMBRANE",
+      "item_name": "PY40L BSP 10 M MEMBRANE SBS MODIFIED POLYES 180G   (1M*10M ROLL)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 124.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 74,
+      "item_group": "MEMBRANE",
+      "item_name": "RHEOSEAL  SBS 4S 200 -5   ( (1M*10M ROLL)",
+      "supplier": "Petrozo Energy L.L.C",
+      "rate": 126.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 75,
+      "item_group": "MEMBRANE",
+      "item_name": "RHEOSEAL 4S -200 GSM SL APP  (1M*10M ROLL)",
+      "supplier": "Petrozo Energy L.L.C",
+      "rate": 128.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 76,
+      "item_group": "MEMBRANE",
+      "item_name": "RHEOSEAL SBS 4S 180 ( -5 )  (1M*10M ROLL)",
+      "supplier": "Petrozo Energy L.L.C",
+      "rate": 124.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 77,
+      "item_group": "MEMBRANE",
+      "item_name": "SBS MEMBRANE  SOPRALENE  FLAME 270 4P10  (1M*10M ROLL)",
+      "supplier": "SOPREMA FOR MANUFACTURING MATERIALS-SOLE PROPRIETORSHIP LLC",
+      "rate": 150.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 78,
+      "item_group": "MEMBRANE",
+      "item_name": "SIKA SHIELD E36 PE SA 4MM   (1M*10M ROLL)",
+      "supplier": "SIKA UAE LLC",
+      "rate": 140.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 79,
+      "item_group": "MEMBRANE",
+      "item_name": "Sikashield E65 PE SA 4MM   (1M*10M ROLL)",
+      "supplier": "SIKA UAE LLC",
+      "rate": 128.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 80,
+      "item_group": "MEMBRANE",
+      "item_name": "SOPRALENE FLAM 200 4P20 (1M*10M ROLL)",
+      "supplier": "SOPREMA FOR MANUFACTURING MATERIALS-SOLE PROPRIETORSHIP LLC",
+      "rate": 140.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 81,
+      "item_group": "MEMBRANE",
+      "item_name": "SOPRALENE FLAM 200 4P5  (1M*10M ROLL)",
+      "supplier": "SOPREMA FOR MANUFACTURING MATERIALS-SOLE PROPRIETORSHIP LLC",
+      "rate": 155.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 82,
+      "item_group": "MEMBRANE",
+      "item_name": "SOPRALENE FLAM JARDIN 200 4P20   (1M*10M ROLL)",
+      "supplier": "SOPREMA FOR MANUFACTURING MATERIALS-SOLE PROPRIETORSHIP LLC",
+      "rate": 165.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 83,
+      "item_group": "MEMBRANE",
+      "item_name": "SOPRALENE FLAME 180 4P10   (1M*10M ROLL)",
+      "supplier": "SOPREMA FOR MANUFACTURING MATERIALS-SOLE PROPRIETORSHIP LLC",
+      "rate": 120.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 84,
+      "item_group": "MEMBRANE",
+      "item_name": "SIKA SHIELD E35 PE SA 4MM  (1M*10M ROLL)",
+      "supplier": "SIKA UAE LLC",
+      "rate": 110.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 85,
+      "item_group": "MEMBRANE",
+      "item_name": "SIKA SHIELD P26 MG SA 4MM   (1M*10M ROLL)",
+      "supplier": "SIKA UAE LLC",
+      "rate": 130.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 86,
+      "item_group": "MEMBRANE",
+      "item_name": "COLPHENE SP LAP  (1M*10M ROLL)",
+      "supplier": "SOPREMA FOR MANUFACTURING MATERIALS-SOLE PROPRIETORSHIP LLC",
+      "rate": 100.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 87,
+      "item_group": "MEMBRANE",
+      "item_name": "CORROPRUFE SBS 4180  (1M*10M ROLL)",
+      "supplier": "CORROTECH CONSTRUCTION CHEMICALS  L.L.C",
+      "rate": 112.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 88,
+      "item_group": "MEMBRANE",
+      "item_name": "PROOFEX TORCHSEAL 4P APP  (1M*10M ROLL)",
+      "supplier": "Al Gurg Fosroc LLC",
+      "rate": 135.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 89,
+      "item_group": "MEMBRANE",
+      "item_name": "PROOFEX TORCHSEAL 4S 180 -20  (1M*10M ROLL)",
+      "supplier": "Al Gurg Fosroc LLC",
+      "rate": 145.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 90,
+      "item_group": "MEMBRANE",
+      "item_name": "PROOFEX TORCHSEAL 4S 180 -5 (1M*10M ROLL)",
+      "supplier": "Al Gurg Fosroc LLC",
+      "rate": 128.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 91,
+      "item_group": "MEMBRANE",
+      "item_name": "PROOFEX TORCHSEAL 4S 200 S -20 (1M*10M ROLL)",
+      "supplier": "Al Gurg Fosroc LLC",
+      "rate": 155.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 92,
+      "item_group": "MEMBRANE",
+      "item_name": "PROOFEX TORCHSEAL 4S ANTI ROOT  (1M*10M ROLL)",
+      "supplier": "Al Gurg Fosroc LLC",
+      "rate": 158.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 93,
+      "item_group": "MEMBRANE",
+      "item_name": "PROOFEX TORCHSEAL 4S PLAIN (1M*10M ROLL)",
+      "supplier": "Al Gurg Fosroc LLC",
+      "rate": 165.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 94,
+      "item_group": "MEMBRANE",
+      "item_name": "PROOFEX TORCHSEAL 5S PLAIN  (1M*10M ROLL)",
+      "supplier": "Al Gurg Fosroc LLC",
+      "rate": 155.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 95,
+      "item_group": "MEMBRANE",
+      "item_name": "SOPRALENE FLAM  180 5P20  (1M*10M ROLL)",
+      "supplier": "SOPREMA FOR MANUFACTURING MATERIALS-SOLE PROPRIETORSHIP LLC",
+      "rate": 124.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 96,
+      "item_group": "MEMBRANE",
+      "item_name": "BITUPLUS E4270  (1M*10M ROLL)",
+      "supplier": "S.R.R. Building Material Trading LLC",
+      "rate": 158.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 97,
+      "item_group": "MEMBRANE",
+      "item_name": "BITUPLUS E4200GSM (1M*10M ROLL)",
+      "supplier": "S.R.R. Building Material Trading LLC",
+      "rate": 152.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 98,
+      "item_group": "MEMBRANE",
+      "item_name": "BITUPLUS E4180  (1M*10M ROLL)",
+      "supplier": "S.R.R. Building Material Trading LLC",
+      "rate": 150.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 101,
+      "item_group": "PROTECTION BOARD",
+      "item_name": "MS 60 6MM PROTECTION BOARD (1M*2M )",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 38.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 102,
+      "item_group": "PROTECTION BOARD",
+      "item_name": "NEOBOARD BITUMENIOUS PROTECTION BOARD  6MM (1M*2M )",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 31.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 103,
+      "item_group": "PROTECTION BOARD",
+      "item_name": "PROBOARD BITUMINIOUS PROTECTION BOARD  6MM    (1M*2M )",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 36.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 104,
+      "item_group": "PROTECTION BOARD",
+      "item_name": "PROTECTION BOARD  3.2mm (1M*2M )",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 25.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 105,
+      "item_group": "PROTECTION BOARD",
+      "item_name": "PROTECTION BOARD 6MM (1M*2M )",
+      "supplier": "Al Gurg Fosroc LLC",
+      "rate": 42.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 106,
+      "item_group": "PROTECTION BOARD",
+      "item_name": "SIKASHIELD PB P15 PE 6MM BOARD (1M*2M )",
+      "supplier": "SIKA UAE LLC",
+      "rate": 32.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 107,
+      "item_group": "PROTECTION BOARD",
+      "item_name": "SIKASHIELD PB P15 PE SA 3MM BOARD (1M*2M )",
+      "supplier": "SIKA UAE LLC",
+      "rate": 18.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 108,
+      "item_group": "PROTECTION BOARD",
+      "item_name": "SOPRABOARD SF 3.2MM  (1M*2M )",
+      "supplier": "SOPREMA FOR MANUFACTURING MATERIALS-SOLE PROPRIETORSHIP LLC",
+      "rate": 24.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 109,
+      "item_group": "PROTECTION BOARD",
+      "item_name": "SOPRABOARD SF 6MM (1M*2M )",
+      "supplier": "SOPREMA FOR MANUFACTURING MATERIALS-SOLE PROPRIETORSHIP LLC",
+      "rate": 37.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 110,
+      "item_group": "PROTECTION BOARD",
+      "item_name": "RHEOBOARD  3.2MM (1M*2M )",
+      "supplier": "Petrozo Energy L.L.C",
+      "rate": 24.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 111,
+      "item_group": "PROTECTION BOARD",
+      "item_name": "RHEOBOARD 6MM  (1M*2M )",
+      "supplier": "Petrozo Energy L.L.C",
+      "rate": 32.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 112,
+      "item_group": "PROTECTION BOARD",
+      "item_name": "SOPRABOARD SF 3.0MM  (1M*2M )",
+      "supplier": "SOPREMA FOR MANUFACTURING MATERIALS-SOLE PROPRIETORSHIP LLC",
+      "rate": 19.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 113,
+      "item_group": "PROTECTION BOARD",
+      "item_name": "MS60 PROTECTION BOARD 6MM  (1M*2M )",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 38.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 114,
+      "item_group": "PROTECTION BOARD",
+      "item_name": "CORROBOARD 3.2 MM  (1M*2M )",
+      "supplier": "CORROTECH CONSTRUCTION CHEMICALS  L.L.C",
+      "rate": 18.9,
+      "uom": "Nos"
+    },
+    {
+      "row": 115,
+      "item_group": "PROTECTION BOARD",
+      "item_name": "BITUBOARD 3.2 MM (1M*2M )",
+      "supplier": "S.R.R. Building Material Trading LLC",
+      "rate": 31.5,
+      "uom": "Nos"
+    },
+    {
+      "row": 116,
+      "item_group": "PROTECTION BOARD",
+      "item_name": "6MM BITUBOARD (1M*2M )",
+      "supplier": "S.R.R. Building Material Trading LLC",
+      "rate": 48.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 117,
+      "item_group": "PROTECTION BOARD",
+      "item_name": "4MM BITUBOARD (1M*2M )",
+      "supplier": "S.R.R. Building Material Trading LLC",
+      "rate": 42.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 120,
+      "item_group": "SEALANT",
+      "item_name": "AWAZEL PU FLEX  (600 ML SAUSAGE)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 13.5,
+      "uom": "Nos"
+    },
+    {
+      "row": 121,
+      "item_group": "SEALANT",
+      "item_name": "DUMASTIC (20KG PAIL)",
+      "supplier": "Duproof L.L.C",
+      "rate": 115.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 122,
+      "item_group": "SEALANT",
+      "item_name": "NEOSULPHIDE SEALANT-PG PART A+PART B (4LTR/PACK)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 88.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 123,
+      "item_group": "SEALANT",
+      "item_name": "RHEO MASTIC SEALANT (20KG PAIL)",
+      "supplier": "Petrozo Energy L.L.C",
+      "rate": 120.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 124,
+      "item_group": "SEALANT",
+      "item_name": "SOPRAMASTIC LM (20KG PAIL)",
+      "supplier": "SOPREMA FOR MANUFACTURING MATERIALS-SOLE PROPRIETORSHIP LLC",
+      "rate": 190.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 125,
+      "item_group": "SEALANT",
+      "item_name": "WEBER JOINTSEAL PU 300 GREY (600 ML SAUSAGE)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 14.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 126,
+      "item_group": "SEALANT",
+      "item_name": "SIKAFLEX-428 PRECAST CONCRETE GREY (600 ML SAUSAGE)",
+      "supplier": "SIKA UAE LLC",
+      "rate": 14.5,
+      "uom": "Nos"
+    },
+    {
+      "row": 127,
+      "item_group": "SEALANT",
+      "item_name": "NEOFLEX PU 25 LM GREY (600 ML SAUSAGE)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 10.5,
+      "uom": "Nos"
+    },
+    {
+      "row": 128,
+      "item_group": "SEALANT",
+      "item_name": "NEOSULPHIDE SEALANT PART A+PART B  ( 2.5LTR/PACK )",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 51.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 129,
+      "item_group": "SEALANT",
+      "item_name": "STAR SEAL PU -600 GREY (600 ML SAUSAGE)",
+      "supplier": "STAR ADHESIVE & RESIN IND. FACTORY",
+      "rate": 11.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 130,
+      "item_group": "SEALANT",
+      "item_name": "WEBER JOINTSEAL PU 300 WHITE  (600 ML SAUSAGE)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 14.5,
+      "uom": "Nos"
+    },
+    {
+      "row": 131,
+      "item_group": "SEALANT",
+      "item_name": "WEBERSEAL PS  1000 GG/PG (4 Ltr/PACK)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 100.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 132,
+      "item_group": "SEALANT",
+      "item_name": "WEBER SEAL MASTIC  (20KG PAIL)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 160.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 135,
+      "item_group": "PU COATING",
+      "item_name": "AWAZEL PU 670  (20LTR PAIL)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 425.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 136,
+      "item_group": "PU COATING",
+      "item_name": "CRESTHANE PU 100  GREY (20LTR PAIL)",
+      "supplier": "Kanz Chemical Ind LLC",
+      "rate": 265.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 137,
+      "item_group": "PU COATING",
+      "item_name": "NEOSEAL PUD 560  WHITE (20LTR PAIL)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 230.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 138,
+      "item_group": "PU COATING",
+      "item_name": "NEOSEAL WP 509 -BLACK (24LTR PAIL)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 216.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 139,
+      "item_group": "PU COATING",
+      "item_name": "POLYTHANE P (20LTR PAIL)",
+      "supplier": "S.R.R. Building Material Trading LLC",
+      "rate": 240.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 140,
+      "item_group": "PU COATING",
+      "item_name": "STAR PUD 337 (20LTR PAIL)",
+      "supplier": "STAR ADHESIVE & RESIN IND. FACTORY",
+      "rate": 180.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 141,
+      "item_group": "PU COATING",
+      "item_name": "Netoproof 600 (20LTR)",
+      "supplier": "Al Gurg Fosroc LLC",
+      "rate": 450.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 144,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "AWAZEL CEMENT ACRYLIC COAT WHITE ( PART A 15KG+ PART B 5KG)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 53.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 145,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "AWAZEL CEMENT ACRYLIC COAT GREY ( PART A 15KG+ PART B 5KG)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 53.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 146,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "COATLOK HARD 40 GREY( PART A 15KG+ PART B 5KG)",
+      "supplier": "HUNTSMAN UAE FZE",
+      "rate": 55.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 147,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "CRESPROOF 301 DARK GREY ( PART A 15KG+ PART B 5KG)",
+      "supplier": "Kanz Chemical Ind LLC",
+      "rate": 50.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 148,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "CRESPROOF 301 PURE WHITE( PART A 15KG+ PART B 5KG)",
+      "supplier": "Kanz Chemical Ind LLC",
+      "rate": 55.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 149,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "HARD 60 ( PART A 15KG+ PART B 5KG)",
+      "supplier": "HUNTSMAN UAE FZE",
+      "rate": 65.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 150,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "JK PROFIX -WPC 11 ( PART A 20KG+ PART B 10KG)",
+      "supplier": "HUNTSMAN UAE FZE",
+      "rate": 115.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 151,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "MIXGUARD AC WHITE ( PART A 15KG+ PART B 5KG)",
+      "supplier": "PYCHEM CO. L.L.C.",
+      "rate": 55.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 152,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "NEOSEAL FLEX 550 - WHITE  ( PART A 15KG+ PART B 5KG)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 47.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 153,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "NEOSEAL FLEX 550 -LIGHT GREY (PART A 15KG+PART B 5KG)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 47.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 154,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "NEOSEAL FLEX 550-DARK GREY (PART A 15KG+PART B 5KG)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 47.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 155,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "NEOSEAL FLEX 588 - LIGHT GREY (PART A 25KG+PART B 10KG)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 110.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 156,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "NEOSEAL FLEX 588 -GREY (PART A 25KG+PART B 10KG)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 110.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 157,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "NEOSEAL FLEX 588 -WHITE (PART A 26.25 KG+PART B 8.75 KG)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 112.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 158,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "NITOCOTE CM210 GREY ( PART A 15KG+ PART B 5KG)",
+      "supplier": "Al Gurg Fosroc LLC",
+      "rate": 66.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 159,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "NITOCOTE CM210 WHITE ( PART A 15KG+ PART B 5KG)",
+      "supplier": "Al Gurg Fosroc LLC",
+      "rate": 74.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 160,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "Polyflex grey( PART A 15KG+ PART B 5KG)",
+      "supplier": "S.R.R. Building Material Trading LLC",
+      "rate": 74.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 161,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "Polyflex white ( PART A 15KG+ PART B 5KG)",
+      "supplier": "S.R.R. Building Material Trading LLC",
+      "rate": 77.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 162,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "SIKA TOP 588 SEAL GREY ( PART A 25KG+ PART B 10KG)",
+      "supplier": "SIKA UAE LLC",
+      "rate": 250.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 163,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "SIKA TOP 550 SEAL H( PART A 15KG+ PART B 5KG)",
+      "supplier": "SIKA UAE LLC",
+      "rate": 68.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 164,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "SIKA TOP 550 SEAL J  ( PART A 15KG+ PART B 5KG)",
+      "supplier": "SIKA UAE LLC",
+      "rate": 68.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 165,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "SIKA TOP 550 SEAL K ( PART A 15KG+ PART B 5KG)",
+      "supplier": "SIKA UAE LLC",
+      "rate": 74.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 166,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "SIKALASTIC -152 AE( PART A 8KG+ PART B 25KG)",
+      "supplier": "SIKA UAE LLC",
+      "rate": 115.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 167,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "STARCHEM 2K ( PART A 15KG+ PART B 5KG)",
+      "supplier": "STAR ADHESIVE & RESIN IND. FACTORY",
+      "rate": 60.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 168,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "WEBERDRY 116 FX GREY   18 KG  ( PART A 13.63 KG+ PART B 4.67 KG)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 48.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 169,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "WEBERDRY 116 FX SP  GREY    ( PART A 13.63 KG+ PART B 4.67 KG)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 71.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 170,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "WEBERDRY 116 FX SP  WHITE   ( PART A 13.63 KG+ PART B 4.67 KG)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 79.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 171,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "WEBERDRY 116 FX WHITE  ( PART A 13.63 KG+ PART B 4.67 KG)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 56.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 172,
+      "item_group": "CEMENTITIOUS COATING",
+      "item_name": "WEBERDRY 136 FX GREY KIT  ( PART A 15 KG+ PART B 7.5 KG)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 100.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 175,
+      "item_group": "POLYSTYRENE SHEET",
+      "item_name": "ROOFMATE  70MM ( 1.25 X 0.60M ) DENSITY 32-35 KG",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 26.25,
+      "uom": "Nos"
+    },
+    {
+      "row": 176,
+      "item_group": "POLYSTYRENE SHEET",
+      "item_name": "ROOFMATE  75MM ( 1.25 X 0.60M ) DENSITY 32-35 KG",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 26.25,
+      "uom": "Nos"
+    },
+    {
+      "row": 177,
+      "item_group": "POLYSTYRENE SHEET",
+      "item_name": "E-FOAM  50MM ( 1.25 X 0.60M ) DENSITY 32-35 KG",
+      "supplier": "EMIRATES EXTRUDED POLYSTRENE L.L.C",
+      "rate": 16.5,
+      "uom": "Nos"
+    },
+    {
+      "row": 178,
+      "item_group": "POLYSTYRENE SHEET",
+      "item_name": "EXTRUDED INSULATION BOARD  50MM ( 1.25 X 0.60M ) DENSITY 32-35 KG",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 18.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 179,
+      "item_group": "POLYSTYRENE SHEET",
+      "item_name": "ROOFMATE   100MM ( 1.25 X 0.60M ) DENSITY 32-35 KG",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 33.38,
+      "uom": "Nos"
+    },
+    {
+      "row": 180,
+      "item_group": "POLYSTYRENE SHEET",
+      "item_name": "ROOFMATE   500MM ( 1.25 X 0.60M ) DENSITY 32-35 KG",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 18.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 181,
+      "item_group": "POLYSTYRENE SHEET",
+      "item_name": "E-FOAM  60MM ( 1.25 X 0.60M ) DENSITY 32-35 KG",
+      "supplier": "EMIRATES EXTRUDED POLYSTRENE L.L.C",
+      "rate": 18.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 182,
+      "item_group": "POLYSTYRENE SHEET",
+      "item_name": "ROOFMATE 60MM ( 1.25 X 0.60M ) DENSITY 32-35 KG",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 24.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 183,
+      "item_group": "POLYSTYRENE SHEET",
+      "item_name": "BITUTHERM ND  100MM ( 1.25 X 0.60M ) DENSITY 32-35 KG",
+      "supplier": "BITUMAT COMPANY LIMITED DUBAI BRANCH",
+      "rate": 33.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 184,
+      "item_group": "POLYSTYRENE SHEET",
+      "item_name": "BITUTHERM ND  60MM ( 1.25 X 0.60M ) DENSITY 32-35 KG",
+      "supplier": "BITUMAT COMPANY LIMITED DUBAI BRANCH",
+      "rate": 21.75,
+      "uom": "Nos"
+    },
+    {
+      "row": 185,
+      "item_group": "POLYSTYRENE SHEET",
+      "item_name": "BITUTHERM ND  70MM ( 1.25 X 0.60M ) DENSITY 32-35 KG",
+      "supplier": "BITUMAT COMPANY LIMITED DUBAI BRANCH",
+      "rate": 25.5,
+      "uom": "Nos"
+    },
+    {
+      "row": 188,
+      "item_group": "FABRIC MESH",
+      "item_name": "BETOFLEX BETOTECH MESH  65 GSM  (0.8M*100M)",
+      "supplier": "GEOBIT INDUSTRIES L.L.C",
+      "rate": 184.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 189,
+      "item_group": "FABRIC MESH",
+      "item_name": "NEOFAB COATING FABRIC  (0.30M * 50M)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 19.5,
+      "uom": "Nos"
+    },
+    {
+      "row": 190,
+      "item_group": "FABRIC MESH",
+      "item_name": "AWAZEL FABRIC (1M*50M)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 150.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 193,
+      "item_group": "FOAM CONCRETE",
+      "item_name": "AWAZEFOAM CFA 1000",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 965.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 194,
+      "item_group": "FOAM CONCRETE",
+      "item_name": "ADVAFAMCRETE 200 KG",
+      "supplier": "AIM INDUSTRIES",
+      "rate": 997.5,
+      "uom": "Nos"
+    },
+    {
+      "row": 197,
+      "item_group": "BITUMEN",
+      "item_name": "AQUADERE HT  (200LTR /DRUM)",
+      "supplier": "SOPREMA FOR MANUFACTURING MATERIALS-SOLE PROPRIETORSHIP LLC",
+      "rate": 1000.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 198,
+      "item_group": "BITUMEN",
+      "item_name": "CONCRETE PRIMER D41 (200LTR /DRUM)",
+      "supplier": "BITUMAT COMPANY LIMITED DUBAI BRANCH",
+      "rate": 980.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 199,
+      "item_group": "BITUMEN",
+      "item_name": "CRESPRIME SB  (200LTR /DRUM)",
+      "supplier": "Kanz Chemical Ind LLC",
+      "rate": 980.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 200,
+      "item_group": "BITUMEN",
+      "item_name": "DUPRIME (200LTR /DRUM)",
+      "supplier": "Duproof L.L.C",
+      "rate": 1300.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 201,
+      "item_group": "BITUMEN",
+      "item_name": "POLYPRIME SB BITUMEN PRIMER (200LTR /DRUM)",
+      "supplier": "S.R.R. Building Material Trading LLC",
+      "rate": 1130.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 202,
+      "item_group": "BITUMEN",
+      "item_name": "PRIMER  SOPRADERE HT (200LTR /DRUM)",
+      "supplier": "SOPREMA FOR MANUFACTURING MATERIALS-SOLE PROPRIETORSHIP LLC",
+      "rate": 1000.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 203,
+      "item_group": "BITUMEN",
+      "item_name": "PRIMER D41  (200LTR /DRUM)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 1000.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 204,
+      "item_group": "BITUMEN",
+      "item_name": "PRIMER D41 (16 KG) CAN",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 130.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 205,
+      "item_group": "BITUMEN",
+      "item_name": "PROOFEX TORCHSEAL PRIMER(200LTR /DRUM)",
+      "supplier": "Al Gurg Fosroc LLC",
+      "rate": 1100.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 206,
+      "item_group": "BITUMEN",
+      "item_name": "RHEOPRIME SB  (200LTR /DRUM)",
+      "supplier": "Petrozo Energy L.L.C",
+      "rate": 890.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 207,
+      "item_group": "BITUMEN",
+      "item_name": "SIKA LGOLFLEX-620 (200LTR /DRUM)",
+      "supplier": "SIKA UAE LLC",
+      "rate": 680.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 208,
+      "item_group": "BITUMEN",
+      "item_name": "SIKABIT P -12 AE BITUMENIOUS PRIMER  (200LTR /DRUM)",
+      "supplier": "SIKA UAE LLC",
+      "rate": 950.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 209,
+      "item_group": "BITUMEN",
+      "item_name": "SOPRADERE HT (200LTR /DRUM)",
+      "supplier": "SOPREMA FOR MANUFACTURING MATERIALS-SOLE PROPRIETORSHIP LLC",
+      "rate": 144.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 210,
+      "item_group": "BITUMEN",
+      "item_name": "WEBER DRY PRIMER SB(200LTR /DRUM)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 1100.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 211,
+      "item_group": "BITUMEN",
+      "item_name": "NEOCOAT RBE -3510  (200LTR /DRUM)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 420.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 212,
+      "item_group": "BITUMEN",
+      "item_name": "RHEOSEAL RBE350(200LTR /DRUM)",
+      "supplier": "Petrozo Energy L.L.C",
+      "rate": 365.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 213,
+      "item_group": "BITUMEN",
+      "item_name": "BETOCOAT RBE 10  (200LTR /DRUM)",
+      "supplier": "GEOBIT INDUSTRIES L.L.C",
+      "rate": 390.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 214,
+      "item_group": "BITUMEN",
+      "item_name": "AWAZEL AWATEX RBE 6500  (200LTR /DRUM)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 1000.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 215,
+      "item_group": "BITUMEN",
+      "item_name": "CRESCOAT RBE 10  (200LTR /DRUM)",
+      "supplier": "Kanz Chemical Ind LLC",
+      "rate": 420.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 216,
+      "item_group": "BITUMEN",
+      "item_name": "NEOCOAT RBE -4010 (200LTR /DRUM)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 560.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 217,
+      "item_group": "BITUMEN",
+      "item_name": "NEOCOAT RBE -6010 (200LTR /DRUM)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 600.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 218,
+      "item_group": "BITUMEN",
+      "item_name": "WEBER RBE (200LTR /DRUM)",
+      "supplier": "SODAMCO S.A.L-Abu Dhabi",
+      "rate": 480.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 219,
+      "item_group": "BITUMEN",
+      "item_name": "CORROPRIME SB(200LTR /DRUM)",
+      "supplier": "CORROTECH CONSTRUCTION CHEMICALS  L.L.C",
+      "rate": 1040.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 222,
+      "item_group": "ACRYLIC COATING",
+      "item_name": "AWAZEL ACRYLIC COAT  (15KG/ PAIL)",
+      "supplier": "AWAZEL INTERNATIONAL CO LLC",
+      "rate": 90.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 223,
+      "item_group": "ACRYLIC COATING",
+      "item_name": "NEOTEX SP-LIGHT GREY (20KG/PAIL)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 97.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 224,
+      "item_group": "ACRYLIC COATING",
+      "item_name": "NEOTEX SP-WHITE (20KG/PAIL)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 97.0,
+      "uom": "Nos"
+    },
+    {
+      "row": 225,
+      "item_group": "ACRYLIC COATING",
+      "item_name": "NEOTEX SP-DARK GREY (20KG/PAIL)",
+      "supplier": "SHERIDAN SPECIALIZED BUILDING PRODUCTS  L.L.C",
+      "rate": 97.0,
+      "uom": "Nos"
+    }
+  ]
+}

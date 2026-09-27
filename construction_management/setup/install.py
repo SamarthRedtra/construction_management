@@ -31,6 +31,8 @@ def after_install():
 	create_security_number_cards()
 	setup_accounting_dimensions()
 	setup_advanced_general_ledger()
+	create_controlled_procurement_fields()
+	create_controlled_procurement_permissions()
 	frappe.db.commit()
 
 
@@ -40,6 +42,8 @@ def after_migrate():
 	create_security_payment_entry_fields()
 	create_security_number_cards()
 	setup_advanced_general_ledger()
+	create_controlled_procurement_fields()
+	create_controlled_procurement_permissions()
 	frappe.db.commit()
 
 
@@ -142,6 +146,84 @@ def create_stock_entry_custom_fields():
 			frappe.logger().error(f"Error creating custom field {field_def.get('fieldname')}: {str(e)}")
 	
 	frappe.logger().info("Stock Entry custom fields created successfully")
+
+
+def create_controlled_procurement_fields():
+	"""Create the metadata used by the controlled procurement workspace."""
+	fields_to_create = [
+		{
+			"dt": "Item", "fieldname": "controlled_procurement_catalog",
+			"label": "Controlled Procurement Catalog", "fieldtype": "Check",
+			"insert_after": "is_purchase_item", "default": "0", "in_standard_filter": 1,
+		},
+		{
+			"dt": "Item", "fieldname": "controlled_item_type", "label": "Controlled Item Type",
+			"fieldtype": "Select", "options": "\nStockable\nAsset\nService",
+			"insert_after": "controlled_procurement_catalog", "read_only": 1,
+		},
+		{
+			"dt": "Item", "fieldname": "controlled_import_source", "label": "Controlled Import Source",
+			"fieldtype": "Data", "insert_after": "controlled_item_type", "read_only": 1,
+		},
+		{
+			"dt": "Item", "fieldname": "controlled_imported_on", "label": "Controlled Imported On",
+			"fieldtype": "Datetime", "insert_after": "controlled_import_source", "read_only": 1,
+		},
+		{
+			"dt": "Item", "fieldname": "controlled_catalog_source", "label": "Controlled Catalog Source",
+			"fieldtype": "Select", "options": "\nWorkbook Import\nCEO Manual",
+			"insert_after": "controlled_imported_on", "read_only": 1,
+		},
+		{
+			"dt": "Item", "fieldname": "controlled_catalog_version", "label": "Controlled Catalog Version",
+			"fieldtype": "Data", "insert_after": "controlled_catalog_source", "read_only": 1,
+		},
+		{
+			"dt": "Item", "fieldname": "controlled_catalog_checksum", "label": "Controlled Catalog Checksum",
+			"fieldtype": "Data", "insert_after": "controlled_catalog_version", "read_only": 1,
+		},
+	]
+	for doctype in ("Purchase Order", "Purchase Receipt", "Stock Entry"):
+		fields_to_create.append({
+			"dt": doctype, "fieldname": "controlled_procurement",
+			"label": "Controlled Procurement", "fieldtype": "Check", "default": "0",
+			"read_only": 1, "in_standard_filter": 1,
+		})
+	for doctype, insert_after in (
+		("Purchase Order Item", "item_code"),
+		("Purchase Receipt Item", "item_code"),
+		("Stock Entry Detail", "item_code"),
+	):
+		fields_to_create.append({
+			"dt": doctype, "fieldname": "controlled_item_type", "label": "Item Type",
+			"fieldtype": "Data", "insert_after": insert_after, "read_only": 1,
+			"in_list_view": 1,
+		})
+	fields_to_create.extend([
+		{
+			"dt": "Company", "fieldname": "controlled_service_expense_account",
+			"label": "Controlled Service Expense Account", "fieldtype": "Link", "options": "Account",
+			"insert_after": "default_expense_account",
+		},
+		{
+			"dt": "Company", "fieldname": "controlled_asset_category",
+			"label": "Controlled Asset Category", "fieldtype": "Link", "options": "Asset Category",
+			"insert_after": "controlled_service_expense_account",
+		},
+	])
+	for field_def in fields_to_create:
+		create_custom_field_if_not_exists(field_def)
+
+
+def create_controlled_procurement_permissions():
+	"""CEO needs the same Item-master access required by the controlled catalog."""
+	if frappe.db.exists("Custom DocPerm", {"parent": "Item", "role": "CEO", "permlevel": 0}):
+		return
+	frappe.get_doc({
+		"doctype": "Custom DocPerm", "parent": "Item", "parenttype": "DocType",
+		"parentfield": "permissions", "role": "CEO", "permlevel": 0,
+		"read": 1, "write": 1, "create": 1, "delete": 0, "print": 1, "export": 1,
+	}).insert(ignore_permissions=True)
 
 
 def create_purchase_receipt_split_fields():
@@ -824,4 +906,3 @@ def update_security_payment_entry_field_metadata():
 
 		if needs_save:
 			custom_field.save(ignore_permissions=True)
-

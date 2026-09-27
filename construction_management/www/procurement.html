@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>{{ title }}</title>
+		{% if frontend_assets %}{% for stylesheet in frontend_assets.styles %}
+		<link rel="stylesheet" href="{{ stylesheet }}" />
+		{% endfor %}{% endif %}
+		<style>
+			body { margin: 0; min-height: 100vh; background: #f6f7f9; }
+			.cp-noscript { font-family: system-ui, sans-serif; padding: 32px; max-width: 720px; margin: 0 auto; }
+		</style>
+	</head>
+	<body>
+		<div id="app"></div>
+		{% if not frontend_assets %}
+		<main class="cp-noscript">
+			<h1>Controlled Procurement</h1>
+			<p>Frontend assets have not been built yet. Run <code>yarn build</code> in <code>apps/construction_management/frontend</code>.</p>
+		</main>
+		{% endif %}
+		<script>
+			window.boot = {{ boot | tojson }};
+			window.csrf_token = window.boot.csrf_token;
+		</script>
+		{% if frontend_assets %}
+		<script type="module" src="{{ frontend_assets.entry }}"></script>
+		{% endif %}
+	</body>
+</html>

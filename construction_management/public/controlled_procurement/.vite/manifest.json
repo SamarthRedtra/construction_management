@@ -1,0 +1,215 @@
+{
+  "_AllocationFields-D9CUSr8h.js": {
+    "file": "assets/AllocationFields-D9CUSr8h.js",
+    "name": "AllocationFields",
+    "imports": [
+      "index.html",
+      "_LinkSelect-V7vrpiHo.js"
+    ]
+  },
+  "_ItemPicker-CrAixppv.js": {
+    "file": "assets/ItemPicker-CrAixppv.js",
+    "name": "ItemPicker",
+    "imports": [
+      "index.html",
+      "_LinkSelect-V7vrpiHo.js"
+    ]
+  },
+  "_LinkSelect-V7vrpiHo.js": {
+    "file": "assets/LinkSelect-V7vrpiHo.js",
+    "name": "LinkSelect",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "_Modal-C0lwhjqP.js": {
+    "file": "assets/Modal-C0lwhjqP.js",
+    "name": "Modal",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "_PageHeader-C4yUhpqv.js": {
+    "file": "assets/PageHeader-C4yUhpqv.js",
+    "name": "PageHeader",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "_PrintDialog-CXArtDtn.js": {
+    "file": "assets/PrintDialog-CXArtDtn.js",
+    "name": "PrintDialog",
+    "imports": [
+      "index.html",
+      "_Modal-C0lwhjqP.js"
+    ]
+  },
+  "_StatusPill-mDAIVSV1.js": {
+    "file": "assets/StatusPill-mDAIVSV1.js",
+    "name": "StatusPill",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "_TaxSection-TJYn8xrE.js": {
+    "file": "assets/TaxSection-TJYn8xrE.js",
+    "name": "TaxSection",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "_VatSelect-Dy295mcF.js": {
+    "file": "assets/VatSelect-Dy295mcF.js",
+    "name": "VatSelect",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "index.html": {
+    "file": "assets/index-QdRrr_TN.js",
+    "name": "index",
+    "src": "index.html",
+    "isEntry": true,
+    "dynamicImports": [
+      "src/views/DashboardView.vue",
+      "src/views/OpenLposView.vue",
+      "src/views/DocumentListView.vue",
+      "src/views/PurchaseOrderForm.vue",
+      "src/views/DocumentDetailView.vue",
+      "src/views/DocumentListView.vue",
+      "src/views/PurchaseReceiptForm.vue",
+      "src/views/DocumentDetailView.vue",
+      "src/views/DocumentListView.vue",
+      "src/views/PurchaseInvoiceForm.vue",
+      "src/views/DocumentDetailView.vue",
+      "src/views/DocumentListView.vue",
+      "src/views/TransferForm.vue",
+      "src/views/DocumentDetailView.vue",
+      "src/views/CatalogView.vue"
+    ],
+    "css": [
+      "assets/index-CCmYKout.css"
+    ]
+  },
+  "src/views/CatalogView.vue": {
+    "file": "assets/CatalogView-D8YyKDg-.js",
+    "name": "CatalogView",
+    "src": "src/views/CatalogView.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_LinkSelect-V7vrpiHo.js",
+      "_Modal-C0lwhjqP.js",
+      "_PageHeader-C4yUhpqv.js"
+    ]
+  },
+  "src/views/DashboardView.vue": {
+    "file": "assets/DashboardView-D3_stIel.js",
+    "name": "DashboardView",
+    "src": "src/views/DashboardView.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_PageHeader-C4yUhpqv.js",
+      "_StatusPill-mDAIVSV1.js"
+    ]
+  },
+  "src/views/DocumentDetailView.vue": {
+    "file": "assets/DocumentDetailView-BM1dz04z.js",
+    "name": "DocumentDetailView",
+    "src": "src/views/DocumentDetailView.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_StatusPill-mDAIVSV1.js",
+      "_Modal-C0lwhjqP.js",
+      "_LinkSelect-V7vrpiHo.js",
+      "_PrintDialog-CXArtDtn.js",
+      "_ItemPicker-CrAixppv.js",
+      "_VatSelect-Dy295mcF.js",
+      "_PageHeader-C4yUhpqv.js"
+    ]
+  },
+  "src/views/DocumentListView.vue": {
+    "file": "assets/DocumentListView-CXloa0Q5.js",
+    "name": "DocumentListView",
+    "src": "src/views/DocumentListView.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_PageHeader-C4yUhpqv.js",
+      "_PrintDialog-CXArtDtn.js",
+      "_StatusPill-mDAIVSV1.js",
+      "_Modal-C0lwhjqP.js"
+    ]
+  },
+  "src/views/OpenLposView.vue": {
+    "file": "assets/OpenLposView-uQ8SJbPG.js",
+    "name": "OpenLposView",
+    "src": "src/views/OpenLposView.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_LinkSelect-V7vrpiHo.js",
+      "_PageHeader-C4yUhpqv.js",
+      "_PrintDialog-CXArtDtn.js",
+      "_StatusPill-mDAIVSV1.js",
+      "_Modal-C0lwhjqP.js"
+    ]
+  },
+  "src/views/PurchaseInvoiceForm.vue": {
+    "file": "assets/PurchaseInvoiceForm-GYVWMPsP.js",
+    "name": "PurchaseInvoiceForm",
+    "src": "src/views/PurchaseInvoiceForm.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_VatSelect-Dy295mcF.js",
+      "_PageHeader-C4yUhpqv.js",
+      "_TaxSection-TJYn8xrE.js"
+    ]
+  },
+  "src/views/PurchaseOrderForm.vue": {
+    "file": "assets/PurchaseOrderForm-B_JFx1LB.js",
+    "name": "PurchaseOrderForm",
+    "src": "src/views/PurchaseOrderForm.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_AllocationFields-D9CUSr8h.js",
+      "_Modal-C0lwhjqP.js",
+      "_ItemPicker-CrAixppv.js",
+      "_LinkSelect-V7vrpiHo.js",
+      "_PageHeader-C4yUhpqv.js",
+      "_TaxSection-TJYn8xrE.js",
+      "_VatSelect-Dy295mcF.js"
+    ]
+  },
+  "src/views/PurchaseReceiptForm.vue": {
+    "file": "assets/PurchaseReceiptForm-hjrlfTn8.js",
+    "name": "PurchaseReceiptForm",
+    "src": "src/views/PurchaseReceiptForm.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_AllocationFields-D9CUSr8h.js",
+      "_LinkSelect-V7vrpiHo.js",
+      "_PageHeader-C4yUhpqv.js",
+      "_TaxSection-TJYn8xrE.js",
+      "_VatSelect-Dy295mcF.js"
+    ]
+  },
+  "src/views/TransferForm.vue": {
+    "file": "assets/TransferForm-nbkf0mJG.js",
+    "name": "TransferForm",
+    "src": "src/views/TransferForm.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_AllocationFields-D9CUSr8h.js",
+      "_ItemPicker-CrAixppv.js",
+      "_LinkSelect-V7vrpiHo.js",
+      "_PageHeader-C4yUhpqv.js"
+    ]
+  }
+}

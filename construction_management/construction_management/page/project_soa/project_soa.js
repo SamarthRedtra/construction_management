@@ -23,6 +23,8 @@ frappe.pages['project-soa'].on_page_load = function (wrapper) {
 	`);
 
 	reset_project_soa_dashboard(wrapper.querySelector('#project-soa-container'));
+	const route_options = frappe.route_options || {};
+	const expected_invoice_names = get_expected_invoice_names(route_options.expected_invoice_names);
 
 	const project_control = frappe.ui.form.make_control({
 		parent: wrapper.querySelector('#project-field-wrapper'),
@@ -37,7 +39,8 @@ frappe.pages['project-soa'].on_page_load = function (wrapper) {
 				if (project) {
 					render_project_soa_dashboard(
 						wrapper.querySelector('#project-soa-container'),
-						project
+						project,
+						{ expected_invoice_names }
 					);
 				} else {
 					reset_project_soa_dashboard(wrapper.querySelector('#project-soa-container'));
@@ -51,10 +54,25 @@ frappe.pages['project-soa'].on_page_load = function (wrapper) {
 	const route = frappe.get_route();
 	if (route && route[2]) {
 		project_val = route[2];
-	} else if (frappe.route_options && frappe.route_options.project) {
-		project_val = frappe.route_options.project;
+	} else if (route_options.project) {
+		project_val = route_options.project;
 	}
 	if (project_val) {
 		project_control.set_value(project_val);
 	}
 };
+
+function get_expected_invoice_names(value) {
+	if (Array.isArray(value)) {
+		return value;
+	}
+	if (typeof value !== 'string') {
+		return [];
+	}
+	try {
+		const invoice_names = JSON.parse(value);
+		return Array.isArray(invoice_names) ? invoice_names : [];
+	} catch (e) {
+		return [];
+	}
+}

@@ -834,6 +834,10 @@
 .collection-expected-table th { background: #f2f6f9; color: #53697e; font-size: 10px; font-weight: 800; letter-spacing: .35px; text-transform: uppercase; }
 .collection-expected-table td:nth-child(2) { font-weight: 650; color: #28445b; }
 .collection-expected-table tfoot td { background: #eaf5f5; color: #1d5f67; font-weight: 800; }
+.collection-expected-payment-link { padding: 0; border: 0; background: transparent; color: #176f7a; font: inherit; font-weight: 700; cursor: pointer; }
+.collection-expected-payment-link:hover, .collection-expected-payment-link:focus { color: #0d4d58; text-decoration: underline; outline: none; }
+.collection-expected-project-group { margin: 16px 0; }
+.collection-expected-project-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 
 @media (max-width: 980px) {
 	.project-collection-layout { padding: 14px; }

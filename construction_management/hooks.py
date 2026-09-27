@@ -12,6 +12,21 @@ app_license = "mit"
 # required_apps = []
 
 # Each item in the list will be shown as an app in the apps page
+add_to_apps_screen = [
+	{
+		"name": "controlled_procurement",
+		"logo": "/assets/construction_management/images/controlled-procurement.svg",
+		"title": "Procurement",
+		"route": "/procurement",
+		"has_permission": "construction_management.www.procurement.has_app_permission",
+	}
+]
+
+# Standalone Vue app for Controlled Procurement (served by www/procurement.py)
+website_route_rules = [
+	{"from_route": "/procurement/<path:app_path>", "to_route": "procurement"},
+]
+
 # add_to_apps_screen = [
 # 	{
 # 		"name": "construction_management",
@@ -60,12 +75,12 @@ doctype_js = {
 	"Project": ["public/js/project_tab_access.js", "public/js/boq_management_table.js", "public/js/boq_fullscreen_manager.js", "public/js/sticky_columns_manager.js", "public/js/profit_loss_indicator.js", "public/js/bill_financial_summary_widget.js", "public/js/project_soa_dashboard.js", "public/js/project_commission_dashboard.js", "public/js/project_approved_materials.js", "public/js/project_team_allocation.js", "public/js/project.js"],
 	"Daily Progress Record": "public/js/daily_progress_record.js",
 	"Daily Roster": "public/js/daily_roster.js",
-	"Purchase Receipt": "public/js/purchase_receipt.js",
+	"Purchase Receipt": ["public/js/purchase_receipt.js", "public/js/controlled_procurement_documents.js"],
 	"Sales Invoice": ["public/js/accounting_dimension_filters.js", "public/js/deduction_summary.js", "public/js/sales_invoice.js"],
 	"Purchase Invoice": ["public/js/accounting_dimension_filters.js", "public/js/purchase_invoice.js"],
-	"Purchase Order": ["public/js/accounting_dimension_filters.js", "public/js/purchase_order.js"],
+	"Purchase Order": ["public/js/accounting_dimension_filters.js", "public/js/purchase_order.js", "public/js/controlled_procurement_documents.js"],
 	"Sales Order": ["public/js/accounting_dimension_filters.js", "public/js/deduction_summary.js", "public/js/sales_order.js"],
-	"Stock Entry": ["public/js/accounting_dimension_filters.js", "public/js/stock_entry.js"],
+	"Stock Entry": ["public/js/accounting_dimension_filters.js", "public/js/stock_entry.js", "public/js/controlled_procurement_documents.js"],
 	"Journal Entry": ["public/js/accounting_dimension_filters.js", "public/js/journal_entry.js"],
 	"Material Request": ["public/js/accounting_dimension_filters.js", "public/js/material_request.js"],
 	"Quotation": [
@@ -187,13 +202,19 @@ doc_events = {
 		"on_cancel": "construction_management.overrides.purchase_invoice.on_cancel"
 	},
 	"Purchase Order": {
-		"validate": "construction_management.overrides.purchase_order.validate"
+		"validate": [
+			"construction_management.overrides.purchase_order.validate",
+			"construction_management.api.controlled_procurement.validate_transaction",
+		]
 	},
 	"Purchase Receipt": {
 		"before_validate": "construction_management.overrides.purchase_receipt.before_validate",
-		"validate": "construction_management.overrides.purchase_receipt.validate",
 		"before_submit": "construction_management.overrides.purchase_receipt.before_submit",
 		"on_submit": "redtra_customisation.override.provisional_purchase_order.on_purchase_receipt_submit",
+		"validate": [
+			"construction_management.overrides.purchase_receipt.validate",
+			"construction_management.api.controlled_procurement.validate_transaction",
+		],
 	},
 	"Project": {
 		"before_insert": "construction_management.api.project_numbering.assign_project_number_if_missing",
@@ -245,7 +266,11 @@ doc_events = {
 	},
 	"Stock Entry": {
 		"before_validate": "construction_management.api.drum_uom_utils.apply_stock_entry_uom_conversion",
+		"validate": "construction_management.api.controlled_procurement.validate_transaction",
 		"on_cancel": "construction_management.overrides.stock_entry.on_cancel",
+	},
+	"Item": {
+		"validate": "construction_management.api.controlled_procurement.validate_item",
 	},
 }
 
