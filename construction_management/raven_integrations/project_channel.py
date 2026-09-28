@@ -144,15 +144,21 @@ def get_channel_for_project(project: str) -> str | None:
 
 
 def get_channel_name_for_project(doc) -> str:
-	"""Build a Raven channel name that includes Project No when available."""
-	project_no = (getattr(doc, "custom_project_no", None) or "").strip()
-	project_name = (getattr(doc, "project_name", None) or "").strip()
-	parts = []
-	if project_no:
-		parts.append(project_no)
-	if project_name:
-		parts.append(project_name)
-	source = " - ".join(parts) if parts else (doc.name or "project")
+	"""Channel name "<Project ID>-<Project Short Name>", e.g. "1001-China-Nuclear-Nice-1".
+
+	Falls back to the project name when no short name is set, and does not repeat the ID when the
+	short name already starts with it (e.g. short name "1000-Plus Palace").
+	"""
+	project_id = str(doc.name or "").strip()
+	label = (getattr(doc, "custom_project_short_name", None) or getattr(doc, "project_name", None) or "").strip()
+	if project_id and label and _slug(label).lower().startswith(_slug(project_id).lower() + "-"):
+		label = label[len(project_id):].lstrip(" -_")
+	source = " - ".join(part for part in (project_id, label) if part) or "project"
+	return (_slug(source) or project_id)[:140]
+
+
+def _slug(source: str) -> str:
+	"""Letters and digits, with every other run of characters collapsed to one hyphen."""
 	channel_name = ""
 	prev = ""
 	for char in source:
@@ -162,7 +168,7 @@ def get_channel_name_for_project(doc) -> str:
 		elif prev != "-":
 			channel_name += "-"
 			prev = "-"
-	return (channel_name.strip("-") or doc.name)[:140]
+	return channel_name.strip("-")
 
 
 def _channel_description_for_project(doc) -> str:
