@@ -1100,9 +1100,20 @@ def validate_item(doc, method=None) -> None:
 		frappe.throw(_("Controlled catalog items must use Nos as their stock UOM."))
 
 
+def _workspace_only() -> bool:
+	"""Site config `controlled_procurement_workspace_only: 1` forces new POs, receipts and transfers
+	through the Procurement app. Off by default, so Desk creation works as usual."""
+	return bool(cint(frappe.conf.get("controlled_procurement_workspace_only")))
+
+
 def validate_transaction(doc, method=None) -> None:
-	if doc.is_new() and not _roles().intersection(ADMIN_ROLES) and not getattr(doc.flags, "controlled_procurement_api", False):
-		frappe.throw(_("Create procurement documents from the Controlled Procurement workspace."), frappe.PermissionError)
+	from_workspace = getattr(doc.flags, "controlled_procurement_api", False)
+	if doc.is_new() and not from_workspace:
+		if _workspace_only() and not _roles().intersection(ADMIN_ROLES):
+			frappe.throw(_("Create procurement documents from the Controlled Procurement workspace."), frappe.PermissionError)
+		# Desk duplicates and mapped documents (e.g. a receipt made from a controlled PO) copy the
+		# flag; a document created in Desk is a normal one, not a catalog-controlled one
+		doc.controlled_procurement = 0
 	if not cint(doc.get("controlled_procurement")):
 		return
 	if not getattr(doc.flags, "controlled_procurement_api", False) and not _roles().intersection(ADMIN_ROLES):
