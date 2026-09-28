@@ -614,6 +614,8 @@ def create_material_transfer(data: str | dict) -> dict:
 	doc = frappe.new_doc("Stock Entry")
 	doc.update({
 		"company": data.get("company"), "purpose": "Material Transfer", "project": data.get("project"),
+		# mandatory in this ERPNext version; the standard type for the Material Transfer purpose
+		"stock_entry_type": frappe.db.get_value("Stock Entry Type", {"purpose": "Material Transfer"}, "name", order_by="is_standard desc") or "Material Transfer",
 		"bill_no": defaults["bill_no"], "boq_item": defaults["boq_item"],
 		"posting_date": data.get("posting_date"), "controlled_procurement": 1,
 	})
