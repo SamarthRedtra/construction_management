@@ -3,6 +3,7 @@ import { nextTick, onMounted, reactive, ref } from "vue"
 import { call, printUrl } from "@/api"
 import { toast, toastError } from "@/toast"
 import Modal from "@/components/Modal.vue"
+import { doctypeLabel } from "@/utils"
 
 const props = defineProps({ doctype: { type: String, required: true }, docname: { type: String, required: true } })
 const emit = defineEmits(["close", "sent"])
@@ -73,7 +74,7 @@ async function send() {
 </script>
 
 <template>
-	<Modal :title="`Email ${doctype}`" wide @close="emit('close')">
+	<Modal :title="`Email ${doctypeLabel(doctype)}`" wide @close="emit('close')">
 		<div v-if="loading" class="cp-muted">Preparing email…</div>
 		<form v-else id="cp-email-form" class="cp-stack" @submit.prevent="send">
 			<label class="cp-field">

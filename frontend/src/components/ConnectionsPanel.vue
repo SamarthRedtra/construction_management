@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue"
 import { call } from "@/api"
-import { docStatusLabel, formatCurrency, formatDate } from "@/utils"
+import { docStatusLabel, doctypeLabel, formatCurrency, formatDate } from "@/utils"
 import StatusPill from "@/components/StatusPill.vue"
 
 // Desk's "Connections" tab: linked doctypes grouped as ERPNext's dashboard config groups them.
@@ -54,7 +54,7 @@ onMounted(load)
 				<div v-for="item in group.items" :key="item.doctype" class="cp-connection">
 					<button type="button" class="cp-connection-head" :aria-expanded="!collapsed[item.doctype]" @click="toggle(item.doctype)">
 						<svg viewBox="0 0 24 24" :class="{ open: !collapsed[item.doctype] }"><path d="m9 6 6 6-6 6" /></svg>
-						<span>{{ item.doctype }}</span>
+						<span>{{ doctypeLabel(item.doctype) }}</span>
 						<em>{{ item.count }}</em>
 					</button>
 					<ul v-if="!collapsed[item.doctype]">

@@ -4,7 +4,8 @@ import { onMounted, ref, watch } from "vue"
 import { call } from "@/api"
 import LinkSelect from "@/components/LinkSelect.vue"
 
-const props = defineProps({ modelValue: { type: Object, required: true } })
+// boqOptional: Bill No / BOQ Item may be left blank (receiving POs raised in Desk)
+const props = defineProps({ modelValue: { type: Object, required: true }, boqOptional: { type: Boolean, default: false } })
 const emit = defineEmits(["update:modelValue"])
 const bills = ref([])
 const items = ref([])
@@ -39,15 +40,15 @@ onMounted(loadOptions)
 	<div class="cp-grid-3">
 		<LinkSelect :model-value="modelValue.project" doctype="Project" label="Project" :required="true" @update:model-value="update('project', $event)" :filters="companyFilters()" />
 		<label class="cp-field">
-			<span>Bill No<i>*</i></span>
-			<select class="cp-input" :value="modelValue.bill_no" :disabled="!modelValue.project" required @change="update('bill_no', $event.target.value)">
+			<span>Bill No<i v-if="!boqOptional">*</i></span>
+			<select class="cp-input" :value="modelValue.bill_no" :disabled="!modelValue.project" :required="!boqOptional" @change="update('bill_no', $event.target.value)">
 				<option value="">{{ modelValue.project ? "Select Bill No" : "Select a project first" }}</option>
 				<option v-for="bill in bills" :key="bill.name" :value="bill.name">{{ bill.bill_no || bill.name }}</option>
 			</select>
 		</label>
 		<label class="cp-field">
-			<span>BOQ Item<i>*</i></span>
-			<select class="cp-input" :value="modelValue.boq_item" :disabled="!modelValue.bill_no" required @change="update('boq_item', $event.target.value)">
+			<span>BOQ Item<i v-if="!boqOptional">*</i></span>
+			<select class="cp-input" :value="modelValue.boq_item" :disabled="!modelValue.bill_no" :required="!boqOptional" @change="update('boq_item', $event.target.value)">
 				<option value="">{{ modelValue.bill_no ? "Select BOQ Item" : "Select a bill first" }}</option>
 				<option v-for="item in items" :key="item.name" :value="item.name">{{ item.description || item.name }}</option>
 			</select>

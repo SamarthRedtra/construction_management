@@ -34,7 +34,7 @@ const isDraft = computed(() => doc.value?.docstatus === 0)
 const isControlled = computed(() => props.kind === "invoices" || Boolean(doc.value?.controlled_procurement))
 const deskUrl = computed(() => `/app/${config.value.doctype.toLowerCase().replace(/ /g, "-")}/${encodeURIComponent(props.docname)}`)
 const canSubmit = computed(() => isDraft.value && (props.kind === "transfers" ? ctx.value.can_transfer : ctx.value.can_purchase))
-const canReceive = computed(() => isControlled.value && props.kind === "orders" && doc.value?.docstatus === 1 && (doc.value.per_received || 0) < 100 && !["Closed", "On Hold"].includes(doc.value.status))
+const canReceive = computed(() => props.kind === "orders" && doc.value?.docstatus === 1 && (doc.value.per_received || 0) < 100 && !["Closed", "On Hold"].includes(doc.value.status))
 const canUpdateItems = computed(() => props.kind === "orders" && doc.value?.docstatus === 1 && ctx.value.can_purchase && !["Closed", "Completed", "Delivered"].includes(doc.value.status))
 const canInvoice = computed(() => ["orders", "receipts"].includes(props.kind) && doc.value?.docstatus === 1 && ctx.value.can_purchase
 	&& (doc.value.per_billed || 0) < 100 && !doc.value.is_return && !["Closed", "On Hold"].includes(doc.value.status))
@@ -171,7 +171,7 @@ onMounted(load)
 				<button v-if="canEmail" class="cp-btn" @click="emailOpen = true">
 					<svg viewBox="0 0 24 24"><path d="M4 6h16v12H4zM4 7l8 6 8-6" /></svg>Email
 				</button>
-				<RouterLink v-if="canReceive" :to="{ path: '/receipts/new', query: { po: doc.name } }" class="cp-btn brand">+ Create receipt</RouterLink>
+				<RouterLink v-if="canReceive" :to="{ path: '/receipts/new', query: { po: doc.name } }" class="cp-btn brand">+ Receive goods</RouterLink>
 				<RouterLink v-if="canInvoice" :to="{ path: '/invoices/new', query: kind === 'orders' ? { po: doc.name } : { pr: doc.name } }" class="cp-btn">+ Create invoice</RouterLink>
 				<button v-if="canUpdateItems" class="cp-btn" @click="updateOpen = true">Update items</button>
 				<button v-if="canPay" class="cp-btn brand" @click="paymentOpen = true">Record payment</button>
@@ -180,7 +180,7 @@ onMounted(load)
 			</template>
 		</PageHeader>
 
-		<div v-if="!isControlled" class="cp-banner">Raised outside Controlled Procurement — view, print, email, comment and submit here; edit the draft in Desk.</div>
+		<div v-if="!isControlled" class="cp-banner">Raised outside Controlled Procurement — view, print, email, comment, submit and receive here; edit the draft in Desk.</div>
 		<div v-else-if="isDraft" class="cp-banner">Draft — not posted yet. Submit it to {{ kind === "orders" ? "send the order to the supplier" : kind === "invoices" ? "book the payable" : "post it to stock" }}.</div>
 
 		<div class="cp-stats">

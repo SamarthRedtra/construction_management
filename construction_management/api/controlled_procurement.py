@@ -457,11 +457,11 @@ def get_boq_options(project: str, bill_no: str = "") -> dict:
 
 @frappe.whitelist(methods=["GET"])
 def get_purchase_order_items(purchase_order: str) -> list[dict]:
-	"""Return the still-receivable lines from a submitted controlled PO."""
+	"""Return the still-receivable lines of a submitted PO (app-created or raised in Desk)."""
 	_require(PURCHASE_ROLES)
-	po = frappe.get_doc("Purchase Order", purchase_order)
-	if po.docstatus != 1 or not cint(po.controlled_procurement):
-		frappe.throw(_("Select a submitted controlled Purchase Order."))
+	po = _controlled_doc("Purchase Order", purchase_order)
+	if po.docstatus != 1:
+		frappe.throw(_("Select a submitted Purchase Order."))
 	return [
 		{
 			"purchase_order_item": row.name,
@@ -475,6 +475,10 @@ def get_purchase_order_items(purchase_order: str) -> list[dict]:
 			"controlled_item_type": row.controlled_item_type,
 			"vat": _vat_choice(row.item_tax_template, po.company),
 			"po_taxes_and_charges": po.taxes_and_charges or "",
+			"uom": row.uom,
+			"warehouse": row.warehouse,
+			# app-created POs need catalog items + BOQ allocation; Desk POs are received as they are
+			"controlled": cint(po.controlled_procurement),
 		}
 		for row in po.items
 		if flt(row.qty) > flt(row.received_qty)
@@ -558,9 +562,11 @@ def create_purchase_receipt(data: str | dict) -> dict:
 	_require(PURCHASE_ROLES)
 	data = _as_dict(data)
 	po_name = data.get("purchase_order")
-	po = frappe.get_doc("Purchase Order", po_name)
-	if not cint(po.controlled_procurement) or po.docstatus != 1:
-		frappe.throw(_("Select a submitted controlled Purchase Order."))
+	po = _controlled_doc("Purchase Order", po_name)
+	if po.docstatus != 1:
+		frappe.throw(_("Select a submitted Purchase Order."))
+	if not cint(po.controlled_procurement):
+		return _receive_desk_purchase_order(po, data)
 	items = data.get("items") or []
 	_validate_line_data(items)
 	po_rows = {row.name: row for row in po.items}
@@ -598,6 +604,65 @@ def create_purchase_receipt(data: str | dict) -> dict:
 	_apply_taxes(doc, taxes_and_charges, [
 		data_row.get("vat") or _vat_choice(po_rows[data_row.get("purchase_order_item")].item_tax_template, po.company)
 		for data_row in items
+	])
+	doc.flags.controlled_procurement_api = True
+	doc.insert()
+	return {"doctype": doc.doctype, "name": doc.name}
+
+
+def _receive_desk_purchase_order(po, data: dict) -> dict:
+	"""Receive note for a PO raised in Desk, built with ERPNext's own PO → receipt mapping.
+
+	Items and UOMs come from the PO as they are; Project / Bill / BOQ are optional here.
+	"""
+	from erpnext.buying.doctype.purchase_order.mapper import make_purchase_receipt
+
+	lines = {row.get("purchase_order_item"): row for row in data.get("items") or [] if flt(row.get("qty")) > 0}
+	if not lines:
+		frappe.throw(_("Enter a receive qty on at least one line."))
+	doc = make_purchase_receipt(po.name)
+	header = {field: data.get(field) or po.get(field) for field in ("project", "bill_no", "boq_item")}
+	if all(header.values()):
+		_validate_allocation(header)
+	_validate_company_links(po.company, project=header["project"])
+	kept = []
+	for row in doc.items:
+		line = lines.pop(row.purchase_order_item, None)
+		if not line:
+			continue
+		pending = flt(row.qty)
+		if flt(line.get("qty")) > pending + 0.0001:
+			frappe.throw(_("{0}: only {1} {2} is left to receive.").format(row.item_name or row.item_code, pending, row.uom))
+		row.qty = flt(line.get("qty"))
+		row.received_qty = row.qty
+		row.warehouse = line.get("warehouse") or row.warehouse
+		_validate_company_links(po.company, warehouse=row.warehouse)
+		allocation = {field: (line if line.get("use_override") else header).get(field) for field in ("project", "bill_no", "boq_item")}
+		if line.get("use_override") and all(allocation.values()):
+			_validate_allocation(allocation)
+		for field, value in allocation.items():
+			if value and row.meta.has_field(field):
+				row.set(field, value)
+		# receipts post to a project (site rule, enforced again on submit); a site warehouse decides it
+		row.project = get_warehouse_project(row.warehouse) or row.project
+		if not row.project:
+			frappe.throw(_("{0}: select a Project for this receive note (warehouse {1} is not linked to one).").format(
+				row.item_name or row.item_code, row.warehouse))
+		row.idx = len(kept) + 1
+		kept.append(row)
+	if lines:
+		frappe.throw(_("Receive note lines must come from Purchase Order {0}.").format(po.name))
+	doc.set("items", kept)
+	doc.update({
+		"project": header["project"], "bill_no": header["bill_no"], "boq_item": header["boq_item"],
+		"posting_date": data.get("received_on") or doc.posting_date, "set_posting_time": 1 if data.get("received_on") else 0,
+		"custom_purchase_order": po.name if doc.meta.has_field("custom_purchase_order") else None,
+		"controlled_procurement": 0,
+	})
+	taxes_and_charges = data.get("taxes_and_charges") if "taxes_and_charges" in data else po.taxes_and_charges
+	vat_by_line = {line.get("purchase_order_item"): line.get("vat") for line in data.get("items") or []}
+	_apply_taxes(doc, taxes_and_charges, [
+		vat_by_line.get(row.purchase_order_item) or _vat_choice(row.item_tax_template, po.company) for row in kept
 	])
 	doc.flags.controlled_procurement_api = True
 	doc.insert()

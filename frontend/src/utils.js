@@ -56,6 +56,13 @@ export function docStatusLabel(doc) {
 	return doc.status || "Submitted"
 }
 
+// UI names for doctypes that are called something else on screen (data and API keep the doctype name)
+export const DOCTYPE_LABELS = { "Purchase Receipt": "Receive Note" }
+
+export function doctypeLabel(doctype) {
+	return DOCTYPE_LABELS[doctype] || doctype
+}
+
 export const VAT_LABELS = { standard: "5%", zero: "Zero", exempt: "Exempt" }
 
 export function isOverdue(row) {
@@ -64,7 +71,7 @@ export function isOverdue(row) {
 
 export const DOCTYPES = {
 	orders: { doctype: "Purchase Order", title: "Purchase Orders", single: "Purchase Order", path: "/purchase-orders" },
-	receipts: { doctype: "Purchase Receipt", title: "Purchase Receipts", single: "Purchase Receipt", path: "/receipts" },
+	receipts: { doctype: "Purchase Receipt", title: "Receive Notes", single: "Receive Note", path: "/receipts" },
 	invoices: { doctype: "Purchase Invoice", title: "Purchase Invoices", single: "Purchase Invoice", path: "/invoices" },
 	transfers: { doctype: "Stock Entry", title: "Material Transfers", single: "Material Transfer", path: "/transfers" },
 }

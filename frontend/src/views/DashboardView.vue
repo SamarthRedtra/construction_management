@@ -34,7 +34,7 @@ onMounted(async () => {
 	<PageHeader title="Procurement Overview" subtitle="Controlled Nos catalog, project BOQ allocation and standard ERPNext posting." :breadcrumbs="[{ label: 'Procurement' }, { label: 'Overview' }]">
 		<template #actions>
 			<RouterLink v-if="ctx.can_transfer" to="/transfers/new" class="cp-btn">New transfer</RouterLink>
-			<RouterLink v-if="ctx.can_purchase" to="/receipts/new" class="cp-btn">New receipt</RouterLink>
+			<RouterLink v-if="ctx.can_purchase" to="/receipts/new" class="cp-btn">New receive note</RouterLink>
 			<RouterLink v-if="ctx.can_purchase" to="/purchase-orders/new" class="cp-btn primary">New purchase order</RouterLink>
 		</template>
 	</PageHeader>

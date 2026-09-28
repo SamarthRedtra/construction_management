@@ -53,7 +53,7 @@ async function save() {
 	<Modal :title="`Update items — ${doc.name}`" size="xl" @close="emit('close')">
 		<p class="cp-hint" style="margin: 0 0 12px">
 			Change quantities or rates, add lines, or remove lines that have not been received. A line cannot go below what has already been received.
-			<template v-if="doc.custom_is_provisional_po"> This is an <strong>Open PO</strong>: receipts larger than the ordered qty also raise it automatically.</template>
+			<template v-if="doc.custom_is_provisional_po"> This is an <strong>Open PO</strong>: receive notes larger than the ordered qty also raise it automatically.</template>
 		</p>
 		<form id="cp-update-items" @submit.prevent="save">
 			<div class="cp-card" style="margin: 0">

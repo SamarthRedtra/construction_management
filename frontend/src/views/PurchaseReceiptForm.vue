@@ -18,6 +18,8 @@ const openOrders = ref([])
 const loadingLines = ref(false)
 const saving = ref(false)
 
+// app-created POs need catalog items and a full BOQ allocation; Desk POs only need a project
+const isControlledOrder = computed(() => form.items.length ? Boolean(form.items[0].controlled) : true)
 const selectedOrder = computed(() => openOrders.value.find((row) => row.name === form.purchase_order))
 const total = computed(() => form.items.reduce((sum, row) => sum + (Number(row.qty) || 0) * (Number(row.rate) || 0), 0))
 // no company default here: the tax template follows the chosen purchase order
@@ -29,7 +31,9 @@ async function loadLines() {
 	loadingLines.value = true
 	try {
 		const rows = await call("get_purchase_order_items", { purchase_order: form.purchase_order })
-		form.items = rows.map((row) => ({ ...row, qty: row.remaining_qty, warehouse: "", use_override: false }))
+		form.items = rows.map((row) => ({ ...row, qty: row.remaining_qty, po_warehouse: row.warehouse, warehouse: "", use_override: false }))
+		// Desk POs already say where each line goes; start the receive note there
+		if (!form.warehouse && rows[0]?.warehouse) form.warehouse = rows[0].warehouse
 		// start from the PO's allocation; the receiver can change it below
 		const first = rows.find((row) => row.project) || {}
 		Object.assign(form, { project: first.project || "", bill_no: first.bill_no || "", boq_item: first.boq_item || "" })
@@ -54,7 +58,7 @@ async function save() {
 				...(row.use_override ? {} : { project: "", bill_no: "", boq_item: "" }),
 			}))
 		const result = await call("create_purchase_receipt", { data: { ...form, items } })
-		toast(`Purchase receipt ${result.name} created as draft`)
+		toast(`Receive note ${result.name} created as draft`)
 		router.push(`/receipts/${result.name}`)
 	} catch (error) {
 		toastError(error)
@@ -91,7 +95,7 @@ async function setLineWarehouse(row, warehouse) {
 }
 
 onMounted(async () => {
-	const result = await call("get_open_lpos", { page_length: 200, controlled_only: 1 })
+	const result = await call("get_open_lpos", { page_length: 200 })
 	openOrders.value = result.rows
 	if (route.query.po) form.purchase_order = String(route.query.po)
 })
@@ -99,15 +103,15 @@ onMounted(async () => {
 
 <template>
 	<form @submit.prevent="save">
-		<PageHeader title="New Purchase Receipt" :breadcrumbs="[{ label: 'Procurement', to: '/dashboard' }, { label: 'Purchase Receipts', to: '/receipts' }, { label: 'New' }]">
+		<PageHeader title="New Receive Note" :breadcrumbs="[{ label: 'Procurement', to: '/dashboard' }, { label: 'Receive Notes', to: '/receipts' }, { label: 'New' }]">
 			<template #actions>
 				<RouterLink to="/receipts" class="cp-btn">Cancel</RouterLink>
-				<button type="submit" class="cp-btn primary" :disabled="saving || !form.items.length">{{ saving ? "Saving…" : "Confirm receipt" }}</button>
+				<button type="submit" class="cp-btn primary" :disabled="saving || !form.items.length">{{ saving ? "Saving…" : "Save receive note" }}</button>
 			</template>
 		</PageHeader>
 
 		<section class="cp-section">
-			<h2 class="cp-section-title">Receipt</h2>
+			<h2 class="cp-section-title">Receive note</h2>
 			<div class="cp-grid-3">
 				<label class="cp-field">
 					<span>Purchase order<i>*</i></span>
@@ -129,9 +133,10 @@ onMounted(async () => {
 
 		<section v-if="form.purchase_order && !loadingLines" class="cp-section">
 			<h2 class="cp-section-title">Allocation</h2>
-			<AllocationFields :key="form.purchase_order" :model-value="{ project: form.project, bill_no: form.bill_no, boq_item: form.boq_item }" @update:model-value="Object.assign(form, $event)" />
+			<AllocationFields :key="form.purchase_order" :boq-optional="!isControlledOrder" :model-value="{ project: form.project, bill_no: form.bill_no, boq_item: form.boq_item }" @update:model-value="Object.assign(form, $event)" />
 			<p v-if="warehouseNote" class="cp-hint cp-warn">{{ warehouseNote }}</p>
-			<p class="cp-hint">Pre-filled from the purchase order. Change it to book this receipt against a different project / bill / BOQ item. The project must match the receiving warehouse's project.</p>
+			<p class="cp-hint">Pre-filled from the purchase order. Change it to book this receive note against a different project / bill / BOQ item. The project must match the receiving warehouse's project.</p>
+			<p v-if="!isControlledOrder" class="cp-hint">This PO was raised in Desk: a Project is required, Bill No and BOQ Item are optional.</p>
 		</section>
 
 		<section v-if="form.purchase_order" class="cp-section">
@@ -145,17 +150,17 @@ onMounted(async () => {
 							<td><strong>{{ row.item_name || row.item_code }}</strong><small>{{ [row.item_code, row.controlled_item_type].filter(Boolean).join(" · ") }}</small></td>
 							<td>
 								<template v-if="row.use_override">{{ row.project || "—" }}<small>{{ [row.bill_no, row.boq_item].filter(Boolean).join(" · ") }}</small></template>
-								<span v-else class="cp-muted">As receipt</span>
-								<button type="button" class="cp-link sm cp-line-action" @click="row.use_override = !row.use_override">{{ row.use_override ? "Use receipt allocation" : "Change for this line" }}</button>
+								<span v-else class="cp-muted">As receive note</span>
+								<button type="button" class="cp-link sm cp-line-action" @click="row.use_override = !row.use_override">{{ row.use_override ? "Use receive note allocation" : "Change for this line" }}</button>
 							</td>
-							<td class="num">{{ formatNumber(row.remaining_qty) }}</td>
+							<td class="num">{{ formatNumber(row.remaining_qty) }} <span class="cp-muted">{{ row.uom }}</span></td>
 							<td><input v-model.number="row.qty" class="cp-input num" type="number" min="0" step="any" :max="row.remaining_qty" /></td>
-							<td><LinkSelect :model-value="row.warehouse" doctype="Warehouse" @update:model-value="setLineWarehouse(row, $event)" :placeholder="form.warehouse || 'Same as receipt'" :filters="companyFilters({ is_group: 0 })" /></td>
+							<td><LinkSelect :model-value="row.warehouse" doctype="Warehouse" @update:model-value="setLineWarehouse(row, $event)" :placeholder="form.warehouse || 'Same as receive note'" :filters="companyFilters({ is_group: 0 })" /></td>
 							<td><VatSelect v-model="row.vat" /><small class="cp-line-vat">{{ formatCurrency(lineTax(index)) }}</small></td>
 							<td class="num">{{ formatCurrency((row.qty || 0) * (row.rate || 0)) }}</td>
 						</tr>
 						<tr v-if="row.use_override" class="cp-subrow">
-							<td colspan="7"><AllocationFields :model-value="row" @update:model-value="Object.assign(row, $event)" /></td>
+							<td colspan="7"><AllocationFields :model-value="row" :boq-optional="!isControlledOrder" @update:model-value="Object.assign(row, $event)" /></td>
 						</tr>
 						</template>
 						<tr v-if="loadingLines"><td colspan="7" class="cp-empty-row">Loading remaining quantities…</td></tr>

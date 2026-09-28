@@ -77,8 +77,7 @@ onMounted(load)
 					<td class="num">
 						<span class="cp-row-actions">
 						<button class="cp-icon-button sm" title="Print / PDF" aria-label="Print" @click.stop="printing = row.name"><svg viewBox="0 0 24 24"><path d="M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z" /></svg></button>
-						<RouterLink v-if="row.controlled_procurement" :to="{ path: '/receipts/new', query: { po: row.name } }" class="cp-btn sm" @click.stop>Receive</RouterLink>
-						<a v-else :href="`/app/purchase-order/${encodeURIComponent(row.name)}`" target="_blank" class="cp-btn sm" title="Receive in Desk" @click.stop>Desk ↗</a>
+						<RouterLink :to="{ path: '/receipts/new', query: { po: row.name } }" class="cp-btn sm" @click.stop>Receive</RouterLink>
 						</span>
 					</td>
 				</tr>

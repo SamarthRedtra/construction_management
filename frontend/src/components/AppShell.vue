@@ -20,7 +20,7 @@ const nav = computed(() => {
 		{ to: "/dashboard", label: "Overview", icon: "grid", visible: true },
 		{ to: "/open-lpos", label: "Open LPOs", icon: "clock", visible: ctx.can_purchase, count: counts.open_lpos },
 		{ to: "/purchase-orders", label: "Purchase Orders", icon: "cart", visible: ctx.can_purchase },
-		{ to: "/receipts", label: "Purchase Receipts", icon: "inbox", visible: ctx.can_purchase },
+		{ to: "/receipts", label: "Receive Notes", icon: "inbox", visible: ctx.can_purchase },
 		{ to: "/invoices", label: "Purchase Invoices", icon: "invoice", visible: ctx.can_purchase, count: counts.unpaid_invoices },
 		{ to: "/transfers", label: "Material Transfers", icon: "swap", visible: ctx.can_transfer },
 		{ to: "/catalog", label: "Controlled Catalog", icon: "book", visible: true },

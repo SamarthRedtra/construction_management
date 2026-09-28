@@ -115,8 +115,8 @@ onMounted(async () => {
 				<label class="cp-field">
 					<span>Invoice against<i>*</i></span>
 					<select v-model="form.source" class="cp-input" required>
-						<option value="">— Select a PO or receipt to bill —</option>
-						<optgroup label="Purchase receipts">
+						<option value="">— Select a PO or receive note to bill —</option>
+						<optgroup label="Receive notes">
 							<option v-for="row in sources.filter((row) => row.doctype === 'Purchase Receipt')" :key="row.name" :value="`${row.doctype}::${row.name}`">
 								{{ row.name }} · {{ row.supplier_name }} · {{ Math.round(row.per_billed || 0) }}% billed
 							</option>
@@ -128,9 +128,9 @@ onMounted(async () => {
 						</optgroup>
 					</select>
 					<small v-if="selectedSource" class="cp-hint">{{ [selectedSource.project, selectedSource.date && formatDate(selectedSource.date), formatCurrency(selectedSource.grand_total)].filter(Boolean).join(" · ") }}</small>
-					<small v-else class="cp-hint">Stock items are normally billed from their receipt; services can be billed from the order.</small>
+					<small v-else class="cp-hint">Stock items are normally billed from their receive note; services can be billed from the order.</small>
 				</label>
-				<label class="cp-field"><span>Supplier</span><input :value="form.supplier_name || form.supplier" class="cp-input" disabled placeholder="From the PO / receipt" /></label>
+				<label class="cp-field"><span>Supplier</span><input :value="form.supplier_name || form.supplier" class="cp-input" disabled placeholder="From the PO / receive note" /></label>
 				<label class="cp-field"><span>Supplier invoice no<i>*</i></span><input v-model="form.supplier_invoice_no" class="cp-input" required placeholder="As printed on their invoice" /></label>
 			</div>
 			<div class="cp-grid-3">
