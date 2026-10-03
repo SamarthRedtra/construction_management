@@ -4155,6 +4155,7 @@ def make_combined_sales_invoice_from_sales_orders(project: str, sales_orders) ->
 
 	sales_order_names = _parse_name_list(sales_orders)
 	so_docs = _validate_combined_sales_orders(project, sales_order_names)
+	_validate_combined_sales_order_months(so_docs)
 
 	revenue_lines = []
 	for so_doc in so_docs:
@@ -4218,3 +4219,10 @@ def make_combined_sales_invoice_from_sales_orders(project: str, sales_orders) ->
 	invoice.insert()
 
 	return {"sales_invoice": invoice.name, "sales_orders": sales_order_names}
+
+
+def _validate_combined_sales_order_months(sales_orders) -> None:
+	"""Reject combined invoices whose source Sales Orders span multiple months."""
+	from construction_management.project_document_naming import get_linked_sales_order_period
+
+	get_linked_sales_order_period([sales_order.name for sales_order in sales_orders])

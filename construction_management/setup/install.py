@@ -171,7 +171,7 @@ def create_controlled_procurement_fields():
 		},
 		{
 			"dt": "Item", "fieldname": "controlled_catalog_source", "label": "Controlled Catalog Source",
-			"fieldtype": "Select", "options": "\nWorkbook Import\nCEO Manual",
+			"fieldtype": "Select", "options": "\nWorkbook Import\nCEO Manual\nManual Request",
 			"insert_after": "controlled_imported_on", "read_only": 1,
 		},
 		{
@@ -213,6 +213,30 @@ def create_controlled_procurement_fields():
 	])
 	for field_def in fields_to_create:
 		create_custom_field_if_not_exists(field_def)
+	create_lpo_fields()
+	_upsert_property_setter("Purchase Receipt", "supplier_delivery_note", "reqd", "1")
+	_catalog_source_options = "\nWorkbook Import\nCEO Manual\nManual Request"
+	_catalog_source = frappe.db.get_value("Custom Field", {"dt": "Item", "fieldname": "controlled_catalog_source"}, "name")
+	if _catalog_source:
+		frappe.db.set_value("Custom Field", _catalog_source, "options", _catalog_source_options, update_modified=False)
+
+
+def create_lpo_fields():
+	"""Fields owned by the controlled LPO workflow."""
+	for field in (
+		{"fieldname": "custom_lpo_type", "label": "LPO Type", "fieldtype": "Select", "options": "Standard\nOpen\nManual", "default": "Standard", "in_standard_filter": 1},
+		{"fieldname": "custom_creation_request_id", "label": "Creation Request ID", "fieldtype": "Data", "unique": 1, "hidden": 1, "read_only": 1, "no_copy": 1},
+		{"fieldname": "custom_lpo_reference", "label": "External LPO Reference", "fieldtype": "Data", "in_standard_filter": 1},
+		{"fieldname": "custom_lpo_approval_status", "label": "LPO Approval Status", "fieldtype": "Select", "options": "\nDraft\nPending Accounts\nPending CEO\nNeeds Correction\nApproved", "read_only": 1, "in_standard_filter": 1},
+		{"fieldname": "custom_lpo_approval_history", "label": "LPO Approval History", "fieldtype": "Long Text", "read_only": 1, "hidden": 1},
+		{"fieldname": "custom_po_price_status", "label": "PO Price Approval", "fieldtype": "Select", "options": "\nPending Accounts\nPending CEO\nApproved\nRejected\nNeeds Correction", "read_only": 1, "in_standard_filter": 1},
+		{"fieldname": "custom_po_price_proposal", "label": "PO Price Proposal", "fieldtype": "Long Text", "read_only": 1, "hidden": 1},
+		{"fieldname": "custom_po_price_history", "label": "PO Price Decision History", "fieldtype": "Long Text", "read_only": 1, "hidden": 1},
+		{"fieldname": "custom_po_price_notification", "label": "PO Price Raven Status", "fieldtype": "Data", "read_only": 1},
+		{"fieldname": "custom_po_price_notification_error", "label": "PO Price Raven Error", "fieldtype": "Small Text", "read_only": 1},
+		{"fieldname": "custom_po_price_notified_users", "label": "PO Price Notified Users", "fieldtype": "Long Text", "read_only": 1, "hidden": 1},
+	):
+		create_custom_field_if_not_exists({"dt": "Purchase Order", "insert_after": "controlled_procurement", **field})
 
 
 def create_controlled_procurement_permissions():

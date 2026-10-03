@@ -1,0 +1,35 @@
+{
+ "actions": [],
+ "autoname": "format:CCR-{#####}",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["company", "status", "source", "requested_by", "source_file", "checksum", "rejection_reason", "price_notification_status", "price_notification_error", "price_notified_users", "items", "approval_log"],
+ "fields": [
+  {"fieldname":"company","fieldtype":"Link","label":"Company","options":"Company","reqd":1,"in_list_view":1},
+  {"fieldname":"status","fieldtype":"Select","label":"Status","options":"Pending Accounts\nPending CEO\nApproved\nNeeds Correction","default":"Pending Accounts","reqd":1,"in_list_view":1,"read_only":1},
+  {"fieldname":"source","fieldtype":"Select","label":"Source","options":"Manual\nWorkbook Import","reqd":1,"read_only":1},
+  {"fieldname":"requested_by","fieldtype":"Link","label":"Requested By","options":"User","read_only":1},
+  {"fieldname":"source_file","fieldtype":"Attach","label":"Source Workbook","read_only":1},
+  {"fieldname":"checksum","fieldtype":"Data","label":"Workbook Checksum","read_only":1},
+  {"fieldname":"rejection_reason","fieldtype":"Small Text","label":"Rejection Reason","read_only":1},
+  {"fieldname":"price_notification_status","fieldtype":"Select","label":"Price Approval Raven Notice","options":"\nDelivered\nFailed","read_only":1},
+  {"fieldname":"price_notification_error","fieldtype":"Small Text","label":"Price Notification Error","read_only":1},
+  {"fieldname":"price_notified_users","fieldtype":"Long Text","label":"Price Notified Users (JSON)","hidden":1,"read_only":1},
+  {"fieldname":"items","fieldtype":"Table","label":"Items","options":"Controlled Catalog Request Item","reqd":1},
+  {"fieldname":"approval_log","fieldtype":"Table","label":"Approval Log","options":"Controlled Catalog Approval Log","read_only":1}
+ ],
+ "links": [],
+ "module": "Construction Management",
+ "name": "Controlled Catalog Request",
+ "permissions": [
+  {"role":"Purchase User","read":1,"write":1,"create":1},
+  {"role":"Purchase Manager","read":1,"write":1,"create":1},
+  {"role":"Accounts User","read":1,"write":1,"create":1},
+  {"role":"Accounts Manager","read":1,"write":1,"create":1},
+  {"role":"CEO","read":1,"write":1,"create":1},
+  {"role":"System Manager","read":1,"write":1,"create":1,"delete":1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

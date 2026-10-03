@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue"
 import { call } from "@/api"
+import { toastError } from "@/toast"
 import { debounce, formatCurrency, formatDate, formatNumber, companyFilters } from "@/utils"
 import LinkSelect from "@/components/LinkSelect.vue"
 import PageHeader from "@/components/PageHeader.vue"
@@ -13,35 +14,42 @@ const filters = ref({ search: "", supplier: "", project: "" })
 const overdueOnly = ref(false)
 const loading = ref(true)
 const printing = ref("")
+const totalCount = ref(0)
+let requestId = 0
 
 const visibleRows = computed(() => (overdueOnly.value ? rows.value.filter((row) => row.is_overdue) : rows.value))
 
-async function load() {
+async function load(more = false) {
+	const currentRequest = ++requestId
 	loading.value = true
 	try {
-		const result = await call("get_open_lpos", { ...filters.value, page_length: 200, open_po_only: 1 })
-		rows.value = result.rows
+		const result = await call("get_open_lpos", { ...filters.value, start: more ? rows.value.length : 0, page_length: 50, open_po_only: 1 })
+		if (currentRequest !== requestId) return
+		rows.value = more ? [...rows.value, ...result.rows] : result.rows
 		summary.value = result.summary
+		totalCount.value = result.total_count
+	} catch (error) {
+		if (currentRequest === requestId) toastError(error)
 	} finally {
-		loading.value = false
+		if (currentRequest === requestId) loading.value = false
 	}
 }
 
-watch(() => filters.value.search, debounce(load, 300))
-watch(() => [filters.value.supplier, filters.value.project], load)
-onMounted(load)
+watch(() => filters.value.search, debounce(() => load(), 300))
+watch(() => [filters.value.supplier, filters.value.project], () => load())
+onMounted(() => load())
 </script>
 
 <template>
-	<PageHeader title="Open LPOs" subtitle="Purchase orders ticked &quot;Provisional / Open PO&quot; that are still waiting for delivery." :breadcrumbs="[{ label: 'Procurement', to: '/dashboard' }, { label: 'Open LPOs' }]">
+	<PageHeader title="Open LPOs" subtitle="Open purchase orders remain available for receipts until closed." :breadcrumbs="[{ label: 'Procurement', to: '/dashboard' }, { label: 'Open LPOs' }]">
 		<template #actions>
 			<RouterLink to="/receipts/new" class="cp-btn">Receive goods</RouterLink>
-			<RouterLink to="/purchase-orders/new" class="cp-btn primary">New LPO</RouterLink>
+			<RouterLink :to="{ path: '/purchase-orders/new', query: { lpo_type: 'Open' } }" class="cp-btn primary">New LPO</RouterLink>
 		</template>
 	</PageHeader>
 
 	<div class="cp-stats">
-		<div class="cp-stat"><small>Open LPOs</small><strong>{{ summary.open_lpos }}</strong><span>Not fully received</span></div>
+		<div class="cp-stat"><small>Open LPOs</small><strong>{{ summary.open_lpos }}</strong><span>Available until closed</span></div>
 		<div class="cp-stat"><small>Pending value</small><strong>{{ formatCurrency(summary.pending_value) }}</strong><span>Still to be delivered</span></div>
 		<button class="cp-stat" :class="{ alert: summary.overdue, selected: overdueOnly }" @click="overdueOnly = !overdueOnly">
 			<small>Overdue</small><strong>{{ summary.overdue }}</strong><span>{{ overdueOnly ? "Showing overdue only" : "Past required-by date" }}</span>
@@ -61,7 +69,7 @@ onMounted(load)
 			</thead>
 			<tbody>
 				<tr v-for="row in visibleRows" :key="row.name" class="clickable" @click="$router.push(`/purchase-orders/${row.name}`)">
-					<td><strong>{{ row.name }}</strong> <StatusPill v-if="row.is_open_po" status="Open PO" /><small>{{ row.supplier_name || row.supplier }}</small></td>
+					<td><strong>{{ row.name }}</strong> <StatusPill v-if="row.is_open_po" status="Open PO" /><small>{{ row.supplier_name || row.supplier }}</small><small v-if="Number(row.pending_qty) <= 0">Fully received · still open</small></td>
 					<td>{{ row.project || "—" }}</td>
 					<td>{{ formatDate(row.transaction_date) }}<small>{{ row.age_days }} days ago</small></td>
 					<td>
@@ -85,6 +93,10 @@ onMounted(load)
 				<tr v-if="loading"><td colspan="8" class="cp-empty-row">Loading…</td></tr>
 			</tbody>
 		</table>
+		<footer v-if="rows.length" class="cp-card-foot">
+			<span>{{ rows.length }} of {{ totalCount }} Open LPOs</span>
+			<button v-if="rows.length < totalCount" type="button" class="cp-btn sm" :disabled="loading" @click="load(true)">Load more</button>
+		</footer>
 	</section>
 	<PrintDialog v-if="printing" doctype="Purchase Order" :docname="printing" @close="printing = ''" />
 </template>

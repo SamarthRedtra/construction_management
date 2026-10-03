@@ -1277,28 +1277,38 @@ window.generateBulkSalesOrder = function () {
 	}
 
 	const project = cur_frm.doc.name;
-	frappe.call({
-		method: 'construction_management.api.boq_invoice.create_sales_order_from_selected_items',
-		args: { project: project, items: JSON.stringify(items), auto_submit: 1 },
-		freeze: true,
-		freeze_message: __('Creating and Submitting Sales Order...'),
-		callback: function (r) {
-			if (r.message && r.message.status === 'success') {
-				const statusMsg = r.message.docstatus === 1
-					? __('Sales Order {0} created and submitted', [r.message.name])
-					: __('Sales Order {0} created', [r.message.name]);
-				frappe.show_alert({ message: statusMsg, indicator: 'green' });
-				// Clear selection and refresh the table
-				clearSelection();
-				if (cur_frm) {
-					cur_frm.reload_doc();
-				}
-				window.open(`/app/sales-order/${r.message.name}`, '_blank');
-			} else if (r.message && r.message.status === 'error') {
-				frappe.show_alert({ message: r.message.error_message || __('Failed to create sales order'), indicator: 'red' });
-			}
+	frappe.prompt([
+		{
+			fieldname: 'posting_date',
+			fieldtype: 'Date',
+			label: __('Sales Order Date'),
+			default: frappe.datetime.get_today(),
+			reqd: 1,
+			description: __('The PINV number will use the month of this date.')
 		}
-	});
+	], function (values) {
+		frappe.call({
+			method: 'construction_management.api.boq_invoice.create_sales_order_from_selected_items',
+			args: { project: project, items: JSON.stringify(items), posting_date: values.posting_date, auto_submit: 1 },
+			freeze: true,
+			freeze_message: __('Creating and Submitting Sales Order...'),
+			callback: function (r) {
+				if (r.message && r.message.status === 'success') {
+					const statusMsg = r.message.docstatus === 1
+						? __('Sales Order {0} created and submitted', [r.message.name])
+						: __('Sales Order {0} created', [r.message.name]);
+					frappe.show_alert({ message: statusMsg, indicator: 'green' });
+					clearSelection();
+					if (cur_frm) {
+						cur_frm.reload_doc();
+					}
+					window.open(`/app/sales-order/${r.message.name}`, '_blank');
+				} else if (r.message && r.message.status === 'error') {
+					frappe.show_alert({ message: r.message.error_message || __('Failed to create sales order'), indicator: 'red' });
+				}
+			}
+		});
+	}, __('Create Sales Order (Proforma)'), __('Create'));
 };
 
 window.createPaymentCertificate = function () {

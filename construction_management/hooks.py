@@ -165,6 +165,7 @@ permission_query_conditions = {
 }
 
 has_permission = {
+	"Controlled Buying Price Request": "construction_management.api.controlled_price_requests.price_request_permission",
 	"Project": "construction_management.permissions.project.has_project_permission",
 }
 
@@ -205,7 +206,16 @@ doc_events = {
 		"validate": [
 			"construction_management.overrides.purchase_order.validate",
 			"construction_management.api.controlled_procurement.validate_transaction",
-		]
+			"construction_management.api.lpo_workflow.validate_purchase_order",
+			"construction_management.api.po_price_approvals.validate_purchase_order",
+		],
+		"before_submit": [
+			"construction_management.api.lpo_workflow.before_submit_purchase_order",
+			"construction_management.api.po_price_approvals.before_submit_purchase_order",
+		],
+	},
+	"Purchase Order Item": {
+		"validate": "construction_management.api.po_price_approvals.validate_purchase_order_item",
 	},
 	"Purchase Receipt": {
 		"before_validate": "construction_management.overrides.purchase_receipt.before_validate",
@@ -236,7 +246,10 @@ doc_events = {
 		"validate": "construction_management.overrides.daily_roster.set_project_short_name",
 	},
 	"Sales Order": {
+		"autoname": "construction_management.overrides.sales_order.autoname",
 		"validate": "construction_management.overrides.sales_order.validate",
+		"on_update": "construction_management.overrides.sales_order.rename_draft_project_order_for_date_change",
+		"before_submit": "construction_management.overrides.sales_order.rename_draft_project_order_for_date_change",
 		"on_submit": "construction_management.overrides.sales_order.on_submit",
 		"on_cancel": "construction_management.overrides.sales_order.on_cancel",
 		"on_update_after_submit": "construction_management.overrides.sales_order.on_update_after_submit",
@@ -262,6 +275,8 @@ doc_events = {
 		"on_update": "construction_management.overrides.task.on_update"
 	},
 	"Item Price": {
+		"validate": "construction_management.api.controlled_price_requests.guard_item_price",
+		"on_trash": "construction_management.api.controlled_price_requests.guard_item_price_delete",
 		"after_insert": "construction_management.tasks.delete_special_item_price_on_insert"
 	},
 	"Stock Entry": {

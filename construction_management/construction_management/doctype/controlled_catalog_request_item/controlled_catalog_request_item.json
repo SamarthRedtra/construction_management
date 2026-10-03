@@ -1,0 +1,27 @@
+{
+ "actions": [],
+ "autoname": "autoincrement",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": ["item_code", "item_name", "item_group", "item_type", "asset_category", "expense_account", "supplier", "rate", "action", "result_item"],
+ "fields": [
+  {"fieldname":"item_code","fieldtype":"Data","label":"Item Code","in_list_view":1},
+  {"fieldname":"item_name","fieldtype":"Data","label":"Description","reqd":1,"in_list_view":1},
+  {"fieldname":"item_group","fieldtype":"Link","label":"Item Group","options":"Item Group","reqd":1,"in_list_view":1},
+  {"fieldname":"item_type","fieldtype":"Select","label":"Item Type","options":"Stockable\nAsset\nService","reqd":1,"in_list_view":1},
+  {"fieldname":"asset_category","fieldtype":"Link","label":"Asset Category","options":"Asset Category"},
+  {"fieldname":"expense_account","fieldtype":"Link","label":"Expense Account","options":"Account"},
+  {"fieldname":"supplier","fieldtype":"Link","label":"Supplier","options":"Supplier"},
+  {"fieldname":"rate","fieldtype":"Currency","label":"Buying Rate"},
+  {"fieldname":"action","fieldtype":"Select","label":"Action","options":"Create\nUpdate","read_only":1},
+  {"fieldname":"result_item","fieldtype":"Link","label":"Catalog Item","options":"Item","read_only":1}
+ ],
+ "istable": 1,
+ "links": [],
+ "module": "Construction Management",
+ "name": "Controlled Catalog Request Item",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC"
+}

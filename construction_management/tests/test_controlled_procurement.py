@@ -1,4 +1,6 @@
-from unittest.mock import patch
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests import UnitTestCase
@@ -7,6 +9,182 @@ from construction_management.api import controlled_procurement
 
 
 class TestControlledProcurement(UnitTestCase):
+	@patch("construction_management.api.controlled_procurement.frappe.get_list")
+	@patch("construction_management.api.controlled_procurement.frappe.get_all", return_value=["SUP-2", "SUP-1"])
+	@patch("construction_management.api.controlled_procurement.frappe.db.get_value", side_effect=[0, 1])
+	@patch("construction_management.api.controlled_procurement._catalog_item")
+	@patch("construction_management.api.controlled_procurement._document_company", return_value="MRG")
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_item_first_supplier_choices_are_permission_filtered(self, require, company, item, get_value, get_all, get_list):
+		get_list.return_value = [{"name": "SUP-1", "supplier_name": "Awazel"}]
+		result = controlled_procurement.get_catalog_item_suppliers("ITEM-1", "MRG")
+		self.assertEqual(result, get_list.return_value)
+		self.assertEqual(get_list.call_args.kwargs["filters"], {"name": ["in", ["SUP-1", "SUP-2"]], "disabled": 0})
+		company.assert_called_once_with("MRG")
+
+	@patch("construction_management.api.controlled_procurement.frappe.get_list")
+	@patch("construction_management.api.controlled_procurement.frappe.get_all", return_value=[])
+	@patch("construction_management.api.controlled_procurement.frappe.db.get_value", side_effect=[0, 1])
+	@patch("construction_management.api.controlled_procurement._catalog_item")
+	@patch("construction_management.api.controlled_procurement._document_company", return_value="MRG")
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_item_without_supplier_returns_no_choice(self, require, company, item, get_value, get_all, get_list):
+		self.assertEqual(controlled_procurement.get_catalog_item_suppliers("ITEM-1"), [])
+		get_list.assert_not_called()
+
+	@patch("construction_management.api.controlled_procurement.frappe.get_list")
+	@patch("construction_management.api.controlled_procurement._document_company", return_value="MRG")
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_project_choices_search_name_and_number_in_company(self, require, company, get_list):
+		get_list.return_value = [{"name": "100", "project_name": "Awazel Works"}]
+		result = controlled_procurement.get_procurement_projects(search="Awazel", company="MRG")
+		self.assertEqual(result[0]["name"], "100")
+		self.assertEqual(result[0]["project_name"], "Awazel Works")
+		self.assertEqual(get_list.call_args.kwargs["filters"], {"company": "MRG"})
+		self.assertIn(["project_name", "like", "%Awazel%"], get_list.call_args.kwargs["or_filters"])
+
+	@patch("construction_management.api.controlled_procurement.frappe.get_list")
+	@patch("construction_management.api.controlled_procurement._document_company", return_value="MRG")
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_saved_project_label_loads_exact_project(self, require, company, get_list):
+		controlled_procurement.get_procurement_projects(selected="100", company="MRG")
+		self.assertEqual(get_list.call_args.kwargs["filters"], {"company": "MRG", "name": "100"})
+		self.assertEqual(get_list.call_args.kwargs["limit_page_length"], 1)
+
+	@patch("construction_management.api.controlled_procurement.frappe.db.sql", side_effect=[[], [[0]]])
+	@patch("construction_management.api.controlled_procurement._document_company", return_value="MRG")
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_catalog_supplier_filter_applies_before_pagination(self, require, company, sql):
+		result = controlled_procurement.get_catalog(supplier="SUP-1")
+		self.assertEqual(result["total_count"], 0)
+		for query in sql.call_args_list:
+			self.assertIn("EXISTS (SELECT 1 FROM `tabItem Supplier`", query.args[0])
+			self.assertEqual(query.args[1]["supplier"], "SUP-1")
+
+	@patch("construction_management.api.controlled_procurement._item_has_supplier", return_value=True)
+	def test_new_standard_order_requires_one_supplier_linked_item(self, has_supplier):
+		with self.assertRaisesRegex(frappe.ValidationError, "exactly one item"):
+			controlled_procurement._validate_order_supplier_items(
+				{"lpo_type": "Standard", "supplier": "SUP-1"},
+				[{"item_code": "ITEM-1"}, {"item_code": "ITEM-2"}],
+			)
+		has_supplier.assert_not_called()
+
+	@patch("construction_management.api.controlled_procurement._item_has_supplier", return_value=False)
+	def test_open_order_rejects_item_from_another_supplier(self, has_supplier):
+		with self.assertRaisesRegex(frappe.ValidationError, "not linked to supplier"):
+			controlled_procurement._validate_order_supplier_items(
+				{"lpo_type": "Open", "supplier": "SUP-1"}, [{"item_code": "ITEM-1"}],
+			)
+		has_supplier.assert_called_once_with("ITEM-1", "SUP-1")
+
+	@patch("construction_management.api.controlled_procurement._item_has_supplier", return_value=True)
+	def test_supplier_link_allows_standard_order(self, has_supplier):
+		controlled_procurement._validate_order_supplier_items(
+			{"lpo_type": "Standard", "supplier": "SUP-1"}, [{"item_code": "ITEM-1"}],
+		)
+
+	@patch("construction_management.api.controlled_procurement._item_has_supplier", return_value=False)
+	def test_existing_unlinked_line_can_be_edited_without_new_lines(self, has_supplier):
+		existing = SimpleNamespace(supplier="SUP-1", items=[SimpleNamespace(item_code="ITEM-1")], get=lambda key: "Standard" if key == "custom_lpo_type" else None)
+		controlled_procurement._validate_order_supplier_items(
+			{"lpo_type": "Standard", "supplier": "SUP-1"}, [{"item_code": "ITEM-1"}], existing,
+		)
+		has_supplier.assert_not_called()
+		with self.assertRaisesRegex(frappe.ValidationError, "New item lines"):
+			controlled_procurement._validate_order_supplier_items(
+				{"lpo_type": "Standard", "supplier": "SUP-1"},
+				[{"item_code": "ITEM-1"}, {"item_code": "ITEM-2"}], existing,
+			)
+
+	@patch("construction_management.api.controlled_procurement._item_has_supplier", return_value=False)
+	def test_changing_existing_order_supplier_requires_link(self, has_supplier):
+		existing = SimpleNamespace(supplier="SUP-1", items=[SimpleNamespace(item_code="ITEM-1")], get=lambda key: "Open" if key == "custom_lpo_type" else None)
+		with self.assertRaisesRegex(frappe.ValidationError, "not linked to supplier"):
+			controlled_procurement._validate_order_supplier_items(
+				{"lpo_type": "Open", "supplier": "SUP-2"}, [{"item_code": "ITEM-1"}], existing,
+			)
+
+	@patch("construction_management.api.controlled_procurement.frappe.db.get_value", return_value=frappe._dict(controlled_asset_category=None, controlled_service_expense_account=None))
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
+	def test_catalog_request_requires_supplier(self, exists, get_value):
+		with self.assertRaisesRegex(frappe.ValidationError, "Supplier is required"):
+			controlled_procurement._catalog_request_row(
+				{"item_name": "Test", "item_group": "Products", "item_type": "Stockable", "supplier": "  "}, "MRG",
+			)
+
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
+	@patch("construction_management.api.controlled_procurement._active_company", return_value="MRG")
+	@patch("construction_management.api.controlled_procurement._workbook_rows")
+	@patch("construction_management.api.controlled_procurement._uploaded_file_path", return_value=Path("catalog.xlsx"))
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_workbook_preview_reports_missing_supplier(self, require, path, workbook_rows, company, exists):
+		workbook_rows.return_value = ([{"row": 2, "item_name": "Test", "item_group": "Products", "item_type": "Stockable", "supplier": ""}], [])
+		preview = controlled_procurement.preview_catalog_workbook("/private/files/catalog.xlsx")
+		self.assertEqual(preview["valid_rows"], 0)
+		self.assertIn("Supplier is required", preview["errors"][0]["reason"])
+
+	@patch("construction_management.api.controlled_procurement._catalog_request_row")
+	@patch("construction_management.api.controlled_procurement._allowed_companies", return_value=["MRG"])
+	@patch("construction_management.api.controlled_procurement._roles", return_value={"Purchase User"})
+	@patch("construction_management.api.controlled_procurement.frappe.get_doc")
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_resubmit_revalidates_existing_catalog_rows(self, require, get_doc, roles, companies, validate_row):
+		row = MagicMock()
+		row.as_dict.return_value = {"item_name": "Test", "supplier": ""}
+		get_doc.return_value = SimpleNamespace(status="Needs Correction", requested_by="buyer@example.com", company="MRG", items=[row])
+		validate_row.side_effect = frappe.ValidationError("Supplier is required")
+		with patch("construction_management.api.controlled_procurement.frappe.session", frappe._dict(user="buyer@example.com")):
+			with self.assertRaisesRegex(frappe.ValidationError, "Supplier is required"):
+				controlled_procurement.resubmit_catalog_request("REQUEST-1")
+		validate_row.assert_called_once()
+
+	@patch("construction_management.api.controlled_procurement.frappe.get_all", return_value=["M R G INSULATION WORKS L.L.C"])
+	def test_allowed_companies_prefers_company_user_permissions(self, get_all):
+		self.assertEqual(controlled_procurement._allowed_companies(), ["M R G INSULATION WORKS L.L.C"])
+
+	@patch("construction_management.api.controlled_procurement._allowed_companies", return_value=["M R G INSULATION WORKS L.L.C"])
+	@patch("construction_management.api.controlled_procurement.frappe.defaults.get_user_default", return_value="SKADA CONSTRUCTION L.L.C")
+	def test_active_company_uses_only_permitted_mrg_company(self, get_default, allowed_companies):
+		self.assertEqual(controlled_procurement._active_company(), "M R G INSULATION WORKS L.L.C")
+
+	def test_mrg_requires_project(self):
+		with patch("construction_management.api.controlled_procurement.frappe.db.get_value", return_value="MRG"):
+			with self.assertRaisesRegex(frappe.ValidationError, "Project is required"):
+				controlled_procurement._validate_allocation({"project": "", "bill_no": "", "boq_item": ""}, "MRG")
+
+	def test_blank_browser_allocation_values_are_normalized(self):
+		self.assertEqual(
+			controlled_procurement._normalized_allocation({"project": " null ", "bill_no": "undefined", "boq_item": None}),
+			{"project": "", "bill_no": "", "boq_item": ""},
+		)
+
+	@patch("construction_management.api.controlled_procurement.frappe.has_permission", return_value=True)
+	@patch("construction_management.api.controlled_procurement.frappe.get_doc")
+	def test_mrg_allows_project_without_bill_and_boq_item(self, get_doc, has_permission):
+		get_doc.return_value = frappe._dict(name="PROJECT-1")
+		with patch("construction_management.api.controlled_procurement.frappe.db.get_value", return_value="MRG"):
+			controlled_procurement._validate_allocation({"project": "PROJECT-1", "bill_no": "", "boq_item": ""}, "MRG")
+
+	def test_mrg_rejects_boq_item_without_bill(self):
+		with patch("construction_management.api.controlled_procurement.frappe.db.get_value", return_value="MRG"):
+			with self.assertRaisesRegex(frappe.ValidationError, "Select the Bill No"):
+				controlled_procurement._validate_allocation({"project": "PROJECT-1", "bill_no": "", "boq_item": "BOQ-1"}, "MRG")
+
+	def test_skada_requires_bill_and_boq_item_with_project(self):
+		with patch("construction_management.api.controlled_procurement.frappe.db.get_value", return_value="SC"):
+			with self.assertRaisesRegex(frappe.ValidationError, "Project, Bill No, and BOQ Item are required"):
+				controlled_procurement._validate_allocation({"project": "PROJECT-1", "bill_no": "", "boq_item": ""}, "SKADA CONSTRUCTION L.L.C")
+
+	@patch("construction_management.api.controlled_procurement._allowed_companies", return_value=["M R G INSULATION WORKS L.L.C"])
+	@patch("construction_management.api.controlled_procurement._active_company", return_value="M R G INSULATION WORKS L.L.C")
+	def test_document_company_uses_active_workspace_company_when_request_omits_it(self, active_company, allowed_companies):
+		self.assertEqual(controlled_procurement._document_company(""), "M R G INSULATION WORKS L.L.C")
+
+	def test_skada_requires_complete_allocation(self):
+		with self.assertRaises(frappe.ValidationError):
+			controlled_procurement._validate_allocation({"project": "", "bill_no": "", "boq_item": ""}, "SKADA")
+
 	def test_allocation_requires_project_bill_and_boq_item(self):
 		with self.assertRaises(frappe.ValidationError):
 			controlled_procurement._validate_allocation({"project": "PROJECT-1", "bill_no": "", "boq_item": "BOQ-1"})
@@ -27,3 +205,29 @@ class TestControlledProcurement(UnitTestCase):
 		get_doc.return_value = frappe._dict(name="PROJECT-1")
 		get_value.side_effect = [frappe._dict(project="PROJECT-1"), frappe._dict(project="PROJECT-1", parent_bill="BILL-1")]
 		controlled_procurement._validate_allocation({"project": "PROJECT-1", "bill_no": "BILL-1", "boq_item": "BOQ-1"})
+
+	@patch("construction_management.api.controlled_procurement._require")
+	@patch("construction_management.api.controlled_procurement._set_supplier_naming_series")
+	@patch("construction_management.api.controlled_procurement.frappe.new_doc")
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", side_effect=[False, True])
+	def test_create_supplier_uses_workspace_fields(self, exists, new_doc, set_series, require):
+		supplier = new_doc.return_value
+		supplier.name = "SUP-0001"
+		supplier.supplier_name = "Acme Trading"
+
+		result = controlled_procurement.create_supplier({
+			"supplier_name": "Acme Trading",
+			"supplier_group": "Local Suppliers",
+			"supplier_type": "Company",
+			"tax_id": "TRN-123",
+		})
+
+		supplier.update.assert_called_once_with({
+			"supplier_name": "Acme Trading",
+			"supplier_group": "Local Suppliers",
+			"supplier_type": "Company",
+			"tax_id": "TRN-123",
+			"payment_terms": None,
+		})
+		supplier.insert.assert_called_once_with(ignore_permissions=True)
+		self.assertEqual(result, {"name": "SUP-0001", "supplier_name": "Acme Trading", "payment_terms": supplier.payment_terms or ""})

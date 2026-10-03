@@ -8,6 +8,43 @@ from construction_management.api.boq_ledger import create_ledger_entry, recalcul
 from construction_management.overrides.unearned_revenue import create_so_unearned_revenue_jv
 
 
+def autoname(doc, method=None):
+	"""Name project Sales Orders as their proforma invoice numbers."""
+	from construction_management.project_document_naming import assign_project_document_name
+
+	assign_project_document_name(doc)
+
+
+def rename_draft_project_order_for_date_change(doc, method=None):
+	"""Move a draft PINV number to its corrected transaction month before submission."""
+	if doc.is_new() or not doc.project or not _may_rename_for_transaction_date_change(doc):
+		return
+
+	from construction_management.project_document_naming import allocate_project_document_name, format_period
+
+	before = doc.get_doc_before_save()
+	# only a change of month needs a new PINV number; a new date in the same month keeps the name
+	if not before or format_period(before.transaction_date) == format_period(doc.transaction_date):
+		return
+
+	new_name = allocate_project_document_name(doc)
+	if not new_name or new_name == doc.name:
+		return
+
+	# frappe.rename_doc() has no ignore_permissions in this Frappe version (it raised TypeError and the
+	# order kept its old month); the model-level rename_doc supports it
+	from frappe.model.rename_doc import rename_doc
+
+	old_name = doc.name
+	rename_doc("Sales Order", old_name, new_name, force=True, ignore_permissions=True, show_alert=False)
+	doc.name = new_name
+
+
+def _may_rename_for_transaction_date_change(doc) -> bool:
+	"""Allow renaming only while saving a draft or immediately before its submission."""
+	return doc.docstatus == 0 or getattr(doc, "_action", None) == "submit"
+
+
 def validate(doc, method=None):
 	"""
 	Calculate retention and net amount on save.

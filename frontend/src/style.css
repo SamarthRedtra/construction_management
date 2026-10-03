@@ -105,6 +105,10 @@ button.cp-company:hover { background: var(--surface-2); }
 .cp-page-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .cp-page-title h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
 .cp-page-title p { margin: 2px 0 0; color: var(--muted); }
+.cp-page-tabs { display: flex; gap: 4px; margin: -4px 0 20px; border-bottom: 1px solid var(--border); }
+.cp-page-tab { padding: 9px 12px; border-bottom: 2px solid transparent; color: var(--muted); font-size: 13px; font-weight: 500; text-decoration: none; }
+.cp-page-tab:hover { color: var(--ink); }
+.cp-page-tab.active { border-bottom-color: var(--brand); color: var(--brand-ink); }
 .cp-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* buttons */
@@ -161,7 +165,13 @@ select.cp-input { appearance: none; background-image: url("data:image/svg+xml,%3
 .cp-section-bar .cp-section-title { flex: 1; border: 0; }
 .cp-filters { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
 .cp-filters .cp-search { flex: 1 1 320px; max-width: 480px; }
+.cp-sort-control { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.cp-sort-control > svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.cp-sort-control select { width: 170px; height: 36px; }
+.cp-sort-control button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .cp-filters > .cp-field { flex: 0 1 240px; }
+.cp-catalog-controls > .cp-field { flex: 1 1 165px; }
+.cp-clear-filters { align-self: end; }
 .cp-muted { color: var(--muted); }
 .cp-overdue { color: var(--danger); font-weight: 500; }
 
@@ -200,6 +210,7 @@ button.cp-stat:hover, a.cp-stat:hover { border-color: var(--border-strong); }
 .cp-table tfoot td strong { font-size: 16px; font-weight: 600; text-transform: none; letter-spacing: 0; }
 .cp-table tr.clickable { cursor: pointer; }
 .cp-table tr.clickable:hover td { background: var(--surface-2); }
+.cp-table tr.cp-new-order-row td { background: #e8f5ed; }
 .cp-edit-table td { vertical-align: middle; }
 .cp-edit-table .cp-input.num { min-width: 96px; }
 .cp-edit-table input.cp-input:not(.num) { min-width: 140px; }
@@ -222,6 +233,7 @@ button.cp-stat:hover, a.cp-stat:hover { border-color: var(--border-strong); }
 td .cp-pill { margin-left: 6px; }
 td > .cp-pill:first-child { margin-left: 0; }
 .cp-banner { padding: 12px 16px; margin-bottom: 16px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); color: var(--ink-2); }
+.cp-stock-shortage { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
 .cp-error-card { padding: 24px; }
 .cp-error-card p { color: var(--muted); }
 .cp-exceptions { margin-top: 12px; padding: 12px 14px; border-radius: 8px; background: var(--warning-soft); color: var(--warning); max-height: 220px; overflow-y: auto; }

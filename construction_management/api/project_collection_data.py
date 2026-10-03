@@ -86,137 +86,9 @@ def get_collection_invoice_portfolio(company: str, filters: dict | None = None) 
 	"""Return one collection row per submitted Sales Order/proforma."""
 	if not company:
 		frappe.throw(_("Company is required"))
-	filters = filters or {}
-	conditions = [
-		"p.company = %(company)s",
-		"""(
-			EXISTS (SELECT 1 FROM `tabSales Invoice` si WHERE si.project = p.name AND si.docstatus = 1)
-			OR EXISTS (SELECT 1 FROM `tabSales Order` so WHERE so.project = p.name AND so.docstatus = 1)
-		)""",
-	]
-	values = {"company": company}
-	if filters.get("customer"):
-		conditions.append("p.customer = %(customer)s")
-		values["customer"] = filters["customer"]
+	from construction_management.api.collection_register import build_collection_register
 
-	project_fields = "p.name, p.project_name"
-	if frappe.db.has_column("Project", "custom_collection_overdue_basis"):
-		project_fields += ", p.custom_collection_overdue_basis"
-	else:
-		project_fields += ", 'Tax Invoice' AS custom_collection_overdue_basis"
-	if frappe.db.has_column("Project", "custom_collection_overdue_days"):
-		project_fields += ", p.custom_collection_overdue_days"
-	else:
-		project_fields += ", 0 AS custom_collection_overdue_days"
-
-	projects = frappe.db.sql(
-		f"""
-		SELECT {project_fields}
-		FROM `tabProject` p
-		WHERE {' AND '.join(conditions)}
-		ORDER BY p.project_name ASC, p.name ASC
-		""",
-		values,
-		as_dict=True,
-	)
-	rows = []
-	for project in projects:
-		detail = get_collection_project_rows(project.name, include_follow_ups=True)
-		project_rows = []
-		for row in detail.get("rows") or []:
-			if row.get("reference_doctype") not in ("Sales Invoice", "Sales Order"):
-				continue
-			# Tax Invoices are attached after the Sales Order date filter. Filtering
-			# them here loses combined invoices whose orders belong to different months.
-			if row.get("reference_doctype") == "Sales Order" and not _date_matches_filters(
-				row.get("pi_date"), filters
-			):
-				continue
-			row["project_name"] = project.project_name or project.name
-			row["document_type"] = (
-				"Tax Invoice"
-				if row.get("reference_doctype") == "Sales Invoice"
-				else "Proforma (Sales Order)"
-			)
-			project_rows.append(row)
-
-		# A Sales Order linked to a submitted Tax Invoice is intentionally omitted by
-		# get_collection_project_rows. Add it here so the register visibly shows the
-		# Proforma (Sales Order) and Tax Invoice stages together. These supplemental
-		# rows must receive the same PC/follow-up overlay as the original rows;
-		# otherwise a PC saved against the Sales Order cannot be found by the
-		# Collection Manager filter.
-		existing_sales_orders = {
-			row.get("reference_name")
-			for row in project_rows
-			if row.get("reference_doctype") == "Sales Order"
-		}
-		supplemental_sales_order_rows = []
-		sales_order_fields = ["name", "transaction_date", "net_total", "grand_total"]
-		if frappe.db.has_column("Sales Order", "remarks"):
-			sales_order_fields.append("remarks")
-		for sales_order in frappe.get_all(
-			"Sales Order",
-			filters={"project": project.name, "docstatus": 1},
-			fields=sales_order_fields,
-			order_by="transaction_date desc, name desc",
-		):
-			if sales_order.name in existing_sales_orders:
-				continue
-			document_date = sales_order.transaction_date
-			if not _date_matches_filters(document_date, filters):
-				continue
-			supplemental_sales_order_rows.append(
-				_shape_collection_row(
-					project=project.name,
-					reference_doctype="Sales Order",
-					reference_name=sales_order.name,
-					invoice_no=sales_order.name,
-					stage="Sales Order (Proforma)",
-					client_name=detail["project"].get("client_name") or "",
-					pm_engg=detail["project"].get("pm_engg") or "",
-					workdone=project.project_name or project.name,
-					pi_amount=flt(sales_order.grand_total),
-					pi_date=document_date,
-					remarks=sales_order.remarks or "",
-				)
-			)
-			supplemental_sales_order_rows[-1]["proforma_net_amount"] = flt(sales_order.net_total)
-			supplemental_sales_order_rows[-1]["project_name"] = project.project_name or project.name
-			supplemental_sales_order_rows[-1]["document_type"] = "Proforma (Sales Order)"
-
-		if supplemental_sales_order_rows:
-			follow_ups = detail.get("follow_ups") or []
-			_apply_follow_up_overlay(supplemental_sales_order_rows, follow_ups)
-			from construction_management.api.collection_pc_override import merge_collection_pc_overlays
-
-			merge_collection_pc_overlays(supplemental_sales_order_rows, follow_ups)
-			project_rows.extend(supplemental_sales_order_rows)
-
-		project_rows = _consolidate_project_collection_rows(project_rows, filters)
-		_apply_overdue_rules(
-			project_rows,
-			{
-				"basis": project.custom_collection_overdue_basis or "Tax Invoice",
-				"days": cint(project.custom_collection_overdue_days),
-			},
-		)
-		rows.extend(project_rows)
-
-	rows.extend(_get_unlinked_tax_invoices_without_project(company, filters))
-
-	# Keep each project together while showing its newest documents first.
-	rows.sort(
-		key=lambda row: (
-			getdate(_collection_filter_date(row) or "1900-01-01"),
-			row.get("invoice_no") or "",
-		),
-		reverse=True,
-	)
-	rows.sort(key=lambda row: (row.get("project_name") or "", row.get("project") or ""))
-	for idx, row in enumerate(rows, start=1):
-		row["sr_no"] = idx
-	return rows
+	return build_collection_register(company, filters or {})
 
 
 def _collection_filter_date(row: dict):
@@ -236,7 +108,9 @@ def _date_matches_filters(document_date, filters: dict) -> bool:
 	return True
 
 
-def _consolidate_project_collection_rows(rows: list[dict], filters: dict) -> list[dict]:
+def _consolidate_project_collection_rows(
+	rows: list[dict], filters: dict, allocations: dict | None = None
+) -> list[dict]:
 	proforma_rows = {
 		row.get("reference_name"): row
 		for row in rows
@@ -245,9 +119,10 @@ def _consolidate_project_collection_rows(rows: list[dict], filters: dict) -> lis
 	tax_invoice_rows = [
 		row for row in rows if row.get("reference_doctype") == "Sales Invoice"
 	]
-	allocations = _get_invoice_sales_order_allocations(
-		[row.get("reference_name") for row in tax_invoice_rows]
-	)
+	if allocations is None:
+		allocations = _get_invoice_sales_order_allocations(
+			[row.get("reference_name") for row in tax_invoice_rows]
+		)
 
 	for row in proforma_rows.values():
 		_prepare_proforma_collection_row(row)
@@ -318,6 +193,9 @@ def _merge_tax_invoice_into_proforma(
 	_copy_invoice_pc_fallback(proforma_row, invoice_row)
 	proforma_row["is_advance"] = cint(proforma_row.get("is_advance")) or cint(
 		invoice_row.get("is_advance")
+	)
+	proforma_row["is_retention_release"] = cint(proforma_row.get("is_retention_release")) or cint(
+		invoice_row.get("is_retention_release")
 	)
 
 
@@ -488,11 +366,12 @@ def _get_unlinked_tax_invoices_without_project(company: str, filters: dict) -> l
 	if filters.get("to_date"):
 		conditions.append("si.posting_date <= %(to_date)s")
 		values["to_date"] = filters["to_date"]
+	advance_field = ", IFNULL(si.custom_is_advanced, 0) AS is_advance" if frappe.db.has_column("Sales Invoice", "custom_is_advanced") else ", 0 AS is_advance"
 
 	invoices = frappe.db.sql(
 		f"""
 		SELECT si.name, si.customer, COALESCE(c.customer_name, si.customer) AS client_name,
-			si.posting_date, si.grand_total, si.due_date, si.remarks
+			si.posting_date, si.grand_total, si.due_date, si.remarks{advance_field}
 		FROM `tabSales Invoice` si
 		LEFT JOIN `tabCustomer` c ON c.name = si.customer
 		WHERE {' AND '.join(conditions)}
@@ -502,6 +381,7 @@ def _get_unlinked_tax_invoices_without_project(company: str, filters: dict) -> l
 		as_dict=True,
 	)
 	payments = _payment_aggregate("Sales Invoice", [invoice.name for invoice in invoices])
+	cheques = _batch_pdc_map([invoice.name for invoice in invoices])
 	rows = []
 	for invoice in invoices:
 		payment = payments.get(("Sales Invoice", invoice.name)) or {}
@@ -522,8 +402,9 @@ def _get_unlinked_tax_invoices_without_project(company: str, filters: dict) -> l
 			cheque_no=payment.get("reference_no") or "",
 			remarks=invoice.remarks or "",
 		)
+		row["is_advance"] = cint(invoice.is_advance)
 		rows.append(_as_unlinked_tax_invoice_row(row))
-	_apply_pdc_overlay(rows)
+	_apply_batch_pdc_overlay(rows, cheques)
 	_apply_overdue_rules(rows)
 	return rows
 
@@ -574,24 +455,34 @@ def get_collection_expected_payments(company: str, filters: dict | None = None) 
 		values,
 		as_dict=True,
 	)
-	lookups = _expected_payment_lookups([entry.invoice for entry in entries])
+	lookups = _expected_payment_lookups([entry.invoice for entry in entries], company)
 	by_customer = {}
 	for entry in entries:
 		expected_date, basis = _expected_payment_date(entry, lookups)
 		if not expected_date or expected_date > end_date:
 			continue
-		row = by_customer.setdefault(entry.customer, {
+		customer_name = (entry.customer_name or entry.customer or "").strip()
+		customer_key = customer_name.casefold()
+		row = by_customer.setdefault(customer_key, {
 			"customer": entry.customer,
-			"customer_name": entry.customer_name,
+			"customer_name": customer_name,
+			"customer_ids": [],
 			"amounts": {},
 			"details": {},
 		})
+		if entry.customer not in row["customer_ids"]:
+			row["customer_ids"].append(entry.customer)
 		expected_month = expected_date.replace(day=1)
 		forecast_month = max(expected_month, anchor)
 		month_key = forecast_month.isoformat()
 		row["amounts"][month_key] = flt(row["amounts"].get(month_key)) + flt(entry.outstanding_amount)
 		row["details"].setdefault(month_key, []).append({
 			"invoice": entry.invoice,
+			"customer": entry.customer,
+			"sales_orders": [
+				{"name": name, "project": (lookups.get("sales_order_projects") or {}).get(name) or ""}
+				for name in lookups["invoice_sales_orders"].get(entry.invoice, [])
+			],
 			"project": entry.project or "",
 			"project_name": entry.project_name or entry.project or "",
 			"due_date": entry.due_date,
@@ -610,7 +501,8 @@ def _expected_payment_date(entry, lookups: dict):
 	if lookups["cheque_dates"].get(invoice):
 		return getdate(lookups["cheque_dates"][invoice]), _("Cheque")
 
-	sales_orders = lookups["invoice_sales_orders"].get(invoice) or []
+	date_links = lookups.get("forecast_sales_orders", lookups["invoice_sales_orders"])
+	sales_orders = date_links.get(invoice) or []
 	follow_up = lookups["follow_up_dates"].get(invoice) or next(
 		(lookups["follow_up_dates"][so] for so in sales_orders if lookups["follow_up_dates"].get(so)), None
 	)
@@ -632,19 +524,34 @@ def _expected_payment_date(entry, lookups: dict):
 	return (getdate(base_date), _("Invoice due date")) if base_date else (None, "")
 
 
-def _expected_payment_lookups(invoice_names: list[str]) -> dict:
+def _expected_payment_lookups(invoice_names: list[str], company: str | None = None) -> dict:
 	"""Batch-load cheque dates, follow-up dates and Sales Order links for the invoices."""
-	lookups = {"cheque_dates": {}, "follow_up_dates": {}, "invoice_sales_orders": {}, "sales_order_dates": {}}
+	lookups = {"cheque_dates": {}, "follow_up_dates": {}, "invoice_sales_orders": {}, "forecast_sales_orders": {},
+		"sales_order_dates": {}, "sales_order_projects": {}}
 	if not invoice_names:
 		return lookups
 
-	allocations = _get_invoice_sales_order_allocations(invoice_names)
-	lookups["invoice_sales_orders"] = {invoice: list(orders) for invoice, orders in allocations.items()}
+	lookups["invoice_sales_orders"] = _invoice_sales_order_links(invoice_names)
+	lookups["forecast_sales_orders"] = {
+		invoice: list(orders) for invoice, orders in _get_invoice_sales_order_allocations(invoice_names).items()
+	}
 	sales_orders = sorted({so for orders in lookups["invoice_sales_orders"].values() for so in orders})
 	if sales_orders:
-		lookups["sales_order_dates"] = dict(
-			frappe.get_all("Sales Order", filters={"name": ("in", sales_orders)}, fields=["name", "transaction_date"], as_list=True)
-		)
+		order_filters = {"name": ("in", sales_orders)}
+		if company:
+			order_filters["company"] = company
+		for order in frappe.get_all("Sales Order", filters=order_filters, fields=["name", "transaction_date", "project"]):
+			lookups["sales_order_dates"][order.name] = order.transaction_date
+			lookups["sales_order_projects"][order.name] = order.project
+		lookups["invoice_sales_orders"] = {
+			invoice: [name for name in names if name in lookups["sales_order_dates"]]
+			for invoice, names in lookups["invoice_sales_orders"].items()
+		}
+		lookups["forecast_sales_orders"] = {
+			invoice: [name for name in names if name in lookups["sales_order_dates"]]
+			for invoice, names in lookups["forecast_sales_orders"].items()
+		}
+		sales_orders = sorted(lookups["sales_order_dates"])
 
 	if frappe.db.table_exists("Project SOA Follow Up"):
 		# the latest follow-up that set a collection due date wins
@@ -656,17 +563,44 @@ def _expected_payment_lookups(invoice_names: list[str]) -> dict:
 		):
 			lookups["follow_up_dates"][follow_up.reference_name] = follow_up.collection_due_date
 
-	try:
-		from redtra_customisation.redtra_customisation.doctype.post_dated_cheques.post_dated_cheques import (
-			get_invoice_pdc_connections,
-		)
-	except ImportError:
-		return lookups
-	for invoice in invoice_names:
-		cheques = get_invoice_pdc_connections("Sales Invoice", invoice) or []
-		if cheques and cheques[0].get("reference_date"):
-			lookups["cheque_dates"][invoice] = cheques[0]["reference_date"]
+	for invoice, cheque in _batch_pdc_map(invoice_names).items():
+		if cheque.get("reference_date"):
+			lookups["cheque_dates"][invoice] = cheque["reference_date"]
 	return lookups
+
+
+def _invoice_sales_order_links(invoice_names: list[str]) -> dict[str, list[str]]:
+	"""Read every explicit invoice header and item link, including zero-value items."""
+	links: dict[str, list[str]] = {name: [] for name in invoice_names}
+	for row in frappe.get_all("Sales Invoice", filters={"name": ("in", invoice_names), "docstatus": 1},
+		fields=["name", "custom_sales_order"], limit_page_length=0):
+		if row.custom_sales_order:
+			links[row.name].append(row.custom_sales_order)
+	for row in frappe.get_all("Sales Invoice Item", filters={"parent": ("in", invoice_names),
+			"docstatus": 1, "sales_order": ("is", "set")},
+		fields=["parent", "sales_order"], order_by="parent, idx", limit_page_length=0):
+		if row.sales_order and row.sales_order not in links[row.parent]:
+			links[row.parent].append(row.sales_order)
+	return links
+
+
+def _batch_pdc_map(invoice_names: list[str]) -> dict[str, dict]:
+	"""Match the newest active cheque per invoice with one company-scoped lookup."""
+	if not invoice_names or not frappe.db.table_exists("Post Dated Cheques"):
+		return {}
+	rows = frappe.db.sql(
+		"""SELECT ref.reference_name, pdc.reference_date, pdc.reference_no
+		FROM `tabPDC Invoice Reference` ref
+		JOIN `tabPost Dated Cheques` pdc ON pdc.name = ref.parent
+		WHERE ref.reference_doctype = 'Sales Invoice'
+		AND ref.reference_name IN %(invoice_names)s
+		AND ref.parenttype = 'Post Dated Cheques'
+		AND ref.parentfield = 'invoice_references'
+		AND pdc.docstatus = 1 AND IFNULL(pdc.status, '') != 'Cancelled'
+		ORDER BY ref.reference_name, pdc.reference_date DESC, pdc.name DESC""",
+		{"invoice_names": tuple(invoice_names)}, as_dict=True,
+	)
+	return {row.reference_name: row for row in reversed(rows)}
 
 
 def _get_expected_payment_anchor(filters: dict):
@@ -1216,6 +1150,18 @@ def _apply_pdc_overlay(rows: list[dict]) -> None:
 		row["payment_mode"] = row.get("payment_mode") or _("Cheque")
 		row["payment_date"] = row.get("payment_date") or pdc.get("reference_date")
 		row["cheque_no"] = row.get("cheque_no") or pdc.get("reference_no") or ""
+
+
+def _apply_batch_pdc_overlay(rows: list[dict], cheques: dict[str, dict]) -> None:
+	for row in rows:
+		if row.get("reference_doctype") != "Sales Invoice" or row.get("payment_date"):
+			continue
+		cheque = cheques.get(row.get("reference_name"))
+		if not cheque:
+			continue
+		row["payment_mode"] = row.get("payment_mode") or _("Cheque")
+		row["payment_date"] = cheque.get("reference_date")
+		row["cheque_no"] = row.get("cheque_no") or cheque.get("reference_no") or ""
 
 
 def _payment_aggregate(reference_doctype: str, docnames: list[str]) -> dict:

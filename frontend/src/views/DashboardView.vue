@@ -61,7 +61,7 @@ onMounted(async () => {
 						<td><span :class="{ 'cp-overdue': row.is_overdue }">{{ formatDate(row.schedule_date) }}</span></td>
 						<td class="num">{{ formatCurrency(row.pending_value, row.currency) }}</td>
 					</tr>
-					<tr v-if="!openLpos.rows.length"><td colspan="3" class="cp-empty-row">No open LPOs. Everything ordered has been received.</td></tr>
+					<tr v-if="!openLpos.rows.length"><td colspan="3" class="cp-empty-row">No Open LPOs are available.</td></tr>
 				</tbody>
 			</table>
 		</section>

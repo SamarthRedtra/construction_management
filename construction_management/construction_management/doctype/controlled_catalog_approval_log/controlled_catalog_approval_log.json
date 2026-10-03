@@ -1,0 +1,21 @@
+{
+ "actions": [],
+ "autoname": "autoincrement",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": ["action", "actor", "actioned_on", "comment"],
+ "fields": [
+  {"fieldname":"action","fieldtype":"Data","label":"Action","reqd":1,"in_list_view":1},
+  {"fieldname":"actor","fieldtype":"Link","label":"Actor","options":"User","reqd":1,"in_list_view":1},
+  {"fieldname":"actioned_on","fieldtype":"Datetime","label":"Actioned On","reqd":1,"in_list_view":1},
+  {"fieldname":"comment","fieldtype":"Small Text","label":"Comment"}
+ ],
+ "istable": 1,
+ "links": [],
+ "module": "Construction Management",
+ "name": "Controlled Catalog Approval Log",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC"
+}

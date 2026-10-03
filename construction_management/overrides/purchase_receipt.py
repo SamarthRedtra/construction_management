@@ -18,6 +18,7 @@ DEDUCTION_ITEM_CODES = {"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"}
 
 def validate(doc, method):
 	"""Validate Purchase Receipt before save"""
+	validate_supplier_delivery_note(doc)
 	_set_default_target_warehouse(doc)
 	validate_items_in_purchase_order(doc)
 	ensure_item_projects(doc)
@@ -33,10 +34,18 @@ def before_validate(doc, method):
 
 def before_submit(doc, method):
 	"""Validate Purchase Receipt before submit"""
+	validate_supplier_delivery_note(doc)
 	_set_default_target_warehouse(doc)
 	validate_items_in_purchase_order(doc)
 	ensure_item_projects(doc, make_mandatory=True)
 	bump_provisional_po_qty_before_receipt(doc)
+
+
+def validate_supplier_delivery_note(doc):
+	"""Require a supplier DO number on every Purchase Receipt, including returns."""
+	doc.supplier_delivery_note = (doc.get("supplier_delivery_note") or "").strip()
+	if not doc.supplier_delivery_note:
+		frappe.throw(_("Supplier DO No. is required for every Receive Note."))
 
 
 def bump_provisional_po_qty_before_receipt(doc):

@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, ref } from "vue"
+import { useRouter } from "vue-router"
 import { call } from "@/api"
 import { session } from "@/utils"
 import AppShell from "@/components/AppShell.vue"
@@ -7,10 +8,14 @@ import Toasts from "@/components/Toasts.vue"
 
 const loading = ref(true)
 const error = ref("")
+const router = useRouter()
 
 onMounted(async () => {
 	try {
 		session.context = await call("get_workspace_context")
+		if (!session.context.can_purchase && !session.context.can_transfer && router.currentRoute.value.path === "/dashboard") {
+			router.replace(session.context.can_approve_lpo ? "/lpo-approvals" : "/catalog")
+		}
 	} catch (requestError) {
 		error.value = requestError.message || "Unable to load Controlled Procurement."
 	} finally {

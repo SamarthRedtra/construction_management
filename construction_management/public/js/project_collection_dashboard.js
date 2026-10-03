@@ -207,6 +207,7 @@ construction_management.project_collection._build_billing_row_html = function (r
 
 	return `
 		<tr class="collection-billing-row" data-category="${category}" data-pc-updated="${has_pc_update ? '1' : '0'}"
+			data-advance="${row.is_advance ? '1' : '0'}" data-retention-release="${row.is_retention_release ? '1' : '0'}"
 			data-ref-doctype="${frappe.utils.escape_html(ref_doctype)}" data-ref-name="${frappe.utils.escape_html(ref_name)}">
 			<td class="text-center">${row.sr_no}</td>
 			<td class="collection-invoice-cell">
@@ -231,14 +232,15 @@ construction_management.project_collection._build_billing_row_html = function (r
 			<td>${frappe.utils.escape_html(payment_mode_disp)}</td>
 			<td class="text-center">${fmt_date(row.payment_date)}</td>
 			<td>${project_link}</td>
-			<td>
-				${frappe.utils.escape_html(row.remarks || '')}
+			<td class="collection-remarks-cell">
+				${row.remarks ? `<div class="collection-remarks-text">${frappe.utils.escape_html(row.remarks)}</div>` : ''}
 				<div class="collection-row-actions">
 					${follow_up_link ? `<a class="collection-action-link" href="${follow_up_link}" target="_blank" rel="noopener">${__('Open Follow-Up')}</a>` : ''}
-					<span class="collection-action-link collection-add-follow-up"
+					<button type="button" class="collection-action-link collection-add-follow-up"
 						data-project="${frappe.utils.escape_html(project)}"
 						data-ref-doctype="${frappe.utils.escape_html(ref_doctype)}"
-						data-ref-name="${frappe.utils.escape_html(ref_name)}">${__('Add Follow Up')}</span>
+						data-ref-name="${frappe.utils.escape_html(ref_name)}"
+						${project ? '' : `disabled title="${frappe.utils.escape_html(__('Link a project before adding a follow-up'))}"`}>${project ? __('Add Follow Up') : __('Project required')}</button>
 					<span class="collection-action-link collection-upload-pc"
 							data-project="${frappe.utils.escape_html(project)}"
 							data-ref-doctype="${frappe.utils.escape_html(ref_doctype)}"
@@ -431,13 +433,15 @@ construction_management.project_collection.render_dashboard = function (containe
 
 construction_management.project_collection.render_invoice_portfolio = function (container, filters) {
 	const $container = $(container);
+	const request_id = ($container.data('collection-request-id') || 0) + 1;
+	$container.data('collection-request-id', request_id);
 	if (!filters.company) {
 			$container.html(`<div class="collection-empty-state"><h3>${__('Select a Company')}</h3></div>`);
 		return;
 	}
 	if (filters.view === 'expected') {
 		$container.html(`<div class="collection-loading-state"><div class="collection-spinner"></div><p>${__('Loading expected payments...')}</p></div>`);
-		construction_management.project_collection.render_expected_payments($container, filters, true);
+		construction_management.project_collection.render_expected_payments($container, filters, true, request_id);
 		return;
 	}
 	$container.html(`<div class="collection-loading-state"><div class="collection-spinner"></div><p>${__('Loading invoiced projects...')}</p></div>`);
@@ -445,11 +449,14 @@ construction_management.project_collection.render_invoice_portfolio = function (
 		method: 'construction_management.construction_management.page.project_collection.project_collection.get_collection_invoice_portfolio',
 		args: { company: filters.company, filters },
 		callback: (r) => {
+			if ($container.data('collection-request-id') !== request_id) return;
 			const rows = r.message || [];
 			$container.html(construction_management.project_collection.build_invoice_portfolio_html(rows));
 			construction_management.project_collection.bind_invoice_portfolio_events($container, filters);
 		},
-		error: () => $container.html(`<div class="collection-error-state"><p>${__('Failed to load invoiced projects.')}</p></div>`),
+		error: () => {
+			if ($container.data('collection-request-id') === request_id) $container.html(`<div class="collection-error-state"><p>${__('Failed to load invoiced projects.')}</p></div>`);
+		},
 	});
 };
 
@@ -461,6 +468,8 @@ construction_management.project_collection.build_invoice_portfolio_html = functi
 	const paid_count = tax_invoice_rows.filter((row) => row.payment_date).length;
 	const awaiting_pc_count = tax_invoice_rows.filter((row) => !row.pc_date).length;
 	const pc_updated_count = rows.filter(construction_management.project_collection.has_pc_update).length;
+	const advance_count = rows.filter((row) => row.is_advance).length;
+	const retention_count = rows.filter((row) => row.is_retention_release).length;
 	const overdue_count = tax_invoice_rows.filter((row) => row.is_overdue).length;
 	let body = '';
 	if (rows.length) {
@@ -507,20 +516,23 @@ construction_management.project_collection.build_invoice_portfolio_html = functi
 			<button type="button" class="collection-register-filter collection-filter-chip active" data-register-filter="all">${__('All Documents')} <span class="chip-count">${rows.length}</span></button>
 			<button type="button" class="collection-register-filter collection-filter-chip" data-register-filter="pc-updated">${__('PC Updated')} <span class="chip-count">${pc_updated_count}</span></button>
 			<label class="collection-remove-paid-control"><input type="checkbox" class="collection-remove-paid-toggle" /> ${__('Remove Paid')}</label>
+			<label class="collection-remove-paid-control collection-type-control"><input type="checkbox" class="collection-advance-toggle" /> ${__('Advance')} <span class="chip-count">${advance_count}</span></label>
+			<label class="collection-remove-paid-control collection-type-control"><input type="checkbox" class="collection-retention-toggle" /> ${__('Retention Release')} <span class="chip-count">${retention_count}</span></label>
 		</div>
 		<div class="collection-table-toolbar"><span>${__('Invoice details and collection progress')}</span><span>${__('Scroll horizontally to view all fields')} →</span></div>
 		<div class="collection-grid-scroll"><table class="collection-table border-table collection-billing-grid"><thead><tr>
 			<th>${__('Sr No')}</th><th>${__('Document No')}</th><th>${__('Document Type')}</th><th>${__('Conversion Status')}</th><th>${__('Tax Invoice No')}</th><th>${__('Client Name')}</th><th>${__('PM / Engg')}</th><th>${__('Workdone')}</th>
 			<th class="text-right">${__('PI Amount')}</th><th>${__('PI Date')}</th><th>${__('PC Date')}</th><th class="text-right">${__('PC Amt')}</th>
-			<th>${__('TI Date')}</th><th class="text-right">${__('TI Amt')}</th><th>${__('Due Date')}</th><th>${__('Payment Mode')}</th><th>${__('Payment Date')}</th><th>${__('Project No')}</th><th>${__('Remarks / Action')}</th>
+			<th>${__('TI Date')}</th><th class="text-right">${__('TI Amt')}</th><th>${__('Due Date')}</th><th>${__('Payment Mode')}</th><th>${__('Payment Date')}</th><th>${__('Project No')}</th><th class="collection-remarks-header">${__('Remarks / Action')}</th>
 		</tr></thead><tbody>${body}</tbody></table></div></div>`;
 };
 
-construction_management.project_collection.render_expected_payments = function ($container, filters, replace) {
+construction_management.project_collection.render_expected_payments = function ($container, filters, replace, request_id) {
 	frappe.call({
 		method: 'construction_management.construction_management.page.project_collection.project_collection.get_collection_expected_payments',
 		args: { company: filters.company, filters },
 		callback: (r) => {
+			if ($container.data('collection-request-id') !== request_id) return;
 			const data = r.message || { months: [], rows: [] };
 			const fmt = construction_management.project_collection.format_num;
 			const headers = (data.months || []).map((month) => `<th class="text-right">${frappe.utils.escape_html(month.label)}</th>`).join('');
@@ -529,6 +541,9 @@ construction_management.project_collection.render_expected_payments = function (
 			const html = `<div class="collection-expected-payments"><div class="collection-register-heading"><div><p class="collection-eyebrow">${__('Cash forecast')}</p><h2 class="collection-section-title">${__('Expected Payments by Customer')}</h2><p class="collection-section-sub">${__('Outstanding Tax Invoices grouped by expected payment date: cheque date, else follow-up collection date, else project terms, else invoice due date')}</p></div></div><div class="collection-grid-scroll"><table class="collection-table border-table collection-expected-table"><thead><tr><th>${__('Sr No')}</th><th>${__('Customer')}</th>${headers}</tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="2">${__('Total')}</td>${totals}</tr></tfoot></table></div></div>`;
 			if (replace) $container.html(html); else $container.append(html);
 			construction_management.project_collection.bind_expected_payment_events($container, data);
+		},
+		error: () => {
+			if ($container.data('collection-request-id') === request_id) $container.html(`<div class="collection-error-state"><p>${__('Failed to load expected payments.')}</p></div>`);
 		},
 	});
 };
@@ -556,6 +571,7 @@ construction_management.project_collection.bind_expected_payment_events = functi
 
 construction_management.project_collection.show_expected_payment_dialog = function (row, month_key, details) {
 	const fmt = construction_management.project_collection.format_num;
+	const fmt_date = construction_management.project_collection.format_date;
 	const project_groups = {};
 	details.forEach((detail) => {
 		const key = detail.project || '__unassigned__';
@@ -568,26 +584,36 @@ construction_management.project_collection.show_expected_payment_dialog = functi
 	});
 
 	const project_html = Object.values(project_groups).map((group) => {
-		const invoices = group.invoices.map((invoice) => `
-			<tr>
-				<td><a href="/app/sales-invoice/${encodeURIComponent(invoice.invoice)}" target="_blank">${frappe.utils.escape_html(invoice.invoice)}</a></td>
-				<td>${invoice.expected_date ? frappe.datetime.str_to_user(invoice.expected_date) : ''}${invoice.basis ? ` <span class="text-muted">(${frappe.utils.escape_html(invoice.basis)})</span>` : ''}${invoice.carried_forward ? ` <span class="text-warning">${__('Carried forward')}</span>` : ''}</td>
-				<td>${invoice.due_date ? frappe.datetime.str_to_user(invoice.due_date) : ''}</td>
-				<td class="text-right">${fmt(invoice.outstanding_amount, 'Currency')}</td>
-			</tr>`).join('');
+		const invoices = group.invoices.map((invoice) => {
+			const orders = (invoice.sales_orders || []).length
+				? invoice.sales_orders.map((order) => `<a href="/app/sales-order/${encodeURIComponent(order.name)}" target="_blank" rel="noopener">${frappe.utils.escape_html(order.name)}</a>`).join(', ')
+				: `<span class="collection-expected-unlinked">${__('No Sales Order linked')}</span>`;
+			return `<article class="collection-expected-invoice">
+				<div class="collection-expected-invoice-main">
+					<div><small>${__('Sales Invoice')}</small><a href="/app/sales-invoice/${encodeURIComponent(invoice.invoice)}" target="_blank" rel="noopener">${frappe.utils.escape_html(invoice.invoice)}</a></div>
+					<strong>${fmt(invoice.outstanding_amount, 'Currency')}</strong>
+				</div>
+				<div class="collection-expected-invoice-meta"><span><b>${__('Sales Order')}</b> ${orders}</span>
+					<span><b>${__('Expected')}</b> ${fmt_date(invoice.expected_date)} · ${frappe.utils.escape_html(invoice.basis || '')}${invoice.carried_forward ? ` · ${__('Carried forward')}` : ''}</span>
+					<span><b>${__('Invoice due')}</b> ${fmt_date(invoice.due_date) || '—'}</span>
+					${row.customer_ids?.length > 1 ? `<span><b>${__('Customer record')}</b> ${frappe.utils.escape_html(invoice.customer || '')}</span>` : ''}
+				</div>
+			</article>`;
+		}).join('');
 		const project_action = group.project
 			? `<button type="button" class="btn btn-primary btn-xs collection-open-project-soa"
 				data-project="${frappe.utils.escape_html(group.project)}">${__('Open Project SOA')}</button>`
 			: `<span class="text-muted">${__('No project linked')}</span>`;
 		return `<section class="collection-expected-project-group">
-			<div class="collection-expected-project-heading"><strong>${frappe.utils.escape_html(group.project_name || __('Unassigned Project'))}</strong>${project_action}</div>
-			<table class="table table-bordered"><thead><tr><th>${__('Invoice')}</th><th>${__('Expected')}</th><th>${__('Invoice Due Date')}</th><th class="text-right">${__('Outstanding')}</th></tr></thead><tbody>${invoices}</tbody></table>
+			<div class="collection-expected-project-heading"><div><strong>${frappe.utils.escape_html(group.project_name || __('Unassigned Project'))}</strong><small>${group.invoices.length} ${__('invoice(s)')}</small></div>${project_action}</div>
+			<div class="collection-expected-invoices">${invoices}</div>
 		</section>`;
 	}).join('');
 
 	const dialog = new frappe.ui.Dialog({
 		title: __('Expected payment: {0}', [row.customer_name || row.customer]),
-		fields: [{ fieldtype: 'HTML', fieldname: 'payment_details', options: `<p class="text-muted">${frappe.datetime.str_to_user(month_key)} · ${__('Select a project to inspect its invoices in Project SOA.')}</p>${project_html}` }],
+		size: 'large',
+		fields: [{ fieldtype: 'HTML', fieldname: 'payment_details', options: `<div class="collection-expected-dialog"><div class="collection-expected-summary"><span>${fmt_date(month_key)} · ${details.length} ${__('invoice(s)')}</span><strong>${fmt(details.reduce((sum, detail) => sum + flt(detail.outstanding_amount), 0), 'Currency')}</strong></div>${project_html}</div>` }],
 	});
 	dialog.$wrapper.on('click', '.collection-open-project-soa', function () {
 		const project = $(this).data('project');
@@ -806,8 +832,7 @@ construction_management.project_collection.bind_portfolio_events = function ($co
 	});
 };
 
-construction_management.project_collection.show_follow_up_dialog = function (context, $container, project, options) {
-	const me = this;
+construction_management.project_collection.show_follow_up_dialog = function (context, on_saved) {
 	const dialog = new frappe.ui.Dialog({
 		title: context.focus_attachment ? __('Attach Payment Certificate') : __('Add Follow Up'),
 		fields: [
@@ -841,10 +866,11 @@ construction_management.project_collection.show_follow_up_dialog = function (con
 					remarks: values.remarks,
 					attachment: values.attachment,
 				},
-				callback() {
+				callback(r) {
+					if (r.exc) return;
 					dialog.hide();
 					frappe.show_alert({ message: __('Follow up saved'), indicator: 'green' });
-					me.render_dashboard($container[0], project, options);
+					on_saved();
 				},
 			});
 		},
@@ -888,12 +914,17 @@ construction_management.project_collection.bind_invoice_portfolio_events = funct
 	const apply_register_filters = () => {
 		const filter = $container.find('.collection-register-filter.active').data('register-filter') || 'all';
 		const remove_paid = $container.find('.collection-remove-paid-toggle').is(':checked');
+		const advance_only = $container.find('.collection-advance-toggle').is(':checked');
+		const retention_only = $container.find('.collection-retention-toggle').is(':checked');
 
 		$container.find('.collection-billing-row').each(function () {
 			const $row = $(this);
 			const matches_pc_filter = filter === 'all' || $row.attr('data-pc-updated') === '1';
 			const is_paid = $row.attr('data-category') === 'paid';
-			$row.toggle(matches_pc_filter && !(remove_paid && is_paid));
+			const matches_type = (!advance_only && !retention_only)
+				|| (advance_only && $row.attr('data-advance') === '1')
+				|| (retention_only && $row.attr('data-retention-release') === '1');
+			$row.toggle(matches_pc_filter && matches_type && !(remove_paid && is_paid));
 		});
 
 		// Keep a project heading visible only when it still contains a visible row.
@@ -912,6 +943,17 @@ construction_management.project_collection.bind_invoice_portfolio_events = funct
 		apply_register_filters();
 	});
 	$container.off('change.collection-remove-paid').on('change.collection-remove-paid', '.collection-remove-paid-toggle', apply_register_filters);
+	$container.off('change.collection-type').on('change.collection-type', '.collection-advance-toggle, .collection-retention-toggle', apply_register_filters);
+	$container.off('click.collection-register-follow-up').on('click.collection-register-follow-up', '.collection-add-follow-up', function (e) {
+		e.preventDefault();
+		const $action = $(this);
+		if (!$action.attr('data-project')) return;
+		me.show_follow_up_dialog({
+			project: $action.attr('data-project'),
+			reference_doctype: $action.attr('data-ref-doctype'),
+			reference_name: $action.attr('data-ref-name'),
+		}, () => me.render_invoice_portfolio($container[0], filters));
+	});
 
 	const mark_row_saved = ($row, message) => {
 		$row.addClass('collection-row-saved');
@@ -1027,7 +1069,7 @@ construction_management.project_collection.bind_detail_events = function ($conta
 			reference_name: $el.data('ref-name'),
 			payment_certificate: $el.data('pc') || '',
 			focus_attachment: is_attach,
-		}, $container, project, options);
+		}, () => me.render_dashboard($container[0], project, options));
 	});
 
 	$container.off('change.collection-pc-date').on('change.collection-pc-date', '.collection-pc-date-input', function () {

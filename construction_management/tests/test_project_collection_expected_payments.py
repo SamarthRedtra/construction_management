@@ -3,7 +3,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from construction_management.api.project_collection_data import get_collection_expected_payments
+from construction_management.api.project_collection_data import _expected_payment_date, _invoice_sales_order_links, get_collection_expected_payments
 
 
 NO_LOOKUPS = {"cheque_dates": {}, "follow_up_dates": {}, "invoice_sales_orders": {}, "sales_order_dates": {}}
@@ -25,6 +25,30 @@ class TestCollectionExpectedPayments(FrappeTestCase):
 		patcher = patch("construction_management.api.project_collection_data.frappe.db.has_column", return_value=True)
 		patcher.start()
 		self.addCleanup(patcher.stop)
+
+	@patch("construction_management.api.project_collection_data.frappe.get_all")
+	def test_sales_order_links_include_header_and_every_item(self, get_all):
+		get_all.side_effect = [
+			[frappe._dict(name="SINV-1", custom_sales_order="SO-HEADER")],
+			[frappe._dict(parent="SINV-1", sales_order="SO-ITEM"),
+				frappe._dict(parent="SINV-1", sales_order="SO-HEADER")],
+		]
+
+		links = _invoice_sales_order_links(["SINV-1", "SINV-UNLINKED"])
+
+		self.assertEqual(links["SINV-1"], ["SO-HEADER", "SO-ITEM"])
+		self.assertEqual(links["SINV-UNLINKED"], [])
+
+	def test_extra_display_link_does_not_change_forecast_date(self):
+		entry = invoice("SINV-1", "2026-10-01", 100)
+		lookups = {"cheque_dates": {}, "follow_up_dates": {"SO-ITEM": "2026-11-12"},
+			"invoice_sales_orders": {"SINV-1": ["SO-HEADER", "SO-ITEM"]},
+			"forecast_sales_orders": {"SINV-1": ["SO-ITEM"]}}
+
+		date, basis = _expected_payment_date(entry, lookups)
+
+		self.assertEqual(str(date), "2026-11-12")
+		self.assertEqual(basis, "Follow-up")
 
 	@patch(LOOKUPS, return_value=NO_LOOKUPS)
 	@patch("construction_management.api.project_collection_data.frappe.db.sql")
@@ -81,6 +105,28 @@ class TestCollectionExpectedPayments(FrappeTestCase):
 		query, values = mock_sql.call_args.args[:2]
 		self.assertIn("si.customer = %(customer)s", query)
 		self.assertEqual(values["customer"], "CUST-001")
+
+	@patch("construction_management.api.project_collection_data.frappe.db.sql")
+	@patch("construction_management.api.project_collection_data.today", return_value="2026-09-26")
+	def test_same_display_name_combines_customer_records_without_losing_invoice_identity(self, _today, mock_sql):
+		mock_sql.return_value = [
+			invoice("SINV-1", "2026-10-05", 100, customer="CUST-A", customer_name="Same Name"),
+			invoice("SINV-2", "2026-10-06", 200, customer="CUST-B", customer_name="Same Name"),
+		]
+		lookups = {**NO_LOOKUPS, "invoice_sales_orders": {"SINV-1": ["SO-1", "SO-2"]},
+			"sales_order_projects": {"SO-1": "PROJ-1", "SO-2": "PROJ-2"}}
+		with patch(LOOKUPS, return_value=lookups):
+			result = get_collection_expected_payments("Test Company", {})
+
+		self.assertEqual(len(result["rows"]), 1)
+		row = result["rows"][0]
+		self.assertEqual(row["customer_ids"], ["CUST-A", "CUST-B"])
+		self.assertEqual(row["amounts"]["2026-10-01"], 300)
+		details = {detail["invoice"]: detail for detail in row["details"]["2026-10-01"]}
+		self.assertEqual(details["SINV-1"]["customer"], "CUST-A")
+		self.assertEqual([order["name"] for order in details["SINV-1"]["sales_orders"]], ["SO-1", "SO-2"])
+		self.assertEqual(details["SINV-2"]["customer"], "CUST-B")
+		self.assertEqual(details["SINV-2"]["sales_orders"], [])
 
 	@patch("construction_management.api.project_collection_data.frappe.db.sql")
 	@patch("construction_management.api.project_collection_data.today", return_value="2026-09-26")

@@ -2124,6 +2124,15 @@ window.create_item_invoice = function (boq_item) {
 				reqd: 1,
 				description: __('Direct Tax Invoice skips Sales Order. Sales Order path creates a proforma for PC / tax invoice later.')
 			},
+			{
+				fieldname: 'sales_order_date',
+				label: __('Sales Order Date'),
+				fieldtype: 'Date',
+				default: frappe.datetime.get_today(),
+				reqd: 1,
+				depends_on: "eval:doc.billing_path == 'Sales Order (Proforma)'",
+				description: __('The PINV number will use the month of this date.')
+			},
 			{ fieldtype: 'Section Break' },
 			{ fieldname: 'apply_retention', label: 'Apply Retention', fieldtype: 'Check', default: 1 },
 			{
@@ -2147,6 +2156,7 @@ window.create_item_invoice = function (boq_item) {
 						args: {
 							project: cur_frm.doc.name,
 							items: JSON.stringify([{ boq_item: boq_item, qty: currentQty }]),
+							posting_date: values.sales_order_date,
 							auto_submit: 1
 						},
 						freeze: true,

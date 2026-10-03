@@ -17,13 +17,16 @@ const nav = computed(() => {
 	const ctx = context.value
 	const counts = ctx.dashboard || {}
 	return [
-		{ to: "/dashboard", label: "Overview", icon: "grid", visible: true },
+		{ to: "/dashboard", label: "Overview", icon: "grid", visible: ctx.can_purchase || ctx.can_transfer },
 		{ to: "/open-lpos", label: "Open LPOs", icon: "clock", visible: ctx.can_purchase, count: counts.open_lpos },
 		{ to: "/purchase-orders", label: "Purchase Orders", icon: "cart", visible: ctx.can_purchase },
+		{ to: "/lpo-approvals", label: "LPO Approvals", icon: "clock", visible: ctx.can_approve_lpo },
 		{ to: "/receipts", label: "Receive Notes", icon: "inbox", visible: ctx.can_purchase },
 		{ to: "/invoices", label: "Purchase Invoices", icon: "invoice", visible: ctx.can_purchase, count: counts.unpaid_invoices },
 		{ to: "/transfers", label: "Material Transfers", icon: "swap", visible: ctx.can_transfer },
 		{ to: "/catalog", label: "Controlled Catalog", icon: "book", visible: true },
+		{ to: "/stock-ledger", label: "View Ledger", icon: "ledger", visible: ctx.can_view_stock_ledger },
+		{ to: "/insights", label: "Procurement Insights", icon: "grid", visible: ctx.can_view_insights },
 	].filter((item) => item.visible)
 })
 
@@ -77,6 +80,7 @@ const ICONS = {
 	invoice: "M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3",
 	swap: "M7 7h13l-4-4M17 17H4l4 4",
 	book: "M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11",
+	ledger: "M4 4h16v16H4zM8 4v16M11 9h6M11 13h6M11 17h4",
 }
 </script>
 
@@ -109,7 +113,7 @@ const ICONS = {
 				<span v-else class="cp-avatar">{{ initials }}</span>
 				<div>
 					<strong>{{ context.full_name || context.user }}</strong>
-					<small>{{ context.can_manage_catalog ? "Administrator" : context.can_purchase ? "Purchase" : "Stock" }}</small>
+					<small>{{ context.can_purchase ? "Purchase" : context.can_transfer ? "Stock" : "Accounts" }}</small>
 				</div>
 			</div>
 		</aside>

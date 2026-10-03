@@ -19,6 +19,8 @@ const rows = ref(
 		uom: row.uom,
 		qty: row.qty,
 		rate: row.rate,
+		original_rate: row.rate,
+		price_change_reason: "",
 		vat: row.vat || "standard",
 		received_qty: row.received_qty || 0,
 		billed: (row.billed_amt || 0) > 0,
@@ -35,11 +37,11 @@ function addRow() {
 async function save() {
 	saving.value = true
 	try {
-		await call("update_purchase_order_items", {
+		const result = await call("update_purchase_order_items", {
 			name: props.doc.name,
-			items: rows.value.filter((row) => row.item_code).map(({ docname, item_code, qty, rate, uom, vat }) => ({ docname, item_code, qty, rate, uom, vat })),
+			items: rows.value.filter((row) => row.item_code).map(({ docname, item_code, qty, rate, uom, vat, price_change_reason }) => ({ docname, item_code, qty, rate, uom, vat, price_change_reason })),
 		})
-		toast(`${props.doc.name} updated`)
+		toast(result.price_approval_status?.startsWith("Pending") ? `${props.doc.name} is ${result.price_approval_status.toLowerCase()} price approval; existing rates are unchanged` : `${props.doc.name} updated`)
 		emit("updated")
 	} catch (error) {
 		toastError(error)
@@ -69,7 +71,7 @@ async function save() {
 							</td>
 							<td class="num">{{ formatNumber(row.received_qty) }}</td>
 							<td><input v-model.number="row.qty" class="cp-input num" type="number" step="any" :min="Math.max(row.received_qty, 0.0001)" required /></td>
-							<td><input v-model.number="row.rate" class="cp-input num" type="number" step="any" min="0" :disabled="row.billed" :title="row.billed ? 'Already billed — rate is locked' : ''" /></td>
+							<td><input v-model.number="row.rate" class="cp-input num" type="number" step="any" min="0.000001" :disabled="row.billed" :title="row.billed ? 'Already billed — rate is locked' : ''" /><input v-if="controlled && Number(row.rate) !== Number(row.original_rate)" v-model="row.price_change_reason" class="cp-input" style="margin-top: 6px" placeholder="Reason for changed price" /></td>
 							<td>
 								<VatSelect v-if="!row.docname" v-model="row.vat" />
 								<span v-else class="cp-muted" title="Existing lines keep their VAT">{{ VAT_LABELS[row.vat] }}</span>

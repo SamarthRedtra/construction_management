@@ -178,6 +178,11 @@ def _gl_map_debit_credit_diff(gl_map, precision=2):
 
 
 class SalesInvoiceOverride(SalesInvoice):
+	def autoname(self):
+		from construction_management.project_document_naming import assign_project_document_name
+
+		assign_project_document_name(self)
+
 	def validate(self):
 		if self.get("custom_is_advance_release"):
 			from construction_management.api.advance_release import validate_advance_release

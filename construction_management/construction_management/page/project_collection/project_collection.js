@@ -47,6 +47,7 @@ function initialize_collection_manager(wrapper) {
 	let selected_company = frappe.defaults.get_user_default('Company') || '';
 	let active_range = 'this_month';
 	let applying_date_range = false;
+	let initializing = true;
 	let active_view = 'register';
 
 	function to_date_string(value) {
@@ -102,7 +103,7 @@ function initialize_collection_manager(wrapper) {
 			placeholder: __('Select Company'),
 			change() {
 				selected_company = this.get_value() || '';
-				render_front();
+				if (!initializing) render_front();
 			},
 		},
 		render_input: true,
@@ -117,25 +118,27 @@ function initialize_collection_manager(wrapper) {
 			options: 'Customer',
 			placeholder: __('All Customers'),
 			change() {
-				render_front();
+				if (!initializing) render_front();
 			},
 		},
 		render_input: true,
 	});
 	const make_date_control = (selector, fieldname, label) => frappe.ui.form.make_control({
 		parent: wrapper.querySelector(selector),
-		df: { label, fieldname, fieldtype: 'Date', change() { if (!applying_date_range) { update_active_range('custom'); render_front(); } } },
+		df: { label, fieldname, fieldtype: 'Date', change() { if (!initializing && !applying_date_range) { update_active_range('custom'); render_front(); } } },
 		render_input: true,
 	});
 	const from_date_control = make_date_control('#project-collection-from-date-wrapper', 'from_date', __('From Date'));
 	const to_date_control = make_date_control('#project-collection-to-date-wrapper', 'to_date', __('To Date'));
 
-	function apply_date_range(range) {
+	async function apply_date_range(range) {
 		const dates = get_date_range(range);
 		applying_date_range = true;
-		from_date_control.set_value(dates.from_date);
-		to_date_control.set_value(dates.to_date);
-		applying_date_range = false;
+		try {
+			await Promise.all([from_date_control.set_value(dates.from_date), to_date_control.set_value(dates.to_date)]);
+		} finally {
+			applying_date_range = false;
+		}
 		update_active_range(range);
 		render_front();
 	}
@@ -156,10 +159,8 @@ function initialize_collection_manager(wrapper) {
 		company_val = frappe.route_options.company || company_val;
 	}
 
-	if (company_val) {
+	Promise.resolve(company_val ? company_control.set_value(company_val) : null).then(() => {
 		selected_company = company_val;
-		company_control.set_value(company_val);
-	}
-
-	apply_date_range(active_range);
+		return apply_date_range(active_range);
+	}).finally(() => { initializing = false; });
 }

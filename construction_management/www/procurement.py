@@ -6,7 +6,7 @@ import frappe
 from frappe import _
 from frappe.sessions import get_csrf_token
 
-from construction_management.api.controlled_procurement import PURCHASE_ROLES, STOCK_ROLES
+from construction_management.api.controlled_procurement import CATALOG_ROLES
 
 no_cache = 1
 
@@ -17,7 +17,7 @@ ASSET_BASE = "/assets/construction_management/controlled_procurement/"
 def has_app_permission() -> bool:
 	if frappe.session.user == "Guest":
 		return False
-	return bool(set(frappe.get_roles()).intersection(PURCHASE_ROLES | STOCK_ROLES))
+	return bool(set(frappe.get_roles()).intersection(CATALOG_ROLES))
 
 
 def get_context(context):
