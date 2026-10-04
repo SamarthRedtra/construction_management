@@ -516,8 +516,8 @@ construction_management.project_collection.build_invoice_portfolio_html = functi
 			<button type="button" class="collection-register-filter collection-filter-chip active" data-register-filter="all">${__('All Documents')} <span class="chip-count">${rows.length}</span></button>
 			<button type="button" class="collection-register-filter collection-filter-chip" data-register-filter="pc-updated">${__('PC Updated')} <span class="chip-count">${pc_updated_count}</span></button>
 			<label class="collection-remove-paid-control"><input type="checkbox" class="collection-remove-paid-toggle" /> ${__('Remove Paid')}</label>
-			<label class="collection-remove-paid-control collection-type-control"><input type="checkbox" class="collection-advance-toggle" /> ${__('Advance')} <span class="chip-count">${advance_count}</span></label>
-			<label class="collection-remove-paid-control collection-type-control"><input type="checkbox" class="collection-retention-toggle" /> ${__('Retention Release')} <span class="chip-count">${retention_count}</span></label>
+			<label class="collection-remove-paid-control collection-type-control"><input type="checkbox" class="collection-advance-toggle" /> ${__('Remove Advance')} <span class="chip-count">${advance_count}</span></label>
+			<label class="collection-remove-paid-control collection-type-control"><input type="checkbox" class="collection-retention-toggle" /> ${__('Remove Retention')} <span class="chip-count">${retention_count}</span></label>
 		</div>
 		<div class="collection-table-toolbar"><span>${__('Invoice details and collection progress')}</span><span>${__('Scroll horizontally to view all fields')} →</span></div>
 		<div class="collection-grid-scroll"><table class="collection-table border-table collection-billing-grid"><thead><tr>
@@ -538,7 +538,7 @@ construction_management.project_collection.render_expected_payments = function (
 			const headers = (data.months || []).map((month) => `<th class="text-right">${frappe.utils.escape_html(month.label)}</th>`).join('');
 			const rows = (data.rows || []).map((row, index) => `<tr><td class="text-center">${index + 1}</td><td>${frappe.utils.escape_html(row.customer_name || row.customer)}</td>${data.months.map((month) => construction_management.project_collection.build_expected_payment_cell(row, month, index, fmt)).join('')}</tr>`).join('') || `<tr><td colspan="${(data.months || []).length + 2}" class="text-center text-muted">${__('No outstanding payments due in these months')}</td></tr>`;
 			const totals = (data.months || []).map((month) => `<td class="text-right">${fmt((data.rows || []).reduce((sum, row) => sum + flt(row.amounts[month.key] || 0), 0), 'Currency')}</td>`).join('');
-			const html = `<div class="collection-expected-payments"><div class="collection-register-heading"><div><p class="collection-eyebrow">${__('Cash forecast')}</p><h2 class="collection-section-title">${__('Expected Payments by Customer')}</h2><p class="collection-section-sub">${__('Outstanding Tax Invoices grouped by expected payment date: cheque date, else follow-up collection date, else project terms, else invoice due date')}</p></div></div><div class="collection-grid-scroll"><table class="collection-table border-table collection-expected-table"><thead><tr><th>${__('Sr No')}</th><th>${__('Customer')}</th>${headers}</tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="2">${__('Total')}</td>${totals}</tr></tfoot></table></div></div>`;
+			const html = `<div class="collection-expected-payments"><div class="collection-register-heading"><div><p class="collection-eyebrow">${__('Cash forecast')}</p><h2 class="collection-section-title">${__('Expected Payments by Customer')}</h2><p class="collection-section-sub">${__('Unpaid Tax Invoices and unbilled Proforma balances, grouped by expected payment month')}</p></div></div><div class="collection-grid-scroll"><table class="collection-table border-table collection-expected-table"><thead><tr><th>${__('Sr No')}</th><th>${__('Customer')}</th>${headers}</tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="2">${__('Total')}</td>${totals}</tr></tfoot></table></div></div>`;
 			if (replace) $container.html(html); else $container.append(html);
 			construction_management.project_collection.bind_expected_payment_events($container, data);
 		},
@@ -585,17 +585,18 @@ construction_management.project_collection.show_expected_payment_dialog = functi
 
 	const project_html = Object.values(project_groups).map((group) => {
 		const invoices = group.invoices.map((invoice) => {
-			const orders = (invoice.sales_orders || []).length
+			const is_proforma = invoice.doctype === 'Sales Order';
+			const orders = !is_proforma && (invoice.sales_orders || []).length
 				? invoice.sales_orders.map((order) => `<a href="/app/sales-order/${encodeURIComponent(order.name)}" target="_blank" rel="noopener">${frappe.utils.escape_html(order.name)}</a>`).join(', ')
 				: `<span class="collection-expected-unlinked">${__('No Sales Order linked')}</span>`;
 			return `<article class="collection-expected-invoice">
 				<div class="collection-expected-invoice-main">
-					<div><small>${__('Sales Invoice')}</small><a href="/app/sales-invoice/${encodeURIComponent(invoice.invoice)}" target="_blank" rel="noopener">${frappe.utils.escape_html(invoice.invoice)}</a></div>
+					<div><small>${is_proforma ? __('Proforma (Sales Order)') : __('Sales Invoice')}</small><a href="/app/${is_proforma ? 'sales-order' : 'sales-invoice'}/${encodeURIComponent(invoice.invoice)}" target="_blank" rel="noopener">${frappe.utils.escape_html(invoice.invoice)}</a></div>
 					<strong>${fmt(invoice.outstanding_amount, 'Currency')}</strong>
 				</div>
-				<div class="collection-expected-invoice-meta"><span><b>${__('Sales Order')}</b> ${orders}</span>
+				<div class="collection-expected-invoice-meta">${is_proforma ? '' : `<span><b>${__('Sales Order')}</b> ${orders}</span>`}
 					<span><b>${__('Expected')}</b> ${fmt_date(invoice.expected_date)} · ${frappe.utils.escape_html(invoice.basis || '')}${invoice.carried_forward ? ` · ${__('Carried forward')}` : ''}</span>
-					<span><b>${__('Invoice due')}</b> ${fmt_date(invoice.due_date) || '—'}</span>
+					${is_proforma ? '' : `<span><b>${__('Invoice due')}</b> ${fmt_date(invoice.due_date) || '—'}</span>`}
 					${row.customer_ids?.length > 1 ? `<span><b>${__('Customer record')}</b> ${frappe.utils.escape_html(invoice.customer || '')}</span>` : ''}
 				</div>
 			</article>`;
@@ -605,7 +606,7 @@ construction_management.project_collection.show_expected_payment_dialog = functi
 				data-project="${frappe.utils.escape_html(group.project)}">${__('Open Project SOA')}</button>`
 			: `<span class="text-muted">${__('No project linked')}</span>`;
 		return `<section class="collection-expected-project-group">
-			<div class="collection-expected-project-heading"><div><strong>${frappe.utils.escape_html(group.project_name || __('Unassigned Project'))}</strong><small>${group.invoices.length} ${__('invoice(s)')}</small></div>${project_action}</div>
+			<div class="collection-expected-project-heading"><div><strong>${frappe.utils.escape_html(group.project_name || __('Unassigned Project'))}</strong><small>${group.invoices.length} ${__('document(s)')}</small></div>${project_action}</div>
 			<div class="collection-expected-invoices">${invoices}</div>
 		</section>`;
 	}).join('');
@@ -914,17 +915,17 @@ construction_management.project_collection.bind_invoice_portfolio_events = funct
 	const apply_register_filters = () => {
 		const filter = $container.find('.collection-register-filter.active').data('register-filter') || 'all';
 		const remove_paid = $container.find('.collection-remove-paid-toggle').is(':checked');
-		const advance_only = $container.find('.collection-advance-toggle').is(':checked');
-		const retention_only = $container.find('.collection-retention-toggle').is(':checked');
+		const remove_advance = $container.find('.collection-advance-toggle').is(':checked');
+		const remove_retention = $container.find('.collection-retention-toggle').is(':checked');
 
 		$container.find('.collection-billing-row').each(function () {
 			const $row = $(this);
 			const matches_pc_filter = filter === 'all' || $row.attr('data-pc-updated') === '1';
 			const is_paid = $row.attr('data-category') === 'paid';
-			const matches_type = (!advance_only && !retention_only)
-				|| (advance_only && $row.attr('data-advance') === '1')
-				|| (retention_only && $row.attr('data-retention-release') === '1');
-			$row.toggle(matches_pc_filter && matches_type && !(remove_paid && is_paid));
+			const is_advance = $row.attr('data-advance') === '1';
+			const is_retention = $row.attr('data-retention-release') === '1';
+			$row.toggle(matches_pc_filter && !(remove_advance && is_advance)
+				&& !(remove_retention && is_retention) && !(remove_paid && is_paid));
 		});
 
 		// Keep a project heading visible only when it still contains a visible row.

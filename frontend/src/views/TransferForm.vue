@@ -77,7 +77,7 @@ onMounted(async () => {
 
 		<section class="cp-section">
 			<div class="cp-section-bar">
-				<h2 class="cp-section-title">Stockable items</h2>
+				<h2 class="cp-section-title">Stock items</h2>
 				<button type="button" class="cp-link" @click="addRow">+ Add item</button>
 			</div>
 			<div class="cp-card">
@@ -101,7 +101,7 @@ onMounted(async () => {
 					</tbody>
 				</table>
 			</div>
-			<p class="cp-hint">Only controlled Stockable items can be transferred. Available now is the current physical balance in the From warehouse; stock is checked again on submission.</p>
+			<p class="cp-hint">Controlled Stockable and Consumable items can be transferred. Available now is the current physical balance in the From warehouse; stock is checked again on submission.</p>
 			<p v-if="stockError" class="cp-hint cp-warn">Could not preview stock: {{ stockError }}</p>
 		</section>
 	</form>

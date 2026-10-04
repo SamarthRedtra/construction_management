@@ -158,7 +158,7 @@ def create_controlled_procurement_fields():
 		},
 		{
 			"dt": "Item", "fieldname": "controlled_item_type", "label": "Controlled Item Type",
-			"fieldtype": "Select", "options": "\nStockable\nAsset\nService",
+			"fieldtype": "Select", "options": "\nStockable\nConsumable\nAsset\nService",
 			"insert_after": "controlled_procurement_catalog", "read_only": 1,
 		},
 		{
@@ -213,6 +213,11 @@ def create_controlled_procurement_fields():
 	])
 	for field_def in fields_to_create:
 		create_custom_field_if_not_exists(field_def)
+	item_type_options = "\nStockable\nConsumable\nAsset\nService"
+	field_name = frappe.db.get_value("Custom Field", {"dt": "Item", "fieldname": "controlled_item_type"}, "name")
+	if field_name and frappe.db.get_value("Custom Field", field_name, "options") != item_type_options:
+		frappe.db.set_value("Custom Field", field_name, "options", item_type_options)
+		frappe.clear_cache(doctype="Item")
 	create_lpo_fields()
 	_upsert_property_setter("Purchase Receipt", "supplier_delivery_note", "reqd", "1")
 	_catalog_source_options = "\nWorkbook Import\nCEO Manual\nManual Request"

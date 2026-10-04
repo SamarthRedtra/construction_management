@@ -84,11 +84,13 @@ function initialize_collection_manager(wrapper) {
 	}
 
 	function render_front() {
+		const date_filters = active_view === 'register'
+			? { from_date: from_date_control.get_value() || '', to_date: to_date_control.get_value() || '' }
+			: {};
 		construction_management.project_collection.render_invoice_portfolio(container_el, {
 			company: selected_company,
 			customer: customer_control.get_value() || '',
-			from_date: from_date_control.get_value() || '',
-			to_date: to_date_control.get_value() || '',
+			...date_filters,
 			view: active_view,
 		});
 	}
@@ -151,6 +153,9 @@ function initialize_collection_manager(wrapper) {
 		page_body.find('.collection-view-toggle').toggleClass('active', function () {
 			return $(this).data('view') === active_view;
 		});
+		page_body.find('.collection-period-bar, #project-collection-from-date-wrapper, #project-collection-to-date-wrapper')
+			.toggle(active_view === 'register');
+		page_body.find('.project-collection-filters-row').toggleClass('collection-expected-filters', active_view === 'expected');
 		render_front();
 	});
 

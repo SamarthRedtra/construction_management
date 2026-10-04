@@ -9,6 +9,54 @@ from construction_management.api import controlled_procurement
 
 
 class TestControlledProcurement(UnitTestCase):
+	@patch("construction_management.api.controlled_procurement.frappe.db.sql", side_effect=[[], [[0]]])
+	@patch("construction_management.api.controlled_procurement._document_company", return_value="MRG")
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_consumable_catalog_filter_and_stock_status(self, _require, _company, sql):
+		controlled_procurement.get_catalog(item_type="Consumable", stock_status="in_stock")
+		self.assertIn("item.controlled_item_type = %(item_type)s", sql.call_args_list[0].args[0])
+		self.assertIn("item.controlled_item_type IN ('Stockable', 'Consumable')", sql.call_args_list[0].args[0])
+		self.assertEqual(sql.call_args_list[0].args[1]["item_type"], "Consumable")
+
+	@patch("construction_management.api.controlled_procurement._item_code", return_value="CP-CONSUMABLE")
+	@patch("construction_management.api.controlled_procurement.frappe.new_doc")
+	def test_approved_consumable_is_created_as_stock_item(self, new_doc, _item_code):
+		item = new_doc.return_value
+		item.is_new.return_value = True
+		item.name = "CP-CONSUMABLE"
+		row = SimpleNamespace(result_item="", item_code="", item_name="Consumable", item_group="Products",
+			item_type="Consumable", asset_category="", expense_account="", supplier="", rate=0)
+		doc = SimpleNamespace(items=[row], source="Manual Request", company="MRG", name="CCR-1")
+
+		controlled_procurement._materialize_catalog_request_items(doc)
+
+		self.assertTrue(any(call.args[0].get("is_stock_item") == 1 for call in item.update.call_args_list))
+		self.assertEqual(row.result_item, "CP-CONSUMABLE")
+
+	@patch("construction_management.api.controlled_procurement.frappe.get_all", return_value=[])
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
+	@patch("construction_management.api.controlled_procurement._catalog_item",
+		return_value=SimpleNamespace(controlled_item_type="Consumable", is_stock_item=1))
+	@patch("construction_management.api.controlled_procurement._document_company", return_value="MRG")
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_consumable_transfer_stock_preview(self, _require, _company, _item, _exists, _bins):
+		result = controlled_procurement.get_transfer_stock_preview("Stores - MRG", ["CP-CONSUMABLE"])
+		self.assertEqual(result["balances"], {"CP-CONSUMABLE": 0.0})
+
+	@patch("construction_management.api.controlled_procurement.frappe.new_doc")
+	@patch("construction_management.api.controlled_procurement._validate_company_links")
+	@patch("construction_management.api.controlled_procurement._catalog_item",
+		return_value=SimpleNamespace(name="CP-CONSUMABLE", controlled_item_type="Consumable", is_stock_item=1))
+	@patch("construction_management.api.controlled_procurement._allowed_companies", return_value={"MRG"})
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_consumable_opening_stock(self, _require, _companies, _item, _links, new_doc):
+		new_doc.return_value.doctype = "Stock Reconciliation"
+		new_doc.return_value.name = "MAT-RECO-1"
+		result = controlled_procurement.record_opening_stock({"company": "MRG", "posting_date": "2026-10-04",
+			"items": [{"item_code": "CP-CONSUMABLE", "warehouse": "Stores - MRG", "qty": 5, "valuation_rate": 10}]})
+		self.assertEqual(result["name"], "MAT-RECO-1")
+		new_doc.return_value.submit.assert_called_once()
+
 	@patch("construction_management.api.controlled_procurement.frappe.get_list")
 	@patch("construction_management.api.controlled_procurement.frappe.get_all", return_value=["SUP-2", "SUP-1"])
 	@patch("construction_management.api.controlled_procurement.frappe.db.get_value", side_effect=[0, 1])

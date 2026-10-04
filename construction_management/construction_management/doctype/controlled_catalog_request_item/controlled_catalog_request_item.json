@@ -9,7 +9,7 @@
   {"fieldname":"item_code","fieldtype":"Data","label":"Item Code","in_list_view":1},
   {"fieldname":"item_name","fieldtype":"Data","label":"Description","reqd":1,"in_list_view":1},
   {"fieldname":"item_group","fieldtype":"Link","label":"Item Group","options":"Item Group","reqd":1,"in_list_view":1},
-  {"fieldname":"item_type","fieldtype":"Select","label":"Item Type","options":"Stockable\nAsset\nService","reqd":1,"in_list_view":1},
+  {"fieldname":"item_type","fieldtype":"Select","label":"Item Type","options":"Stockable\nConsumable\nAsset\nService","reqd":1,"in_list_view":1},
   {"fieldname":"asset_category","fieldtype":"Link","label":"Asset Category","options":"Asset Category"},
   {"fieldname":"expense_account","fieldtype":"Link","label":"Expense Account","options":"Account"},
   {"fieldname":"supplier","fieldtype":"Link","label":"Supplier","options":"Supplier"},

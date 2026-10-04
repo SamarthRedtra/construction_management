@@ -410,7 +410,7 @@ def _get_unlinked_tax_invoices_without_project(company: str, filters: dict) -> l
 
 
 def get_collection_expected_payments(company: str, filters: dict | None = None) -> dict:
-	"""Return a rolling three-month forecast of outstanding tax invoices.
+	"""Return a rolling three-month forecast of tax invoices and unbilled orders.
 
 	Each invoice lands in the month it is actually expected to be paid: its post-dated
 	cheque date, else its SOA follow-up collection due date, else the project's overdue
@@ -419,7 +419,7 @@ def get_collection_expected_payments(company: str, filters: dict | None = None) 
 	if not company:
 		frappe.throw(_("Company is required"))
 	filters = filters or {}
-	anchor = _get_expected_payment_anchor(filters)
+	anchor = getdate(today()).replace(day=1)
 	months = [getdate(add_months(anchor, offset)).replace(day=1) for offset in range(3)]
 	end_date = getdate(add_days(getdate(add_months(months[-1], 1)).replace(day=1), -1))
 	conditions = [
@@ -427,6 +427,8 @@ def get_collection_expected_payments(company: str, filters: dict | None = None) 
 		"si.docstatus = 1",
 		"si.outstanding_amount > 0",
 	]
+	if frappe.db.has_column("Sales Invoice", "custom_is_proforma"):
+		conditions.append("IFNULL(si.custom_is_proforma, 0) = 0")
 	values = {"company": company}
 	if filters.get("customer"):
 		conditions.append("si.customer = %(customer)s")
@@ -459,40 +461,131 @@ def get_collection_expected_payments(company: str, filters: dict | None = None) 
 	by_customer = {}
 	for entry in entries:
 		expected_date, basis = _expected_payment_date(entry, lookups)
-		if not expected_date or expected_date > end_date:
-			continue
-		customer_name = (entry.customer_name or entry.customer or "").strip()
-		customer_key = customer_name.casefold()
-		row = by_customer.setdefault(customer_key, {
-			"customer": entry.customer,
-			"customer_name": customer_name,
-			"customer_ids": [],
-			"amounts": {},
-			"details": {},
-		})
-		if entry.customer not in row["customer_ids"]:
-			row["customer_ids"].append(entry.customer)
-		expected_month = expected_date.replace(day=1)
-		forecast_month = max(expected_month, anchor)
-		month_key = forecast_month.isoformat()
-		row["amounts"][month_key] = flt(row["amounts"].get(month_key)) + flt(entry.outstanding_amount)
-		row["details"].setdefault(month_key, []).append({
+		_add_expected_payment(by_customer, entry, anchor, end_date, expected_date, {
+			"doctype": "Sales Invoice",
 			"invoice": entry.invoice,
 			"customer": entry.customer,
 			"sales_orders": [
 				{"name": name, "project": (lookups.get("sales_order_projects") or {}).get(name) or ""}
 				for name in lookups["invoice_sales_orders"].get(entry.invoice, [])
 			],
-			"project": entry.project or "",
-			"project_name": entry.project_name or entry.project or "",
 			"due_date": entry.due_date,
-			"expected_date": expected_date,
 			"basis": basis,
 			"outstanding_amount": flt(entry.outstanding_amount),
-			"carried_forward": expected_month < anchor,
+		})
+	for order in _expected_proforma_entries(company, filters.get("customer")):
+		expected_date, basis = _expected_proforma_date(order)
+		_add_expected_payment(by_customer, order, anchor, end_date, expected_date, {
+			"doctype": "Sales Order",
+			"invoice": order.name,
+			"customer": order.customer,
+			"sales_orders": [],
+			"due_date": None,
+			"basis": basis,
+			"outstanding_amount": order.unbilled_amount,
 		})
 	rows = sorted(by_customer.values(), key=lambda row: row["customer_name"] or row["customer"])
 	return {"months": [{"key": month.isoformat(), "label": month.strftime("%b %Y")} for month in months], "rows": rows}
+
+
+def _add_expected_payment(by_customer, entry, anchor, end_date, expected_date, detail):
+	if not expected_date or expected_date > end_date or flt(detail["outstanding_amount"]) <= 0:
+		return
+	customer_name = (entry.customer_name or entry.customer or "").strip()
+	row = by_customer.setdefault(customer_name.casefold(), {
+		"customer": entry.customer, "customer_name": customer_name,
+		"customer_ids": [], "amounts": {}, "details": {},
+	})
+	if entry.customer not in row["customer_ids"]:
+		row["customer_ids"].append(entry.customer)
+	expected_month = expected_date.replace(day=1)
+	month_key = max(expected_month, anchor).isoformat()
+	row["amounts"][month_key] = flt(row["amounts"].get(month_key)) + flt(detail["outstanding_amount"])
+	row["details"].setdefault(month_key, []).append({
+		**detail, "project": entry.project or "",
+		"project_name": entry.project_name or entry.project or "",
+		"expected_date": expected_date, "carried_forward": expected_month < anchor,
+	})
+
+
+def _expected_proforma_entries(company: str, customer: str | None) -> list:
+	filters = {"company": company, "docstatus": 1}
+	if customer:
+		filters["customer"] = customer
+	orders = frappe.get_all("Sales Order", filters=filters,
+		fields=["name", "customer", "project", "transaction_date", "grand_total", "advance_paid", "status"],
+		limit_page_length=0)
+	orders = [order for order in orders if order.status not in {"Closed", "Cancelled"}]
+	if not orders:
+		return []
+	names = [order.name for order in orders]
+	linked_invoices = _linked_invoice_names_for_orders(company, names)
+	allocations = _get_invoice_sales_order_allocations(linked_invoices)
+	billed = {name: 0.0 for name in names}
+	for invoice_allocations in allocations.values():
+		for order_name, allocation in invoice_allocations.items():
+			if order_name in billed:
+				billed[order_name] += flt(allocation["allocated_grand_total"])
+	project_names = list({order.project for order in orders if order.project})
+	project_fields = ["name", "project_name"]
+	if frappe.db.has_column("Project", "custom_collection_overdue_days"):
+		project_fields.append("custom_collection_overdue_days")
+	projects = {row.name: row for row in frappe.get_all("Project",
+		filters={"name": ["in", project_names], "company": company},
+		fields=project_fields, limit_page_length=0)} if project_names else {}
+	customer_names = _customer_name_map([order.customer for order in orders])
+	follow_ups = _expected_order_follow_ups(names)
+	result = []
+	for order in orders:
+		# ERPNext's advance_paid is the balance still attached to this order, after invoice allocations.
+		remaining = max(0, flt(order.grand_total) - billed[order.name] - flt(order.advance_paid))
+		if not remaining:
+			continue
+		project = projects.get(order.project)
+		order.customer_name = customer_names.get(order.customer) or order.customer
+		order.project_name = project.project_name if project else (order.project or "")
+		order.overdue_days = cint(project.get("custom_collection_overdue_days")) if project else 0
+		order.follow_up_date = follow_ups.get(order.name)
+		order.unbilled_amount = remaining
+		result.append(order)
+	return result
+
+
+def _linked_invoice_names_for_orders(company: str, order_names: list[str]) -> list[str]:
+	item_links = frappe.get_all("Sales Invoice Item",
+		filters={"sales_order": ["in", order_names], "docstatus": 1}, fields=["parent"], limit_page_length=0)
+	header_links = frappe.get_all("Sales Invoice",
+		filters={"company": company, "docstatus": 1, "custom_sales_order": ["in", order_names]},
+		fields=["name"], limit_page_length=0)
+	invoice_names = {row.parent for row in item_links} | {row.name for row in header_links}
+	if not invoice_names:
+		return []
+	invoice_filters = {"name": ["in", list(invoice_names)], "company": company, "docstatus": 1}
+	fields = ["name"]
+	if frappe.db.has_column("Sales Invoice", "custom_is_proforma"):
+		fields.append("custom_is_proforma")
+	return [row.name for row in frappe.get_all("Sales Invoice", filters=invoice_filters,
+		fields=fields, limit_page_length=0) if not cint(row.get("custom_is_proforma"))]
+
+
+def _expected_order_follow_ups(order_names: list[str]) -> dict[str, str]:
+	if not frappe.db.table_exists("Project SOA Follow Up"):
+		return {}
+	latest = {}
+	for row in frappe.get_all("Project SOA Follow Up",
+		filters={"reference_doctype": "Sales Order", "reference_name": ["in", order_names],
+			"collection_due_date": ["is", "set"]},
+		fields=["reference_name", "collection_due_date"], order_by="creation asc", limit_page_length=0):
+		latest[row.reference_name] = row.collection_due_date
+	return latest
+
+
+def _expected_proforma_date(order):
+	if order.follow_up_date:
+		return getdate(order.follow_up_date), _("Follow-up")
+	if order.transaction_date and order.overdue_days > 0:
+		return getdate(add_days(getdate(order.transaction_date), order.overdue_days)), _("Project terms")
+	return (getdate(order.transaction_date), _("Sales Order date")) if order.transaction_date else (None, "")
 
 
 def _expected_payment_date(entry, lookups: dict):
@@ -601,13 +694,6 @@ def _batch_pdc_map(invoice_names: list[str]) -> dict[str, dict]:
 		{"invoice_names": tuple(invoice_names)}, as_dict=True,
 	)
 	return {row.reference_name: row for row in reversed(rows)}
-
-
-def _get_expected_payment_anchor(filters: dict):
-	"""Start forecasts no earlier than the current calendar month."""
-	current_month = getdate(today()).replace(day=1)
-	from_month = getdate(filters.get("from_date") or current_month).replace(day=1)
-	return max(current_month, from_month)
 
 
 def get_collection_project_rows(project: str, include_follow_ups: bool = True) -> dict:

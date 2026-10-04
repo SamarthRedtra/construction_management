@@ -510,6 +510,10 @@
 	box-shadow: 0 5px 16px rgba(31, 54, 74, 0.05);
 }
 
+.project-collection-filters-row.collection-expected-filters {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .project-collection-filters-row > div {
 	min-width: 0;
 	max-width: none;
@@ -884,7 +888,8 @@
 }
 
 @media (max-width: 560px) {
-	.project-collection-filters-row { grid-template-columns: 1fr; }
+	.project-collection-filters-row,
+	.project-collection-filters-row.collection-expected-filters { grid-template-columns: 1fr; }
 	.collection-period-bar { align-items: flex-start; }
 	.collection-title-main { font-size: 23px; }
 	.collection-title-main::after { font-size: 10px; }

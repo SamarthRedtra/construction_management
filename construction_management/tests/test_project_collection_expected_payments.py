@@ -3,7 +3,12 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from construction_management.api.project_collection_data import _expected_payment_date, _invoice_sales_order_links, get_collection_expected_payments
+from construction_management.api.project_collection_data import (
+	_expected_payment_date,
+	_expected_proforma_entries,
+	_invoice_sales_order_links,
+	get_collection_expected_payments,
+)
 
 
 NO_LOOKUPS = {"cheque_dates": {}, "follow_up_dates": {}, "invoice_sales_orders": {}, "sales_order_dates": {}}
@@ -38,6 +43,58 @@ class TestCollectionExpectedPayments(FrappeTestCase):
 
 		self.assertEqual(links["SINV-1"], ["SO-HEADER", "SO-ITEM"])
 		self.assertEqual(links["SINV-UNLINKED"], [])
+
+	@patch("construction_management.api.project_collection_data._expected_order_follow_ups", return_value={})
+	@patch("construction_management.api.project_collection_data._customer_name_map", return_value={"CUST-001": "Customer One"})
+	@patch("construction_management.api.project_collection_data._get_invoice_sales_order_allocations")
+	@patch("construction_management.api.project_collection_data._linked_invoice_names_for_orders", return_value=["SINV-1"])
+	@patch("construction_management.api.project_collection_data.frappe.get_all")
+	def test_proforma_remainder_subtracts_billed_and_unallocated_advance(
+		self, get_all, _linked, allocations, _names, _follow_ups,
+	):
+		get_all.side_effect = [
+			[frappe._dict(name="SO-1", customer="CUST-001", project="PROJ-001",
+				transaction_date="2026-10-01", grand_total=1000, advance_paid=100, status="To Bill")],
+			[frappe._dict(name="PROJ-001", project_name="Project One", custom_collection_overdue_days=30)],
+		]
+		allocations.return_value = {"SINV-1": {"SO-1": {"allocated_grand_total": 400}}}
+
+		rows = _expected_proforma_entries("Test Company", "CUST-001")
+
+		self.assertEqual(rows[0].unbilled_amount, 500)
+		self.assertEqual(get_all.call_args_list[0].kwargs["filters"]["customer"], "CUST-001")
+
+	@patch("construction_management.api.project_collection_data._expected_order_follow_ups", return_value={})
+	@patch("construction_management.api.project_collection_data._customer_name_map", return_value={})
+	@patch("construction_management.api.project_collection_data._get_invoice_sales_order_allocations")
+	@patch("construction_management.api.project_collection_data._linked_invoice_names_for_orders", return_value=["SINV-1"])
+	@patch("construction_management.api.project_collection_data.frappe.get_all")
+	def test_fully_billed_proforma_is_not_forecast(self, get_all, _linked, allocations, _names, _follow_ups):
+		get_all.return_value = [frappe._dict(name="SO-1", customer="CUST-001", project="",
+			transaction_date="2026-10-01", grand_total=1000, advance_paid=0, status="Completed")]
+		allocations.return_value = {"SINV-1": {"SO-1": {"allocated_grand_total": 1000}}}
+
+		self.assertEqual(_expected_proforma_entries("Test Company", None), [])
+
+	@patch("construction_management.api.project_collection_data._expected_proforma_entries")
+	@patch(LOOKUPS, return_value=NO_LOOKUPS)
+	@patch("construction_management.api.project_collection_data.frappe.db.sql")
+	@patch("construction_management.api.project_collection_data.today", return_value="2026-10-04")
+	def test_tax_invoice_and_unbilled_proforma_share_forecast_without_double_counting(
+		self, _today, sql, _lookups, proformas,
+	):
+		sql.return_value = [invoice("SINV-1", "2026-10-10", 250)]
+		proformas.return_value = [frappe._dict(name="SO-1", customer="CUST-001",
+			customer_name="Customer One", project="PROJ-001", project_name="Project One",
+			transaction_date="2026-10-01", overdue_days=0, follow_up_date=None,
+			unbilled_amount=500)]
+
+		result = get_collection_expected_payments("Test Company", {"customer": "CUST-001", "from_date": "2027-01-01"})
+
+		self.assertEqual(result["months"][0]["key"], "2026-10-01")
+		self.assertEqual(result["rows"][0]["amounts"]["2026-10-01"], 750)
+		details = result["rows"][0]["details"]["2026-10-01"]
+		self.assertEqual({entry["doctype"] for entry in details}, {"Sales Invoice", "Sales Order"})
 
 	def test_extra_display_link_does_not_change_forecast_date(self):
 		entry = invoice("SINV-1", "2026-10-01", 100)

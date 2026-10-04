@@ -25,9 +25,9 @@ const search = debounce(async () => {
 	if (props.disabled) return
 	const supplier = props.supplier
 	const searched = query.value
-	const result = await call("get_catalog", { search: searched, supplier, page_length: 20 })
+	const result = await call("get_catalog", { search: searched, supplier, stock_only: props.stockableOnly ? 1 : 0, page_length: 20 })
 	if (supplier !== props.supplier || searched !== query.value) return
-	results.value = props.stockableOnly ? result.rows.filter((item) => item.controlled_item_type === "Stockable") : result.rows
+	results.value = result.rows
 	place()
 }, 250)
 

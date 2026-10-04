@@ -25,6 +25,8 @@ ACCOUNT_ROLES = {"Accounts User", "Accounts Manager"}
 CATALOG_ROLES = PURCHASE_ROLES | STOCK_ROLES | ACCOUNT_ROLES
 OPENING_STOCK_ROLES = ACCOUNT_ROLES | ADMIN_ROLES
 STOCKABLE = "Stockable"
+CONSUMABLE = "Consumable"
+STOCK_TYPES = {STOCKABLE, CONSUMABLE}
 ASSET = "Asset"
 SERVICE = "Service"
 SUPPLIER_TYPES = {"Company", "Individual", "Partnership"}
@@ -230,7 +232,7 @@ CATALOG_SORT_FIELDS = {
 def get_catalog(
 	company: str = "", search: str = "", start: int = 0, page_length: int = 50,
 	item_type: str = "", item_group: str = "", source: str = "", stock_status: str = "",
-	sort_by: str = "item_name", sort_order: str = "asc", supplier: str = "",
+	sort_by: str = "item_name", sort_order: str = "asc", supplier: str = "", stock_only: int = 0,
 ) -> dict:
 	"""Filter and sort the full approved catalog before pagination."""
 	_require(CATALOG_ROLES)
@@ -239,7 +241,7 @@ def get_catalog(
 		frappe.throw(_("Invalid catalog sort option."))
 	if stock_status not in {"", "in_stock", "out_of_stock"}:
 		frappe.throw(_("Invalid stock filter."))
-	if item_type and item_type not in {STOCKABLE, ASSET, SERVICE}:
+	if item_type and item_type not in STOCK_TYPES | {ASSET, SERVICE}:
 		frappe.throw(_("Invalid catalog item type."))
 
 	conditions = ["item.disabled = 0", "item.is_purchase_item = 1", "item.controlled_procurement_catalog = 1", "item.stock_uom = 'Nos'"]
@@ -251,8 +253,9 @@ def get_catalog(
 		if value:
 			conditions.append(f"item.{column} = %({key})s")
 			params[key] = value
+	if stock_status or cint(stock_only):
+		conditions.append("item.controlled_item_type IN ('Stockable', 'Consumable')")
 	if stock_status:
-		conditions.append("item.controlled_item_type = 'Stockable'")
 		conditions.append("COALESCE(stock.actual_qty, 0) > 0" if stock_status == "in_stock" else "COALESCE(stock.actual_qty, 0) <= 0")
 	if supplier:
 		conditions.append("EXISTS (SELECT 1 FROM `tabItem Supplier` item_supplier WHERE item_supplier.parent = item.name AND item_supplier.parenttype = 'Item' AND item_supplier.supplier = %(supplier)s)")
@@ -1166,8 +1169,8 @@ def create_material_transfer(data: str | dict) -> dict:
 	})
 	for row_data in items:
 		item = _catalog_item(row_data.get("item_code"))
-		if item.controlled_item_type != STOCKABLE or not cint(item.is_stock_item):
-			frappe.throw(_("Only controlled Stockable items can be transferred."))
+		if item.controlled_item_type not in STOCK_TYPES or not cint(item.is_stock_item):
+			frappe.throw(_("Only controlled Stockable or Consumable items can be transferred."))
 		_append_item(doc, {**row_data, "source_warehouse": source, "target_warehouse": target}, {}, warehouses=True)
 	doc.flags.controlled_procurement_api = True
 	doc.insert()
@@ -1199,8 +1202,8 @@ def get_transfer_stock_preview(source_warehouse: str, item_codes: str | list[str
 	codes = list(dict.fromkeys(item_codes))
 	for code in codes:
 		item = _catalog_item(code)
-		if item.controlled_item_type != STOCKABLE or not cint(item.is_stock_item):
-			frappe.throw(_("Only controlled Stockable items can be transferred."))
+		if item.controlled_item_type not in STOCK_TYPES or not cint(item.is_stock_item):
+			frappe.throw(_("Only controlled Stockable or Consumable items can be transferred."))
 	balances = dict.fromkeys(codes, 0.0)
 	if codes:
 		for row in frappe.get_all("Bin", filters={"warehouse": source_warehouse, "item_code": ["in", codes]}, fields=["item_code", "actual_qty"]):
@@ -1225,8 +1228,8 @@ def update_material_transfer(name: str, data: str | dict) -> dict:
 	doc.set("items", [])
 	for row in items:
 		item = _catalog_item(row.get("item_code"))
-		if item.controlled_item_type != STOCKABLE or not cint(item.is_stock_item):
-			frappe.throw(_("Only controlled Stockable items can be transferred."))
+		if item.controlled_item_type not in STOCK_TYPES or not cint(item.is_stock_item):
+			frappe.throw(_("Only controlled Stockable or Consumable items can be transferred."))
 		_append_item(doc, {**row, "source_warehouse": source, "target_warehouse": target}, {}, warehouses=True)
 	doc.flags.controlled_procurement_api = True
 	doc.save()
@@ -1890,8 +1893,9 @@ def download_catalog_template() -> dict:
 		"Add one item per row on Catalog Items; do not change the column headers.",
 		"Description, Item Group, Item Type, and Supplier are required on every row.",
 		"Supplier must be an existing Supplier ID; select it from the Procurement supplier list.",
-		"Item Type must be Stockable, Asset, or Service.",
+		"Item Type must be Stockable, Consumable, Asset, or Service.",
 		"Example Stockable row: Description = Example stock item; Item Group = Products; Item Type = Stockable; Supplier = an existing Supplier ID.",
+		"Example Consumable row: Description = Example consumable; Item Group = Products; Item Type = Consumable; Supplier = an existing Supplier ID.",
 		"Asset Category is needed for Asset rows unless a company default is configured.",
 		"Expense Account is needed for Service rows unless a company default is configured.",
 		"Item Code is optional; Rates may be zero.",
@@ -1924,8 +1928,8 @@ def _catalog_request_status(items: list[dict] | None = None) -> str:
 
 def _catalog_request_row(data: dict, company: str) -> dict:
 	item_type = data.get("item_type") or STOCKABLE
-	if item_type not in {STOCKABLE, ASSET, SERVICE}:
-		frappe.throw(_("Select Stockable, Asset, or Service."))
+	if item_type not in STOCK_TYPES | {ASSET, SERVICE}:
+		frappe.throw(_("Select Stockable, Consumable, Asset, or Service."))
 	if not data.get("item_name") or not data.get("item_group"):
 		frappe.throw(_("Every catalog row needs a Description and Item Group."))
 	if not frappe.db.exists("Item Group", data["item_group"]):
@@ -2141,7 +2145,7 @@ def _materialize_catalog_request_items(doc) -> None:
 			"controlled_catalog_source": "Workbook Import" if doc.source == "Workbook Import" else "Manual Request",
 			"controlled_catalog_version": doc.name,
 		})
-		if row.item_type == STOCKABLE:
+		if row.item_type in STOCK_TYPES:
 			item.update({"is_stock_item": 1, "is_fixed_asset": 0})
 		elif row.item_type == ASSET:
 			item.update({"is_stock_item": 0, "is_fixed_asset": 1, "asset_category": row.asset_category or None})
@@ -2190,8 +2194,8 @@ def record_opening_stock(data: str | dict) -> dict:
 	for row in rows:
 		item = _catalog_item(row.get("item_code"))
 		warehouse = row.get("warehouse")
-		if item.controlled_item_type != STOCKABLE or not cint(item.is_stock_item):
-			frappe.throw(_("Opening stock accepts Stockable catalog items only."))
+		if item.controlled_item_type not in STOCK_TYPES or not cint(item.is_stock_item):
+			frappe.throw(_("Opening stock accepts Stockable or Consumable catalog items only."))
 		_validate_company_links(company, warehouse=warehouse)
 		if not warehouse or flt(row.get("qty")) < 0 or flt(row.get("valuation_rate")) < 0:
 			frappe.throw(_("Warehouse, quantity, and valuation rate must be non-negative."))
@@ -2240,8 +2244,8 @@ def validate_transaction(doc, method=None) -> None:
 		if row.uom != "Nos":
 			frappe.throw(_("Controlled procurement items must use Nos."))
 		_set_row_type(row, item)
-		if doc.doctype == "Stock Entry" and (item.controlled_item_type != STOCKABLE or not cint(item.is_stock_item)):
-			frappe.throw(_("Material Transfer accepts Stockable controlled items only."))
+		if doc.doctype == "Stock Entry" and (item.controlled_item_type not in STOCK_TYPES or not cint(item.is_stock_item)):
+			frappe.throw(_("Material Transfer accepts Stockable or Consumable controlled items only."))
 		if transfer:
 			if row.s_warehouse != doc.from_warehouse or row.t_warehouse != doc.to_warehouse:
 				frappe.throw(_("Every transfer item must use the header From and To warehouses."))

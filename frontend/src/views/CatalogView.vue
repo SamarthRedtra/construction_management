@@ -178,13 +178,13 @@ onMounted(() => { load(); loadFilterOptions() })
 		<input v-model="search" class="cp-input cp-search" placeholder="Search description or item code" autofocus />
 		<div class="cp-segmented">
 			<button :class="{ active: !typeFilter }" :aria-pressed="!typeFilter" @click="typeFilter = ''">All</button>
-			<button v-for="type in ['Stockable', 'Asset', 'Service']" :key="type" :class="{ active: typeFilter === type }" :aria-pressed="typeFilter === type" @click="typeFilter = type">{{ type }}</button>
+			<button v-for="type in ['Stockable', 'Consumable', 'Asset', 'Service']" :key="type" :class="{ active: typeFilter === type }" :aria-pressed="typeFilter === type" @click="typeFilter = type">{{ type }}</button>
 		</div>
 	</div>
 	<div class="cp-filters cp-catalog-controls">
 		<label class="cp-field"><span>Item group</span><select v-model="groupFilter" class="cp-input"><option value="">All groups</option><option v-for="group in filterOptions.item_groups" :key="group" :value="group">{{ group }}</option></select></label>
 		<label class="cp-field"><span>Source</span><select v-model="sourceFilter" class="cp-input"><option value="">All sources</option><option v-for="source in filterOptions.sources" :key="source" :value="source">{{ source }}</option></select></label>
-		<label class="cp-field"><span>Stock</span><select v-model="stockFilter" class="cp-input"><option value="">Any stock</option><option value="in_stock">Stockable: in stock</option><option value="out_of_stock">Stockable: out of stock</option></select></label>
+		<label class="cp-field"><span>Stock</span><select v-model="stockFilter" class="cp-input"><option value="">Any stock</option><option value="in_stock">In stock</option><option value="out_of_stock">Out of stock</option></select></label>
 		<label class="cp-field"><span>Sort by</span><select v-model="sortBy" class="cp-input"><option value="item_name">Description</option><option value="name">Item code</option><option value="item_group">Group</option><option value="controlled_item_type">Type</option><option value="actual_qty">Available stock</option><option value="controlled_catalog_source">Source</option></select></label>
 		<label class="cp-field"><span>Direction</span><select v-model="sortOrder" class="cp-input"><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
 		<button type="button" class="cp-btn cp-clear-filters" @click="clearFilters">Clear filters</button>
@@ -198,7 +198,7 @@ onMounted(() => { load(); loadFilterOptions() })
 					<td><strong>{{ item.item_name }}</strong><small>{{ item.name }}</small></td>
 					<td>{{ item.item_group }}</td>
 					<td><span class="cp-pill info">{{ item.controlled_item_type }}</span></td>
-					<td class="num"><button v-if="item.controlled_item_type === 'Stockable'" class="cp-link" @click="showStock(item)">{{ item.actual_qty }}</button><span v-else>—</span></td>
+					<td class="num"><button v-if="['Stockable', 'Consumable'].includes(item.controlled_item_type)" class="cp-link" @click="showStock(item)">{{ item.actual_qty }}</button><span v-else>—</span></td>
 					<td><span class="cp-muted">{{ item.controlled_catalog_source || "—" }}</span></td>
 					<td>{{ item.stock_uom }}</td>
 					<td><button v-if="ctx.can_request_price_change" class="cp-btn sm" @click="openPriceRequest(item)">Request price change</button></td>
@@ -232,7 +232,7 @@ onMounted(() => { load(); loadFilterOptions() })
 				<LinkSelect v-model="itemForm.company" doctype="Company" label="Company" :required="true" />
 				<label class="cp-field">
 					<span>Item type<i>*</i></span>
-					<select v-model="itemForm.item_type" class="cp-input"><option>Stockable</option><option>Asset</option><option>Service</option></select>
+					<select v-model="itemForm.item_type" class="cp-input"><option>Stockable</option><option>Consumable</option><option>Asset</option><option>Service</option></select>
 				</label>
 				<label class="cp-field"><span>Description<i>*</i></span><input v-model="itemForm.item_name" class="cp-input" required /></label>
 				<label class="cp-field"><span>Item code</span><input v-model="itemForm.item_code" class="cp-input" placeholder="Auto-generated if empty" /></label>
