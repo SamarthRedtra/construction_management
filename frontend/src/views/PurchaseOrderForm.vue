@@ -257,7 +257,7 @@ onMounted(async () => {
 			warehouse: doc.set_warehouse || "",
 			contact_person: doc.contact_person || "", payment_terms_template: doc.payment_terms_template || "", tc_name: doc.tc_name || "", terms: doc.terms || "",
 			taxes_and_charges: doc.taxes_and_charges || null, project: doc.project || "", bill_no: doc.bill_no || "", boq_item: doc.boq_item || "",
-			items: (doc.items || []).map((row) => ({ item_code: row.item_code, item_name: row.item_name, controlled_item_type: row.controlled_item_type,
+			items: (doc.items || []).map((row) => ({ docname: row.name, item_code: row.item_code, item_name: row.item_name, controlled_item_type: row.controlled_item_type,
 				qty: row.qty, rate: row.rate, fetched_rate: row.rate, vat: row.vat, notes: row.description || "", rate_edited: true, price_change_reason: "",
 				project: row.project || "", bill_no: row.bill_no || "", boq_item: row.boq_item || "",
 				use_override: ["project", "bill_no", "boq_item"].some((field) => (row[field] || "") !== (doc[field] || "")),
@@ -347,6 +347,7 @@ onMounted(async () => {
 		<section class="cp-section">
 			<div class="cp-section-bar">
 				<h2 class="cp-section-title">Items</h2>
+				<button type="button" class="cp-link" @click="addRow">+ Add item</button>
 			</div>
 			<div class="cp-card">
 				<table class="cp-table cp-edit-table">

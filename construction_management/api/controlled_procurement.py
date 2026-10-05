@@ -124,16 +124,10 @@ def _item_has_supplier(item_code: str, supplier: str) -> bool:
 
 
 def _validate_order_supplier_items(data: dict, items: list[dict], existing=None) -> None:
-	"""Limit new Standard/Open orders to one supplier-linked catalog item."""
+	"""Every Standard/Open order line must be linked to its header supplier."""
 	lpo_type = data.get("lpo_type") or "Standard"
 	if lpo_type not in {"Standard", "Open"}:
 		return
-	if existing:
-		if len(items) > len(existing.items):
-			frappe.throw(_("New item lines cannot be added to an existing Purchase Order here."))
-	else:
-		if len(items) != 1:
-			frappe.throw(_("Standard and Open LPOs require exactly one item line."))
 	supplier = data.get("supplier") or ""
 	if not supplier:
 		frappe.throw(_("Select a supplier before choosing an item."))
@@ -832,6 +826,26 @@ def get_purchase_order_items(purchase_order: str) -> list[dict]:
 	]
 
 
+def _receipt_items_by_po_line(po, items: list[dict], open_lpo: bool) -> dict[str, list[dict]]:
+	"""Validate source identity and the combined quantity of split receipt rows."""
+	po_rows = {row.name: row for row in po.items}
+	grouped = defaultdict(list)
+	for line in items:
+		po_row = po_rows.get(line.get("purchase_order_item"))
+		if not po_row or po_row.item_code != line.get("item_code") or cint(po_row.get("closed")) or cint(po_row.get("delivered_by_supplier")):
+			frappe.throw(_("Receipt items must come from the selected Purchase Order."))
+		if flt(line.get("qty")) <= 0:
+			frappe.throw(_("Every receipt row needs a positive quantity."))
+		grouped[po_row.name].append(line)
+	for row_name, lines in grouped.items():
+		po_row = po_rows[row_name]
+		pending = max(flt(po_row.qty) - flt(po_row.received_qty), 0)
+		if not open_lpo and sum(flt(line.get("qty")) for line in lines) > pending + 0.0001:
+			frappe.throw(_("{0}: only {1} {2} is left to receive across all rows.").format(
+				po_row.item_name or po_row.item_code, pending, po_row.uom))
+	return grouped
+
+
 @frappe.whitelist(methods=["POST"])
 def create_controlled_item(data: str | dict) -> dict:
 	"""Create a manual catalog request; CEO/System Manager requests approve immediately."""
@@ -938,6 +952,12 @@ def update_purchase_order(name: str, data: str | dict) -> dict:
 	for row in items:
 		row.update(_normalized_allocation(row))
 	_validate_line_data(items)
+	existing_rows = {row.name: row for row in doc.items}
+	kept_names = [row.get("docname") for row in items if row.get("docname")]
+	if len(kept_names) != len(set(kept_names)) or any(name not in existing_rows for name in kept_names):
+		frappe.throw(_("Invalid or repeated Purchase Order item row."))
+	if any(row.get("docname") and existing_rows[row["docname"]].item_code != row.get("item_code") for row in items):
+		frappe.throw(_("A Purchase Order item row cannot be reassigned to another catalog item."))
 	_validate_order_supplier_items(data, items, doc)
 	from construction_management.api import po_price_approvals
 	price_changes = po_price_approvals.prepare_rates(doc.company, data.get("supplier"), data.get("order_date") or doc.transaction_date, items, doc)
@@ -957,6 +977,8 @@ def update_purchase_order(name: str, data: str | dict) -> dict:
 	doc.set("items", [])
 	for row in items:
 		_append_item(doc, row, defaults)
+		if row.get("docname"):
+			doc.items[-1].name = row["docname"]
 	doc.set("payment_schedule", [])
 	_apply_taxes(doc, data.get("taxes_and_charges"), [row.get("vat") for row in items])
 	doc.flags.controlled_procurement_api = True
@@ -1030,6 +1052,7 @@ def create_purchase_receipt(data: str | dict) -> dict:
 		return _receive_desk_purchase_order(po, data)
 	items = data.get("items") or []
 	_validate_line_data(items)
+	_receipt_items_by_po_line(po, items, open_lpo)
 	po_rows = {row.name: row for row in po.items}
 	# receipt-level allocation defaults to the PO's but can be changed on the receipt
 	defaults = {field: data.get(field) or po.get(field) for field in ("project", "bill_no", "boq_item")}
@@ -1045,10 +1068,6 @@ def create_purchase_receipt(data: str | dict) -> dict:
 	})
 	for data_row in items:
 		po_row = po_rows.get(data_row.get("purchase_order_item"))
-		if not po_row or po_row.item_code != data_row.get("item_code") or cint(po_row.get("closed")) or cint(po_row.get("delivered_by_supplier")):
-			frappe.throw(_("Receipt items must come from the selected Purchase Order."))
-		if not open_lpo and flt(data_row.get("qty")) > flt(po_row.qty) - flt(po_row.received_qty) + 0.0001:
-			frappe.throw(_("{0}: only {1} is left to receive.").format(po_row.item_code, max(flt(po_row.qty) - flt(po_row.received_qty), 0)))
 		item = _catalog_item(po_row.item_code)
 		_validate_company_links(po.company, warehouse=data_row.get("warehouse"))
 		line_project = (data_row if data_row.get("use_override") else defaults).get("project")
@@ -1082,9 +1101,10 @@ def _receive_desk_purchase_order(po, data: dict) -> dict:
 	from erpnext.buying.doctype.purchase_order.mapper import make_purchase_receipt
 	open_lpo = _is_open_lpo(po)
 
-	lines = {row.get("purchase_order_item"): row for row in data.get("items") or [] if flt(row.get("qty")) > 0}
+	lines = [row for row in data.get("items") or [] if flt(row.get("qty")) > 0]
 	if not lines:
 		frappe.throw(_("Enter a receive qty on at least one line."))
+	grouped = _receipt_items_by_po_line(po, lines, open_lpo)
 	doc = make_purchase_receipt(po.name)
 	if open_lpo:
 		mapped = {row.purchase_order_item for row in doc.items}
@@ -1104,14 +1124,15 @@ def _receive_desk_purchase_order(po, data: dict) -> dict:
 	if header.get("project"):
 		_validate_allocation(header, po.company, mode="project_only")
 	_validate_company_links(po.company, project=header["project"])
-	kept = []
-	for row in doc.items:
-		line = lines.pop(row.purchase_order_item, None)
-		if not line:
-			continue
-		pending = flt(row.qty)
-		if not open_lpo and flt(line.get("qty")) > pending + 0.0001:
-			frappe.throw(_("{0}: only {1} {2} is left to receive.").format(row.item_name or row.item_code, pending, row.uom))
+	templates = {row.purchase_order_item: row.as_dict() for row in doc.items}
+	if set(grouped) - set(templates):
+		frappe.throw(_("Receive note lines must come from Purchase Order {0}.").format(po.name))
+	doc.set("items", [])
+	vat_choices = []
+	for line in lines:
+		template = templates[line["purchase_order_item"]].copy()
+		template.pop("name", None)
+		row = doc.append("items", template)
 		row.qty = flt(line.get("qty"))
 		row.received_qty = row.qty
 		row.warehouse = line.get("warehouse") or row.warehouse
@@ -1127,11 +1148,7 @@ def _receive_desk_purchase_order(po, data: dict) -> dict:
 		if not row.project:
 			frappe.throw(_("{0}: select a Project for this receive note (warehouse {1} is not linked to one).").format(
 				row.item_name or row.item_code, row.warehouse))
-		row.idx = len(kept) + 1
-		kept.append(row)
-	if lines:
-		frappe.throw(_("Receive note lines must come from Purchase Order {0}.").format(po.name))
-	doc.set("items", kept)
+		vat_choices.append(line.get("vat") or _vat_choice(row.item_tax_template, po.company))
 	doc.update({
 		"project": header["project"], "bill_no": header["bill_no"], "boq_item": header["boq_item"],
 		"posting_date": data.get("received_on") or doc.posting_date, "set_posting_time": 1 if data.get("received_on") else 0,
@@ -1140,10 +1157,7 @@ def _receive_desk_purchase_order(po, data: dict) -> dict:
 		"controlled_procurement": 0,
 	})
 	taxes_and_charges = data.get("taxes_and_charges") if "taxes_and_charges" in data else po.taxes_and_charges
-	vat_by_line = {line.get("purchase_order_item"): line.get("vat") for line in data.get("items") or []}
-	_apply_taxes(doc, taxes_and_charges, [
-		vat_by_line.get(row.purchase_order_item) or _vat_choice(row.item_tax_template, po.company) for row in kept
-	])
+	_apply_taxes(doc, taxes_and_charges, vat_choices)
 	doc.flags.controlled_procurement_api = True
 	doc.insert()
 	return {"doctype": doc.doctype, "name": doc.name}
@@ -1254,14 +1268,17 @@ def update_purchase_receipt(name: str, data: str | dict) -> dict:
 	items = [row for row in data.get("items") or [] if flt(row.get("qty")) > 0]
 	if not items:
 		frappe.throw(_("Enter a receive qty on at least one line."))
+	_receipt_items_by_po_line(po, items, open_lpo)
 	po_rows = {row.name: row for row in po.items}
-	original_rows = {row.purchase_order_item: row for row in doc.items}
+	original_rows = {row.name: row for row in doc.items}
+	original_by_po = {row.purchase_order_item: row for row in doc.items}
 	mapped_rows = {}
 	if not cint(doc.controlled_procurement):
 		from erpnext.buying.doctype.purchase_order.mapper import make_purchase_receipt
 		mapped_rows = {row.purchase_order_item: row for row in make_purchase_receipt(po.name).items}
-	if len({row.get("purchase_order_item") for row in items}) != len(items):
-		frappe.throw(_("The same Purchase Order line cannot be received twice."))
+	used_names = [row.get("name") for row in items if row.get("name")]
+	if len(used_names) != len(set(used_names)) or any(name not in original_rows for name in used_names):
+		frappe.throw(_("Invalid or repeated Receive Note item row."))
 	defaults = {field: data.get(field) or po.get(field) for field in ALLOCATION_FIELDS}
 	if cint(doc.controlled_procurement):
 		_validate_allocation(defaults, doc.company)
@@ -1272,11 +1289,6 @@ def update_purchase_receipt(name: str, data: str | dict) -> dict:
 	doc.set("items", [])
 	for data_row in items:
 		po_row = po_rows.get(data_row.get("purchase_order_item"))
-		if not po_row or po_row.item_code != data_row.get("item_code") or cint(po_row.get("closed")) or cint(po_row.get("delivered_by_supplier")):
-			frappe.throw(_("Receipt items must come from the selected Purchase Order."))
-		pending = flt(po_row.qty) - flt(po_row.received_qty)
-		if not open_lpo and flt(data_row.get("qty")) > pending + 0.0001:
-			frappe.throw(_("{0}: only {1} is left to receive.").format(po_row.item_code, pending))
 		warehouse = data_row.get("warehouse") or data.get("warehouse")
 		_validate_company_links(doc.company, warehouse=warehouse)
 		if not warehouse:
@@ -1288,8 +1300,14 @@ def update_purchase_receipt(name: str, data: str | dict) -> dict:
 			frappe.throw(_("Warehouse {0} belongs to project {1}.").format(warehouse, warehouse_project))
 		if not project:
 			frappe.throw(_("Select a Project for this Receive Note."))
-		base_row = original_rows.get(po_row.name) or mapped_rows.get(po_row.name)
-		row = doc.append("items", {**(base_row.as_dict() if base_row else {}),
+		original = original_rows.get(data_row.get("name"))
+		if original and original.purchase_order_item != po_row.name:
+			frappe.throw(_("Receive Note row does not match its Purchase Order line."))
+		base_row = original or original_by_po.get(po_row.name) or mapped_rows.get(po_row.name)
+		base_data = base_row.as_dict() if base_row else {}
+		if not original:
+			base_data.pop("name", None)
+		row = doc.append("items", {**base_data,
 			"item_code": po_row.item_code, "qty": flt(data_row.get("qty")),
 			"uom": po_row.uom, "stock_uom": po_row.stock_uom, "conversion_factor": po_row.conversion_factor,
 			"rate": po_row.rate, "purchase_order": po.name, "purchase_order_item": po_row.name,
@@ -1487,6 +1505,8 @@ def create_purchase_invoice(data: str | dict) -> dict:
 	lines = [line for line in data.get("items") or [] if flt(line.get("qty")) > 0]
 	if not lines:
 		frappe.throw(_("Add at least one line to invoice."))
+	if len({line.get("key") for line in lines}) != len(lines):
+		frappe.throw(_("The same source line cannot be invoiced twice."))
 	kept = []
 	for line in lines:
 		row = mapped_rows.get(line.get("key"))

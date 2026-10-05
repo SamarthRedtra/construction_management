@@ -110,13 +110,12 @@ class TestControlledProcurement(UnitTestCase):
 			self.assertEqual(query.args[1]["supplier"], "SUP-1")
 
 	@patch("construction_management.api.controlled_procurement._item_has_supplier", return_value=True)
-	def test_new_standard_order_requires_one_supplier_linked_item(self, has_supplier):
-		with self.assertRaisesRegex(frappe.ValidationError, "exactly one item"):
-			controlled_procurement._validate_order_supplier_items(
-				{"lpo_type": "Standard", "supplier": "SUP-1"},
-				[{"item_code": "ITEM-1"}, {"item_code": "ITEM-2"}],
-			)
-		has_supplier.assert_not_called()
+	def test_new_standard_order_accepts_multiple_supplier_linked_items(self, has_supplier):
+		controlled_procurement._validate_order_supplier_items(
+			{"lpo_type": "Standard", "supplier": "SUP-1"},
+			[{"item_code": "ITEM-1"}, {"item_code": "ITEM-2"}],
+		)
+		self.assertEqual(has_supplier.call_count, 2)
 
 	@patch("construction_management.api.controlled_procurement._item_has_supplier", return_value=False)
 	def test_open_order_rejects_item_from_another_supplier(self, has_supplier):
@@ -133,17 +132,36 @@ class TestControlledProcurement(UnitTestCase):
 		)
 
 	@patch("construction_management.api.controlled_procurement._item_has_supplier", return_value=False)
-	def test_existing_unlinked_line_can_be_edited_without_new_lines(self, has_supplier):
+	def test_existing_unlinked_line_can_be_kept_but_new_line_needs_supplier_link(self, has_supplier):
 		existing = SimpleNamespace(supplier="SUP-1", items=[SimpleNamespace(item_code="ITEM-1")], get=lambda key: "Standard" if key == "custom_lpo_type" else None)
 		controlled_procurement._validate_order_supplier_items(
 			{"lpo_type": "Standard", "supplier": "SUP-1"}, [{"item_code": "ITEM-1"}], existing,
 		)
 		has_supplier.assert_not_called()
-		with self.assertRaisesRegex(frappe.ValidationError, "New item lines"):
+		with self.assertRaisesRegex(frappe.ValidationError, "not linked to supplier"):
 			controlled_procurement._validate_order_supplier_items(
 				{"lpo_type": "Standard", "supplier": "SUP-1"},
 				[{"item_code": "ITEM-1"}, {"item_code": "ITEM-2"}], existing,
 			)
+		has_supplier.assert_called_once_with("ITEM-2", "SUP-1")
+
+	def test_split_receipt_quantity_is_checked_across_rows(self):
+		po = SimpleNamespace(items=[SimpleNamespace(name="PO-ROW", item_code="ITEM-1", item_name="Item 1",
+			qty=10, received_qty=4, uom="Nos", get=lambda field: 0)])
+		lines = [{"purchase_order_item": "PO-ROW", "item_code": "ITEM-1", "qty": 4},
+			{"purchase_order_item": "PO-ROW", "item_code": "ITEM-1", "qty": 3}]
+		with self.assertRaisesRegex(frappe.ValidationError, "across all rows"):
+			controlled_procurement._receipt_items_by_po_line(po, lines, False)
+		self.assertEqual(len(controlled_procurement._receipt_items_by_po_line(po, lines, True)["PO-ROW"]), 2)
+		lines[1]["qty"] = 2
+		self.assertEqual(len(controlled_procurement._receipt_items_by_po_line(po, lines, False)["PO-ROW"]), 2)
+
+	def test_split_receipt_rejects_unrelated_po_line(self):
+		po = SimpleNamespace(items=[SimpleNamespace(name="PO-ROW", item_code="ITEM-1", item_name="Item 1",
+			qty=10, received_qty=0, uom="Nos", get=lambda field: 0)])
+		with self.assertRaisesRegex(frappe.ValidationError, "selected Purchase Order"):
+			controlled_procurement._receipt_items_by_po_line(po,
+				[{"purchase_order_item": "OTHER", "item_code": "ITEM-1", "qty": 1}], False)
 
 	@patch("construction_management.api.controlled_procurement._item_has_supplier", return_value=False)
 	def test_changing_existing_order_supplier_requires_link(self, has_supplier):

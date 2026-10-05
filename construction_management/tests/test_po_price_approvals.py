@@ -33,6 +33,12 @@ class TestPOPriceApprovals(UnitTestCase):
 		self.assertEqual(approvals.prepare_rates("MRG", "SUP-1", "2026-10-02", rows), [])
 		self.assertEqual(rows[0]["rate"], 10)
 
+	@patch.object(approvals, "_current", return_value={"rate": 10, "price_list": "Standard Buying"})
+	def test_multiple_new_items_at_active_rates_need_no_approval(self, current):
+		rows = [{"item_code": code, "rate": 10, "rate_edited": False} for code in ("ITEM-1", "ITEM-2")]
+		self.assertEqual(approvals.prepare_rates("MRG", "SUP-1", "2026-10-02", rows), [])
+		self.assertEqual(current.call_count, 2)
+
 	@patch.object(approvals.frappe, "get_cached_value", return_value="AED")
 	@patch.object(approvals.frappe.db, "get_value", return_value=frappe._dict(buying=1, enabled=1, currency="AED"))
 	@patch.object(approvals, "_current", return_value={"rate": 10, "price_list": "Standard Buying"})

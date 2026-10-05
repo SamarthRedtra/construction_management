@@ -45,8 +45,6 @@ def prepare_rates(company, supplier, date, rows, previous=None):
 		old = None
 		if previous and previous.supplier == supplier:
 			old = next((item for item in old_rows if item.name == row.get("docname") and item.item_code == code), None)
-			if not old and not row.get("docname") and index < len(old_rows) and old_rows[index].item_code == code and previous.docstatus == 0:
-				old = old_rows[index]
 		if old and flt(old.rate) == proposed:
 			continue  # Historical rates do not become new price requests.
 		active = _current(code, supplier, company, date)

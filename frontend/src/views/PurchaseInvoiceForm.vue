@@ -24,6 +24,7 @@ const form = reactive({
 	items: [],
 })
 const sources = ref([])
+const availableLines = ref([])
 const loadingLines = ref(false)
 const saving = ref(false)
 
@@ -43,10 +44,12 @@ async function loadSources() {
 
 async function loadLines() {
 	form.items = []
+	availableLines.value = []
 	if (!form.source) return
 	loadingLines.value = true
 	try {
 		const result = await call("get_invoice_lines", { source_doctype: sourceDoctype.value, source_name: sourceName.value })
+		availableLines.value = result.lines
 		Object.assign(form, {
 			supplier: result.supplier,
 			supplier_name: result.supplier_name,
@@ -58,6 +61,13 @@ async function loadLines() {
 		toastError(error)
 	} finally {
 		loadingLines.value = false
+	}
+}
+
+function addRemainingLines() {
+	const selected = new Set(form.items.map((row) => row.key))
+	for (const row of availableLines.value) {
+		if (!selected.has(row.key)) form.items.push({ ...row })
 	}
 }
 
@@ -141,7 +151,7 @@ onMounted(async () => {
 		</section>
 
 		<section v-if="form.source" class="cp-section">
-			<h2 class="cp-section-title">Items to bill</h2>
+			<div class="cp-section-bar"><h2 class="cp-section-title">Items to bill</h2><button v-if="availableLines.some((row) => !form.items.some((item) => item.key === row.key))" type="button" class="cp-link" @click="addRemainingLines">+ Add source items</button></div>
 			<div class="cp-card">
 				<table class="cp-table cp-edit-table">
 					<thead><tr><th>Description</th><th>From</th><th class="num">Unbilled</th><th class="num" style="width: 120px">Qty</th><th class="num" style="width: 130px">Rate</th><th style="width: 104px">VAT</th><th class="num">Amount</th><th style="width: 40px" /></tr></thead>
@@ -154,7 +164,7 @@ onMounted(async () => {
 							<td><input v-model.number="row.rate" class="cp-input num" type="number" min="0" step="any" /></td>
 							<td><VatSelect v-model="row.vat" /><small class="cp-line-vat">{{ formatCurrency(lineTax(index)) }}</small></td>
 							<td class="num">{{ formatCurrency((row.qty || 0) * (row.rate || 0)) }}</td>
-							<td><button type="button" class="cp-remove" :disabled="form.items.length === 1" aria-label="Remove line" @click="form.items.splice(index, 1)">×</button></td>
+							<td><button type="button" class="cp-remove" aria-label="Remove line" @click="form.items.splice(index, 1)">×</button></td>
 						</tr>
 						<tr v-if="loadingLines"><td colspan="8" class="cp-empty-row">Loading unbilled lines…</td></tr>
 						<tr v-else-if="!form.items.length"><td colspan="8" class="cp-empty-row">Nothing left to bill on this document.</td></tr>

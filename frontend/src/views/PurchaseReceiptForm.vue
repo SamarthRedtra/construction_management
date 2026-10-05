@@ -40,7 +40,7 @@ async function loadLines() {
 	try {
 		const rows = await call("get_purchase_order_items", { purchase_order: form.purchase_order })
 		availableLines.value = rows
-		form.items = rows.map((row) => ({ ...row, qty: row.remaining_qty, po_warehouse: row.warehouse, warehouse: "", use_override: false }))
+		form.items = rows.map((row) => ({ ...row, client_key: window.crypto.randomUUID(), qty: row.remaining_qty, po_warehouse: row.warehouse, warehouse: "", use_override: false }))
 		// Desk POs already say where each line goes; start the receive note there
 		if (!form.warehouse && rows[0]?.warehouse) form.warehouse = rows[0].warehouse
 		// start from the PO's allocation; the receiver can change it below
@@ -57,8 +57,26 @@ async function loadLines() {
 function addRemainingLines() {
 	const present = new Set(form.items.map((row) => row.purchase_order_item))
 	for (const row of availableLines.value) {
-		if (!present.has(row.purchase_order_item)) form.items.push({ ...row, qty: 0, warehouse: "", use_override: false })
+		if (!present.has(row.purchase_order_item)) form.items.push({ ...row, client_key: window.crypto.randomUUID(), qty: 0, warehouse: "", use_override: false })
 	}
+}
+
+function splitLine(row) {
+	const { name, ...source } = row
+	form.items.push({ ...source, client_key: window.crypto.randomUUID(), qty: 0, warehouse: "", use_override: false })
+}
+
+function availableForRow(row) {
+	const usedElsewhere = form.items
+		.filter((other) => other !== row && other.purchase_order_item === row.purchase_order_item)
+		.reduce((sum, other) => sum + (Number(other.qty) || 0), 0)
+	return Math.max(0, Number(row.remaining_qty || 0) - usedElsewhere)
+}
+
+function exceedsPending(row) {
+	return !isOpenLpo.value && form.items
+		.filter((other) => other.purchase_order_item === row.purchase_order_item)
+		.reduce((sum, other) => sum + (Number(other.qty) || 0), 0) > Number(row.remaining_qty || 0) + 0.0001
 }
 
 const searchOrders = debounce(async () => {
@@ -143,7 +161,7 @@ onMounted(async () => {
 			Object.assign(form, { supplier_delivery_note: doc.supplier_delivery_note || "", warehouse: doc.items?.[0]?.warehouse || "",
 				received_on: String(doc.posting_date).slice(0, 10), project: doc.project || "", bill_no: doc.bill_no || "",
 				boq_item: doc.boq_item || "", taxes_and_charges: doc.taxes_and_charges || "" })
-			form.items = (doc.items || []).map((row) => ({ ...row, controlled: doc.controlled_procurement, qty: row.qty, rate: row.rate,
+			form.items = (doc.items || []).map((row) => ({ ...row, client_key: window.crypto.randomUUID(), controlled: doc.controlled_procurement, qty: row.qty, rate: row.rate,
 				remaining_qty: remaining.find((pending) => pending.purchase_order_item === row.purchase_order_item)?.remaining_qty ?? row.qty,
 				vat: row.vat || "standard", use_override: row.project !== form.project || row.bill_no !== form.bill_no || row.boq_item !== form.boq_item }))
 		} catch (error) { toastError(error) }
@@ -198,12 +216,12 @@ onMounted(async () => {
 		</section>
 
 		<section v-if="form.purchase_order" class="cp-section">
-			<div class="cp-section-bar"><h2 class="cp-section-title">Items to receive</h2><button v-if="editing && availableLines.some((row) => !form.items.some((item) => item.purchase_order_item === row.purchase_order_item))" type="button" class="cp-link" @click="addRemainingLines">+ Add remaining PO lines</button></div>
+			<div class="cp-section-bar"><h2 class="cp-section-title">Items to receive</h2><button v-if="availableLines.some((row) => !form.items.some((item) => item.purchase_order_item === row.purchase_order_item))" type="button" class="cp-link" @click="addRemainingLines">+ Add PO items</button></div>
 			<div class="cp-card">
 				<table class="cp-table cp-edit-table">
-					<thead><tr><th>Description</th><th>Allocation</th><th class="num">Pending</th><th class="num" style="width: 120px">Receive qty</th><th style="width: 220px">Warehouse override</th><th style="width: 104px">VAT</th><th class="num">Amount</th></tr></thead>
+					<thead><tr><th>Description</th><th>Allocation</th><th class="num">Pending</th><th class="num" style="width: 120px">Receive qty</th><th style="width: 220px">Warehouse override</th><th style="width: 104px">VAT</th><th class="num">Amount</th><th>Actions</th></tr></thead>
 					<tbody>
-						<template v-for="(row, index) in form.items" :key="row.purchase_order_item">
+						<template v-for="(row, index) in form.items" :key="row.client_key">
 						<tr>
 							<td><strong>{{ row.item_name || row.item_code }}</strong><small>{{ [row.item_code, row.controlled_item_type].filter(Boolean).join(" · ") }}</small></td>
 							<td>
@@ -212,19 +230,20 @@ onMounted(async () => {
 								<button type="button" class="cp-link sm cp-line-action" @click="row.use_override = !row.use_override">{{ row.use_override ? "Use receive note allocation" : "Change for this line" }}</button>
 							</td>
 							<td class="num">{{ formatNumber(row.remaining_qty) }} <span class="cp-muted">{{ row.uom }}</span></td>
-							<td><input v-model.number="row.qty" class="cp-input num" type="number" min="0" step="any" :max="isOpenLpo ? undefined : row.remaining_qty" /></td>
+							<td><input v-model.number="row.qty" class="cp-input num" type="number" min="0" step="any" :max="isOpenLpo ? undefined : availableForRow(row)" /><small v-if="exceedsPending(row)" class="cp-overdue">Combined qty exceeds pending</small></td>
 							<td><LinkSelect :model-value="row.warehouse" doctype="Warehouse" @update:model-value="setLineWarehouse(row, $event)" :placeholder="form.warehouse || 'Same as receive note'" :filters="companyFilters({ is_group: 0 })" /></td>
 							<td><VatSelect v-model="row.vat" /><small class="cp-line-vat">{{ formatCurrency(lineTax(index)) }}</small></td>
 							<td class="num">{{ formatCurrency((row.qty || 0) * (row.rate || 0)) }}</td>
+							<td><button type="button" class="cp-link sm" @click="splitLine(row)">Split</button><button type="button" class="cp-remove" aria-label="Remove line" @click="form.items.splice(index, 1)">×</button></td>
 						</tr>
 						<tr v-if="row.use_override" class="cp-subrow">
-							<td colspan="7"><AllocationFields :model-value="row" :boq-optional="!isControlledOrder || session.context.boq_allocation_mode === 'project_only'" @update:model-value="Object.assign(row, $event)" /></td>
+							<td colspan="8"><AllocationFields :model-value="row" :boq-optional="!isControlledOrder || session.context.boq_allocation_mode === 'project_only'" @update:model-value="Object.assign(row, $event)" /></td>
 						</tr>
 						</template>
-						<tr v-if="loadingLines"><td colspan="7" class="cp-empty-row">Loading remaining quantities…</td></tr>
-						<tr v-else-if="!form.items.length"><td colspan="7" class="cp-empty-row">This purchase order has nothing left to receive.</td></tr>
+						<tr v-if="loadingLines"><td colspan="8" class="cp-empty-row">Loading remaining quantities…</td></tr>
+						<tr v-else-if="!form.items.length"><td colspan="8" class="cp-empty-row">This purchase order has nothing left to receive.</td></tr>
 					</tbody>
-					<tfoot v-if="form.items.length"><tr><td colspan="6" class="num">Net total</td><td class="num"><strong>{{ formatCurrency(total) }}</strong></td></tr></tfoot>
+					<tfoot v-if="form.items.length"><tr><td colspan="6" class="num">Net total</td><td class="num"><strong>{{ formatCurrency(total) }}</strong></td><td /></tr></tfoot>
 				</table>
 			</div>
 			<p class="cp-hint">Set a line's receive qty to 0 to skip it.<template v-if="isOpenLpo"> Open LPO quantities may exceed the pending amount.</template></p>
