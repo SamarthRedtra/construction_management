@@ -77,8 +77,8 @@ class TestProcurementRevisions(UnitTestCase):
 	@patch("construction_management.api.controlled_procurement._validate_transfer_warehouses")
 	@patch("construction_management.api.controlled_procurement._catalog_item")
 	def test_transfer_validation_does_not_require_boq(self, catalog_item, validate_warehouses, validate_allocation):
-		catalog_item.return_value = frappe._dict(controlled_item_type="Stockable", is_stock_item=1)
-		row = frappe._dict(item_code="ITEM-1", uom="Nos", s_warehouse="From", t_warehouse="To")
+		catalog_item.return_value = frappe._dict(controlled_item_type="Stockable", is_stock_item=1, stock_uom="Tonne")
+		row = frappe._dict(item_code="ITEM-1", uom="Tonne", stock_uom="Tonne", s_warehouse="From", t_warehouse="To")
 		doc = MagicMock()
 		doc.doctype = "Stock Entry"
 		doc.purpose = "Material Transfer"

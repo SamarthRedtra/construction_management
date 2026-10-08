@@ -572,7 +572,7 @@ def _group_rows_by_source(rows):
 	return grouped
 
 
-def _create_material_issue_for_source(source_rows, submit=True, posting_date_override=None):
+def _create_material_issue_for_source(source_rows, submit=True, posting_date_override=None, stock_entry_type=None):
 	if not source_rows:
 		return None
 
@@ -585,7 +585,7 @@ def _create_material_issue_for_source(source_rows, submit=True, posting_date_ove
 	first = resolved_rows[0]
 	company = first["company"]
 	settings = get_boq_bulk_issue_settings(company)
-	stock_entry_type = settings.get("bulk_material_issue_default_stock_entry_type") or MATERIAL_ISSUE_TYPE
+	stock_entry_type = stock_entry_type or settings.get("bulk_material_issue_default_stock_entry_type") or MATERIAL_ISSUE_TYPE
 	source_posting_date = _get_source_posting_date(first["source_doctype"], first["source_name"])
 	posting_date = get_bulk_material_issue_posting_date(
 		company,

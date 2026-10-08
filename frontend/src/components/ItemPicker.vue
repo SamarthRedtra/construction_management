@@ -83,7 +83,7 @@ watch(() => [props.supplier, props.disabled], () => { results.value = []; open.v
 			<div v-if="open && results.length" class="cp-options cp-floating" :style="panelStyle">
 				<button v-for="item in results" :key="item.name" type="button" @mousedown.prevent="select(item)">
 					<strong>{{ showCode ? item.name : item.item_name }}</strong>
-					<small>{{ showCode ? item.item_name : item.controlled_item_type }} · {{ item.item_group }}<template v-if="!hideCode"> · {{ showCode ? item.controlled_item_type : item.name }}</template></small>
+					<small>{{ showCode ? item.item_name : item.controlled_item_type }} · {{ item.item_group }} · {{ item.stock_uom }}<template v-if="!hideCode"> · {{ showCode ? item.controlled_item_type : item.name }}</template></small>
 				</button>
 			</div>
 			</Teleport>

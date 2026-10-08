@@ -8,6 +8,7 @@ import ConnectionsPanel from "@/components/ConnectionsPanel.vue"
 import EmailDialog from "@/components/EmailDialog.vue"
 import Modal from "@/components/Modal.vue"
 import PaymentDialog from "@/components/PaymentDialog.vue"
+import PoPdcDialog from "@/components/PoPdcDialog.vue"
 import PrintDialog from "@/components/PrintDialog.vue"
 import UpdateItemsDialog from "@/components/UpdateItemsDialog.vue"
 import PageHeader from "@/components/PageHeader.vue"
@@ -30,6 +31,7 @@ const printOpen = ref(false)
 const updateOpen = ref(false)
 const confirmOpen = ref(false)
 const paymentOpen = ref(false)
+const poPdcOpen = ref(false)
 const activity = ref(null)
 const connections = ref(null)
 
@@ -58,6 +60,7 @@ const canUpdateItems = computed(() => props.kind === "orders" && doc.value?.docs
 const canInvoice = computed(() => ["orders", "receipts"].includes(props.kind) && doc.value?.docstatus === 1 && ctx.value.can_purchase
 	&& (doc.value.per_billed || 0) < 100 && !doc.value.is_return && !["Closed", "On Hold"].includes(doc.value.status))
 const canPay = computed(() => props.kind === "invoices" && doc.value?.docstatus === 1 && Number(doc.value.outstanding_amount) > 0 && ctx.value.can_purchase)
+const canCreatePoPdc = computed(() => props.kind === "orders" && doc.value?.docstatus === 1 && !["Closed", "On Hold"].includes(doc.value?.status) && ctx.value.can_purchase && ctx.value.can_create_pdc)
 const canEmail = computed(() => props.kind !== "transfers" && doc.value?.docstatus !== 2 && ctx.value.can_purchase)
 const partyName = computed(() => doc.value?.supplier_name || doc.value?.supplier || "")
 
@@ -249,6 +252,7 @@ onMounted(load)
 				<RouterLink v-if="canInvoice" :to="{ path: '/invoices/new', query: kind === 'orders' ? { po: doc.name } : { pr: doc.name } }" class="cp-btn">+ Create invoice</RouterLink>
 				<button v-if="canUpdateItems" class="cp-btn" @click="updateOpen = true">Update items</button>
 				<button v-if="canPay" class="cp-btn brand" @click="paymentOpen = true">Record payment</button>
+				<button v-if="canCreatePoPdc" class="cp-btn" @click="poPdcOpen = true">+ Post-dated cheque</button>
 				<button v-if="canSubmit && !manualLpo" class="cp-btn brand" :disabled="busy" @click="confirmOpen = true">{{ busy ? "Submitting…" : "Submit" }}</button>
 				<a v-if="!isControlled" class="cp-btn" :href="deskUrl" target="_blank">Open in Desk ↗</a>
 			</template>
@@ -390,6 +394,7 @@ onMounted(load)
 		</Modal>
 		<UpdateItemsDialog v-if="updateOpen" :doc="doc" @close="updateOpen = false" @updated="updateOpen = false; load(); activity?.load()" />
 		<PaymentDialog v-if="paymentOpen" :invoice="doc.name" @close="paymentOpen = false" @paid="onPaid" />
+		<PoPdcDialog v-if="poPdcOpen" :purchase-order="doc.name" @close="poPdcOpen = false" @created="poPdcOpen = false; connections?.load(); activity?.load()" />
 		<PrintDialog v-if="printOpen" :doctype="config.doctype" :docname="doc.name" @close="printOpen = false" />
 		<EmailDialog v-if="emailOpen" :doctype="config.doctype" :docname="doc.name" @close="emailOpen = false" @sent="onEmailSent" />
 	</template>

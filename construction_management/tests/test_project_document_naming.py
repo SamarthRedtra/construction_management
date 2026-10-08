@@ -46,12 +46,25 @@ class TestProjectDocumentNaming(UnitTestCase):
 		getseries.assert_called_once_with("TINV/1033/2025-NOV/", 1)
 
 	@patch("construction_management.project_document_naming.frappe.db.sql")
-	def test_invoice_series_carries_forward_legacy_count(self, sql):
+	@patch("construction_management.project_document_naming.frappe.db.get_value", return_value=7)
+	def test_invoice_series_carries_forward_legacy_count(self, get_value, sql):
 		_seed_invoice_series("TINV/1033/2025-OCT/", "SINV/1033/2025-OCT/")
-		self.assertIn("greatest", sql.call_args.args[0].lower())
+		query = sql.call_args.args[0].lower()
+		self.assertIn("greatest", query)
+		self.assertIn("values (%(target)s, %(legacy_current)s)", query)
+		self.assertNotIn("select", query)
+		get_value.assert_called_once_with("Series", "SINV/1033/2025-OCT/", "current", order_by="name")
 		self.assertEqual(sql.call_args.args[1], {
-			"target": "TINV/1033/2025-OCT/", "legacy": "SINV/1033/2025-OCT/",
+			"target": "TINV/1033/2025-OCT/", "legacy_current": 7,
 		})
+
+	@patch("construction_management.project_document_naming.frappe.db.sql")
+	@patch("construction_management.project_document_naming.frappe.db.get_value", return_value=None)
+	def test_invoice_series_skips_missing_legacy_series(self, get_value, sql):
+		_seed_invoice_series("TINV/1033/2025-OCT/", "SINV/1033/2025-OCT/")
+
+		get_value.assert_called_once_with("Series", "SINV/1033/2025-OCT/", "current", order_by="name")
+		sql.assert_not_called()
 
 	@patch("construction_management.project_document_naming.getseries", return_value="5")
 	@patch("construction_management.project_document_naming._seed_invoice_series")
@@ -107,7 +120,7 @@ class TestProjectDocumentNaming(UnitTestCase):
 		self.assertFalse(assign_project_document_name(doc))
 		self.assertFalse(doc.get("name"))
 
-	@patch("construction_management.overrides.sales_order.frappe.rename_doc")
+	@patch("frappe.model.rename_doc.rename_doc")
 	@patch("construction_management.project_document_naming.frappe.db.get_value", return_value="1033")
 	@patch("construction_management.project_document_naming.getseries", return_value="1")
 	def test_draft_sales_order_is_renamed_when_its_transaction_month_changes(self, getseries, get_value, rename_doc):
@@ -124,7 +137,8 @@ class TestProjectDocumentNaming(UnitTestCase):
 		rename_draft_project_order_for_date_change(doc)
 
 		rename_doc.assert_called_once_with(
-			"Sales Order", "PINV/1033/2025-OCT/1", "PINV/1033/2025-SEP/1", force=True, ignore_permissions=True
+			"Sales Order", "PINV/1033/2025-OCT/1", "PINV/1033/2025-SEP/1",
+			force=True, ignore_permissions=True, show_alert=False,
 		)
 		self.assertEqual(doc.name, "PINV/1033/2025-SEP/1")
 

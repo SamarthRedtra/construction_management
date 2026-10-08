@@ -6,9 +6,102 @@ import frappe
 from frappe.tests import UnitTestCase
 
 from construction_management.api import controlled_procurement
+from construction_management.api import item_tree_part_2_expanded_import as expanded_import
 
 
 class TestControlledProcurement(UnitTestCase):
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
+	def test_workbook_uom_aliases(self, exists):
+		self.assertEqual(controlled_procurement._catalog_uom("Nos."), "Nos")
+		self.assertEqual(controlled_procurement._catalog_uom("TON"), "Tonne")
+		self.assertEqual(controlled_procurement._catalog_uom("HRS"), "Hour")
+		self.assertEqual(controlled_procurement._catalog_uom("Monthly"), "Months")
+		self.assertEqual(controlled_procurement._catalog_uom("ROLL"), "ROLL")
+		self.assertEqual([call.args for call in exists.call_args_list],
+			[("UOM", "Nos"), ("UOM", "Tonne"), ("UOM", "Hour"), ("UOM", "Months"), ("UOM", "ROLL")])
+
+	def test_expanded_import_adopts_only_an_exact_uom_match(self):
+		row = {"item_name": "Binder Clip", "item_type": "Consumable", "stock_uom": "PKT"}
+		entry = {"source_row": 1, "item_name": "Binder Clip"}
+		legacy = SimpleNamespace(name="BINDER-CLIP-PKT", controlled_procurement_catalog=0, stock_uom="PKT")
+
+		action, result_item = expanded_import._item_action([legacy], row, [], [entry])
+		self.assertEqual((action, result_item), ("Adopt", "BINDER-CLIP-PKT"))
+
+		action, result_item = expanded_import._item_action([], row, [], [entry])
+		self.assertEqual((action, result_item), ("Create", ""))
+
+	def test_expanded_import_keeps_distinct_supplier_prices(self):
+		entries = [
+			{"supplier": "SUP-1", "rate": 10, "item_group": "Products", "asset_category": "", "expense_account": "", "source_row": 1, "item_name": "Paper"},
+			{"supplier": "SUP-2", "rate": 12, "item_group": "Products", "asset_category": "", "expense_account": "", "source_row": 2, "item_name": "Paper"},
+		]
+		held = []
+
+		self.assertEqual(expanded_import._deduplicate_identity(entries, held), entries)
+		self.assertEqual(held, [])
+
+		entries[1]["supplier"] = "SUP-1"
+		self.assertEqual(expanded_import._deduplicate_identity(entries, held), [])
+		self.assertEqual(len(held), 2)
+
+	def test_expanded_import_uses_the_agreed_accounting_mappings(self):
+		self.assertEqual(
+			expanded_import._accounting_mapping("Asset", "SCAFFOLDING & FORMWORK"),
+			("Scaffolding Item", ""),
+		)
+		self.assertEqual(
+			expanded_import._accounting_mapping("Service", "TESTING & CERTIFICATION"),
+			("", "Professional Charges - MRG"),
+		)
+
+	@patch("construction_management.api.controlled_procurement._add_supplier_and_price", return_value="")
+	@patch("construction_management.api.controlled_procurement.frappe.new_doc")
+	def test_multiple_supplier_prices_create_one_catalog_item(self, new_doc, add_supplier):
+		item = new_doc.return_value
+		item.name = "CP-PAPER"
+		item.is_new.return_value = True
+		rows = [
+			SimpleNamespace(action="Create", result_item="", item_code="", item_name="Paper", item_group="Products",
+				item_type="Consumable", stock_uom="PKT", asset_category="", expense_account="", supplier="SUP-1", rate=10),
+			SimpleNamespace(action="Create", result_item="", item_code="", item_name="Paper", item_group="Products",
+				item_type="Consumable", stock_uom="PKT", asset_category="", expense_account="", supplier="SUP-2", rate=12),
+		]
+
+		controlled_procurement._materialize_catalog_request_items(
+			SimpleNamespace(items=rows, source="Workbook Import", company="MRG", name="CCR-EXPANDED"),
+		)
+
+		new_doc.assert_called_once_with("Item")
+		self.assertEqual(add_supplier.call_count, 2)
+		self.assertEqual([row.result_item for row in rows], ["CP-PAPER", "CP-PAPER"])
+
+	@patch("construction_management.api.controlled_procurement.frappe.get_doc")
+	def test_adoption_preserves_existing_item_master_fields(self, get_doc):
+		item = MagicMock(name="LEGACY-PKT", stock_uom="PKT")
+		get_doc.return_value = item
+		row = SimpleNamespace(action="Adopt", result_item="LEGACY-PKT", item_name="Binder Clip",
+			item_type="Consumable", stock_uom="PKT")
+		doc = SimpleNamespace(source="Workbook Import", name="CCR-EXPANDED")
+
+		controlled_procurement._adopt_catalog_item(doc, row)
+
+		update = item.update.call_args.args[0]
+		self.assertEqual(update["controlled_procurement_catalog"], 1)
+		self.assertNotIn("stock_uom", update)
+		self.assertNotIn("item_group", update)
+		self.assertNotIn("is_stock_item", update)
+		item.save.assert_called_once_with(ignore_permissions=True)
+
+	@patch("construction_management.api.controlled_procurement._apply_allocation")
+	@patch("construction_management.api.controlled_procurement._catalog_item",
+		return_value=SimpleNamespace(name="CP-ROLL", stock_uom="ROLL", controlled_item_type="Stockable"))
+	def test_po_line_preserves_catalog_uom(self, _item, _allocation):
+		doc = MagicMock(doctype="Purchase Order", company="MRG", set_warehouse="Stores - MRG")
+		controlled_procurement._append_item(doc, {"item_code": "CP-ROLL", "qty": 2, "rate": 10}, {}, False)
+		line = doc.append.call_args.args[1]
+		self.assertEqual((line["uom"], line["stock_uom"], line["conversion_factor"]), ("ROLL", "ROLL", 1))
+
 	@patch("construction_management.api.controlled_procurement.frappe.db.sql", side_effect=[[], [[0]]])
 	@patch("construction_management.api.controlled_procurement._document_company", return_value="MRG")
 	@patch("construction_management.api.controlled_procurement._require")
@@ -25,12 +118,13 @@ class TestControlledProcurement(UnitTestCase):
 		item.is_new.return_value = True
 		item.name = "CP-CONSUMABLE"
 		row = SimpleNamespace(result_item="", item_code="", item_name="Consumable", item_group="Products",
-			item_type="Consumable", asset_category="", expense_account="", supplier="", rate=0)
+			item_type="Consumable", stock_uom="Box", asset_category="", expense_account="", supplier="", rate=0)
 		doc = SimpleNamespace(items=[row], source="Manual Request", company="MRG", name="CCR-1")
 
 		controlled_procurement._materialize_catalog_request_items(doc)
 
 		self.assertTrue(any(call.args[0].get("is_stock_item") == 1 for call in item.update.call_args_list))
+		self.assertTrue(any(call.args[0].get("stock_uom") == "Box" for call in item.update.call_args_list))
 		self.assertEqual(row.result_item, "CP-CONSUMABLE")
 
 	@patch("construction_management.api.controlled_procurement.frappe.get_all", return_value=[])

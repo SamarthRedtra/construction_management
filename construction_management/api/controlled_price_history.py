@@ -11,16 +11,17 @@ from construction_management.api import controlled_price_requests as prices
 
 @frappe.whitelist(methods=["GET"])
 def get_price_history(item_code: str, supplier: str = "", price_list: str = "Standard Buying",
-		uom: str = "Nos", company: str = "", start: int = 0, page_length: int = 20) -> dict:
+		uom: str = "", company: str = "", start: int = 0, page_length: int = 20) -> dict:
 	api = prices._procurement()
 	company = company or api._active_company()
 	prices._require_company(company)
-	api._catalog_item(item_code)
+	item = api._catalog_item(item_code)
+	uom = uom or item.stock_uom
 	supplier = (supplier or "").strip()
 	if supplier and not api._item_has_supplier(item_code, supplier):
 		frappe.throw(_("Supplier is not linked to this catalog item."), frappe.PermissionError)
-	if uom != "Nos":
-		frappe.throw(_("Controlled catalog buying prices use UOM Nos."))
+	if uom != item.stock_uom:
+		frappe.throw(_("Price history must use the item's stock UOM {0}.").format(item.stock_uom))
 	list_info = frappe.db.get_value("Price List", price_list, ["buying", "enabled", "currency"], as_dict=True)
 	if not list_info or not list_info.buying or not list_info.enabled:
 		frappe.throw(_("Select an enabled buying Price List."))

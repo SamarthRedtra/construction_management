@@ -117,6 +117,7 @@ function selectItem(row, item) {
 	row.item_code = item.name
 	row.item_name = item.item_name
 	row.controlled_item_type = item.controlled_item_type
+	row.stock_uom = item.stock_uom
 	row.notes = item.item_name
 	resetRate(row)
 	itemSupplierMessage.value = ""
@@ -131,6 +132,7 @@ function clearItem(row, message = "") {
 	row.item_code = ""
 	row.item_name = ""
 	row.controlled_item_type = ""
+	row.stock_uom = ""
 	row.notes = ""
 	resetRate(row)
 	eligibleSuppliers.value = []
@@ -187,7 +189,7 @@ watch(() => form.order_date, () => {
 watch(() => form.tc_name, () => { if (!hydrating.value) applyTerms().catch(toastError) })
 
 function addRow() {
-	form.items.push({ item_code: "", item_name: "", controlled_item_type: "", qty: 1, rate: 0, vat: "standard", notes: "", use_override: false, project: "", bill_no: "", boq_item: "", rate_edited: false, price_change_reason: "", price_loading: false, price_missing: false })
+	form.items.push({ item_code: "", item_name: "", controlled_item_type: "", stock_uom: "", qty: 1, rate: 0, vat: "standard", notes: "", use_override: false, project: "", bill_no: "", boq_item: "", rate_edited: false, price_change_reason: "", price_loading: false, price_missing: false })
 }
 
 function normalizedAllocation(values) {
@@ -257,7 +259,7 @@ onMounted(async () => {
 			warehouse: doc.set_warehouse || "",
 			contact_person: doc.contact_person || "", payment_terms_template: doc.payment_terms_template || "", tc_name: doc.tc_name || "", terms: doc.terms || "",
 			taxes_and_charges: doc.taxes_and_charges || null, project: doc.project || "", bill_no: doc.bill_no || "", boq_item: doc.boq_item || "",
-			items: (doc.items || []).map((row) => ({ docname: row.name, item_code: row.item_code, item_name: row.item_name, controlled_item_type: row.controlled_item_type,
+			items: (doc.items || []).map((row) => ({ docname: row.name, item_code: row.item_code, item_name: row.item_name, controlled_item_type: row.controlled_item_type, stock_uom: row.stock_uom,
 				qty: row.qty, rate: row.rate, fetched_rate: row.rate, vat: row.vat, notes: row.description || "", rate_edited: true, price_change_reason: "",
 				project: row.project || "", bill_no: row.bill_no || "", boq_item: row.boq_item || "",
 				use_override: ["project", "bill_no", "boq_item"].some((field) => (row[field] || "") !== (doc[field] || "")),
@@ -361,7 +363,7 @@ onMounted(async () => {
 								</td>
 								<td>{{ row.item_code ? form.supplier : "—" }}</td>
 								<td><input v-model.number="row.qty" class="cp-input num" type="number" min="0.0001" step="any" required /></td>
-								<td><span class="cp-muted">Nos</span></td>
+								<td><span class="cp-muted">{{ row.stock_uom || "—" }}</span></td>
 								<td><input v-model.number="row.rate" class="cp-input num" type="number" min="0.000001" step="any" :title="row.price_loading ? 'Loading buying price…' : ''" @input="row.rate_edited = true; row.price_missing = false" /><small v-if="row.price_loading" class="cp-hint">Loading price…</small><small v-else-if="row.price_missing" class="cp-overdue">No buying price; enter a rate</small><input v-if="row.rate_edited && (row.fetched_rate == null || Number(row.rate) !== Number(row.fetched_rate))" v-model="row.price_change_reason" class="cp-input" style="margin-top: 6px" placeholder="Reason for changed price" /></td>
 								<td><VatSelect v-model="row.vat" /><small class="cp-line-vat">{{ formatCurrency(lineTax(index)) }}</small></td>
 								<td class="num">{{ formatCurrency((row.qty || 0) * (row.rate || 0)) }}</td>
@@ -375,7 +377,7 @@ onMounted(async () => {
 					<tfoot><tr><td colspan="6" class="num">Net total</td><td class="num"><strong>{{ formatCurrency(total) }}</strong></td><td /></tr></tfoot>
 				</table>
 			</div>
-			<p class="cp-hint">Choose a supplier first to see its items, or choose an item first to find its linked suppliers. Only approved catalog items with UOM Nos can be ordered.</p>
+			<p class="cp-hint">Choose a supplier first to see its items, or choose an item first to find its linked suppliers. Only approved catalog items can be ordered.</p>
 			<TaxSection v-model="form.taxes_and_charges" :templates="taxTemplates" :totals="totals" :loading="taxLoading" :subtotal="total" />
 		</section>
 

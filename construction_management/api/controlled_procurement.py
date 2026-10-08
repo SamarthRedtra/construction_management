@@ -65,8 +65,8 @@ def _catalog_item(item_code: str) -> dict:
 		["name", "stock_uom", "is_stock_item", "is_fixed_asset", "controlled_procurement_catalog", "controlled_item_type"],
 		as_dict=True,
 	)
-	if not item or not cint(item.controlled_procurement_catalog) or item.stock_uom != "Nos":
-		frappe.throw(_("Item {0} is not in the controlled Nos catalog.").format(item_code))
+	if not item or not cint(item.controlled_procurement_catalog) or not item.stock_uom:
+		frappe.throw(_("Item {0} is not in the controlled catalog.").format(item_code))
 	return item
 
 
@@ -86,8 +86,8 @@ def _append_item(doc, row_data: dict, defaults: dict, warehouses: bool = False) 
 	row = doc.append("items", {
 		"item_code": item.name,
 		"qty": flt(row_data.get("qty")),
-		"uom": "Nos",
-		"stock_uom": "Nos",
+		"uom": item.stock_uom,
+		"stock_uom": item.stock_uom,
 		"conversion_factor": 1,
 		"rate": flt(row_data.get("rate")),
 		"description": row_data.get("notes") or "",
@@ -238,7 +238,7 @@ def get_catalog(
 	if item_type and item_type not in STOCK_TYPES | {ASSET, SERVICE}:
 		frappe.throw(_("Invalid catalog item type."))
 
-	conditions = ["item.disabled = 0", "item.is_purchase_item = 1", "item.controlled_procurement_catalog = 1", "item.stock_uom = 'Nos'"]
+	conditions = ["item.disabled = 0", "item.is_purchase_item = 1", "item.controlled_procurement_catalog = 1"]
 	params = {"company": company, "start": max(cint(start), 0), "page_length": min(max(cint(page_length) or 50, 1), 100)}
 	if search.strip():
 		conditions.append("(item.item_name LIKE %(search)s OR item.name LIKE %(search)s)")
@@ -306,7 +306,7 @@ def get_catalog_item_suppliers(item_code: str, company: str = "") -> list[dict]:
 def get_catalog_filter_options() -> dict:
 	"""Return selectable groups and sources used by approved catalog items."""
 	_require(CATALOG_ROLES)
-	filters = {"disabled": 0, "is_purchase_item": 1, "controlled_procurement_catalog": 1, "stock_uom": "Nos"}
+	filters = {"disabled": 0, "is_purchase_item": 1, "controlled_procurement_catalog": 1}
 	rows = frappe.get_all("Item", filters=filters, fields=["item_group", "controlled_catalog_source"], limit_page_length=0)
 	return {
 		"item_groups": sorted({row.item_group for row in rows if row.item_group}),
@@ -397,11 +397,12 @@ def get_workspace_context() -> dict:
 		"can_view_stock_ledger": bool(roles.intersection(ACCOUNT_ROLES | ADMIN_ROLES)),
 		"boq_allocation_mode": _boq_allocation_mode(company),
 		"can_email_purchase_order": frappe.has_permission("Purchase Order", "email"),
+		"can_create_pdc": frappe.has_permission("Post Dated Cheques", "create") and frappe.has_permission("Post Dated Cheques", "submit"),
 		"dashboard": {
 			"purchase_orders": frappe.db.count("Purchase Order", _scoped({"is_subcontracted": 0, "docstatus": ["<", 2]})),
 			"purchase_receipts": frappe.db.count("Purchase Receipt", _scoped({"is_subcontracted": 0, "docstatus": ["<", 2]})),
 			"material_transfers": frappe.db.count("Stock Entry", _scoped({"purpose": "Material Transfer", "docstatus": ["<", 2]})),
-			"catalog_items": frappe.db.count("Item", {"controlled_procurement_catalog": 1, "stock_uom": "Nos", "disabled": 0}),
+			"catalog_items": frappe.db.count("Item", {"controlled_procurement_catalog": 1, "disabled": 0}),
 			"draft_purchase_orders": frappe.db.count("Purchase Order", _scoped({"is_subcontracted": 0, "docstatus": 0})),
 			"purchase_invoices": frappe.db.count("Purchase Invoice", _scoped(_workspace_filters("Purchase Invoice", {"docstatus": ["<", 2]}))),
 			"unpaid_invoices": frappe.db.count("Purchase Invoice", _scoped(_workspace_filters("Purchase Invoice", {"docstatus": 1, "outstanding_amount": [">", 0]}))),
@@ -641,8 +642,9 @@ def preview_totals(doctype: str, data: str | dict) -> dict:
 	lines = [row for row in data.get("items") or [] if row.get("item_code")]
 	for i, row in enumerate(lines, start=1):
 		qty, rate = flt(row.get("qty")), flt(row.get("rate"))
+		uom = row.get("uom") or row.get("stock_uom") or frappe.db.get_value("Item", row.get("item_code"), "stock_uom") or "Nos"
 		doc.append("items", {"idx": i, "name": f"row-{i}", "item_code": row.get("item_code"), "qty": qty, "rate": rate,
-			"price_list_rate": rate, "conversion_factor": 1, "uom": row.get("uom") or "Nos"})
+			"price_list_rate": rate, "conversion_factor": 1, "uom": uom})
 	_apply_taxes(doc, data.get("taxes_and_charges"), [row.get("vat") for row in lines])
 	from erpnext.controllers.taxes_and_totals import calculate_taxes_and_totals
 
@@ -762,6 +764,15 @@ def get_document_connections(doctype: str, name: str) -> list[dict]:
 				payment["items"].append(item)
 			else:
 				groups.insert(0, {"label": _("Payment"), "items": [item]})
+	if doctype == "Purchase Order" and frappe.db.has_column("Post Dated Cheques", "custom_purchase_order") and frappe.has_permission("Post Dated Cheques", "read"):
+		pdcs = frappe.get_all("Post Dated Cheques", filters={"custom_purchase_order": name}, pluck="name")
+		rows = _connection_rows("Post Dated Cheques", pdcs, doc.company)
+		if rows:
+			payment = next((group for group in groups if group["label"] == _("Payment")), None)
+			if not payment:
+				payment = {"label": _("Payment"), "items": []}
+				groups.append(payment)
+			payment["items"].append({"doctype": "Post Dated Cheques", "count": len(rows), "documents": rows})
 	return groups
 
 
@@ -1076,7 +1087,7 @@ def create_purchase_receipt(data: str | dict) -> dict:
 			frappe.throw(_("Warehouse {0} belongs to project {1}, so goods received there are booked to {1}. Select project {1} (and its Bill / BOQ Item) or a different warehouse.").format(
 				data_row.get("warehouse"), warehouse_project))
 		row = doc.append("items", {
-			"item_code": po_row.item_code, "qty": flt(data_row.get("qty")), "uom": "Nos", "stock_uom": "Nos",
+			"item_code": po_row.item_code, "qty": flt(data_row.get("qty")), "uom": po_row.uom, "stock_uom": po_row.stock_uom,
 			"conversion_factor": 1, "rate": po_row.rate, "purchase_order": po.name,
 			"purchase_order_item": po_row.name, "warehouse": data_row.get("warehouse"),
 		})
@@ -1584,6 +1595,75 @@ def get_payment_defaults(invoice: str) -> dict:
 	}
 
 
+@frappe.whitelist(methods=["GET"])
+def get_po_pdc_defaults(purchase_order: str) -> dict:
+	"""Options for an unallocated supplier cheque linked to a submitted PO."""
+	_require(PURCHASE_ROLES)
+	po = _controlled_doc("Purchase Order", purchase_order)
+	if po.docstatus != 1 or po.status in ("Closed", "On Hold"):
+		frappe.throw(_("Select a submitted, open Purchase Order."))
+	if po.currency != frappe.db.get_value("Company", po.company, "default_currency"):
+		frappe.throw(_("PO-level PDC creation currently requires the company currency."))
+	frappe.has_permission("Post Dated Cheques", "create", throw=True)
+	modes = frappe.get_all("Mode of Payment", filters={"enabled": 1}, fields=["name", "type"], order_by="name")
+	modes = [mode for mode in modes if "cheque" in mode.name.lower() and mode.type == "Bank"]
+	for mode in modes:
+		mode["account"] = frappe.db.get_value("Mode of Payment Account", {"parent": mode.name,
+			"company": po.company}, "default_account") or frappe.db.get_value("Company", po.company, "default_bank_account")
+	return {"purchase_order": po.name, "company": po.company, "supplier": po.supplier,
+		"supplier_name": po.supplier_name, "currency": po.currency, "order_total": flt(po.grand_total), "modes": modes}
+
+
+@frappe.whitelist(methods=["POST"])
+def create_po_pdc(purchase_order: str, data: str | dict) -> dict:
+	"""Record a future-dated cheque against a PO without pretending an invoice exists."""
+	_require(PURCHASE_ROLES)
+	data = _as_dict(data)
+	frappe.db.sql("select name from `tabPurchase Order` where name = %s for update", purchase_order)
+	po = _controlled_doc("Purchase Order", purchase_order, "read")
+	if po.docstatus != 1 or po.status in ("Closed", "On Hold"):
+		frappe.throw(_("Select a submitted, open Purchase Order."))
+	if po.currency != frappe.db.get_value("Company", po.company, "default_currency"):
+		frappe.throw(_("PO-level PDC creation currently requires the company currency."))
+	frappe.has_permission("Post Dated Cheques", "create", throw=True)
+	frappe.has_permission("Post Dated Cheques", "submit", throw=True)
+	amount = flt(data.get("amount"))
+	if amount <= 0 or amount > flt(po.grand_total):
+		frappe.throw(_("Cheque amount must be positive and no greater than the Purchase Order total."))
+	existing_total = sum(flt(value) for value in frappe.get_all("Post Dated Cheques",
+		filters={"custom_purchase_order": po.name, "docstatus": 1}, pluck="amount"))
+	if existing_total + amount > flt(po.grand_total) + 0.001:
+		frappe.throw(_("Active cheques for this Purchase Order would exceed its total value."))
+	cheque_date = getdate(data.get("reference_date"))
+	if cheque_date <= getdate(frappe.utils.today()):
+		frappe.throw(_("A post-dated cheque needs a future cheque date."))
+	cheque_no = (data.get("reference_no") or "").strip()
+	if not cheque_no:
+		frappe.throw(_("Enter the cheque number."))
+	mode = data.get("mode_of_payment")
+	if "cheque" not in (mode or "").lower() or frappe.db.get_value("Mode of Payment", mode, "type") != "Bank":
+		frappe.throw(_("Select a bank cheque mode of payment."))
+	account = data.get("bank_account")
+	account_row = frappe.db.get_value("Account", account, ["company", "account_type", "is_group"], as_dict=True) if account else None
+	if not account_row or account_row.company != po.company or account_row.account_type != "Bank" or account_row.is_group:
+		frappe.throw(_("Select a bank account belonging to the Purchase Order company."))
+	frappe.db.sql("select name from `tabSupplier` where name = %s for update", po.supplier)
+	if frappe.db.exists("Post Dated Cheques", {"company": po.company, "party_type": "Supplier",
+		"party": po.supplier, "reference_no": cheque_no, "docstatus": ["!=", 2]}):
+		frappe.throw(_("This supplier already has an active PDC with cheque number {0}.").format(cheque_no))
+	pdc = frappe.get_doc({"doctype": "Post Dated Cheques", "company": po.company,
+		"custom_purchase_order": po.name, "project": po.project, "cost_center": po.cost_center,
+		"posting_date": frappe.utils.today(), "payment_type": "Pay", "party_type": "Supplier",
+		"party": po.supplier, "party_name": po.supplier_name, "mode_of_payment": mode,
+		"reference_no": cheque_no, "reference_date": cheque_date, "amount": amount,
+		"bank_account": account,
+		"notes": _("Linked to Purchase Order {0}; no Purchase Invoice is allocated yet.").format(po.name),
+	})
+	pdc.insert()
+	pdc.submit()
+	return {"doctype": pdc.doctype, "name": pdc.name, "purchase_order": po.name}
+
+
 @frappe.whitelist(methods=["POST"])
 def record_invoice_payment(invoice: str, data: str | dict) -> dict:
 	"""Pay a submitted invoice: a Payment Entry now, or a Post Dated Cheque for a future-dated cheque."""
@@ -1697,6 +1777,7 @@ def _workbook_rows(path: Path) -> tuple[list[dict], list[dict]]:
 			"row": row_number, "item_group": group, "item_name": description,
 			"item_code": str(row[headers.get("Item Code", -1)] or "").strip() if "Item Code" in headers else "",
 			"item_type": str(row[headers.get("Item Type", -1)] or STOCKABLE).strip() if "Item Type" in headers else STOCKABLE,
+			"stock_uom": str(row[headers["Stock UOM"]] or "").strip() if "Stock UOM" in headers else "Nos",
 			"asset_category": str(row[headers.get("Asset Category", -1)] or "").strip() if "Asset Category" in headers else "",
 			"expense_account": str(row[headers.get("Expense Account", -1)] or "").strip() if "Expense Account" in headers else "",
 			"supplier": str(row[headers.get("Supplier", -1)] or "").strip() if "Supplier" in headers else "",
@@ -1748,7 +1829,7 @@ def _add_supplier_and_price(item, supplier: str, rate: float) -> str:
 	if rate > 0:
 		from construction_management.api.controlled_price_requests import _price, approved_price_write
 
-		current = _price(item.name, supplier, "Standard Buying", "Nos")
+		current = _price(item.name, supplier, "Standard Buying", item.stock_uom)
 		if not current or flt(current.price_list_rate) != rate:
 			source = getattr(frappe.flags, "controlled_catalog_price_source", None)
 			if not source:
@@ -1762,7 +1843,7 @@ def _add_supplier_and_price(item, supplier: str, rate: float) -> str:
 				else:
 					price = frappe.get_doc({"doctype": "Item Price", "item_code": item.name,
 						"price_list": "Standard Buying", "price_list_rate": rate, "buying": 1,
-						"supplier": supplier, "uom": "Nos",
+						"supplier": supplier, "uom": item.stock_uom,
 						"custom_controlled_catalog_request": source if source != "legacy-seed-migration" else None})
 					price.insert(ignore_permissions=True)
 			if source == "legacy-seed-migration":
@@ -1805,6 +1886,13 @@ def import_catalog_workbook(file_url: str) -> dict:
 	if exceptions:
 		frappe.throw(_("Correct workbook errors before submitting the import."))
 	company = _active_company()
+	checksum = _rows_checksum(rows)
+	frappe.db.sql("select name from `tabCompany` where name = %s for update", company)
+	existing = frappe.db.get_value("Controlled Catalog Request", {
+		"company": company, "source": "Workbook Import", "checksum": checksum,
+	}, ["name", "status"], as_dict=True)
+	if existing:
+		return {"name": existing.name, "status": existing.status, "already_imported": True}
 	prepared = []
 	for row in rows:
 		try:
@@ -1812,7 +1900,7 @@ def import_catalog_workbook(file_url: str) -> dict:
 		except frappe.ValidationError:
 			frappe.throw(_("Correct workbook errors before submitting the import."))
 	return create_catalog_request({"company": company, "source": "Workbook Import", "source_file": file_url,
-		"checksum": _rows_checksum(rows), "items": prepared})
+		"checksum": checksum, "items": prepared})
 
 
 def import_packaged_catalog() -> dict:
@@ -1904,7 +1992,7 @@ def download_catalog_template() -> dict:
 	book = Workbook()
 	sheet = book.active
 	sheet.title = "Catalog Items"
-	sheet.append(["Item Code", "Description", "Item Group", "Item Type", "Asset Category", "Expense Account", "Supplier", "Rates"])
+	sheet.append(["Item Code", "Description", "Item Group", "Item Type", "Stock UOM", "Asset Category", "Expense Account", "Supplier", "Rates"])
 	sheet.freeze_panes = "A2"
 	for column in sheet.columns:
 		sheet.column_dimensions[column[0].column_letter].width = 22
@@ -1914,6 +2002,7 @@ def download_catalog_template() -> dict:
 		"Description, Item Group, Item Type, and Supplier are required on every row.",
 		"Supplier must be an existing Supplier ID; select it from the Procurement supplier list.",
 		"Item Type must be Stockable, Consumable, Asset, or Service.",
+		"Stock UOM must match an existing UOM; Nos is used if the cell is blank.",
 		"Example Stockable row: Description = Example stock item; Item Group = Products; Item Type = Stockable; Supplier = an existing Supplier ID.",
 		"Example Consumable row: Description = Example consumable; Item Group = Products; Item Type = Consumable; Supplier = an existing Supplier ID.",
 		"Asset Category is needed for Asset rows unless a company default is configured.",
@@ -1946,12 +2035,25 @@ def _catalog_request_status(items: list[dict] | None = None) -> str:
 	return "Pending Accounts"
 
 
+def _catalog_uom(value: str) -> str:
+	value = str(value or "Nos").strip()
+	aliases = {"nos.": "Nos", "ton": "Tonne", "hrs": "Hour", "monthly": "Months"}
+	value = aliases.get(value.casefold(), value)
+	if frappe.db.exists("UOM", value):
+		return value
+	for uom in frappe.get_all("UOM", pluck="name", limit_page_length=0):
+		if uom.casefold() == value.casefold():
+			return uom
+	frappe.throw(_("Stock UOM {0} does not exist.").format(value))
+
+
 def _catalog_request_row(data: dict, company: str) -> dict:
 	item_type = data.get("item_type") or STOCKABLE
 	if item_type not in STOCK_TYPES | {ASSET, SERVICE}:
 		frappe.throw(_("Select Stockable, Consumable, Asset, or Service."))
 	if not data.get("item_name") or not data.get("item_group"):
 		frappe.throw(_("Every catalog row needs a Description and Item Group."))
+	stock_uom = _catalog_uom(data.get("stock_uom") or "Nos")
 	if not frappe.db.exists("Item Group", data["item_group"]):
 		frappe.throw(_("Item Group {0} does not exist.").format(data["item_group"]))
 	supplier = str(data.get("supplier") or "").strip()
@@ -1977,12 +2079,15 @@ def _catalog_request_row(data: dict, company: str) -> dict:
 	item_code = (data.get("item_code") or "").strip()
 	existing = frappe.db.get_value("Item", item_code, "name") if item_code else None
 	if not existing:
-		existing = frappe.db.get_value("Item", {"item_name": data["item_name"], "stock_uom": "Nos", "disabled": 0}, "name")
+		existing = frappe.db.get_value("Item", {"item_name": data["item_name"], "disabled": 0}, "name")
+	if existing and frappe.db.get_value("Item", existing, "stock_uom") != stock_uom:
+		frappe.throw(_("Existing item {0} has another stock UOM; its UOM cannot be changed by import.").format(existing))
 	return {
 		"item_code": item_code,
 		"item_name": data["item_name"].strip(),
 		"item_group": data["item_group"],
 		"item_type": item_type,
+		"stock_uom": stock_uom,
 		"asset_category": asset_category or "",
 		"expense_account": expense_account or "",
 		"supplier": supplier,
@@ -2153,13 +2258,32 @@ def _materialize_catalog_request(doc) -> None:
 
 
 def _materialize_catalog_request_items(doc) -> None:
+	materialized = {}
 	for row in doc.items:
+		if getattr(row, "action", "") == "Adopt":
+			_adopt_catalog_item(doc, row)
+			continue
+
+		identity = _catalog_row_identity(row)
+		item = materialized.get(identity)
+		if item:
+			if row.supplier:
+				error = _add_supplier_and_price(item, row.supplier, flt(row.rate))
+				if error:
+					frappe.throw(_("Could not apply supplier details for {0}: {1}").format(row.item_name, error))
+				item.flags.controlled_procurement_api = True
+				item.save(ignore_permissions=True)
+			row.result_item = item.name
+			continue
+
 		item = frappe.get_doc("Item", row.result_item) if row.result_item else None
+		if item and item.stock_uom != (row.stock_uom or "Nos"):
+			frappe.throw(_("Item {0} stock UOM changed since this request was submitted.").format(item.name))
 		if not item:
 			item = frappe.new_doc("Item")
 			item.item_code = row.item_code or _item_code(row.item_name)
 		item.update({
-			"item_name": row.item_name, "item_group": row.item_group, "stock_uom": "Nos",
+			"item_name": row.item_name, "item_group": row.item_group, "stock_uom": row.stock_uom or "Nos",
 			"is_purchase_item": 1, "controlled_procurement_catalog": 1,
 			"controlled_item_type": row.item_type,
 			"controlled_catalog_source": "Workbook Import" if doc.source == "Workbook Import" else "Manual Request",
@@ -2178,10 +2302,31 @@ def _materialize_catalog_request_items(doc) -> None:
 		else:
 			item.save(ignore_permissions=True)
 		if row.supplier:
-			_add_supplier_and_price(item, row.supplier, flt(row.rate))
+			error = _add_supplier_and_price(item, row.supplier, flt(row.rate))
+			if error:
+				frappe.throw(_("Could not apply supplier details for {0}: {1}").format(row.item_name, error))
 			item.flags.controlled_procurement_api = True
 			item.save(ignore_permissions=True)
 		row.result_item = item.name
+		materialized[identity] = item
+
+
+def _catalog_row_identity(row) -> tuple[str, str, str]:
+	return (_normalise_name(row.item_name), row.item_type, _normalise_name(row.stock_uom or "Nos"))
+
+
+def _adopt_catalog_item(doc, row) -> None:
+	item = frappe.get_doc("Item", row.result_item)
+	if item.stock_uom != (row.stock_uom or "Nos"):
+		frappe.throw(_("Item {0} stock UOM changed since this request was submitted.").format(item.name))
+	item.update({
+		"controlled_procurement_catalog": 1,
+		"controlled_item_type": row.item_type,
+		"controlled_catalog_source": "Workbook Import" if doc.source == "Workbook Import" else "Manual Request",
+		"controlled_catalog_version": doc.name,
+	})
+	item.flags.controlled_procurement_api = True
+	item.save(ignore_permissions=True)
 
 
 @frappe.whitelist(methods=["GET"])
@@ -2232,8 +2377,8 @@ def validate_item(doc, method=None) -> None:
 		frappe.throw(_("Only CEO and System Manager can create items."), frappe.PermissionError)
 	if cint(doc.get("controlled_procurement_catalog")) and not getattr(doc.flags, "controlled_procurement_api", False):
 		frappe.throw(_("Create controlled catalog items through a catalog request."), frappe.PermissionError)
-	if cint(doc.get("controlled_procurement_catalog")) and doc.stock_uom != "Nos":
-		frappe.throw(_("Controlled catalog items must use Nos as their stock UOM."))
+	if cint(doc.get("controlled_procurement_catalog")) and not frappe.db.exists("UOM", doc.stock_uom):
+		frappe.throw(_("Controlled catalog items require a valid stock UOM."))
 
 
 def _workspace_only() -> bool:
@@ -2261,8 +2406,8 @@ def validate_transaction(doc, method=None) -> None:
 		_validate_allocation({field: doc.get(field) for field in ALLOCATION_FIELDS}, doc.company)
 	for row in doc.get("items") or []:
 		item = _catalog_item(row.item_code)
-		if row.uom != "Nos":
-			frappe.throw(_("Controlled procurement items must use Nos."))
+		if row.uom != item.stock_uom or row.stock_uom != item.stock_uom:
+			frappe.throw(_("Controlled procurement item {0} must use its stock UOM {1}.").format(row.item_code, item.stock_uom))
 		_set_row_type(row, item)
 		if doc.doctype == "Stock Entry" and (item.controlled_item_type not in STOCK_TYPES or not cint(item.is_stock_item)):
 			frappe.throw(_("Material Transfer accepts Stockable or Consumable controlled items only."))
@@ -2659,7 +2804,7 @@ def get_catalog_buying_price(item_code: str, supplier: str = "", company: str = 
 		and ip.price_list in %(price_lists)s and pl.enabled = 1 and pl.buying = 1
 		and pl.currency = %(currency)s
 		and (ifnull(ip.supplier, '') = '' or ip.supplier = %(supplier)s)
-		and (ifnull(ip.uom, '') = '' or ip.uom = 'Nos')
+		and (ifnull(ip.uom, '') = '' or ip.uom = %(uom)s)
 		and (ip.valid_from is null or ip.valid_from <= %(order_date)s)
 		and (ip.valid_upto is null or ip.valid_upto >= %(order_date)s)
 		order by (ip.supplier = %(supplier)s and %(supplier)s != '') desc,
@@ -2667,6 +2812,7 @@ def get_catalog_buying_price(item_code: str, supplier: str = "", company: str = 
 		limit 1""",
 		{
 			"item_code": item_code, "supplier": supplier or "", "price_lists": price_lists,
+			"uom": frappe.db.get_value("Item", item_code, "stock_uom"),
 			"currency": frappe.get_cached_value("Company", company, "default_currency"),
 			"order_date": str(getdate(order_date or today())), "preferred_list": price_list or "Standard Buying",
 		}, as_dict=True,

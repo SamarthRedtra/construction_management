@@ -201,6 +201,21 @@ def create_controlled_procurement_fields():
 		})
 	fields_to_create.extend([
 		{
+			"dt": "Post Dated Cheques", "fieldname": "custom_purchase_order",
+			"label": "Purchase Order", "fieldtype": "Link", "options": "Purchase Order",
+			"insert_after": "project", "read_only": 1, "in_standard_filter": 1,
+		},
+		{
+			"dt": "Stock Entry", "fieldname": "custom_source_purchase_receipt",
+			"label": "Source Purchase Receipt", "fieldtype": "Link", "options": "Purchase Receipt",
+			"insert_after": "controlled_procurement", "read_only": 1, "unique": 1,
+		},
+		{
+			"dt": "Stock Entry", "fieldname": "custom_source_material_transfer",
+			"label": "Source Material Transfer", "fieldtype": "Link", "options": "Stock Entry",
+			"insert_after": "custom_source_purchase_receipt", "read_only": 1, "unique": 1,
+		},
+		{
 			"dt": "Company", "fieldname": "controlled_service_expense_account",
 			"label": "Controlled Service Expense Account", "fieldtype": "Link", "options": "Account",
 			"insert_after": "default_expense_account",
@@ -422,6 +437,15 @@ def create_warehouse_custom_fields():
 			"options": "Project",
 			"insert_after": "company",
 			"description": "Link this warehouse/site to a specific project for material tracking"
+		},
+		{
+			"dt": "Warehouse",
+			"fieldname": "custom_skip_auto_consumption_for_consumables",
+			"label": "Skip Auto-consumption for Controlled Consumables",
+			"fieldtype": "Check",
+			"insert_after": "custom_project",
+			"default": "0",
+			"description": "Keep received or transferred controlled Consumables in this warehouse.",
 		}
 	]
 	

@@ -412,12 +412,6 @@ class DailyProgressRecord(Document):
 			if je:
 				journal_entry_names.append(je)
 		
-		# Labour
-		if self.employees and flt(self.labour_cost) > 0:
-			je = self._create_labour_journal_entry()
-			if je:
-				journal_entry_names.append(je)
-		
 		# Overheads
 		if self.overheads and flt(self.overhead_cost) > 0:
 			je = self._create_overhead_journal_entry()
@@ -853,7 +847,6 @@ class DailyProgressRecord(Document):
 
 	def _assert_required_entries_created(self):
 		"""Ensure required accounting docs are created when costs exist."""
-		labour_needed = flt(self.labour_cost) > 0
 		overhead_needed = flt(self.overhead_cost) > 0
 		expense_needed = flt(self.expense_cost) > 0
 		material_needed = flt(self.material_cost) > 0
@@ -862,8 +855,8 @@ class DailyProgressRecord(Document):
 		je_created = bool(self.journal_entries) or getattr(self, "_je_created", False)
 		
 		# If any cost exists but no JE created, block submit
-		if (labour_needed or overhead_needed or expense_needed) and not je_created:
-			frappe.throw(_("Journal Entries were not created for labour/overhead/expenses. Please try again."))
+		if (overhead_needed or expense_needed) and not je_created:
+			frappe.throw(_("Journal Entries were not created for overheads/expenses. Please try again."))
 		
 		# If material cost present, ensure stock entry exists
 		if material_needed and not stock_created:

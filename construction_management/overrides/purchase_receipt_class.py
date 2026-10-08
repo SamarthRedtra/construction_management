@@ -36,6 +36,8 @@ class PurchaseReceiptOverride(PurchaseReceipt):
 			)
 
 	def before_cancel(self):
+		from construction_management.api.consumable_receipt import cancel_linked_issue
+		cancel_linked_issue(self)
 		self._ignore_accounting_ledger_links_on_cancel()
 		super().before_cancel()
 

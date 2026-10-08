@@ -137,14 +137,15 @@ def stage(doc, changes, submitted_items=None):
 	requests = []
 	for change in sorted(identities.values(), key=lambda row: (row["item_code"], row["price_list"])):
 		frappe.db.sql("select name from `tabItem` where name = %s for update", change["item_code"])
-		key = prices._identity(change["item_code"], doc.supplier, change["price_list"], "Nos")
+		uom = frappe.db.get_value("Item", change["item_code"], "stock_uom")
+		key = prices._identity(change["item_code"], doc.supplier, change["price_list"], uom)
 		if frappe.db.exists("Controlled Buying Price Request", {"active_identity": key}):
 			frappe.throw(_("A buying-price request is already pending for {0} and {1}.").format(change["item_code"], doc.supplier))
-		current = prices._price(change["item_code"], doc.supplier, change["price_list"], "Nos")
+		current = prices._price(change["item_code"], doc.supplier, change["price_list"], uom)
 		request = frappe.get_doc({
 			"doctype": "Controlled Buying Price Request", "company": doc.company,
 			"purchase_order": doc.name, "item_code": change["item_code"],
-			"supplier": doc.supplier, "price_list": change["price_list"], "uom": "Nos",
+			"supplier": doc.supplier, "price_list": change["price_list"], "uom": uom,
 			"currency": doc.currency, "target_item_price": current.name if current else "",
 			"target_modified": current.modified if current else None,
 			"old_rate": flt(current.price_list_rate) if current else 0,

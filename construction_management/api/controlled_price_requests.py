@@ -148,10 +148,11 @@ def get_price_context(item_code: str, company: str = "", supplier: str = "", pri
 		frappe.throw(_("Select an enabled buying Price List."))
 	if list_info.currency != frappe.get_cached_value("Company", company, "default_currency"):
 		frappe.throw(_("The buying Price List currency must match the company currency."))
-	current = _price(item_code, supplier, price_list, "Nos")
-	fallback = _price(item_code, "", price_list, "Nos") if supplier and not current else None
+	uom = frappe.db.get_value("Item", item_code, "stock_uom")
+	current = _price(item_code, supplier, price_list, uom)
+	fallback = _price(item_code, "", price_list, uom) if supplier and not current else None
 	return {
-		"item_code": item_code, "supplier": supplier, "price_list": price_list,
+		"item_code": item_code, "supplier": supplier, "price_list": price_list, "uom": uom,
 		"item_price": current.name if current else "",
 		"rate": flt(current.price_list_rate) if current else None,
 		"fallback_rate": flt(fallback.price_list_rate) if fallback else None,
@@ -199,7 +200,7 @@ def request_price_change(data: str | dict) -> dict:
 	reason = (data.get("reason") or "").strip()
 	if not reason:
 		frappe.throw(_("Enter a reason for the price change."))
-	uom = "Nos"
+	uom = frappe.db.get_value("Item", item_code, "stock_uom")
 	key = _identity(item_code, supplier, price_list, uom)
 	frappe.db.sql("select name from `tabItem` where name = %s for update", item_code)
 	if frappe.db.exists("Controlled Buying Price Request", {"active_identity": key}):

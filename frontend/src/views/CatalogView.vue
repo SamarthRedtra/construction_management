@@ -34,7 +34,7 @@ const priceItem = ref(null)
 const priceContext = ref(null)
 const priceSaving = ref(false)
 const priceForm = reactive({ company: "", item_code: "", supplier: "", price_list: "Standard Buying", proposed_rate: "", reason: "" })
-const emptyItem = { item_type: "Stockable", item_name: "", item_code: "", item_group: "", supplier: "", asset_category: "", expense_account: "" }
+const emptyItem = { item_type: "Stockable", item_name: "", item_code: "", item_group: "", stock_uom: "Nos", supplier: "", asset_category: "", expense_account: "" }
 const itemForm = reactive({ company: ctx.value.default_company || "", ...emptyItem })
 const openingForm = reactive({ company: ctx.value.default_company || "", posting_date: new Date().toISOString().slice(0, 10), items: [{ item_code: "", warehouse: "", qty: 0, valuation_rate: 0 }] })
 
@@ -163,7 +163,7 @@ onMounted(() => { load(); loadFilterOptions() })
 </script>
 
 <template>
-	<PageHeader title="Controlled Catalog" subtitle="Approved Nos items that can be ordered, received and transferred." :breadcrumbs="[{ label: 'Procurement', to: '/dashboard' }, { label: 'Controlled Catalog' }]">
+	<PageHeader title="Controlled Catalog" subtitle="Approved items that can be ordered, received and transferred." :breadcrumbs="[{ label: 'Procurement', to: '/dashboard' }, { label: 'Controlled Catalog' }]">
 		<template v-if="ctx.can_manage_catalog" #actions>
 			<button class="cp-btn" @click="downloadTemplate">Download template</button>
 			<button class="cp-btn" @click="fileInput.click()">Import workbook</button>
@@ -237,11 +237,12 @@ onMounted(() => { load(); loadFilterOptions() })
 				<label class="cp-field"><span>Description<i>*</i></span><input v-model="itemForm.item_name" class="cp-input" required /></label>
 				<label class="cp-field"><span>Item code</span><input v-model="itemForm.item_code" class="cp-input" placeholder="Auto-generated if empty" /></label>
 				<LinkSelect v-model="itemForm.item_group" doctype="Item Group" label="Item group" :required="true" :filters="{ is_group: 0 }" />
+				<LinkSelect v-model="itemForm.stock_uom" doctype="UOM" label="Stock UOM" :required="true" />
 				<LinkSelect v-model="itemForm.supplier" doctype="Supplier" label="Supplier" :required="true" />
 				<LinkSelect v-if="itemForm.item_type === 'Asset'" v-model="itemForm.asset_category" doctype="Asset Category" label="Asset category" placeholder="Company default" />
 				<LinkSelect v-if="itemForm.item_type === 'Service'" v-model="itemForm.expense_account" doctype="Account" label="Service expense account" placeholder="Company default" :filters="{ company: itemForm.company, is_group: 0 }" />
 			</div>
-			<p class="cp-hint">Controlled items always use UOM Nos.</p>
+			<p class="cp-hint">Choose the unit used for stock, orders, receipts and buying prices.</p>
 		</form>
 		<template #footer>
 			<button class="cp-btn" @click="creating = false">Cancel</button>

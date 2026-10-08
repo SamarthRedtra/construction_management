@@ -21,7 +21,7 @@ const { balances, loading: stockLoading, error: stockError, requested, state: st
 )
 
 function addRow() {
-	form.items.push({ item_code: "", item_name: "", qty: 1, rate: 0 })
+	form.items.push({ item_code: "", item_name: "", stock_uom: "", qty: 1, rate: 0 })
 }
 
 async function save() {
@@ -51,7 +51,7 @@ onMounted(async () => {
 		Object.assign(form, { company: doc.company, posting_date: String(doc.posting_date).slice(0, 10),
 			source_warehouse: doc.from_warehouse || doc.items?.[0]?.s_warehouse || "",
 			target_warehouse: doc.to_warehouse || doc.items?.[0]?.t_warehouse || "" })
-		form.items = (doc.items || []).map((row) => ({ item_code: row.item_code, item_name: row.item_name, qty: row.qty, rate: row.basic_rate || row.valuation_rate || 0 }))
+		form.items = (doc.items || []).map((row) => ({ item_code: row.item_code, item_name: row.item_name, stock_uom: row.stock_uom, qty: row.qty, rate: row.basic_rate || row.valuation_rate || 0 }))
 	} catch (error) { toastError(error) }
 })
 </script>
@@ -87,9 +87,9 @@ onMounted(async () => {
 						<template v-for="(row, index) in form.items" :key="index">
 							<tr>
 								<td>
-									<ItemPicker v-model="row.item_code" :display-name="row.item_name" :stockable-only="true" @selected="row.item_name = $event.item_name" />
+									<ItemPicker v-model="row.item_code" :display-name="row.item_name" :stockable-only="true" @selected="row.item_name = $event.item_name; row.stock_uom = $event.stock_uom" @cleared="row.stock_uom = ''" />
 								</td>
-								<td><input v-model.number="row.qty" class="cp-input num" type="number" min="0.0001" step="any" required /></td>
+								<td><input v-model.number="row.qty" class="cp-input num" type="number" min="0.0001" step="any" required /><small class="cp-muted">{{ row.stock_uom }}</small></td>
 								<td class="num">
 									<span v-if="stockState(row.item_code) === 'enough'" class="cp-pill success">✓ {{ formatNumber(balances[row.item_code]) }} available</span>
 									<span v-else-if="stockState(row.item_code) === 'short'" class="cp-pill danger" role="status" :title="`${formatNumber(requested[row.item_code])} requested across all lines`">! {{ formatNumber(balances[row.item_code]) }} available · short {{ formatNumber(shortage(row.item_code)) }}</span>

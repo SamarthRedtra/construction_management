@@ -220,7 +220,10 @@ doc_events = {
 	"Purchase Receipt": {
 		"before_validate": "construction_management.overrides.purchase_receipt.before_validate",
 		"before_submit": "construction_management.overrides.purchase_receipt.before_submit",
-		"on_submit": "redtra_customisation.override.provisional_purchase_order.on_purchase_receipt_submit",
+		"on_submit": [
+			"redtra_customisation.override.provisional_purchase_order.on_purchase_receipt_submit",
+			"construction_management.api.consumable_receipt.on_submit",
+		],
 		"validate": [
 			"construction_management.overrides.purchase_receipt.validate",
 			"construction_management.api.controlled_procurement.validate_transaction",
@@ -282,6 +285,8 @@ doc_events = {
 	"Stock Entry": {
 		"before_validate": "construction_management.api.drum_uom_utils.apply_stock_entry_uom_conversion",
 		"validate": "construction_management.api.controlled_procurement.validate_transaction",
+		"on_submit": "construction_management.api.consumable_receipt.on_transfer_submit",
+		"before_cancel": "construction_management.api.consumable_receipt.cancel_linked_transfer_issue",
 		"on_cancel": "construction_management.overrides.stock_entry.on_cancel",
 	},
 	"Item": {
@@ -332,9 +337,9 @@ process_soa_html = {
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
 # along with any modifications made in other Frappe apps
-# override_doctype_dashboards = {
-# 	"Task": "construction_management.task.get_dashboard_data"
-# }
+override_doctype_dashboards = {
+	"Purchase Order": "construction_management.purchase_order_dashboard.get_dashboard_data",
+}
 
 # exempt linked doctypes from being automatically cancelled
 #

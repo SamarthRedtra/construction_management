@@ -63,10 +63,16 @@ def allocate_project_document_name(doc) -> str | None:
 
 def _seed_invoice_series(target: str, legacy: str) -> None:
 	"""Carry forward the old SINV counter without resetting an existing TINV series."""
-	frappe.db.sql("""insert into `tabSeries` (`name`, `current`)
-		select %(target)s, `current` from `tabSeries` where `name` = %(legacy)s
+	legacy_current = frappe.db.get_value("Series", legacy, "current", order_by="name")
+	if legacy_current is None:
+		return
+
+	frappe.db.sql(
+		"""insert into `tabSeries` (`name`, `current`)
+		values (%(target)s, %(legacy_current)s)
 		on duplicate key update `current` = greatest(`current`, values(`current`))""",
-		{"target": target, "legacy": legacy})
+		{"target": target, "legacy_current": legacy_current},
+	)
 
 
 def get_project_document_period(doc) -> str:

@@ -805,6 +805,31 @@ function ensure_dashboard_visible() {
 	}, 100);
 }
 
+function can_manage_project_billing() {
+	const user_roles = frappe.user_roles || [];
+	return user_roles.includes('Project Manager') ||
+		user_roles.includes('Quantity Surveyor') ||
+		user_roles.includes('System Manager');
+}
+
+function add_empty_state_retention_action(wrapper, project) {
+	if (!can_manage_project_billing()) return;
+
+	frappe.call({
+		method: 'construction_management.api.boq_invoice.get_retention_summary',
+		args: { project: project },
+		callback: function (response) {
+			if (flt(response.message?.retention_balance) <= 0 || !wrapper.find('.boq-empty-state').length) return;
+			wrapper.find('.empty-actions').append(`
+				<button class="btn-modern btn-outline" onclick="release_retention_payment('${project}')" title="${__('Raise retention release Sales Invoice')}">
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+					${__('Release Retention')}
+				</button>
+			`);
+		},
+	});
+}
+
 function render_empty_state(wrapper, frm) {
 	wrapper.html(`
 		${get_dashboard_styles()}
@@ -839,6 +864,8 @@ function render_empty_state(wrapper, frm) {
 			</div>
 		</div>
 	`);
+
+	add_empty_state_retention_action(wrapper, frm.doc.name);
 }
 
 function render_modern_dashboard(wrapper, frm, data) {
@@ -1058,12 +1085,8 @@ function render_kpi_grid(container, kpi, progress, collectionRate, frm) {
 function render_action_bar(container, frm) {
 	// Check user permissions
 	const user_roles = frappe.user_roles || [];
-	const can_create_invoice = user_roles.includes('Project Manager') ||
-		user_roles.includes('Quantity Surveyor') ||
-		user_roles.includes('System Manager');
-	const can_modify_boq = user_roles.includes('Project Manager') ||
-		user_roles.includes('Quantity Surveyor') ||
-		user_roles.includes('System Manager');
+	const can_create_invoice = can_manage_project_billing();
+	const can_modify_boq = can_manage_project_billing();
 	const can_create_dpr = user_roles.includes('Project Manager') ||
 		user_roles.includes('Quantity Surveyor') ||
 		user_roles.includes('Site Engineer') ||
