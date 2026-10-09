@@ -2320,6 +2320,7 @@ def _adopt_catalog_item(doc, row) -> None:
 	if item.stock_uom != (row.stock_uom or "Nos"):
 		frappe.throw(_("Item {0} stock UOM changed since this request was submitted.").format(item.name))
 	item.update({
+		"item_group": row.item_group,
 		"controlled_procurement_catalog": 1,
 		"controlled_item_type": row.item_type,
 		"controlled_catalog_source": "Workbook Import" if doc.source == "Workbook Import" else "Manual Request",
