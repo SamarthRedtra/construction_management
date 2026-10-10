@@ -11,6 +11,7 @@ import PageHeader from "@/components/PageHeader.vue"
 const ctx = computed(() => session.context)
 const requests = ref([])
 const requestDetail = ref(null)
+const approvingRequest = ref("")
 
 async function loadRequests() {
 	try {
@@ -29,6 +30,8 @@ async function showRequest(request) {
 }
 
 async function approve(request) {
+	if (approvingRequest.value) return
+	approvingRequest.value = request.name
 	try {
 		await call("approve_catalog_request", { name: request.name })
 		toast("Catalog request approved")
@@ -36,6 +39,8 @@ async function approve(request) {
 		if (requestDetail.value?.name === request.name) await showRequest(request)
 	} catch (error) {
 		toastError(error)
+	} finally {
+		approvingRequest.value = ""
 	}
 }
 
@@ -86,8 +91,8 @@ onMounted(loadRequests)
 					<td>{{ request.source }}</td>
 					<td class="cp-table-actions">
 						<button class="cp-btn sm" @click="showRequest(request)">View</button>
-						<button v-if="ctx.can_approve_catalog && request.status.startsWith('Pending') && !(request.status === 'Pending CEO' && request.has_price_change && !ctx.can_approve_price_change)" class="cp-btn sm" @click="approve(request)">Approve</button>
-						<button v-if="ctx.can_approve_catalog && request.status.startsWith('Pending') && !(request.status === 'Pending CEO' && request.has_price_change && !ctx.can_approve_price_change)" class="cp-btn sm" @click="reject(request)">Reject</button>
+						<button v-if="ctx.can_approve_catalog && request.status.startsWith('Pending') && !(request.status === 'Pending CEO' && request.has_price_change && !ctx.can_approve_price_change)" class="cp-btn sm" :disabled="Boolean(approvingRequest)" @click="approve(request)">{{ approvingRequest === request.name ? "Approving…" : "Approve" }}</button>
+						<button v-if="ctx.can_approve_catalog && request.status.startsWith('Pending') && !(request.status === 'Pending CEO' && request.has_price_change && !ctx.can_approve_price_change)" class="cp-btn sm" :disabled="Boolean(approvingRequest)" @click="reject(request)">Reject</button>
 						<button v-if="request.status === 'Needs Correction' && request.requested_by === ctx.user" class="cp-btn sm" @click="showRequest(request)">Correct</button>
 					</td>
 				</tr>
@@ -106,4 +111,14 @@ onMounted(loadRequests)
 			<button class="cp-btn primary" @click="resubmit(requestDetail)">Resubmit for approval</button>
 		</template>
 	</Modal>
+
+	<div v-if="approvingRequest" class="cp-busy-overlay" role="status" aria-live="assertive" aria-label="Catalog approval in progress">
+		<div class="cp-busy-card">
+			<span class="cp-spinner" aria-hidden="true" />
+			<div>
+				<strong>Approving {{ approvingRequest }}…</strong>
+				<p>Applying catalog items and approved prices. This can take a few moments; please keep this page open.</p>
+			</div>
+		</div>
+	</div>
 </template>

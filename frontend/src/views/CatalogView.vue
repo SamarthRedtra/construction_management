@@ -21,6 +21,7 @@ const sortBy = ref("item_name")
 const sortOrder = ref("asc")
 const filterOptions = ref({ item_groups: [], sources: [] })
 const loading = ref(false)
+const exporting = ref("")
 let latestLoad = 0
 const creating = ref(false)
 const saving = ref(false)
@@ -119,6 +120,28 @@ async function downloadTemplate() {
 	try { window.location.assign((await call("download_catalog_template")).file_url) } catch (error) { toastError(error) }
 }
 
+async function exportCatalog(fileFormat) {
+	exporting.value = fileFormat
+	try {
+		const result = await call("download_catalog_export", {
+			file_format: fileFormat,
+			search: search.value,
+			item_type: typeFilter.value,
+			item_group: groupFilter.value,
+			source: sourceFilter.value,
+			stock_status: stockFilter.value,
+			sort_by: sortBy.value,
+			sort_order: sortOrder.value,
+		})
+		window.location.assign(result.file_url)
+		toast(`${result.rows} catalog item(s) exported`)
+	} catch (error) {
+		toastError(error)
+	} finally {
+		exporting.value = ""
+	}
+}
+
 async function showStock(item) {
 	stockItem.value = item
 	try { stockRows.value = (await call("get_catalog_stock", { item_code: item.name })).rows } catch (error) { toastError(error) }
@@ -165,6 +188,8 @@ onMounted(() => { load(); loadFilterOptions() })
 <template>
 	<PageHeader title="Controlled Catalog" subtitle="Approved items that can be ordered, received and transferred." :breadcrumbs="[{ label: 'Procurement', to: '/dashboard' }, { label: 'Controlled Catalog' }]">
 		<template v-if="ctx.can_manage_catalog" #actions>
+			<button class="cp-btn" :disabled="!!exporting" @click="exportCatalog('csv')">{{ exporting === "csv" ? "Exporting…" : "Export CSV" }}</button>
+			<button class="cp-btn" :disabled="!!exporting" @click="exportCatalog('xlsx')">{{ exporting === "xlsx" ? "Exporting…" : "Export Excel" }}</button>
 			<button class="cp-btn" @click="downloadTemplate">Download template</button>
 			<button class="cp-btn" @click="fileInput.click()">Import workbook</button>
 			<button v-if="ctx.can_opening_stock" class="cp-btn" @click="opening = true">Opening stock</button>

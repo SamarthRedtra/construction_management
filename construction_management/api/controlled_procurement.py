@@ -6,9 +6,10 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+import csv
 import hashlib
 import json
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
 from uuid import UUID
 
@@ -16,6 +17,7 @@ import frappe
 from frappe import _
 from frappe.utils.file_manager import save_file
 from frappe.utils import cint, flt, getdate, now_datetime, today
+from openpyxl import Workbook
 
 
 ADMIN_ROLES = {"System Manager", "CEO"}
@@ -220,6 +222,9 @@ CATALOG_SORT_FIELDS = {
 	"controlled_catalog_source": "item.controlled_catalog_source",
 	"actual_qty": "COALESCE(stock.actual_qty, 0)",
 }
+CATALOG_EXPORT_HEADERS = (
+	"Item Code", "Description", "Item Group", "Type", "UOM", "Available Stock", "Source",
+)
 
 
 @frappe.whitelist(methods=["GET"])
@@ -230,6 +235,56 @@ def get_catalog(
 ) -> dict:
 	"""Filter and sort the full approved catalog before pagination."""
 	_require(CATALOG_ROLES)
+	from_clause, where_clause, params, order_clause = _catalog_query(
+		company, search, item_type, item_group, source, stock_status, sort_by, sort_order, supplier, stock_only,
+	)
+	params.update({"start": max(cint(start), 0), "page_length": min(max(cint(page_length) or 50, 1), 100)})
+	rows = frappe.db.sql(
+		f"""SELECT item.name, item.item_name, item.item_group, item.stock_uom,
+		item.controlled_item_type, item.controlled_catalog_source,
+		COALESCE(stock.actual_qty, 0) AS actual_qty
+		{from_clause} WHERE {where_clause}
+		ORDER BY {order_clause} LIMIT %(page_length)s OFFSET %(start)s""",
+		params, as_dict=True,
+	)
+	total_count = frappe.db.sql(
+		f"SELECT COUNT(*) {from_clause} WHERE {where_clause}", params,
+	)[0][0]
+	return {"rows": rows, "total_count": total_count}
+
+
+@frappe.whitelist(methods=["POST"])
+def download_catalog_export(
+	file_format: str = "csv", company: str = "", search: str = "", item_type: str = "",
+	item_group: str = "", source: str = "", stock_status: str = "", sort_by: str = "item_name",
+	sort_order: str = "asc", supplier: str = "", stock_only: int = 0,
+) -> dict:
+	"""Create a private CSV or XLSX export using the active catalog filters."""
+	_require(CATALOG_ROLES)
+	file_format = file_format.lower()
+	if file_format not in {"csv", "xlsx"}:
+		frappe.throw(_("Select CSV or XLSX export format."))
+	from_clause, where_clause, params, order_clause = _catalog_query(
+		company, search, item_type, item_group, source, stock_status, sort_by, sort_order, supplier, stock_only,
+	)
+	rows = frappe.db.sql(
+		f"""SELECT item.name, item.item_name, item.item_group, item.stock_uom,
+		item.controlled_item_type, item.controlled_catalog_source,
+		COALESCE(stock.actual_qty, 0) AS actual_qty
+		{from_clause} WHERE {where_clause} ORDER BY {order_clause}""",
+		params,
+		as_dict=True,
+	)
+	content = _catalog_export_content(rows, file_format)
+	filename = f"controlled_catalog_{today()}.{file_format}"
+	file_doc = save_file(filename, content, None, None, is_private=1)
+	return {"file_url": file_doc.file_url, "filename": filename, "rows": len(rows)}
+
+
+def _catalog_query(
+	company: str, search: str, item_type: str, item_group: str, source: str, stock_status: str,
+	sort_by: str, sort_order: str, supplier: str, stock_only: int,
+) -> tuple[str, str, dict, str]:
 	company = _document_company(company)
 	if sort_by not in CATALOG_SORT_FIELDS or sort_order.lower() not in {"asc", "desc"}:
 		frappe.throw(_("Invalid catalog sort option."))
@@ -239,7 +294,7 @@ def get_catalog(
 		frappe.throw(_("Invalid catalog item type."))
 
 	conditions = ["item.disabled = 0", "item.is_purchase_item = 1", "item.controlled_procurement_catalog = 1"]
-	params = {"company": company, "start": max(cint(start), 0), "page_length": min(max(cint(page_length) or 50, 1), 100)}
+	params = {"company": company}
 	if search.strip():
 		conditions.append("(item.item_name LIKE %(search)s OR item.name LIKE %(search)s)")
 		params["search"] = f"%{search.strip()}%"
@@ -263,20 +318,42 @@ def get_catalog(
 		WHERE warehouse.company = %(company)s AND warehouse.is_group = 0
 		GROUP BY bin.item_code
 	) stock ON stock.item_code = item.name"""
-	where_clause = " AND ".join(conditions)
-	order_clause = f"{CATALOG_SORT_FIELDS[sort_by]} {sort_order.upper()}, item.name ASC"
-	rows = frappe.db.sql(
-		f"""SELECT item.name, item.item_name, item.item_group, item.stock_uom,
-		item.controlled_item_type, item.controlled_catalog_source,
-		COALESCE(stock.actual_qty, 0) AS actual_qty
-		{from_clause} WHERE {where_clause}
-		ORDER BY {order_clause} LIMIT %(page_length)s OFFSET %(start)s""",
-		params, as_dict=True,
+	return from_clause, " AND ".join(conditions), params, f"{CATALOG_SORT_FIELDS[sort_by]} {sort_order.upper()}, item.name ASC"
+
+
+def _catalog_export_content(rows: list[dict], file_format: str) -> bytes:
+	values = [_catalog_export_row(row) for row in rows]
+	if file_format == "csv":
+		output = StringIO()
+		writer = csv.writer(output)
+		writer.writerow(CATALOG_EXPORT_HEADERS)
+		writer.writerows(values)
+		return output.getvalue().encode("utf-8-sig")
+
+	book = Workbook()
+	sheet = book.active
+	sheet.title = "Controlled Catalog"
+	sheet.append(CATALOG_EXPORT_HEADERS)
+	for row in values:
+		sheet.append(row)
+	for column in sheet.columns:
+		sheet.column_dimensions[column[0].column_letter].width = min(max(len(str(cell.value or "")) for cell in column) + 2, 48)
+	stream = BytesIO()
+	book.save(stream)
+	return stream.getvalue()
+
+
+def _catalog_export_row(row: dict) -> tuple:
+	return (
+		_catalog_export_value(row.name), _catalog_export_value(row.item_name), _catalog_export_value(row.item_group),
+		_catalog_export_value(row.controlled_item_type), _catalog_export_value(row.stock_uom), flt(row.actual_qty),
+		_catalog_export_value(row.controlled_catalog_source),
 	)
-	total_count = frappe.db.sql(
-		f"SELECT COUNT(*) {from_clause} WHERE {where_clause}", params,
-	)[0][0]
-	return {"rows": rows, "total_count": total_count}
+
+
+def _catalog_export_value(value) -> str:
+	value = str(value or "")
+	return f"'{value}" if value.startswith(("=", "+", "-", "@")) else value
 
 
 @frappe.whitelist(methods=["GET"])

@@ -326,6 +326,14 @@ td > .cp-pill:first-child { margin-left: 0; }
 .cp-toast { padding: 12px 16px; border-radius: 10px; background: var(--primary); color: var(--primary-ink); box-shadow: var(--shadow-lg); white-space: pre-line; }
 .cp-toast.error { background: var(--danger); color: #fff; }
 
+/* blocking request processing */
+.cp-busy-overlay { position: fixed; inset: 0; z-index: 250; display: grid; place-items: center; padding: 24px; background: rgba(15, 17, 21, 0.45); }
+.cp-busy-card { display: flex; align-items: flex-start; gap: 14px; width: min(460px, 100%); padding: 20px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-lg); }
+.cp-busy-card strong { display: block; font-size: 16px; }
+.cp-busy-card p { margin: 5px 0 0; color: var(--muted); }
+.cp-spinner { flex: none; width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: cp-spin 0.8s linear infinite; }
+@keyframes cp-spin { to { transform: rotate(360deg); } }
+
 /* responsive */
 @media (max-width: 1024px) {
 	.cp-grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
