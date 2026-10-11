@@ -31,6 +31,7 @@ const stockItem = ref(null)
 const stockRows = ref([])
 const opening = ref(false)
 const openingSaving = ref(false)
+const mrgSnapshotSaving = ref(false)
 const priceItem = ref(null)
 const priceContext = ref(null)
 const priceSaving = ref(false)
@@ -180,6 +181,23 @@ async function saveOpeningStock() {
 	try { const result = await call("record_opening_stock", { data: openingForm }); toast(`Opening stock recorded in ${result.name}`); opening.value = false; load() } catch (error) { toastError(error) } finally { openingSaving.value = false }
 }
 
+async function runMrgOpeningStock() {
+	mrgSnapshotSaving.value = true
+	try {
+		const result = await call("run_mrg_opening_stock_snapshot", { company: ctx.value.default_company })
+		if (result.status === "completed") {
+			toast(`MRG opening stock complete: ${result.submitted_documents} reconciliation document(s) submitted.`)
+		} else {
+			toast(`MRG opening stock is waiting on ${result.preflight_error_count} preflight issue(s). Review request ${result.catalog_requests.join(", ") || "status"}.`)
+		}
+		load()
+	} catch (error) {
+		toastError(error)
+	} finally {
+		mrgSnapshotSaving.value = false
+	}
+}
+
 watch(search, debounce(() => load(), 300))
 watch([typeFilter, groupFilter, sourceFilter, stockFilter, sortBy, sortOrder], () => load())
 onMounted(() => { load(); loadFilterOptions() })
@@ -193,6 +211,7 @@ onMounted(() => { load(); loadFilterOptions() })
 			<button class="cp-btn" @click="downloadTemplate">Download template</button>
 			<button class="cp-btn" @click="fileInput.click()">Import workbook</button>
 			<button v-if="ctx.can_opening_stock" class="cp-btn" @click="opening = true">Opening stock</button>
+			<button v-if="ctx.can_opening_stock && ctx.default_company === 'M R G INSULATION WORKS L.L.C'" class="cp-btn" :disabled="mrgSnapshotSaving" @click="runMrgOpeningStock">{{ mrgSnapshotSaving ? "Uploading MRG stock…" : "Upload MRG stock report" }}</button>
 			<button class="cp-btn primary" @click="creating = true">New catalog request</button>
 			<input ref="fileInput" type="file" accept=".xlsx" hidden @change="onWorkbookChosen" />
 		</template>

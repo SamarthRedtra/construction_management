@@ -2155,7 +2155,10 @@ def _catalog_request_row(data: dict, company: str) -> dict:
 		ServiceItemValidator.validate_expense_account(expense_account, company)
 	item_code = (data.get("item_code") or "").strip()
 	existing = frappe.db.get_value("Item", item_code, "name") if item_code else None
-	if not existing:
+	# A supplied code deliberately identifies the catalog master.  This lets an
+	# approved catalog row use its own UOM when a legacy Item shares the same
+	# description with a different UOM.
+	if not item_code:
 		existing = frappe.db.get_value("Item", {"item_name": data["item_name"], "disabled": 0}, "name")
 	if existing and frappe.db.get_value("Item", existing, "stock_uom") != stock_uom:
 		frappe.throw(_("Existing item {0} has another stock UOM; its UOM cannot be changed by import.").format(existing))
@@ -2448,6 +2451,17 @@ def record_opening_stock(data: str | dict) -> dict:
 	doc.insert()
 	doc.submit()
 	return {"doctype": doc.doctype, "name": doc.name}
+
+
+@frappe.whitelist(methods=["POST"])
+def run_mrg_opening_stock_snapshot(company: str) -> dict:
+	"""Run the approval-gated MRG opening-stock upload from the catalog workspace."""
+	_require(OPENING_STOCK_ROLES)
+	from construction_management.api import mrg_stock_snapshot
+
+	if company != mrg_stock_snapshot.COMPANY or company not in _allowed_companies():
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	return mrg_stock_snapshot.run()
 
 
 def validate_item(doc, method=None) -> None:

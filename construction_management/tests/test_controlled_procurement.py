@@ -81,7 +81,7 @@ class TestControlledProcurement(UnitTestCase):
 		item = MagicMock(name="LEGACY-PKT", stock_uom="PKT")
 		get_doc.return_value = item
 		row = SimpleNamespace(action="Adopt", result_item="LEGACY-PKT", item_name="Binder Clip",
-			item_type="Consumable", stock_uom="PKT")
+			item_group="Products", item_type="Consumable", stock_uom="PKT")
 		doc = SimpleNamespace(source="Workbook Import", name="CCR-EXPANDED")
 
 		controlled_procurement._adopt_catalog_item(doc, row)
@@ -89,7 +89,7 @@ class TestControlledProcurement(UnitTestCase):
 		update = item.update.call_args.args[0]
 		self.assertEqual(update["controlled_procurement_catalog"], 1)
 		self.assertNotIn("stock_uom", update)
-		self.assertNotIn("item_group", update)
+		self.assertEqual(update["item_group"], "Products")
 		self.assertNotIn("is_stock_item", update)
 		item.save.assert_called_once_with(ignore_permissions=True)
 
@@ -150,6 +150,15 @@ class TestControlledProcurement(UnitTestCase):
 			"items": [{"item_code": "CP-CONSUMABLE", "warehouse": "Stores - MRG", "qty": 5, "valuation_rate": 10}]})
 		self.assertEqual(result["name"], "MAT-RECO-1")
 		new_doc.return_value.submit.assert_called_once()
+
+	@patch("construction_management.api.mrg_stock_snapshot.run", return_value={"status": "completed"})
+	@patch("construction_management.api.controlled_procurement._allowed_companies", return_value={"M R G INSULATION WORKS L.L.C"})
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_mrg_opening_stock_snapshot_uses_the_guarded_runner(self, require, companies, run):
+		result = controlled_procurement.run_mrg_opening_stock_snapshot("M R G INSULATION WORKS L.L.C")
+
+		self.assertEqual(result, {"status": "completed"})
+		run.assert_called_once_with()
 
 	@patch("construction_management.api.controlled_procurement.frappe.get_list")
 	@patch("construction_management.api.controlled_procurement.frappe.get_all", return_value=["SUP-2", "SUP-1"])
