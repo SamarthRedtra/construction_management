@@ -31,6 +31,21 @@ MONTH_ABBREVIATIONS = (
 	"DEC",
 )
 
+MONTH_NAMES = (
+	"January",
+	"February",
+	"March",
+	"April",
+	"May",
+	"June",
+	"July",
+	"August",
+	"September",
+	"October",
+	"November",
+	"December",
+)
+
 
 def assign_project_document_name(doc) -> bool:
 	"""Assign the project/month series name, returning False for non-project documents."""
@@ -50,13 +65,19 @@ def allocate_project_document_name(doc) -> str | None:
 	if not prefix:
 		return None
 
-	project_no = frappe.db.get_value("Project", doc.project, "custom_project_no")
-	if not project_no:
-		frappe.throw(_("Project {0} needs a Project No before creating {1}.").format(doc.project, doc.doctype))
-
 	period = get_project_document_period(doc)
-	series_prefix = f"{prefix}/{project_no}/{period}/"
-	if doc.doctype == "Sales Invoice":
+	combined_invoice = is_combined_sales_invoice(doc)
+	if combined_invoice:
+		series_prefix = f"{prefix}/{period}/"
+	else:
+		project_no = frappe.db.get_value("Project", doc.project, "custom_project_no")
+		if not project_no:
+			frappe.throw(
+				_("Project {0} needs a Project No before creating {1}.").format(doc.project, doc.doctype)
+			)
+		series_prefix = f"{prefix}/{project_no}/{period}/"
+
+	if doc.doctype == "Sales Invoice" and not combined_invoice:
 		_seed_invoice_series(series_prefix, f"SINV/{project_no}/{period}/")
 	return f"{series_prefix}{getseries(series_prefix, 1)}"
 
@@ -81,6 +102,10 @@ def get_project_document_period(doc) -> str:
 		return format_period(doc.get("transaction_date") or today())
 
 	if doc.doctype == "Sales Invoice":
+		combined_sales_orders = get_combined_source_sales_orders(doc)
+		if combined_sales_orders:
+			return get_combined_sales_order_period(combined_sales_orders)
+
 		sales_orders = get_linked_sales_orders(doc)
 		if sales_orders:
 			return get_linked_sales_order_period(sales_orders)
@@ -96,16 +121,28 @@ def get_linked_sales_orders(doc) -> list[str]:
 		for item in doc.get("items", [])
 		if item.get("sales_order")
 	}
-
-	for sales_order in (doc.get("custom_source_sales_orders") or "").split(","):
-		if sales_order.strip():
-			sales_orders.add(sales_order.strip())
-
+	sales_orders.update(get_combined_source_sales_orders(doc))
 	return sorted(sales_orders)
 
 
-def get_linked_sales_order_period(sales_orders: list[str]) -> str:
-	"""Return the common month of linked Sales Orders, rejecting mixed-month invoices."""
+def get_combined_source_sales_orders(doc) -> list[str]:
+	"""Return the Sales Orders explicitly selected for a combined Tax Invoice."""
+	return sorted(
+		{
+			sales_order.strip()
+			for sales_order in (doc.get("custom_source_sales_orders") or "").split(",")
+			if sales_order.strip()
+		}
+	)
+
+
+def is_combined_sales_invoice(doc) -> bool:
+	"""Identify invoices created through the combined Tax Invoice flow."""
+	return doc.doctype == "Sales Invoice" and bool(get_combined_source_sales_orders(doc))
+
+
+def get_sales_order_dates(sales_orders: list[str]) -> list:
+	"""Fetch and validate source Sales Order dates used in invoice naming."""
 	orders = frappe.get_all(
 		"Sales Order",
 		filters={"name": ["in", sales_orders]},
@@ -113,7 +150,12 @@ def get_linked_sales_order_period(sales_orders: list[str]) -> str:
 	)
 	if len(orders) != len(sales_orders):
 		frappe.throw(_("A linked Sales Order could not be found."))
+	return orders
 
+
+def get_linked_sales_order_period(sales_orders: list[str]) -> str:
+	"""Return the common month of linked Sales Orders, rejecting mixed-month invoices."""
+	orders = get_sales_order_dates(sales_orders)
 	periods = {format_period(order.transaction_date) for order in orders}
 	if len(periods) != 1:
 		frappe.throw(_("All linked Sales Orders must have the same transaction month."))
@@ -121,7 +163,21 @@ def get_linked_sales_order_period(sales_orders: list[str]) -> str:
 	return periods.pop()
 
 
+def get_combined_sales_order_period(sales_orders: list[str]) -> str:
+	"""Return ordered, distinct month labels for a combined Tax Invoice."""
+	months = {
+		(getdate(order.transaction_date).year, getdate(order.transaction_date).month)
+		for order in get_sales_order_dates(sales_orders)
+	}
+	return "-".join(format_combined_period(year, month) for year, month in sorted(months))
+
+
 def format_period(value) -> str:
 	"""Format a date as the fixed English YYYY-MON naming period."""
 	date_value = getdate(value)
 	return f"{date_value.year}-{MONTH_ABBREVIATIONS[date_value.month - 1]}"
+
+
+def format_combined_period(year: int, month: int) -> str:
+	"""Format a combined-invoice month as fixed English MonthYY."""
+	return f"{MONTH_NAMES[month - 1]}{year % 100:02d}"
