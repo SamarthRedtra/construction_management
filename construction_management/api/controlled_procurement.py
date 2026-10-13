@@ -1962,6 +1962,17 @@ def _add_supplier_and_price(item, supplier: str, rate: float) -> str:
 	return ""
 
 
+def _apply_catalog_supplier_mapping(item, supplier: str, rate: float, item_name: str = "") -> None:
+	"""Apply an already-approved supplier mapping to a catalog Item."""
+	error = _add_supplier_and_price(item, supplier, rate)
+	if error:
+		frappe.throw(
+			_("Could not apply supplier details for {0}: {1}").format(item_name or item.item_name, error)
+		)
+	item.flags.controlled_procurement_api = True
+	item.save(ignore_permissions=True)
+
+
 def import_catalog_from_path(path: str) -> dict:
 	"""Administrator-only development helper; production uses catalog file or Desk upload."""
 	_require(ADMIN_ROLES)
@@ -2158,7 +2169,7 @@ def _catalog_uom(value: str) -> str:
 	frappe.throw(_("Stock UOM {0} does not exist.").format(value))
 
 
-def _catalog_request_row(data: dict, company: str) -> dict:
+def _catalog_request_row(data: dict, company: str, supplier_link_only: bool = False) -> dict:
 	item_type = data.get("item_type") or STOCKABLE
 	if item_type not in STOCK_TYPES | {ASSET, SERVICE}:
 		frappe.throw(_("Select Stockable, Consumable, Asset, or Service."))
@@ -2206,9 +2217,88 @@ def _catalog_request_row(data: dict, company: str) -> dict:
 		"expense_account": expense_account or "",
 		"supplier": supplier,
 		"rate": flt(data.get("rate")),
-		"action": "Update" if existing else "Create",
+		"action": "Link Supplier" if supplier_link_only and existing else "Update" if existing else "Create",
 		"result_item": existing or "",
 	}
+
+
+@frappe.whitelist(methods=["POST"])
+def create_catalog_supplier_link_request(data: str | dict) -> dict:
+	"""Create an approval-routed request to link one supplier to selected catalog Items."""
+	_require(CATALOG_ROLES)
+	data = _as_dict(data)
+	company = _document_company(data.get("company"))
+	supplier = str(data.get("supplier") or "").strip()
+	if not supplier or not frappe.db.exists("Supplier", {"name": supplier, "disabled": 0}):
+		frappe.throw(_("Select an active Supplier."))
+
+	item_codes = _unique_catalog_item_codes(data.get("item_codes"))
+	if not item_codes:
+		frappe.throw(_("Select at least one controlled catalog item."))
+	items = _selected_catalog_items(item_codes)
+	if len(items) != len(item_codes):
+		frappe.throw(_("Every selected item must be an active controlled catalog item."))
+
+	linked_items = set(
+		frappe.get_all(
+			"Item Supplier",
+			filters={"parent": ["in", item_codes], "parenttype": "Item", "supplier": supplier},
+			pluck="parent",
+			limit_page_length=0,
+		)
+	)
+	request_items = [
+		{
+			"item_code": item.name,
+			"item_name": item.item_name,
+			"item_group": item.item_group,
+			"item_type": item.controlled_item_type,
+			"stock_uom": item.stock_uom,
+			"asset_category": item.asset_category or "",
+			"supplier": supplier,
+			"rate": 0,
+		}
+		for item in items
+		if item.name not in linked_items
+	]
+	if not request_items:
+		return {"name": "", "status": "", "requested": 0, "already_linked": len(item_codes)}
+
+	result = create_catalog_request({
+		"company": company,
+		"source": "Manual",
+		"supplier_link_only": 1,
+		"items": request_items,
+	})
+	return {**result, "requested": len(request_items), "already_linked": len(linked_items)}
+
+
+def _unique_catalog_item_codes(item_codes) -> list[str]:
+	if not isinstance(item_codes, list):
+		frappe.throw(_("Selected item codes must be a list."))
+	return list(dict.fromkeys(str(item_code).strip() for item_code in item_codes if str(item_code).strip()))
+
+
+def _selected_catalog_items(item_codes: list[str]) -> list:
+	return frappe.get_all(
+		"Item",
+		filters={
+			"name": ["in", item_codes],
+			"disabled": 0,
+			"is_purchase_item": 1,
+			"controlled_procurement_catalog": 1,
+		},
+		fields=[
+			"name",
+			"item_name",
+			"item_group",
+			"stock_uom",
+			"controlled_item_type",
+			"asset_category",
+		],
+		order_by="name asc",
+		limit_page_length=0,
+	)
 
 
 def _append_catalog_log(doc, action: str, comment: str = "") -> None:
@@ -2231,7 +2321,10 @@ def create_catalog_request(data: str | dict) -> dict:
 	rows = data.get("items") or []
 	if not rows:
 		frappe.throw(_("Add at least one catalog item."))
-	prepared = [_catalog_request_row(row, company) for row in rows]
+	prepared = [
+		_catalog_request_row(row, company, supplier_link_only=bool(data.get("supplier_link_only")))
+		for row in rows
+	]
 	if len({row["item_code"] or row["item_name"].casefold() for row in prepared}) != len(prepared):
 		frappe.throw(_("The request contains duplicate item codes or descriptions."))
 	status = _catalog_request_status(prepared)
@@ -2378,16 +2471,16 @@ def _materialize_catalog_request_items(doc) -> None:
 		if getattr(row, "action", "") == "Adopt":
 			_adopt_catalog_item(doc, row)
 			continue
+		if getattr(row, "action", "") == "Link Supplier":
+			item = frappe.get_doc("Item", row.result_item)
+			_apply_catalog_supplier_mapping(item, row.supplier, flt(row.rate), row.item_name)
+			continue
 
 		identity = _catalog_row_identity(row)
 		item = materialized.get(identity)
 		if item:
 			if row.supplier:
-				error = _add_supplier_and_price(item, row.supplier, flt(row.rate))
-				if error:
-					frappe.throw(_("Could not apply supplier details for {0}: {1}").format(row.item_name, error))
-				item.flags.controlled_procurement_api = True
-				item.save(ignore_permissions=True)
+				_apply_catalog_supplier_mapping(item, row.supplier, flt(row.rate), row.item_name)
 			row.result_item = item.name
 			continue
 
@@ -2417,11 +2510,7 @@ def _materialize_catalog_request_items(doc) -> None:
 		else:
 			item.save(ignore_permissions=True)
 		if row.supplier:
-			error = _add_supplier_and_price(item, row.supplier, flt(row.rate))
-			if error:
-				frappe.throw(_("Could not apply supplier details for {0}: {1}").format(row.item_name, error))
-			item.flags.controlled_procurement_api = True
-			item.save(ignore_permissions=True)
+			_apply_catalog_supplier_mapping(item, row.supplier, flt(row.rate), row.item_name)
 		row.result_item = item.name
 		materialized[identity] = item
 

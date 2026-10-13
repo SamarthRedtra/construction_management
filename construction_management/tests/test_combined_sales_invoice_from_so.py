@@ -7,13 +7,85 @@ from unittest.mock import patch
 from frappe.utils import flt, today
 
 from construction_management.api.boq_invoice import (
+	append_per_item_revenue_and_deductions,
 	get_billable_sales_orders_for_invoice,
 	get_deduction_details,
+	get_pending_so_revenue_lines,
 	make_combined_sales_invoice_from_sales_orders,
 )
 
 
 class TestCombinedSalesInvoiceFromSO(unittest.TestCase):
+	def test_combined_revenue_lines_preserve_sales_order_uom(self):
+		so_item = frappe._dict(
+			{
+				"name": "SOI-UOM",
+				"item_code": "COMBINED-SO-ITEM",
+				"description": "Measured roofing work",
+				"qty": 12,
+				"rate": 50,
+				"amount": 600,
+				"billed_amt": 0,
+				"returned_qty": 0,
+				"uom": "M2",
+				"stock_uom": "Nos",
+				"conversion_factor": 1,
+				"boq_item": "BOQ-UOM",
+				"bill_no": "BILL-UOM",
+			}
+		)
+		class SalesOrder:
+			name = "SO-UOM"
+			has_unit_price_items = 0
+			items = [so_item]
+
+			def get(self, fieldname, default=None):
+				return getattr(self, fieldname, default)
+
+		so_doc = SalesOrder()
+
+		lines = get_pending_so_revenue_lines(so_doc)
+
+		self.assertEqual(len(lines), 1)
+		self.assertEqual(lines[0]["uom"], "M2")
+		self.assertEqual(lines[0]["stock_uom"], "Nos")
+		self.assertEqual(lines[0]["conversion_factor"], 1)
+
+		class Invoice:
+			cost_center = "Test Cost Center"
+
+			def __init__(self):
+				self.items = []
+
+			def append(self, fieldname, value):
+				if fieldname != "items":
+					raise AssertionError(f"Unexpected child table: {fieldname}")
+				self.items.append(value)
+
+		invoice = Invoice()
+		with patch(
+			"construction_management.api.boq_invoice.frappe.get_cached_doc",
+			return_value=frappe._dict({"varience_item": None}),
+		), patch(
+			"construction_management.api.boq_invoice.get_boq_items_skip_advance",
+			return_value=set(),
+		), patch(
+			"construction_management.api.boq_invoice.get_or_create_retention_item"
+		), patch("construction_management.api.boq_invoice.get_or_create_advance_item"):
+			append_per_item_revenue_and_deductions(
+				invoice,
+				lines,
+				{"suggested_retention": 0, "suggested_advance": 0},
+				company="Test Company",
+				project="Test Project",
+				income_account="Test Income",
+				cost_center="Test Cost Center",
+			)
+
+		self.assertEqual(invoice.items[0]["uom"], "M2")
+		self.assertEqual(invoice.items[0]["stock_uom"], "Nos")
+		self.assertEqual(invoice.items[0]["conversion_factor"], 1)
+
 	@classmethod
 	def setUpClass(cls):
 		cls._rate_history_patcher = patch(

@@ -15,7 +15,7 @@
   {"fieldname":"expense_account","fieldtype":"Link","label":"Expense Account","options":"Account"},
   {"fieldname":"supplier","fieldtype":"Link","label":"Supplier","options":"Supplier"},
   {"fieldname":"rate","fieldtype":"Currency","label":"Buying Rate"},
-  {"fieldname":"action","fieldtype":"Select","label":"Action","options":"Create\nUpdate\nAdopt","read_only":1},
+  {"fieldname":"action","fieldtype":"Select","label":"Action","options":"Create\nUpdate\nAdopt\nLink Supplier","read_only":1},
   {"fieldname":"result_item","fieldtype":"Link","label":"Catalog Item","options":"Item","read_only":1}
  ],
  "istable": 1,

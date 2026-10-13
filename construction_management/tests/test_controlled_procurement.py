@@ -133,6 +133,126 @@ class TestControlledProcurement(UnitTestCase):
 		self.assertEqual(row.result_item, "CP-PAPER")
 		add_supplier.assert_called_once()
 
+	@patch("construction_management.api.controlled_procurement._add_supplier_and_price", return_value="")
+	@patch("construction_management.api.controlled_procurement.frappe.get_doc")
+	def test_catalog_request_updates_supplier_for_explicit_legacy_item(self, get_doc, add_supplier):
+		item = MagicMock(name="LEGACY-PAPER", stock_uom="PKT")
+		item.name = "LEGACY-PAPER"
+		item.is_new.return_value = False
+		get_doc.return_value = item
+		row = SimpleNamespace(action="Update", result_item="LEGACY-PAPER", item_code="LEGACY-PAPER",
+			item_name="Paper", item_group="Products", item_type="Consumable", stock_uom="PKT",
+			asset_category="", expense_account="", supplier="SUP-1", rate=10)
+
+		controlled_procurement._materialize_catalog_request_items(
+			SimpleNamespace(items=[row], source="Workbook Import", company="MRG", name="CCR-LEGACY")
+		)
+
+		get_doc.assert_called_once_with("Item", "LEGACY-PAPER")
+		add_supplier.assert_called_once_with(item, "SUP-1", 10)
+		self.assertEqual(row.result_item, "LEGACY-PAPER")
+
+	@patch("construction_management.api.controlled_procurement.create_catalog_request")
+	@patch("construction_management.api.controlled_procurement.frappe.get_all")
+	@patch("construction_management.api.controlled_procurement._selected_catalog_items")
+	@patch("construction_management.api.controlled_procurement._document_company", return_value="MRG")
+	@patch("construction_management.api.controlled_procurement._require")
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
+	def test_batch_supplier_link_request_uses_existing_catalog_items(
+		self, exists, require, company, selected_items, get_all, create_request
+	):
+		selected_items.return_value = [
+			frappe._dict(name="ITEM-1", item_name="Item One", item_group="Products", stock_uom="Nos",
+				controlled_item_type="Stockable", asset_category=""),
+			frappe._dict(name="ITEM-2", item_name="Item Two", item_group="Tools", stock_uom="PKT",
+				controlled_item_type="Consumable", asset_category=""),
+		]
+		get_all.return_value = ["ITEM-1"]
+		create_request.return_value = {"name": "CCR-NEW", "status": "Pending Accounts"}
+
+		result = controlled_procurement.create_catalog_supplier_link_request(
+			{"company": "MRG", "supplier": "SUP-1", "item_codes": ["ITEM-1", "ITEM-2", "ITEM-2"]}
+		)
+
+		self.assertEqual(result, {"name": "CCR-NEW", "status": "Pending Accounts", "requested": 1, "already_linked": 1})
+		selected_items.assert_called_once_with(["ITEM-1", "ITEM-2"])
+		create_request.assert_called_once_with(
+			{
+				"company": "MRG",
+				"source": "Manual",
+				"supplier_link_only": 1,
+				"items": [
+					{
+						"item_code": "ITEM-2", "item_name": "Item Two", "item_group": "Tools",
+						"item_type": "Consumable", "stock_uom": "PKT", "asset_category": "",
+						"supplier": "SUP-1", "rate": 0,
+					}
+				],
+			}
+		)
+
+	@patch("construction_management.api.controlled_procurement.frappe.get_all")
+	@patch("construction_management.api.controlled_procurement._selected_catalog_items")
+	@patch("construction_management.api.controlled_procurement._document_company", return_value="MRG")
+	@patch("construction_management.api.controlled_procurement._require")
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
+	def test_batch_supplier_link_request_returns_no_op_when_already_linked(
+		self, exists, require, company, selected_items, get_all
+	):
+		selected_items.return_value = [
+			frappe._dict(name="ITEM-1", item_name="Item One", item_group="Products", stock_uom="Nos",
+				controlled_item_type="Stockable", asset_category=""),
+		]
+		get_all.return_value = ["ITEM-1"]
+
+		result = controlled_procurement.create_catalog_supplier_link_request(
+			{"company": "MRG", "supplier": "SUP-1", "item_codes": ["ITEM-1"]}
+		)
+
+		self.assertEqual(result, {"name": "", "status": "", "requested": 0, "already_linked": 1})
+
+	@patch("construction_management.api.controlled_procurement.frappe.get_doc")
+	@patch("construction_management.api.controlled_procurement._append_catalog_log")
+	@patch("construction_management.api.controlled_procurement._catalog_request_status", return_value="Pending Accounts")
+	@patch("construction_management.api.controlled_procurement._catalog_request_row")
+	@patch("construction_management.api.controlled_procurement._allowed_companies", return_value=["MRG"])
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_supplier_link_request_marks_rows_link_only(
+		self, require, companies, catalog_row, request_status, append_log, get_doc
+	):
+		catalog_row.return_value = {
+			"item_code": "ITEM-1", "item_name": "Item One", "supplier": "SUP-1", "rate": 0,
+		}
+		doc = MagicMock(name="CCR-LINK", status="Pending Accounts")
+		doc.name = "CCR-LINK"
+		get_doc.return_value = doc
+
+		controlled_procurement.create_catalog_request({
+			"company": "MRG",
+			"supplier_link_only": 1,
+			"items": [{"item_code": "ITEM-1"}],
+		})
+
+		catalog_row.assert_called_once_with(
+			{"item_code": "ITEM-1"}, "MRG", supplier_link_only=True
+		)
+
+	@patch("construction_management.api.controlled_procurement._apply_catalog_supplier_mapping")
+	@patch("construction_management.api.controlled_procurement.frappe.get_doc")
+	def test_supplier_link_action_does_not_update_item_master(self, get_doc, apply_mapping):
+		item = MagicMock(name="LEGACY-PAPER", stock_uom="PKT")
+		get_doc.return_value = item
+		row = SimpleNamespace(action="Link Supplier", result_item="LEGACY-PAPER", item_name="Paper",
+			supplier="SUP-1", rate=0)
+
+		controlled_procurement._materialize_catalog_request_items(
+			SimpleNamespace(items=[row], source="Manual", company="MRG", name="CCR-LINK")
+		)
+
+		get_doc.assert_called_once_with("Item", "LEGACY-PAPER")
+		apply_mapping.assert_called_once_with(item, "SUP-1", 0, "Paper")
+		item.update.assert_not_called()
+
 	@patch("construction_management.api.controlled_procurement._materialize_catalog_request_items")
 	@patch("construction_management.api.controlled_procurement.frappe.db.sql")
 	@patch("construction_management.api.controlled_procurement._explicit_ceo", return_value=True)

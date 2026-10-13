@@ -36,6 +36,10 @@ const priceItem = ref(null)
 const priceContext = ref(null)
 const priceSaving = ref(false)
 const priceForm = reactive({ company: "", item_code: "", supplier: "", price_list: "Standard Buying", proposed_rate: "", reason: "" })
+const selectedItemCodes = ref(new Set())
+const supplierLinking = ref(false)
+const supplierLinkSaving = ref(false)
+const supplierLinkForm = reactive({ company: ctx.value.default_company || "", supplier: "" })
 const emptyItem = { item_type: "Stockable", item_name: "", item_code: "", item_group: "", stock_uom: "Nos", supplier: "", asset_category: "", expense_account: "" }
 const itemForm = reactive({ company: ctx.value.default_company || "", ...emptyItem })
 const openingForm = reactive({ company: ctx.value.default_company || "", posting_date: new Date().toISOString().slice(0, 10), items: [{ item_code: "", warehouse: "", qty: 0, valuation_rate: 0 }] })
@@ -72,6 +76,52 @@ function clearFilters() {
 	stockFilter.value = ""
 	sortBy.value = "item_name"
 	sortOrder.value = "asc"
+}
+
+const allDisplayedSelected = computed(() => rows.value.length > 0 && rows.value.every((item) => selectedItemCodes.value.has(item.name)))
+
+function clearSelection() { selectedItemCodes.value = new Set() }
+
+function toggleItemSelection(itemCode) {
+	const selected = new Set(selectedItemCodes.value)
+	if (selected.has(itemCode)) selected.delete(itemCode)
+	else selected.add(itemCode)
+	selectedItemCodes.value = selected
+}
+
+function toggleDisplayedSelection() {
+	const selected = new Set(selectedItemCodes.value)
+	if (allDisplayedSelected.value) rows.value.forEach((item) => selected.delete(item.name))
+	else rows.value.forEach((item) => selected.add(item.name))
+	selectedItemCodes.value = selected
+}
+
+function openSupplierLinking() {
+	supplierLinkForm.company = ctx.value.default_company || ""
+	supplierLinkForm.supplier = ""
+	supplierLinking.value = true
+}
+
+async function createSupplierLinkRequest() {
+	supplierLinkSaving.value = true
+	try {
+		const result = await call("create_catalog_supplier_link_request", {
+			data: {
+				company: supplierLinkForm.company,
+				supplier: supplierLinkForm.supplier,
+				item_codes: [...selectedItemCodes.value],
+			},
+		})
+		if (result.name) toast(`Catalog request ${result.name} is ${result.status} for ${result.requested} item(s).`)
+		else toast(`All ${result.already_linked} selected item(s) are already linked to this supplier.`)
+		clearSelection()
+		supplierLinking.value = false
+		load()
+	} catch (error) {
+		toastError(error)
+	} finally {
+		supplierLinkSaving.value = false
+	}
 }
 
 async function createItem() {
@@ -198,8 +248,8 @@ async function runMrgOpeningStock() {
 	}
 }
 
-watch(search, debounce(() => load(), 300))
-watch([typeFilter, groupFilter, sourceFilter, stockFilter, sortBy, sortOrder], () => load())
+watch(search, debounce(() => { clearSelection(); load() }, 300))
+watch([typeFilter, groupFilter, sourceFilter, stockFilter, sortBy, sortOrder], () => { clearSelection(); load() })
 onMounted(() => { load(); loadFilterOptions() })
 </script>
 
@@ -212,6 +262,7 @@ onMounted(() => { load(); loadFilterOptions() })
 			<button class="cp-btn" @click="fileInput.click()">Import workbook</button>
 			<button v-if="ctx.can_opening_stock" class="cp-btn" @click="opening = true">Opening stock</button>
 			<button v-if="ctx.can_opening_stock && ctx.default_company === 'M R G INSULATION WORKS L.L.C'" class="cp-btn" :disabled="mrgSnapshotSaving" @click="runMrgOpeningStock">{{ mrgSnapshotSaving ? "Uploading MRG stock…" : "Upload MRG stock report" }}</button>
+			<button class="cp-btn" :disabled="!selectedItemCodes.size" @click="openSupplierLinking">Add supplier to selected ({{ selectedItemCodes.size }})</button>
 			<button class="cp-btn primary" @click="creating = true">New catalog request</button>
 			<input ref="fileInput" type="file" accept=".xlsx" hidden @change="onWorkbookChosen" />
 		</template>
@@ -236,9 +287,10 @@ onMounted(() => { load(); loadFilterOptions() })
 
 	<section class="cp-card">
 		<table class="cp-table">
-			<thead><tr><th>Description</th><th>Group</th><th>Type</th><th class="num">Available stock</th><th>Source</th><th>UOM</th><th /></tr></thead>
+			<thead><tr><th v-if="ctx.can_manage_catalog"><input type="checkbox" :checked="allDisplayedSelected" aria-label="Select displayed catalog items" @change="toggleDisplayedSelection" /></th><th>Description</th><th>Group</th><th>Type</th><th class="num">Available stock</th><th>Source</th><th>UOM</th><th /></tr></thead>
 			<tbody>
 				<tr v-for="item in rows" :key="item.name">
+					<td v-if="ctx.can_manage_catalog"><input type="checkbox" :checked="selectedItemCodes.has(item.name)" :aria-label="`Select ${item.item_name}`" @change="toggleItemSelection(item.name)" /></td>
 					<td><strong>{{ item.item_name }}</strong><small>{{ item.name }}</small></td>
 					<td>{{ item.item_group }}</td>
 					<td><span class="cp-pill info">{{ item.controlled_item_type }}</span></td>
@@ -247,7 +299,7 @@ onMounted(() => { load(); loadFilterOptions() })
 					<td>{{ item.stock_uom }}</td>
 					<td><button v-if="ctx.can_request_price_change" class="cp-btn sm" @click="openPriceRequest(item)">Request price change</button></td>
 				</tr>
-				<tr v-if="!loading && !rows.length"><td colspan="7" class="cp-empty-row">No approved items match these filters.</td></tr>
+				<tr v-if="!loading && !rows.length"><td :colspan="ctx.can_manage_catalog ? 8 : 7" class="cp-empty-row">No approved items match these filters.</td></tr>
 			</tbody>
 		</table>
 		<footer v-if="rows.length" class="cp-card-foot">
@@ -255,6 +307,14 @@ onMounted(() => { load(); loadFilterOptions() })
 			<button v-if="rows.length < total" class="cp-btn sm" :disabled="loading" @click="load(true)">Load more</button>
 		</footer>
 	</section>
+
+	<Modal v-if="supplierLinking" :title="`Add supplier to ${selectedItemCodes.size} selected item(s)`" @close="supplierLinking = false">
+		<form id="cp-supplier-link-form" class="cp-stack" @submit.prevent="createSupplierLinkRequest">
+			<p class="cp-muted">This creates one catalog request. It adds the selected supplier only after the normal approval workflow; buying prices are not changed.</p>
+			<LinkSelect v-model="supplierLinkForm.supplier" doctype="Supplier" label="Supplier" :required="true" :filters="{ disabled: 0 }" />
+		</form>
+		<template #footer><button class="cp-btn" @click="supplierLinking = false">Cancel</button><button class="cp-btn primary" form="cp-supplier-link-form" type="submit" :disabled="supplierLinkSaving">{{ supplierLinkSaving ? "Submitting…" : "Submit catalog request" }}</button></template>
+	</Modal>
 
 	<Modal v-if="priceItem" :title="`Request buying price · ${priceItem.item_name}`" @close="priceItem = null">
 		<form id="cp-price-request-form" class="cp-stack" @submit.prevent="submitPriceRequest">

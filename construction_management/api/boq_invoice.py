@@ -3873,6 +3873,12 @@ def get_pending_so_revenue_lines(so_doc) -> list[dict]:
 				"item_code": so_item.item_code,
 				"description": so_item.description,
 				"qty": pending_qty,
+				# A Sales Invoice linked to a Sales Order must retain the source row's
+				# UOM. Otherwise ERPNext falls back to the Item's default UOM and
+				# rejects the invoice during previous-document validation.
+				"uom": so_item.uom,
+				"stock_uom": so_item.stock_uom,
+				"conversion_factor": flt(so_item.conversion_factor) or 1,
 				"rate": rate,
 				"amount": pending_amount,
 				"accepted_amount": pending_amount,
@@ -3923,23 +3929,26 @@ def append_per_item_revenue_and_deductions(
 	get_or_create_advance_item()
 
 	for row in line_items:
-		invoice.append(
-			"items",
-			{
-				"item_code": row.get("item_code") or "Service",
-				"description": row.get("description"),
-				"qty": flt(row.get("qty")),
-				"rate": flt(row.get("rate")),
-				"amount": flt(row.get("amount")),
-				"income_account": income_account,
-				"project": project,
-				"boq_item": row.get("boq_item"),
-				"bill_no": row.get("bill_no"),
-				"sales_order": row.get("sales_order"),
-				"so_detail": row.get("so_detail"),
-				"cost_center": cost_center,
-			},
-		)
+		invoice_item = {
+			"item_code": row.get("item_code") or "Service",
+			"description": row.get("description"),
+			"qty": flt(row.get("qty")),
+			"rate": flt(row.get("rate")),
+			"amount": flt(row.get("amount")),
+			"income_account": income_account,
+			"project": project,
+			"boq_item": row.get("boq_item"),
+			"bill_no": row.get("bill_no"),
+			"sales_order": row.get("sales_order"),
+			"so_detail": row.get("so_detail"),
+			"cost_center": cost_center,
+		}
+		if row.get("uom"):
+			invoice_item["uom"] = row["uom"]
+			invoice_item["stock_uom"] = row.get("stock_uom") or row["uom"]
+			invoice_item["conversion_factor"] = flt(row.get("conversion_factor")) or 1
+
+		invoice.append("items", invoice_item)
 
 		if include_variance:
 			item_variance = flt(row.get("amount")) - flt(row.get("accepted_amount"))
