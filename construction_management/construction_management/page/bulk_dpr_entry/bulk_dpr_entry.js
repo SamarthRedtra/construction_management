@@ -1124,6 +1124,7 @@ class BulkDPREntry {
 							...item,
 							[props.valueField]: val,
 							[props.labelField]: opt ? opt[props.labelField] : (item[props.labelField] || val),
+							is_controlled_catalog: Boolean(opt && opt.controlled_procurement_catalog),
 							qty: item.qty || (item.hours !== undefined ? item.hours : null)
 						};
 					});
@@ -1247,6 +1248,7 @@ class BulkDPREntry {
                         <div v-else class="selected-tags d-flex flex-wrap gap-1">
                             <span v-for="item in selectedItems" :key="item[valueField]" class="badge badge-primary p-1" style="white-space: normal; text-align: left; font-weight: normal;">
                                 {{ item[labelField] }}
+								<span v-if="item.is_controlled_catalog" class="badge badge-success ml-1">CONTROLLED</span>
                                 <span v-if="item.qty !== null" class="ml-1 font-weight-bold">({{ item.qty }})</span>
                                 <span v-if="!disabled" class="ml-1 cursor-pointer font-weight-bold" @click.stop="remove(item[valueField])">&times;</span>
                             </span>
@@ -1258,8 +1260,9 @@ class BulkDPREntry {
 						</div>
 						<div v-for="opt in filteredOptions" :key="opt[valueField]"
 						class="dropdown-item p-2 cursor-pointer hover-bg-light border-bottom" style="white-space: normal; word-break: break-word;"
-									@click="select(opt)">
+							@click="select(opt)">
 							{{ opt[labelField] }}
+							<span v-if="opt.controlled_procurement_catalog" class="badge badge-success ml-1">CONTROLLED</span>
 							<span v-if="opt.balance !== undefined" class="text-muted small ml-1">
 								(Avail: {{ opt.balance }} {{ opt.stock_uom }})
 							</span>

@@ -11,6 +11,7 @@ const props = defineProps({
 	stockableOnly: { type: Boolean, default: false },
 	showCode: { type: Boolean, default: false },
 	hideCode: { type: Boolean, default: false },
+	uniqueItems: { type: Boolean, default: false },
 	supplier: { type: String, default: "" },
 	disabled: { type: Boolean, default: false },
 })
@@ -25,7 +26,13 @@ const search = debounce(async () => {
 	if (props.disabled) return
 	const supplier = props.supplier
 	const searched = query.value
-	const result = await call("get_catalog", { search: searched, supplier, stock_only: props.stockableOnly ? 1 : 0, page_length: 20 })
+	const result = await call("get_catalog", {
+		search: searched,
+		supplier,
+		stock_only: props.stockableOnly ? 1 : 0,
+		unique_items: props.uniqueItems ? 1 : 0,
+		page_length: 20,
+	})
 	if (supplier !== props.supplier || searched !== query.value) return
 	results.value = result.rows
 	place()

@@ -117,7 +117,14 @@ def get_materials(project: str | None = None) -> list:
 	items = frappe.get_all(
 		"Item",
 		filters={"name": ["in", list(qty_map)], "disabled": 0},
-		fields=["name", "item_name", "item_code", "stock_uom", "valuation_rate"],
+		fields=[
+			"name",
+			"item_name",
+			"item_code",
+			"stock_uom",
+			"valuation_rate",
+			"controlled_procurement_catalog",
+		],
 	)
 	for item in items:
 		bin_row = qty_map.get(item.name)

@@ -9,6 +9,7 @@ from collections import Counter, defaultdict
 import csv
 import hashlib
 import json
+import re
 from io import BytesIO, StringIO
 from pathlib import Path
 from uuid import UUID
@@ -232,25 +233,58 @@ def get_catalog(
 	company: str = "", search: str = "", start: int = 0, page_length: int = 50,
 	item_type: str = "", item_group: str = "", source: str = "", stock_status: str = "",
 	sort_by: str = "item_name", sort_order: str = "asc", supplier: str = "", stock_only: int = 0,
+	unique_items: int = 0,
 ) -> dict:
 	"""Filter and sort the full approved catalog before pagination."""
 	_require(CATALOG_ROLES)
 	from_clause, where_clause, params, order_clause = _catalog_query(
 		company, search, item_type, item_group, source, stock_status, sort_by, sort_order, supplier, stock_only,
 	)
-	params.update({"start": max(cint(start), 0), "page_length": min(max(cint(page_length) or 50, 1), 100)})
-	rows = frappe.db.sql(
-		f"""SELECT item.name, item.item_name, item.item_group, item.stock_uom,
-		item.controlled_item_type, item.controlled_catalog_source,
-		COALESCE(stock.actual_qty, 0) AS actual_qty
-		{from_clause} WHERE {where_clause}
-		ORDER BY {order_clause} LIMIT %(page_length)s OFFSET %(start)s""",
-		params, as_dict=True,
-	)
+	start = max(cint(start), 0)
+	page_length = min(max(cint(page_length) or 50, 1), 100)
+	if cint(unique_items):
+		rows = _unique_catalog_rows(_catalog_rows(from_clause, where_clause, params, order_clause))
+		return {"rows": rows[start : start + page_length], "total_count": len(rows)}
+
+	params.update({"start": start, "page_length": page_length})
+	rows = _catalog_rows(from_clause, where_clause, params, order_clause, paginated=True)
 	total_count = frappe.db.sql(
 		f"SELECT COUNT(*) {from_clause} WHERE {where_clause}", params,
 	)[0][0]
 	return {"rows": rows, "total_count": total_count}
+
+
+def _catalog_rows(
+	from_clause: str, where_clause: str, params: dict, order_clause: str, paginated: bool = False,
+) -> list[dict]:
+	limit = " LIMIT %(page_length)s OFFSET %(start)s" if paginated else ""
+	return frappe.db.sql(
+		f"""SELECT item.name, item.item_name, item.item_group, item.stock_uom,
+		item.controlled_item_type, item.controlled_catalog_source,
+		COALESCE(stock.actual_qty, 0) AS actual_qty
+		{from_clause} WHERE {where_clause}
+		ORDER BY {order_clause}{limit}""",
+		params, as_dict=True,
+	)
+
+
+def _unique_catalog_rows(rows: list[dict]) -> list[dict]:
+	"""Keep the stable original item for each exact catalog identity."""
+	unique = {}
+	for position, row in enumerate(rows):
+		identity = tuple(_normalise_name(row[field]) for field in (
+			"item_name", "item_group", "stock_uom", "controlled_item_type",
+		))
+		candidate = (position, row)
+		current = unique.get(identity)
+		if not current or _catalog_item_preference(candidate[1]) < _catalog_item_preference(current[1]):
+			unique[identity] = candidate
+	return [row for _, row in sorted(unique.values(), key=lambda entry: entry[0])]
+
+
+def _catalog_item_preference(row: dict) -> tuple[bool, str]:
+	name = row["name"]
+	return bool(re.search(r"-\d+$", name)), name
 
 
 @frappe.whitelist(methods=["POST"])
@@ -2332,6 +2366,7 @@ def _materialize_catalog_request(doc) -> None:
 	previous_source = getattr(frappe.flags, "controlled_catalog_price_source", None)
 	frappe.flags.controlled_catalog_price_source = doc.name
 	try:
+		frappe.db.sql("select name from `tabCompany` where name = %s for update", doc.company)
 		_materialize_catalog_request_items(doc)
 	finally:
 		frappe.flags.controlled_catalog_price_source = previous_source
@@ -2356,7 +2391,7 @@ def _materialize_catalog_request_items(doc) -> None:
 			row.result_item = item.name
 			continue
 
-		item = frappe.get_doc("Item", row.result_item) if row.result_item else None
+		item = frappe.get_doc("Item", row.result_item) if row.result_item else _existing_catalog_item(row)
 		if item and item.stock_uom != (row.stock_uom or "Nos"):
 			frappe.throw(_("Item {0} stock UOM changed since this request was submitted.").format(item.name))
 		if not item:
@@ -2393,6 +2428,29 @@ def _materialize_catalog_request_items(doc) -> None:
 
 def _catalog_row_identity(row) -> tuple[str, str, str]:
 	return (_normalise_name(row.item_name), row.item_type, _normalise_name(row.stock_uom or "Nos"))
+
+
+def _existing_catalog_item(row):
+	items = frappe.get_all(
+		"Item",
+		filters={
+			"disabled": 0,
+			"controlled_procurement_catalog": 1,
+			"item_name": row.item_name,
+			"item_group": row.item_group,
+			"stock_uom": row.stock_uom or "Nos",
+			"controlled_item_type": row.item_type,
+		},
+		pluck="name",
+		limit_page_length=0,
+	)
+	if not items:
+		return None
+	return frappe.get_doc("Item", min(items, key=_catalog_item_name_preference))
+
+
+def _catalog_item_name_preference(name: str) -> tuple[bool, str]:
+	return bool(re.search(r"-\d+$", name)), name
 
 
 def _adopt_catalog_item(doc, row) -> None:

@@ -358,7 +358,7 @@ onMounted(async () => {
 						<template v-for="(row, index) in form.items" :key="index">
 							<tr>
 								<td>
-									<ItemPicker v-model="row.item_code" :display-name="row.item_name" :supplier="form.lpo_type === 'Manual' ? '' : form.supplier" :disabled="form.lpo_type === 'Manual' && !form.supplier" :hide-code="true" @selected="selectItem(row, $event)" @cleared="clearItem(row)" />
+									<ItemPicker v-model="row.item_code" :display-name="row.item_name" :supplier="form.lpo_type === 'Manual' ? '' : form.supplier" :disabled="form.lpo_type === 'Manual' && !form.supplier" :hide-code="true" :unique-items="true" @selected="selectItem(row, $event)" @cleared="clearItem(row)" />
 									<button type="button" class="cp-link sm" @click="row.use_override = !row.use_override">{{ row.use_override ? "Use order allocation" : "Different project / BOQ for this line" }}</button>
 								</td>
 								<td>{{ row.item_code ? form.supplier : "—" }}</td>

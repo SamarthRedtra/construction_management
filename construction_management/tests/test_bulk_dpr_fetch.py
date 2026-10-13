@@ -10,6 +10,7 @@ from construction_management.construction_management.page.bulk_dpr_entry import 
 from construction_management.construction_management.page.bulk_dpr_entry.bulk_dpr_fetch import (
 	get_boq_items_with_balance,
 	get_existing_dprs,
+	get_materials,
 )
 
 
@@ -115,3 +116,22 @@ class TestBulkDPRFetch(UnitTestCase):
 		get_doc.assert_not_called()
 		self.assertEqual(payload["project"].name, "1037")
 		self.assertNotIn("items", payload["project"])
+
+	@patch(
+		"construction_management.construction_management.page.bulk_dpr_entry.bulk_dpr_fetch.frappe.get_all"
+	)
+	@patch(
+		"construction_management.construction_management.page.bulk_dpr_entry.bulk_dpr_fetch.frappe.db.get_value",
+		return_value="Stores - MRG",
+	)
+	def test_materials_include_controlled_catalog_status(self, _warehouse, get_all):
+		get_all.side_effect = [
+			[frappe._dict(item_code="ITEM-1", actual_qty=5, valuation_rate=12)],
+			[frappe._dict(name="ITEM-1", item_name="Controlled Item", item_code="ITEM-1", stock_uom="Nos", valuation_rate=0, controlled_procurement_catalog=1)],
+		]
+
+		materials = get_materials("PROJ-1")
+
+		self.assertEqual(materials[0]["controlled_procurement_catalog"], 1)
+		self.assertEqual(materials[0]["balance"], 5)
+		self.assertEqual(materials[0]["valuation_rate"], 12)

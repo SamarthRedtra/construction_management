@@ -45,6 +45,43 @@ class TestControlledProcurement(UnitTestCase):
 		self.assertEqual(expanded_import._deduplicate_identity(entries, held), [])
 		self.assertEqual(len(held), 2)
 
+	def test_unique_catalog_rows_prefers_original_item_code(self):
+		rows = [
+			frappe._dict(name="CP-GR-118665-2", item_name="Lubricant Grease", item_group="Tools", stock_uom="Nos", controlled_item_type="Consumable"),
+			frappe._dict(name="CP-OTHER", item_name="Other Item", item_group="Tools", stock_uom="Nos", controlled_item_type="Consumable"),
+			frappe._dict(name="CP-GR-118665", item_name="Lubricant Grease", item_group="Tools", stock_uom="Nos", controlled_item_type="Consumable"),
+		]
+
+		result = controlled_procurement._unique_catalog_rows(rows)
+
+		self.assertEqual([row.name for row in result], ["CP-OTHER", "CP-GR-118665"])
+
+	@patch("construction_management.api.controlled_procurement.frappe.db.sql")
+	@patch("construction_management.api.controlled_procurement._document_company", return_value="MRG")
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_unique_catalog_picker_counts_and_paginates_unique_items(self, _require, _company, sql):
+		sql.return_value = [
+			frappe._dict(name="CP-GR-118665", item_name="Lubricant Grease", item_group="Tools", stock_uom="Nos", controlled_item_type="Consumable"),
+			frappe._dict(name="CP-GR-118665-2", item_name="Lubricant Grease", item_group="Tools", stock_uom="Nos", controlled_item_type="Consumable"),
+			frappe._dict(name="CP-SPRING", item_name="Spring", item_group="Tools", stock_uom="Nos", controlled_item_type="Consumable"),
+		]
+
+		result = controlled_procurement.get_catalog(unique_items=1, page_length=1)
+
+		self.assertEqual(result["total_count"], 2)
+		self.assertEqual([row.name for row in result["rows"]], ["CP-GR-118665"])
+		sql.assert_called_once()
+
+	@patch("construction_management.api.controlled_procurement.frappe.get_doc")
+	@patch("construction_management.api.controlled_procurement.frappe.get_all", return_value=["CP-GR-118665-2", "CP-GR-118665"])
+	def test_existing_catalog_item_prefers_original_item_code(self, get_all, get_doc):
+		row = SimpleNamespace(item_name="Lubricant Grease", item_group="Tools", stock_uom="Nos", item_type="Consumable")
+
+		controlled_procurement._existing_catalog_item(row)
+
+		self.assertEqual(get_doc.call_args.args, ("Item", "CP-GR-118665"))
+		self.assertEqual(get_all.call_args.kwargs["filters"]["controlled_procurement_catalog"], 1)
+
 	def test_expanded_import_uses_the_agreed_accounting_mappings(self):
 		self.assertEqual(
 			expanded_import._accounting_mapping("Asset", "SCAFFOLDING & FORMWORK"),
@@ -55,9 +92,10 @@ class TestControlledProcurement(UnitTestCase):
 			("", "Professional Charges - MRG"),
 		)
 
+	@patch("construction_management.api.controlled_procurement._existing_catalog_item", return_value=None)
 	@patch("construction_management.api.controlled_procurement._add_supplier_and_price", return_value="")
 	@patch("construction_management.api.controlled_procurement.frappe.new_doc")
-	def test_multiple_supplier_prices_create_one_catalog_item(self, new_doc, add_supplier):
+	def test_multiple_supplier_prices_create_one_catalog_item(self, new_doc, add_supplier, _existing):
 		item = new_doc.return_value
 		item.name = "CP-PAPER"
 		item.is_new.return_value = True
@@ -75,6 +113,36 @@ class TestControlledProcurement(UnitTestCase):
 		new_doc.assert_called_once_with("Item")
 		self.assertEqual(add_supplier.call_count, 2)
 		self.assertEqual([row.result_item for row in rows], ["CP-PAPER", "CP-PAPER"])
+
+	@patch("construction_management.api.controlled_procurement._add_supplier_and_price", return_value="")
+	@patch("construction_management.api.controlled_procurement._existing_catalog_item")
+	@patch("construction_management.api.controlled_procurement.frappe.new_doc")
+	def test_new_catalog_request_reuses_matching_catalog_item(self, new_doc, existing, add_supplier):
+		item = MagicMock(name="CP-PAPER", stock_uom="PKT")
+		item.name = "CP-PAPER"
+		item.is_new.return_value = False
+		existing.return_value = item
+		row = SimpleNamespace(action="Create", result_item="", item_code="", item_name="Paper", item_group="Products",
+			item_type="Consumable", stock_uom="PKT", asset_category="", expense_account="", supplier="SUP-1", rate=10)
+
+		controlled_procurement._materialize_catalog_request_items(
+			SimpleNamespace(items=[row], source="Workbook Import", company="MRG", name="CCR-NEW")
+		)
+
+		new_doc.assert_not_called()
+		self.assertEqual(row.result_item, "CP-PAPER")
+		add_supplier.assert_called_once()
+
+	@patch("construction_management.api.controlled_procurement._materialize_catalog_request_items")
+	@patch("construction_management.api.controlled_procurement.frappe.db.sql")
+	@patch("construction_management.api.controlled_procurement._explicit_ceo", return_value=True)
+	def test_catalog_materialization_locks_company_before_reuse(self, _ceo, sql, materialize):
+		doc = SimpleNamespace(name="CCR-NEW", company="MRG", items=[SimpleNamespace(rate=0)])
+
+		controlled_procurement._materialize_catalog_request(doc)
+
+		sql.assert_called_once_with("select name from `tabCompany` where name = %s for update", "MRG")
+		materialize.assert_called_once_with(doc)
 
 	@patch("construction_management.api.controlled_procurement.frappe.get_doc")
 	def test_adoption_preserves_existing_item_master_fields(self, get_doc):
