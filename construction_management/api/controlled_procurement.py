@@ -3222,13 +3222,49 @@ def run_mrg_opening_stock_snapshot(company: str) -> dict:
 	return mrg_stock_snapshot.run()
 
 
+# Master fields owned by Controlled Catalog Request. Stock ops may still save Item
+# when only operational fields (valuation, rates, etc.) change.
+CATALOG_ITEM_MASTER_FIELDS = (
+	"item_name", "item_group", "stock_uom",
+	"controlled_procurement_catalog", "controlled_item_type",
+	"is_stock_item", "is_fixed_asset", "asset_category",
+	"disabled", "is_purchase_item",
+)
+CATALOG_ITEM_MASTER_TABLES = ("supplier_items",)
+
+
 def validate_item(doc, method=None) -> None:
-	if doc.is_new() and not _roles().intersection(ADMIN_ROLES) and not getattr(doc.flags, "controlled_procurement_api", False):
+	api = getattr(doc.flags, "controlled_procurement_api", False)
+	if doc.is_new() and not _roles().intersection(ADMIN_ROLES) and not api:
 		frappe.throw(_("Only CEO and System Manager can create items."), frappe.PermissionError)
-	if cint(doc.get("controlled_procurement_catalog")) and not getattr(doc.flags, "controlled_procurement_api", False):
+	if _catalog_item_master_guard(doc) and not api:
 		frappe.throw(_("Create controlled catalog items through a catalog request."), frappe.PermissionError)
 	if cint(doc.get("controlled_procurement_catalog")) and not frappe.db.exists("UOM", doc.stock_uom):
 		frappe.throw(_("Controlled catalog items require a valid stock UOM."))
+
+
+def _catalog_item_master_guard(doc) -> bool:
+	"""True when this save must go through a Controlled Catalog Request."""
+	if not cint(doc.get("controlled_procurement_catalog")) and not _was_controlled_catalog_item(doc):
+		return False
+	if doc.is_new():
+		return True
+	return _catalog_master_fields_changed(doc)
+
+
+def _was_controlled_catalog_item(doc) -> bool:
+	before = doc.get_doc_before_save()
+	return bool(before and cint(before.get("controlled_procurement_catalog")))
+
+
+def _catalog_master_fields_changed(doc) -> bool:
+	for field in CATALOG_ITEM_MASTER_FIELDS:
+		if doc.meta.has_field(field) and doc.has_value_changed(field):
+			return True
+	for field in CATALOG_ITEM_MASTER_TABLES:
+		if doc.meta.has_field(field) and doc.has_value_changed(field):
+			return True
+	return False
 
 
 def _workspace_only() -> bool:
@@ -3575,6 +3611,35 @@ def add_document_comment(doctype: str, name: str, content: str, tagged_users: st
 		except Exception as exc:
 			frappe.throw(_("Could not notify {0} through Raven: {1}").format(user, str(exc)))
 	return {"name": comment.name}
+
+
+@frappe.whitelist(methods=["GET", "POST"])
+def search_user_emails(txt: str = "") -> list[dict]:
+	"""Suggest enabled System Users by name or email for To/Cc autocomplete."""
+	if frappe.session.user in {"", "Guest"}:
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	txt = (txt or "").strip()
+	if len(txt) < 1:
+		return []
+	like = f"%{txt}%"
+	rows = frappe.db.sql(
+		"""
+		select name, full_name, email
+		from `tabUser`
+		where enabled = 1
+			and user_type = 'System User'
+			and name not in ('Administrator', 'Guest')
+			and ifnull(email, '') != ''
+			and (full_name like %(like)s or name like %(like)s or email like %(like)s)
+		order by
+			case when full_name like %(prefix)s then 0 when email like %(prefix)s then 1 else 2 end,
+			full_name, email
+		limit 15
+		""",
+		{"like": like, "prefix": f"{txt}%"},
+		as_dict=True,
+	)
+	return [{"email": row.email, "full_name": row.full_name or row.name, "name": row.name} for row in rows]
 
 
 @frappe.whitelist(methods=["GET"])

@@ -647,6 +647,68 @@ class TestControlledProcurement(UnitTestCase):
 		self.assertEqual(result["stock_uom"], "Nos")
 		self.assertEqual(result["item_code"], "GRP-LADDER")
 
+	def _item_doc(self, *, is_new=False, controlled=1, changed=(), api=False, before_controlled=None):
+		changed = set(changed)
+		fields = set(controlled_procurement.CATALOG_ITEM_MASTER_FIELDS) | set(
+			controlled_procurement.CATALOG_ITEM_MASTER_TABLES
+		) | {"valuation_rate", "last_purchase_rate"}
+		meta = SimpleNamespace(has_field=lambda field: field in fields)
+		before = None
+		if before_controlled is not None:
+			before = SimpleNamespace(controlled_procurement_catalog=before_controlled)
+		doc = SimpleNamespace(
+			controlled_procurement_catalog=controlled,
+			stock_uom="Nos",
+			meta=meta,
+			flags=SimpleNamespace(controlled_procurement_api=api),
+			is_new=lambda: is_new,
+			has_value_changed=lambda field: field in changed,
+			get_doc_before_save=lambda: before,
+			get=lambda key, default=None: getattr(doc, key, default),
+		)
+		return doc
+
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
+	@patch("construction_management.api.controlled_procurement._roles", return_value={"Purchase User"})
+	def test_validate_item_allows_operational_save(self, roles, exists):
+		controlled_procurement.validate_item(self._item_doc(changed=("valuation_rate",)))
+
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
+	@patch("construction_management.api.controlled_procurement._roles", return_value={"Purchase User"})
+	def test_validate_item_blocks_master_field_change(self, roles, exists):
+		with self.assertRaisesRegex(frappe.PermissionError, "catalog request"):
+			controlled_procurement.validate_item(self._item_doc(changed=("item_name",)))
+
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
+	@patch("construction_management.api.controlled_procurement._roles", return_value={"System Manager"})
+	def test_validate_item_blocks_new_controlled_item(self, roles, exists):
+		with self.assertRaisesRegex(frappe.PermissionError, "catalog request"):
+			controlled_procurement.validate_item(self._item_doc(is_new=True))
+
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
+	@patch("construction_management.api.controlled_procurement._roles", return_value={"Purchase User"})
+	def test_validate_item_allows_master_change_with_api_flag(self, roles, exists):
+		controlled_procurement.validate_item(self._item_doc(changed=("stock_uom",), api=True))
+
+	def test_search_user_emails_requires_query(self):
+		with patch("construction_management.api.controlled_procurement.frappe.session", frappe._dict(user="buyer@example.com")):
+			self.assertEqual(controlled_procurement.search_user_emails(""), [])
+			self.assertEqual(controlled_procurement.search_user_emails("  "), [])
+
+	@patch("construction_management.api.controlled_procurement.frappe.db.sql")
+	def test_search_user_emails_returns_matches(self, sql):
+		sql.return_value = [
+			frappe._dict(name="salman@mrggroup.ae", full_name="Salman", email="salman@mrggroup.ae"),
+			frappe._dict(name="sal.other@mrggroup.ae", full_name="Sally Other", email="sal.other@mrggroup.ae"),
+		]
+		with patch("construction_management.api.controlled_procurement.frappe.session", frappe._dict(user="buyer@example.com")):
+			result = controlled_procurement.search_user_emails("sal")
+		self.assertEqual(len(result), 2)
+		self.assertEqual(result[0]["email"], "salman@mrggroup.ae")
+		self.assertEqual(result[0]["full_name"], "Salman")
+		sql.assert_called_once()
+		self.assertIn("%sal%", sql.call_args.args[1]["like"])
+
 	@patch("construction_management.api.controlled_procurement.create_catalog_request", return_value={"name": "CCR-1"})
 	@patch("construction_management.api.controlled_procurement._catalog_buying_rate", return_value=1.91)
 	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=False)

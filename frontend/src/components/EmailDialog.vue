@@ -2,6 +2,7 @@
 import { nextTick, onMounted, reactive, ref } from "vue"
 import { call, printUrl } from "@/api"
 import { toast, toastError } from "@/toast"
+import EmailRecipientsInput from "@/components/EmailRecipientsInput.vue"
 import Modal from "@/components/Modal.vue"
 import { doctypeLabel } from "@/utils"
 
@@ -85,15 +86,17 @@ async function send() {
 					<option v-for="template in templates" :key="template" :value="template">{{ template }}</option>
 				</select>
 			</label>
-			<label class="cp-field">
-				<span>To<i>*</i></span>
-				<div class="cp-inline-input">
-					<input v-model="form.recipients" class="cp-input" placeholder="supplier@example.com, other@example.com" required />
-					<button v-if="!showCc" type="button" class="cp-link" @click="showCc = true">Cc</button>
-				</div>
-				<small v-if="!form.recipients" class="cp-hint">No email on the supplier record — enter one manually.</small>
-			</label>
-			<label v-if="showCc" class="cp-field"><span>Cc</span><input v-model="form.cc" class="cp-input" /></label>
+			<div class="cp-email-recipients">
+				<EmailRecipientsInput
+					v-model="form.recipients"
+					label="To"
+					required
+					placeholder="Type a name or email…"
+				/>
+				<button v-if="!showCc" type="button" class="cp-link cp-email-cc-toggle" @click="showCc = true">Cc</button>
+			</div>
+			<small v-if="!form.recipients" class="cp-hint">No email on the supplier record — enter one manually, or pick a user.</small>
+			<EmailRecipientsInput v-if="showCc" v-model="form.cc" label="Cc" placeholder="Type a name or email…" />
 			<label class="cp-field"><span>Subject<i>*</i></span><input v-model="form.subject" class="cp-input" required /></label>
 			<div class="cp-field">
 				<span>Message</span>
