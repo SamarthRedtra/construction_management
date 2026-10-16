@@ -76,11 +76,11 @@ def validate_purchase_order(doc, method=None):
 		return
 	if getattr(frappe.flags, "controlled_po_price_apply", False):
 		return
+	if getattr(doc.flags, "controlled_procurement_api", False):
+		return  # Workspace endpoints supersede and stage proposals atomically.
 	previous = doc.get_doc_before_save() if not doc.is_new() else None
 	if previous and previous.get("custom_po_price_status") in {"Pending Accounts", "Pending CEO"} and not getattr(doc.flags, "lpo_workflow_transition", False):
 		frappe.throw(_("This Purchase Order is locked pending CEO price approval."), frappe.PermissionError)
-	if getattr(doc.flags, "controlled_procurement_api", False):
-		return  # Workspace endpoints already staged and validated the proposed rates.
 	for index, row in enumerate(doc.items):
 		if flt(row.rate) <= 0:
 			frappe.throw(_("Controlled Purchase Order rates must be positive. Use Procurement to request a new buying price."))
@@ -169,6 +169,35 @@ def stage(doc, changes, submitted_items=None):
 	elif doc.get("custom_lpo_type") != "Manual":
 		_enqueue_notice(doc.name)
 	return proposal
+
+
+def supersede(doc, comment: str = "Superseded by a newer Purchase Order edit.") -> None:
+	"""Close the current proposal before the latest editable draft replaces it.
+
+	The proposal and controlled price requests remain in their normal decision
+	history; clearing ``active_identity`` makes the replacement request possible.
+	"""
+	if doc.get("custom_po_price_status") not in {"Pending Accounts", "Pending CEO"}:
+		return
+	proposal = json.loads(doc.get("custom_po_price_proposal") or "{}")
+	for request_name in proposal.get("requests", []):
+		request = frappe.get_doc("Controlled Buying Price Request", request_name)
+		if request.status != "Pending CEO":
+			continue
+		request.status = "Rejected"
+		request.active_identity = None
+		request.decided_by = frappe.session.user
+		request.decided_on = now_datetime()
+		request.decision_comment = comment
+		prices._save_request(request)
+	frappe.db.set_value("Purchase Order", doc.name, {
+		"custom_po_price_status": None,
+		"custom_po_price_history": _history(doc, "Superseded", comment),
+		"custom_po_price_proposal": None,
+		"custom_po_price_notification": None,
+		"custom_po_price_notification_error": "",
+		"custom_po_price_notified_users": "[]",
+	}, update_modified=False)
 
 
 @frappe.whitelist(methods=["POST"])

@@ -344,6 +344,7 @@ def _stage_catalog_corrections() -> list[str]:
 			"comment": "MRG finalized Item Tree corrections staged for approval before opening stock.",
 		}],
 	})
+	request.flags.controlled_catalog_request_api = True
 	request.insert(ignore_permissions=True)
 	return [request.name]
 
@@ -426,6 +427,7 @@ def _create_missing_catalog_requests(item_tree: Path, errors: list[dict]) -> lis
 			"comment": "MRG stock snapshot preflight staged this request for Accounts approval.",
 		}],
 	})
+	request.flags.controlled_catalog_request_api = True
 	request.insert(ignore_permissions=True)
 	return [request.name]
 

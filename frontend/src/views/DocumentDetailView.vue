@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from "vue"
+import { useRouter } from "vue-router"
 import { call } from "@/api"
 import { toast, toastError } from "@/toast"
 import { DOCTYPES, VAT_LABELS, docStatusLabel, formatCurrency, formatDate, formatNumber, isOverdue, session } from "@/utils"
@@ -16,6 +17,7 @@ import StatusPill from "@/components/StatusPill.vue"
 import { useTransferStock } from "@/transferStock"
 
 const props = defineProps({ kind: { type: String, required: true }, docname: { type: String, required: true } })
+const router = useRouter()
 const config = computed(() => DOCTYPES[props.kind])
 const ctx = computed(() => session.context)
 const doc = ref(null)
@@ -44,15 +46,18 @@ const deskUrl = computed(() => `/app/${config.value.doctype.toLowerCase().replac
 const canSubmit = computed(() => isDraft.value && !["Pending Accounts", "Pending CEO"].includes(doc.value?.custom_po_price_status) && (props.kind === "transfers" ? ctx.value.can_transfer : ctx.value.can_purchase))
 const manualLpo = computed(() => props.kind === "orders" && doc.value?.custom_lpo_type === "Manual")
 const approvalStatus = computed(() => doc.value?.custom_lpo_approval_status || "Draft")
-const canEditDraft = computed(() => props.kind === "orders" && isControlled.value && isDraft.value && ctx.value.can_purchase && !["Pending Accounts", "Pending CEO"].includes(doc.value?.custom_po_price_status) && !["Pending Accounts", "Pending CEO"].includes(approvalStatus.value) && (approvalStatus.value !== "Needs Correction" || doc.value?.owner === ctx.value.user || ctx.value.can_override_lpo))
+const canEditDraft = computed(() => props.kind === "orders" && isControlled.value && isDraft.value && ctx.value.can_purchase
+
+	&& (doc.value?.custom_lpo_type !== "Manual" || !["Pending Accounts", "Pending CEO"].includes(doc.value?.custom_po_price_status))
+	&& !["Pending Accounts", "Pending CEO"].includes(approvalStatus.value) && (approvalStatus.value !== "Needs Correction" || doc.value?.owner === ctx.value.user || ctx.value.can_override_lpo))
 const canRequestApproval = computed(() => manualLpo.value && isDraft.value && ctx.value.can_purchase && ["Draft", "Needs Correction"].includes(approvalStatus.value)
 	&& (approvalStatus.value !== "Needs Correction" || doc.value?.owner === ctx.value.user || ctx.value.can_override_lpo))
 const canStageApprove = computed(() => manualLpo.value && isDraft.value && ((approvalStatus.value === "Pending Accounts" && ctx.value.can_approve_lpo_accounts) || (approvalStatus.value === "Pending CEO" && ctx.value.can_approve_lpo_ceo)))
-const canCancelOrder = computed(() => props.kind === "orders" && isControlled.value && doc.value?.docstatus === 1 && doc.value?.can_cancel && ctx.value.can_purchase)
-const canAmendOrder = computed(() => props.kind === "orders" && isControlled.value && doc.value?.docstatus === 2 && doc.value?.can_amend && ctx.value.can_purchase)
+const canDeleteOrder = computed(() => props.kind === "orders" && isControlled.value && isDraft.value && doc.value?.can_delete && ctx.value.can_purchase)
 const canEditStockDraft = computed(() => ["receipts", "transfers"].includes(props.kind) && isControlled.value && isDraft.value && (props.kind === "receipts" ? ctx.value.can_purchase : ctx.value.can_transfer))
-const canCancelStock = computed(() => ["receipts", "transfers"].includes(props.kind) && doc.value?.docstatus === 1 && doc.value?.can_cancel && (props.kind === "receipts" ? ctx.value.can_purchase : ctx.value.can_transfer))
-const canAmendStock = computed(() => ["receipts", "transfers"].includes(props.kind) && doc.value?.docstatus === 2 && doc.value?.can_amend && (props.kind === "receipts" ? ctx.value.can_purchase : ctx.value.can_transfer))
+const canManageDocument = computed(() => props.kind === "transfers" ? ctx.value.can_transfer : ctx.value.can_purchase)
+const canCancelDocument = computed(() => isControlled.value && doc.value?.docstatus === 1 && doc.value?.can_cancel && canManageDocument.value)
+const canAmendDocument = computed(() => isControlled.value && doc.value?.docstatus === 2 && doc.value?.can_amend && canManageDocument.value)
 const canReceive = computed(() => props.kind === "orders" && ctx.value.can_purchase && doc.value?.docstatus === 1
 	&& (doc.value?.custom_lpo_type === "Open" || doc.value?.custom_is_provisional_po || (doc.value.per_received || 0) < 100)
 	&& !["Closed", "On Hold"].includes(doc.value.status))
@@ -61,7 +66,7 @@ const canInvoice = computed(() => ["orders", "receipts"].includes(props.kind) &&
 	&& (doc.value.per_billed || 0) < 100 && !doc.value.is_return && !["Closed", "On Hold"].includes(doc.value.status))
 const canPay = computed(() => props.kind === "invoices" && doc.value?.docstatus === 1 && Number(doc.value.outstanding_amount) > 0 && ctx.value.can_purchase)
 const canCreatePoPdc = computed(() => props.kind === "orders" && doc.value?.docstatus === 1 && !["Closed", "On Hold"].includes(doc.value?.status) && ctx.value.can_purchase && ctx.value.can_create_pdc)
-const canEmail = computed(() => props.kind !== "transfers" && doc.value?.docstatus !== 2 && ctx.value.can_purchase)
+const canEmail = computed(() => props.kind !== "transfers" && doc.value?.docstatus !== 2 && doc.value?.can_email && ctx.value.can_purchase)
 const partyName = computed(() => doc.value?.supplier_name || doc.value?.supplier || "")
 
 const summary = computed(() => {
@@ -200,17 +205,29 @@ function rejectApproval() {
 	if (comment?.trim()) orderAction("reject_lpo", { comment: comment.trim() })
 }
 
-function confirmCancelOrder() {
-	if (window.confirm("Cancel this Purchase Order? ERPNext may block cancellation when linked documents exist.")) {
-		orderAction("cancel_purchase_order")
+async function deleteDraftOrder() {
+	if (!window.confirm("Delete this draft Purchase Order? Its price-proposal history will be retained for audit.")) return
+	busy.value = true
+	try {
+		await call("delete_purchase_order", { name: props.docname })
+		toast(`${props.docname} deleted`)
+		await router.replace("/purchase-orders")
+	} catch (requestError) {
+		toastError(requestError)
+	} finally {
+		busy.value = false
 	}
 }
 
-function stockAction(action) {
-	const noun = props.kind === "receipts" ? "Receive Note" : "Material Transfer"
-	if (action === "cancel" && !window.confirm(`Cancel this ${noun}? ERPNext may block cancellation when linked documents exist.`)) return
-	const method = `${action}_${props.kind === "receipts" ? "purchase_receipt" : "material_transfer"}`
-	orderAction(method)
+function documentAction(action) {
+	const methods = {
+		orders: { cancel: "cancel_purchase_order", amend: "amend_purchase_order" },
+		receipts: { cancel: "cancel_purchase_receipt", amend: "amend_purchase_receipt" },
+		invoices: { cancel: "cancel_purchase_invoice", amend: "amend_purchase_invoice" },
+		transfers: { cancel: "cancel_material_transfer", amend: "amend_material_transfer" },
+	}
+	if (action === "cancel" && !window.confirm(`Cancel this ${config.value.single}? ERPNext may block cancellation when linked documents exist.`)) return
+	orderAction(methods[props.kind][action])
 }
 
 function onEmailSent() {
@@ -237,10 +254,9 @@ onMounted(load)
 				<button v-if="canRequestApproval" class="cp-btn brand" :disabled="busy" @click="orderAction('request_lpo_approval')">Request approval</button>
 				<button v-if="canStageApprove" class="cp-btn brand" :disabled="busy" @click="orderAction('approve_lpo')">Approve {{ approvalStatus === 'Pending Accounts' ? 'as Accounts' : 'as CEO' }}</button>
 				<button v-if="canStageApprove" class="cp-btn" :disabled="busy" @click="rejectApproval">Reject</button>
-				<button v-if="canCancelOrder" class="cp-btn" :disabled="busy" @click="confirmCancelOrder">Cancel order</button>
-				<button v-if="canAmendOrder" class="cp-btn" :disabled="busy" @click="orderAction('amend_purchase_order')">Amend</button>
-				<button v-if="canCancelStock" class="cp-btn" :disabled="busy" @click="stockAction('cancel')">Cancel</button>
-				<button v-if="canAmendStock" class="cp-btn" :disabled="busy" @click="stockAction('amend')">Amend</button>
+				<button v-if="canDeleteOrder" class="cp-btn" :disabled="busy" @click="deleteDraftOrder">Delete draft</button>
+				<button v-if="canCancelDocument" class="cp-btn" :disabled="busy" @click="documentAction('cancel')">Cancel</button>
+				<button v-if="canAmendDocument" class="cp-btn" :disabled="busy" @click="documentAction('amend')">Amend</button>
 				<RouterLink v-if="kind === 'receipts' && doc.docstatus === 1" :to="{ path: '/stock-ledger', query: { receipt: doc.name } }" class="cp-btn">View stock ledger</RouterLink>
 				<button class="cp-btn" @click="printOpen = true">
 					<svg viewBox="0 0 24 24"><path d="M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z" /></svg>Print / PDF
@@ -259,8 +275,8 @@ onMounted(load)
 		</PageHeader>
 
 		<div v-if="!isControlled" class="cp-banner">Raised outside Controlled Procurement — view, print, email, comment, submit and receive here; edit the draft in Desk.</div>
-		<div v-else-if="isDraft" class="cp-banner">{{ ['Pending Accounts', 'Pending CEO'].includes(doc.custom_po_price_status) ? `${doc.custom_po_price_status} Price Approval — this draft is locked until the buying rates are approved.` : manualLpo ? `Manual LPO — ${approvalStatus}. Accounts and CEO approval are required before submission.` : `Draft — not posted yet. Submit it to ${kind === 'orders' ? 'send the order to the supplier' : kind === 'invoices' ? 'book the payable' : 'post it to stock'}.` }}</div>
-		<div v-if="kind === 'orders' && ['Pending Accounts', 'Pending CEO'].includes(doc.custom_po_price_status)" class="cp-banner">Buying-rate change pending. Existing PO and catalog rates are unchanged. <RouterLink to="/catalog/prices">View price requests</RouterLink></div>
+		<div v-else-if="isDraft" class="cp-banner">{{ ['Pending Accounts', 'Pending CEO'].includes(doc.custom_po_price_status) && manualLpo ? `${doc.custom_po_price_status} Price Approval — this Manual LPO is locked until the buying rates are approved.` : manualLpo ? `Manual LPO — ${approvalStatus}. Accounts and CEO approval are required before submission.` : `Draft — not posted yet. Submit it to ${kind === 'orders' ? 'send the order to the supplier' : kind === 'invoices' ? 'book the payable' : 'post it to stock'}.` }}</div>
+		<div v-if="kind === 'orders' && ['Pending Accounts', 'Pending CEO'].includes(doc.custom_po_price_status)" class="cp-banner">Buying-rate change pending. Existing PO and catalog rates are unchanged. <span v-if="!manualLpo">You may edit the draft; saving replaces this proposal with the latest one.</span> <RouterLink to="/catalog/prices">View price requests</RouterLink></div>
 		<div v-if="kind === 'orders' && doc.custom_po_price_history" class="cp-banner"><strong>Price decisions:</strong> <span v-for="(event, index) in JSON.parse(doc.custom_po_price_history || '[]')" :key="index">{{ event.action }} by {{ event.by }} on {{ event.at }}{{ event.comment ? ` — ${event.comment}` : '' }}<br /></span></div>
 		<div v-if="kind === 'transfers' && isDraft && doc.items?.some((row) => transferStockState(row.item_code) === 'short')" class="cp-banner cp-stock-shortage" role="status">⚠ Requested transfer quantity exceeds current stock in {{ doc.from_warehouse }}. You can keep this draft, but check stock before submitting.</div>
 		<div v-if="doc.previous_revision || doc.next_revision" class="cp-banner">

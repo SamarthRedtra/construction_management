@@ -168,6 +168,7 @@ def submit(path: str | None = None):
 	request = frappe.get_doc("Controlled Catalog Request", request_name)
 	request.full_source_file = full_source.file_url
 	request.full_source_checksum = source_checksum
+	request.flags.controlled_catalog_request_api = True
 	request.save(ignore_permissions=True)
 	request.add_comment("Info", f"Source Sheet2 SHA-256: {source_checksum}. "
 		f"Selected {len(selected)} new Stockable/Consumable items; {len(held)} source rows held in the attached exception report.")

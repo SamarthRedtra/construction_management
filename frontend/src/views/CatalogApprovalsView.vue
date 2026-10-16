@@ -13,6 +13,11 @@ const requests = ref([])
 const requestDetail = ref(null)
 const approvingRequest = ref("")
 
+function canDecide(request) {
+	return (request.status === "Pending Accounts" && request.requested_by !== ctx.value.user && ctx.value.can_approve_catalog_accounts)
+		|| (request.status === "Pending CEO" && ctx.value.can_approve_catalog_ceo)
+}
+
 async function loadRequests() {
 	try {
 		requests.value = await call("get_catalog_requests")
@@ -59,7 +64,7 @@ async function reject(request) {
 
 async function resubmit(request) {
 	try {
-		await call("resubmit_catalog_request", { name: request.name, data: { items: request.items } })
+		await call("resubmit_catalog_request", { name: request.name, data: { items: request.items, disable_reason: request.disable_reason } })
 		toast("Catalog request resubmitted")
 		await loadRequests()
 		if (requestDetail.value?.name === request.name) await showRequest(request)
@@ -71,6 +76,14 @@ async function resubmit(request) {
 async function retryPriceNotice(request) {
 	try { await call("retry_catalog_price_notice", { name: request.name }); toast("Raven retry queued") }
 	catch (error) { toastError(error) }
+}
+
+async function retryApprovalEmail(request) {
+	try {
+		await call("retry_catalog_approval_email", { name: request.name })
+		toast("Approval email retry queued")
+		await showRequest(request)
+	} catch (error) { toastError(error) }
 }
 
 onMounted(loadRequests)
@@ -88,11 +101,11 @@ onMounted(loadRequests)
 					<td><button class="cp-link" @click="showRequest(request)">{{ request.name }}</button><small>{{ request.company }}</small></td>
 					<td>{{ request.requested_by }}</td>
 					<td><span class="cp-pill info">{{ request.status }}</span></td>
-					<td>{{ request.source }}</td>
+					<td>{{ request.is_disable ? "Disable item" : request.source }}<small>{{ request.request_origin || "Purchase" }} route</small></td>
 					<td class="cp-table-actions">
 						<button class="cp-btn sm" @click="showRequest(request)">View</button>
-						<button v-if="ctx.can_approve_catalog && request.status.startsWith('Pending') && !(request.status === 'Pending CEO' && request.has_price_change && !ctx.can_approve_price_change)" class="cp-btn sm" :disabled="Boolean(approvingRequest)" @click="approve(request)">{{ approvingRequest === request.name ? "Approving…" : "Approve" }}</button>
-						<button v-if="ctx.can_approve_catalog && request.status.startsWith('Pending') && !(request.status === 'Pending CEO' && request.has_price_change && !ctx.can_approve_price_change)" class="cp-btn sm" :disabled="Boolean(approvingRequest)" @click="reject(request)">Reject</button>
+						<button v-if="canDecide(request)" class="cp-btn sm" :disabled="Boolean(approvingRequest)" @click="approve(request)">{{ approvingRequest === request.name ? "Approving…" : "Approve" }}</button>
+						<button v-if="canDecide(request)" class="cp-btn sm" :disabled="Boolean(approvingRequest)" @click="reject(request)">Reject</button>
 						<button v-if="request.status === 'Needs Correction' && request.requested_by === ctx.user" class="cp-btn sm" @click="showRequest(request)">Correct</button>
 					</td>
 				</tr>
@@ -102,9 +115,12 @@ onMounted(loadRequests)
 	</section>
 
 	<Modal v-if="requestDetail" :title="requestDetail.name" wide @close="requestDetail = null">
-		<p><span class="cp-pill info">{{ requestDetail.status }}</span><span v-if="requestDetail.rejection_reason"> · {{ requestDetail.rejection_reason }}</span></p>
-		<p v-if="requestDetail.price_notification_status">CEO price notification: {{ requestDetail.price_notification_status }}<span v-if="requestDetail.price_notification_error"> — {{ requestDetail.price_notification_error }}</span> <button v-if="requestDetail.price_notification_status === 'Failed'" class="cp-btn sm" @click="retryPriceNotice(requestDetail)">Retry Raven</button></p>
-		<table class="cp-table"><thead><tr><th>Description</th><th>Type</th><th>UOM</th><th>Supplier</th><th>Rate</th><th>Action</th><th>Catalog item</th></tr></thead><tbody><tr v-for="row in requestDetail.items" :key="row.name"><td>{{ row.item_name }}</td><td>{{ row.item_type }}</td><td>{{ row.stock_uom || "Nos" }}</td><td><LinkSelect v-if="requestDetail.status === 'Needs Correction' && requestDetail.requested_by === ctx.user" v-model="row.supplier" doctype="Supplier" :required="true" /><span v-else>{{ row.supplier || "—" }}</span></td><td>{{ row.rate }}</td><td>{{ row.action }}</td><td>{{ row.result_item || "Awaiting approval" }}</td></tr></tbody></table>
+		<p><span class="cp-pill info">{{ requestDetail.status }}</span> · {{ requestDetail.request_origin || "Purchase" }} route<span v-if="requestDetail.rejection_reason"> · {{ requestDetail.rejection_reason }}</span></p>
+		<label v-if="requestDetail.disable_reason && requestDetail.status === 'Needs Correction' && requestDetail.requested_by === ctx.user" class="cp-field"><span>Disable reason</span><textarea v-model="requestDetail.disable_reason" class="cp-input" rows="3" required /></label>
+		<p v-else-if="requestDetail.disable_reason"><strong>Disable reason:</strong> {{ requestDetail.disable_reason }}</p>
+		<p v-if="requestDetail.status.startsWith('Pending')">Approval email: {{ requestDetail.approval_email_status || (requestDetail.approval_email_error ? "Failed to queue" : "Queueing") }}<span v-if="requestDetail.approval_email_error"> — {{ requestDetail.approval_email_error }}</span> <button v-if="requestDetail.approval_email_error || ['Error', 'Partially Sent'].includes(requestDetail.approval_email_status)" class="cp-btn sm" @click="retryApprovalEmail(requestDetail)">Retry email</button></p>
+		<p v-if="requestDetail.price_notification_status">CEO Raven notification: {{ requestDetail.price_notification_status }}<span v-if="requestDetail.price_notification_error"> — {{ requestDetail.price_notification_error }}</span> <button v-if="requestDetail.price_notification_status === 'Failed'" class="cp-btn sm" @click="retryPriceNotice(requestDetail)">Retry Raven</button></p>
+		<table class="cp-table"><thead><tr><th>Description</th><th>Type</th><th>UOM</th><th>Supplier</th><th>Rate</th><th>Action</th><th>Catalog item</th></tr></thead><tbody><tr v-for="row in requestDetail.items" :key="row.name"><td>{{ row.item_name }}</td><td>{{ row.item_type }}</td><td>{{ row.stock_uom || "Nos" }}</td><td><LinkSelect v-if="row.action !== 'Disable' && requestDetail.status === 'Needs Correction' && requestDetail.requested_by === ctx.user" v-model="row.supplier" doctype="Supplier" :required="true" /><span v-else>{{ row.supplier || "—" }}</span></td><td>{{ row.rate }}</td><td>{{ row.action }}</td><td>{{ row.result_item || "Awaiting approval" }}</td></tr></tbody></table>
 		<h3 class="cp-section-title">Approval process</h3>
 		<ul><li v-for="log in requestDetail.approval_log" :key="log.name"><strong>{{ log.action }}</strong> · {{ log.actor }} · {{ log.actioned_on }}<template v-if="log.comment"> — {{ log.comment }}</template></li></ul>
 		<template v-if="requestDetail.status === 'Needs Correction' && requestDetail.requested_by === ctx.user" #footer>

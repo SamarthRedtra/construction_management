@@ -381,11 +381,14 @@ def deliver_catalog_notice(request_name: str) -> None:
 	doc = frappe.get_doc("Controlled Catalog Request", request_name)
 	if doc.status != "Pending CEO":
 		return
-	recipients = _ceo_users(doc.company)
+	from construction_management.api.catalog_email import catalog_approval_recipients
+
+	recipients = [user for user in catalog_approval_recipients(doc.company, "Pending CEO")
+		if frappe.db.exists("Raven User", {"user": user, "enabled": 1})]
 	delivered = set(json.loads(doc.price_notified_users or "[]"))
 	errors = []
 	if not recipients:
-		errors.append("No enabled Raven CEO has access to this company.")
+		errors.append("No enabled Raven catalogue CEO has access to this company.")
 	for user in recipients:
 		frappe.db.sql("select name from `tabControlled Catalog Request` where name = %s for update", request_name)
 		doc.reload()
@@ -395,12 +398,13 @@ def deliver_catalog_notice(request_name: str) -> None:
 		try:
 			bot = frappe.get_doc("Raven Bot", "procurement bot")
 			message = bot.send_direct_message(user,
-				text=f"Catalog request {doc.name} has a buying price awaiting CEO approval for {doc.company}.",
+				text=f"Catalog request {doc.name} awaits CEO approval for {doc.company}.",
 				link_doctype=doc.doctype, link_document=doc.name)
 			if not message:
 				raise RuntimeError("Raven returned no message")
 			delivered.add(user)
 			doc.price_notified_users = json.dumps(sorted(delivered))
+			doc.flags.controlled_catalog_request_api = True
 			doc.save(ignore_permissions=True)
 			frappe.db.commit()
 		except Exception as exc:
@@ -408,6 +412,7 @@ def deliver_catalog_notice(request_name: str) -> None:
 			errors.append(f"{user}: {exc}")
 	doc.price_notification_status = "Failed" if errors else "Delivered"
 	doc.price_notification_error = "\n".join(errors)
+	doc.flags.controlled_catalog_request_api = True
 	doc.save(ignore_permissions=True)
 
 
@@ -425,9 +430,11 @@ def retry_price_notice(name: str) -> dict:
 def retry_catalog_price_notice(name: str) -> dict:
 	doc = frappe.get_doc("Controlled Catalog Request", name)
 	_require_company(doc.company)
-	if frappe.session.user != doc.requested_by and not has_explicit_ceo_role() and "System Manager" not in frappe.get_roles():
+	from construction_management.api.controlled_procurement import _catalog_ceo
+
+	if frappe.session.user != doc.requested_by and not _catalog_ceo():
 		frappe.throw(_("Only the requester or an approver can retry notifications."), frappe.PermissionError)
-	if doc.status != "Pending CEO" or not any(flt(row.rate) > 0 for row in doc.items):
-		frappe.throw(_("This catalog request has no pending CEO buying-price decision."))
+	if doc.status != "Pending CEO":
+		frappe.throw(_("This catalogue request has no pending CEO decision."))
 	_enqueue_catalog_notice(name)
 	return {"name": name, "notification_status": "Retry queued"}

@@ -99,6 +99,7 @@ def submit(path: str | None = None) -> dict:
 			"comment": "Expanded Item Tree Part 2 import staged for Accounts approval.",
 		}],
 	})
+	request.flags.controlled_catalog_request_api = True
 	request.insert(ignore_permissions=True)
 	for file_doc in (normalized, full_source, save_file(
 		"item_tree_part_2_expanded_exceptions.csv", _exception_csv(held), None, None, is_private=1,

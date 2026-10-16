@@ -36,20 +36,19 @@ class TestControlledPriceRequests(UnitTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			prices.guard_item_price_delete(MagicMock())
 
-	@patch.object(catalog, "_roles", return_value={"System Manager"})
-	@patch.object(catalog, "_explicit_ceo", return_value=False)
-	def test_system_manager_cannot_self_approve_catalog_price(self, explicit, roles):
-		self.assertEqual(catalog._catalog_request_status([{"rate": 10}]), "Pending CEO")
+	@patch.object(catalog, "_has_explicit_role", return_value=False)
+	@patch.object(catalog, "_catalog_ceo", return_value=False)
+	def test_system_manager_cannot_self_approve_catalog_price(self, ceo, role):
+		self.assertEqual(catalog._catalog_request_status("Purchase"), "Pending Accounts")
 		self.assertFalse(catalog._can_approve_catalog(SimpleNamespace(
-			status="Pending CEO", items=[SimpleNamespace(rate=10)],
+			status="Pending CEO", requested_by="buyer@example.com", items=[SimpleNamespace(rate=10)],
 		)))
 
-	@patch.object(catalog, "_roles", return_value={"CEO"})
-	@patch.object(catalog, "_explicit_ceo", return_value=True)
-	def test_ceo_can_approve_catalog_price(self, explicit, roles):
-		self.assertEqual(catalog._catalog_request_status([{"rate": 10}]), "Approved")
+	@patch.object(catalog, "_catalog_ceo", return_value=True)
+	def test_ceo_can_approve_catalog_price(self, ceo):
+		self.assertEqual(catalog._catalog_request_status("Accounts"), "Pending CEO")
 		self.assertTrue(catalog._can_approve_catalog(SimpleNamespace(
-			status="Pending CEO", items=[SimpleNamespace(rate=10)],
+			status="Pending CEO", requested_by="buyer@example.com", items=[SimpleNamespace(rate=10)],
 		)))
 
 	@patch.object(prices, "_require_company")

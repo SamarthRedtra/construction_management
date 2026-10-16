@@ -7,7 +7,7 @@ import { doctypeLabel } from "@/utils"
 
 const props = defineProps({ doctype: { type: String, required: true }, docname: { type: String, required: true } })
 const emit = defineEmits(["close", "sent"])
-const form = reactive({ email_template: "", recipients: "", cc: "", subject: "", attach_print: true, print_format: "Standard" })
+const form = reactive({ sender: "", email_template: "", recipients: "", cc: "", subject: "", attach_print: true, print_format: "Standard" })
 const printFormats = ref(["Standard"])
 const templates = ref([])
 const editor = ref(null)
@@ -23,7 +23,7 @@ function setBody(html) {
 onMounted(async () => {
 	try {
 		const draft = await call("get_email_draft", { doctype: props.doctype, name: props.docname })
-		Object.assign(form, { recipients: draft.recipients, subject: draft.subject, print_format: draft.default_print_format })
+		Object.assign(form, { sender: draft.sender, recipients: draft.recipients, subject: draft.subject, print_format: draft.default_print_format })
 		printFormats.value = draft.print_formats
 		templates.value = draft.email_templates || []
 		loading.value = false
@@ -63,7 +63,7 @@ async function send() {
 			print_format: form.print_format,
 			email_template: form.email_template,
 		})
-		toast(result.emails_not_sent_to ? `Sent, except to ${result.emails_not_sent_to}` : "Email queued for sending")
+		toast(result.emails_not_sent_to ? `Email queued; excluded: ${result.emails_not_sent_to}` : "Email queued for sending. Check Activity for delivery status.")
 		emit("sent")
 	} catch (error) {
 		toastError(error)
@@ -77,6 +77,7 @@ async function send() {
 	<Modal :title="`Email ${doctypeLabel(doctype)}`" wide @close="emit('close')">
 		<div v-if="loading" class="cp-muted">Preparing email…</div>
 		<form v-else id="cp-email-form" class="cp-stack" @submit.prevent="send">
+			<p class="cp-muted">From: {{ form.sender }} · Delivery is tracked in the document Activity panel.</p>
 			<label class="cp-field">
 				<span>Email template</span>
 				<select v-model="form.email_template" class="cp-input" :disabled="applying" @change="applyTemplate">

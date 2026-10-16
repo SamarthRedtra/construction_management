@@ -18,9 +18,10 @@ const router = useRouter()
 const route = useRoute()
 const props = defineProps({ name: { type: String, default: "" } })
 const editing = computed(() => Boolean(props.name))
-const form = reactive({ company: session.context.default_company || "", supplier: "", order_date: today(), required_by: today(), lpo_type: !editing.value && route.query.lpo_type === "Open" ? "Open" : "Standard", warehouse: "", contact_person: "", payment_terms_template: "", tc_name: "", terms: "", taxes_and_charges: null, project: "", bill_no: "", boq_item: "", items: [] })
+const form = reactive({ company: session.context.default_company || "", supplier: "", order_date: today(), required_by: today(), lpo_type: !editing.value && route.query.lpo_type === "Open" ? "Open" : "Standard", warehouse: "", contact_person: "", payment_terms_template: "", tc_name: "", terms: "", taxes_and_charges: null, apply_discount_on: "Net Total", additional_discount_percentage: 0, discount_amount: 0, project: "", bill_no: "", boq_item: "", items: [] })
 const saving = ref(false)
 const createdOrderName = ref("")
+const priceApprovalStatus = ref("")
 const hydrating = ref(false)
 const total = computed(() => form.items.reduce((sum, row) => sum + (Number(row.qty) || 0) * (Number(row.rate) || 0), 0))
 const { templates: taxTemplates, totals, loading: taxLoading, lineTax } = useTaxes("Purchase Order", form)
@@ -225,14 +226,27 @@ async function save() {
 			? await call("update_purchase_order", { name: props.name, data: purchaseOrderPayload() })
 			: await call("create_purchase_order", { data: { ...purchaseOrderPayload(), creation_request_id: creationRequestId() } })
 		if (!editing.value) createdOrderName.value = result.name
+		priceApprovalStatus.value = result.price_approval_status || ""
 		toast(`Purchase order ${result.name} ${result.price_approval_status?.startsWith("Pending") ? `is ${result.price_approval_status.toLowerCase()} price approval` : editing.value ? "updated" : "created as draft"}`)
-		if (editing.value) {
-			await router.push(`/purchase-orders/${result.name}`)
-		} else {
-			await router.replace({ path: "/purchase-orders", query: { created: result.name } })
+		if (!editing.value) {
+			await router.replace(`/purchase-orders/${result.name}/edit`)
 			const { purchaseOrderRequestId, ...state } = window.history.state || {}
 			window.history.replaceState(state, "")
 		}
+	} catch (error) {
+		toastError(error)
+	} finally {
+		saving.value = false
+	}
+}
+
+async function submitSavedOrder() {
+	if (!editing.value || saving.value) return
+	saving.value = true
+	try {
+		await call("submit_document", { doctype: "Purchase Order", name: props.name })
+		toast(`Purchase order ${props.name} submitted`)
+		await router.replace(`/purchase-orders/${props.name}`)
 	} catch (error) {
 		toastError(error)
 	} finally {
@@ -246,7 +260,7 @@ onMounted(async () => {
 	if (!editing.value) return
 	try {
 		const doc = await call("get_controlled_document", { doctype: "Purchase Order", name: props.name })
-		if (doc.docstatus !== 0 || !doc.controlled_procurement || ["Pending Accounts", "Pending CEO"].includes(doc.custom_po_price_status) || ["Pending Accounts", "Pending CEO"].includes(doc.custom_lpo_approval_status)
+		if (doc.docstatus !== 0 || !doc.controlled_procurement || (doc.custom_lpo_type === "Manual" && ["Pending Accounts", "Pending CEO"].includes(doc.custom_po_price_status)) || ["Pending Accounts", "Pending CEO"].includes(doc.custom_lpo_approval_status)
 			|| (doc.custom_lpo_approval_status === "Needs Correction" && doc.owner !== session.context.user && !session.context.can_override_lpo)) {
 			toast("This Purchase Order cannot be edited as a draft")
 			router.replace(`/purchase-orders/${props.name}`)
@@ -258,13 +272,14 @@ onMounted(async () => {
 			required_by: doc.schedule_date, lpo_type: doc.custom_lpo_type || (doc.custom_is_provisional_po ? "Open" : "Standard"),
 			warehouse: doc.set_warehouse || "",
 			contact_person: doc.contact_person || "", payment_terms_template: doc.payment_terms_template || "", tc_name: doc.tc_name || "", terms: doc.terms || "",
-			taxes_and_charges: doc.taxes_and_charges || null, project: doc.project || "", bill_no: doc.bill_no || "", boq_item: doc.boq_item || "",
+			taxes_and_charges: doc.taxes_and_charges || null, apply_discount_on: doc.apply_discount_on || "Net Total", additional_discount_percentage: doc.additional_discount_percentage || 0, discount_amount: doc.discount_amount || 0, project: doc.project || "", bill_no: doc.bill_no || "", boq_item: doc.boq_item || "",
 			items: (doc.items || []).map((row) => ({ docname: row.name, item_code: row.item_code, item_name: row.item_name, controlled_item_type: row.controlled_item_type, stock_uom: row.stock_uom,
 				qty: row.qty, rate: row.rate, fetched_rate: row.rate, vat: row.vat, notes: row.description || "", rate_edited: true, price_change_reason: "",
 				project: row.project || "", bill_no: row.bill_no || "", boq_item: row.boq_item || "",
 				use_override: ["project", "bill_no", "boq_item"].some((field) => (row[field] || "") !== (doc[field] || "")),
 			})),
 		})
+		priceApprovalStatus.value = doc.custom_po_price_status || ""
 		if (!form.items.length) addRow()
 		await nextTick()
 		if (termsEditor.value) termsEditor.value.innerHTML = doc.terms || ""
@@ -283,6 +298,7 @@ onMounted(async () => {
 			<template #actions>
 				<RouterLink :to="editing ? `/purchase-orders/${name}` : '/purchase-orders'" class="cp-btn">Cancel</RouterLink>
 				<button type="submit" class="cp-btn primary" :disabled="saving">{{ saving ? "Saving…" : editing ? "Save changes" : "Create order" }}</button>
+				<button v-if="editing && form.lpo_type !== 'Manual' && !['Pending Accounts', 'Pending CEO'].includes(priceApprovalStatus)" type="button" class="cp-btn brand" :disabled="saving" @click="submitSavedOrder">Submit</button>
 			</template>
 		</PageHeader>
 
@@ -372,6 +388,7 @@ onMounted(async () => {
 							<tr v-if="row.use_override" class="cp-subrow">
 								<td colspan="8"><AllocationFields :boq-optional="session.context.boq_allocation_mode === 'project_only'" :model-value="row" @update:model-value="Object.assign(row, $event)" /></td>
 							</tr>
+							<tr class="cp-subrow"><td colspan="8"><label class="cp-field"><span>Line description</span><input v-model="row.notes" class="cp-input" placeholder="Optional description for this purchase-order line" /></label></td></tr>
 						</template>
 					</tbody>
 					<tfoot><tr><td colspan="6" class="num">Net total</td><td class="num"><strong>{{ formatCurrency(total) }}</strong></td><td /></tr></tfoot>
@@ -379,6 +396,12 @@ onMounted(async () => {
 			</div>
 			<p class="cp-hint">Choose a supplier first to see its items, or choose an item first to find its linked suppliers. Only approved catalog items can be ordered.</p>
 			<TaxSection v-model="form.taxes_and_charges" :templates="taxTemplates" :totals="totals" :loading="taxLoading" :subtotal="total" />
+			<div class="cp-grid-3" style="margin-top: 16px">
+				<label class="cp-field"><span>Order discount %</span><input v-model.number="form.additional_discount_percentage" class="cp-input" type="number" min="0" max="100" step="any" @input="form.discount_amount = 0" /></label>
+				<label class="cp-field"><span>Order discount amount</span><input v-model.number="form.discount_amount" class="cp-input" type="number" min="0" step="any" @input="form.additional_discount_percentage = 0" /></label>
+				<label class="cp-field"><span>Discount applied on</span><select v-model="form.apply_discount_on" class="cp-input"><option>Net Total</option><option>Grand Total</option></select></label>
+			</div>
+			<p v-if="priceApprovalStatus === 'Pending CEO'" class="cp-hint">Saving another change replaces the pending price proposal with a new CEO decision for this latest draft.</p>
 		</section>
 
 		<section class="cp-section">

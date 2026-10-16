@@ -211,6 +211,46 @@ class TestControlledProcurement(UnitTestCase):
 
 		self.assertEqual(result, {"name": "", "status": "", "requested": 0, "already_linked": 1})
 
+	@patch("construction_management.api.controlled_procurement.create_catalog_request")
+	@patch("construction_management.api.controlled_procurement._selected_catalog_items")
+	@patch("construction_management.api.controlled_procurement._catalog_leaf_item_group", return_value="PU COATING")
+	@patch("construction_management.api.controlled_procurement._document_company", return_value="MRG")
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_batch_item_group_change_request_uses_existing_catalog_items(
+		self, require, company, target_group, selected_items, create_request
+	):
+		selected_items.return_value = [
+			frappe._dict(name="ITEM-1", item_group="Products"),
+			frappe._dict(name="ITEM-2", item_group="PU COATING"),
+		]
+		create_request.return_value = {"name": "CCR-GROUP", "status": "Pending Accounts"}
+
+		result = controlled_procurement.create_catalog_item_group_change_request({
+			"company": "MRG", "item_group": "PU COATING", "item_codes": ["ITEM-1", "ITEM-2", "ITEM-2"],
+		})
+
+		self.assertEqual(result, {"name": "CCR-GROUP", "status": "Pending Accounts", "requested": 1, "already_correct": 1})
+		selected_items.assert_called_once_with(["ITEM-1", "ITEM-2"])
+		create_request.assert_called_once_with({
+			"company": "MRG", "source": "Manual", "item_group_change_only": 1,
+			"items": [{"item_code": "ITEM-1", "item_group": "PU COATING"}],
+		})
+
+	@patch("construction_management.api.controlled_procurement._selected_catalog_items")
+	@patch("construction_management.api.controlled_procurement._catalog_leaf_item_group", return_value="PU COATING")
+	@patch("construction_management.api.controlled_procurement._document_company", return_value="MRG")
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_batch_item_group_change_request_is_no_op_when_already_correct(
+		self, require, company, target_group, selected_items
+	):
+		selected_items.return_value = [frappe._dict(name="ITEM-1", item_group="PU COATING")]
+
+		result = controlled_procurement.create_catalog_item_group_change_request({
+			"company": "MRG", "item_group": "PU COATING", "item_codes": ["ITEM-1"],
+		})
+
+		self.assertEqual(result, {"name": "", "status": "", "requested": 0, "already_correct": 1})
+
 	@patch("construction_management.api.controlled_procurement.frappe.get_doc")
 	@patch("construction_management.api.controlled_procurement._append_catalog_log")
 	@patch("construction_management.api.controlled_procurement._catalog_request_status", return_value="Pending Accounts")
@@ -237,6 +277,30 @@ class TestControlledProcurement(UnitTestCase):
 			{"item_code": "ITEM-1"}, "MRG", supplier_link_only=True
 		)
 
+	@patch("construction_management.api.controlled_procurement.frappe.get_doc")
+	@patch("construction_management.api.controlled_procurement._append_catalog_log")
+	@patch("construction_management.api.controlled_procurement._catalog_request_status", return_value="Pending Accounts")
+	@patch("construction_management.api.controlled_procurement._catalog_group_change_request_row")
+	@patch("construction_management.api.controlled_procurement._allowed_companies", return_value=["MRG"])
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_item_group_change_request_marks_rows_group_only(
+		self, require, companies, group_row, request_status, append_log, get_doc
+	):
+		group_row.return_value = {
+			"item_code": "ITEM-1", "item_name": "Item One", "item_group": "PU COATING", "rate": 0,
+		}
+		doc = MagicMock(name="CCR-GROUP", status="Pending Accounts")
+		doc.name = "CCR-GROUP"
+		get_doc.return_value = doc
+
+		controlled_procurement.create_catalog_request({
+			"company": "MRG",
+			"item_group_change_only": 1,
+			"items": [{"item_code": "ITEM-1", "item_group": "PU COATING"}],
+		})
+
+		group_row.assert_called_once_with({"item_code": "ITEM-1", "item_group": "PU COATING"})
+
 	@patch("construction_management.api.controlled_procurement._apply_catalog_supplier_mapping")
 	@patch("construction_management.api.controlled_procurement.frappe.get_doc")
 	def test_supplier_link_action_does_not_update_item_master(self, get_doc, apply_mapping):
@@ -253,9 +317,43 @@ class TestControlledProcurement(UnitTestCase):
 		apply_mapping.assert_called_once_with(item, "SUP-1", 0, "Paper")
 		item.update.assert_not_called()
 
+	@patch("construction_management.api.controlled_procurement._catalog_leaf_item_group", return_value="PU COATING")
+	@patch("construction_management.api.controlled_procurement.frappe.get_doc")
+	def test_item_group_change_action_only_updates_item_group(self, get_doc, target_group):
+		item = MagicMock(name="NETOPROOF", item_group="Products", disabled=0, is_purchase_item=1,
+			controlled_procurement_catalog=1)
+		get_doc.return_value = item
+		row = SimpleNamespace(action="Change Item Group", result_item="NETOPROOF", item_group="PU COATING")
+
+		controlled_procurement._materialize_catalog_request_items(
+			SimpleNamespace(items=[row], source="Manual", company="MRG", name="CCR-GROUP")
+		)
+
+		self.assertEqual(item.item_group, "PU COATING")
+		item.update.assert_not_called()
+		item.save.assert_called_once_with(ignore_permissions=True)
+
+	@patch("construction_management.api.controlled_procurement._add_supplier_and_price", return_value="")
+	@patch("construction_management.api.controlled_procurement.frappe.get_doc")
+	@patch("construction_management.api.controlled_procurement.now_datetime")
+	@patch("construction_management.api.controlled_procurement.frappe.db.get_value", return_value="LEGACY-NETOPROOF")
+	@patch("construction_management.api.controlled_procurement._ensure_group")
+	def test_legacy_catalog_reuse_applies_source_item_group(self, ensure_group, get_value, now, get_doc, add_supplier):
+		item = MagicMock(name="LEGACY-NETOPROOF")
+		get_doc.return_value = item
+
+		controlled_procurement._import_catalog_rows(
+			[{"row": 1, "item_name": "Netoproof 600 (20LTR)", "item_group": "PU COATING",
+				"supplier": "SUP-1", "rate": 450}],
+			[], "catalog.json", "Workbook Import", "v1", "checksum",
+		)
+
+		self.assertEqual(item.item_group, "PU COATING")
+		item.save.assert_called_once()
+
 	@patch("construction_management.api.controlled_procurement._materialize_catalog_request_items")
 	@patch("construction_management.api.controlled_procurement.frappe.db.sql")
-	@patch("construction_management.api.controlled_procurement._explicit_ceo", return_value=True)
+	@patch("construction_management.api.controlled_procurement._catalog_ceo", return_value=True)
 	def test_catalog_materialization_locks_company_before_reuse(self, _ceo, sql, materialize):
 		doc = SimpleNamespace(name="CCR-NEW", company="MRG", items=[SimpleNamespace(rate=0)])
 
@@ -564,27 +662,122 @@ class TestControlledProcurement(UnitTestCase):
 		controlled_procurement._validate_allocation({"project": "PROJECT-1", "bill_no": "BILL-1", "boq_item": "BOQ-1"})
 
 	@patch("construction_management.api.controlled_procurement._require")
+	@patch("construction_management.api.controlled_procurement._upsert_supplier_address")
+	@patch("construction_management.api.controlled_procurement._upsert_supplier_contact")
 	@patch("construction_management.api.controlled_procurement._set_supplier_naming_series")
 	@patch("construction_management.api.controlled_procurement.frappe.new_doc")
 	@patch("construction_management.api.controlled_procurement.frappe.db.exists", side_effect=[False, True])
-	def test_create_supplier_uses_workspace_fields(self, exists, new_doc, set_series, require):
+	def test_create_supplier_uses_workspace_fields(self, exists, new_doc, set_series, upsert_contact, upsert_address, require):
 		supplier = new_doc.return_value
 		supplier.name = "SUP-0001"
 		supplier.supplier_name = "Acme Trading"
 
-		result = controlled_procurement.create_supplier({
+		data = {
 			"supplier_name": "Acme Trading",
 			"supplier_group": "Local Suppliers",
 			"supplier_type": "Company",
 			"tax_id": "TRN-123",
-		})
+			"trade_licence_no": "LIC-456",
+			"po_box_no": "PO 789",
+			"contact_first_name": "Jane",
+			"address_line1": "123 Main Street",
+		}
+		result = controlled_procurement.create_supplier(data)
 
 		supplier.update.assert_called_once_with({
 			"supplier_name": "Acme Trading",
 			"supplier_group": "Local Suppliers",
 			"supplier_type": "Company",
 			"tax_id": "TRN-123",
+			"custom_trade_licence_no": "LIC-456",
+			"custom_po_box_no": "PO 789",
 			"payment_terms": None,
 		})
 		supplier.insert.assert_called_once_with(ignore_permissions=True)
+		upsert_contact.assert_called_once_with("SUP-0001", data)
+		upsert_address.assert_called_once_with("SUP-0001", data)
 		self.assertEqual(result, {"name": "SUP-0001", "supplier_name": "Acme Trading", "payment_terms": supplier.payment_terms or ""})
+
+	@patch("construction_management.api.controlled_procurement._require")
+	@patch("construction_management.api.controlled_procurement.frappe.has_permission", return_value=True)
+	@patch("construction_management.api.controlled_procurement.frappe.get_doc")
+	def test_supplier_profile_returns_contact_and_address_fields(self, get_doc, has_permission, require):
+		supplier = MagicMock(supplier_name="Acme Trading", supplier_group="Local Suppliers",
+			supplier_type="Company", tax_id="TRN-123", payment_terms="Net 30",
+			supplier_primary_contact="CONTACT-1", supplier_primary_address="ADDRESS-1")
+		supplier.get.side_effect = {"custom_trade_licence_no": "LIC-456", "custom_po_box_no": "PO 789"}.get
+		contact = MagicMock(first_name="Jane", last_name="Doe", email_id="jane@example.com", mobile_no="0501234567")
+		address = MagicMock(address_line1="123 Main Street", address_line2="Office 2", city="Dubai",
+			state="Dubai", pincode="12345", country="United Arab Emirates")
+		get_doc.side_effect = [supplier, contact, address]
+
+		profile = controlled_procurement.get_supplier_profile("SUP-0001")
+
+		self.assertEqual(profile["trade_licence_no"], "LIC-456")
+		self.assertEqual(profile["po_box_no"], "PO 789")
+		self.assertEqual(profile["contact_last_name"], "Doe")
+		self.assertEqual(profile["address_line2"], "Office 2")
+		self.assertEqual(profile["state"], "Dubai")
+		self.assertEqual(profile["pincode"], "12345")
+
+	@patch("construction_management.api.controlled_procurement.frappe.new_doc")
+	@patch("construction_management.api.controlled_procurement.frappe.db.get_value", return_value=None)
+	@patch("construction_management.api.controlled_procurement.frappe.db.set_value")
+	def test_supplier_contact_creates_primary_contact(self, set_value, get_value, new_doc):
+		contact = new_doc.return_value
+		contact.name = "CONTACT-1"
+		contact.links = []
+		contact.is_new.return_value = True
+		contact.get.return_value = []
+
+		controlled_procurement._upsert_supplier_contact("SUP-0001", {
+			"contact_first_name": "Jane", "contact_last_name": "Doe",
+			"contact_email": "jane@example.com", "contact_mobile": "0501234567",
+		})
+
+		self.assertEqual((contact.first_name, contact.last_name), ("Jane", "Doe"))
+		self.assertEqual(contact.is_primary_contact, 1)
+		contact.append.assert_any_call("email_ids", {"email_id": "jane@example.com", "is_primary": 1})
+		contact.append.assert_any_call("phone_nos", {"phone": "0501234567", "is_primary_mobile_no": 1})
+		contact.insert.assert_called_once_with(ignore_permissions=True)
+		set_value.assert_called_once_with("Supplier", "SUP-0001", "supplier_primary_contact", "CONTACT-1")
+
+	@patch("construction_management.api.controlled_procurement.frappe.get_doc")
+	@patch("construction_management.api.controlled_procurement.frappe.db.get_value", side_effect=["ADDRESS-1", "Acme Trading"])
+	@patch("construction_management.api.controlled_procurement.frappe.db.set_value")
+	def test_supplier_address_saves_secondary_fields(self, set_value, get_value, get_doc):
+		address = get_doc.return_value
+		address.links = []
+		address.is_new.return_value = False
+
+		controlled_procurement._upsert_supplier_address("SUP-0001", {
+			"address_line1": "123 Main Street", "address_line2": "Office 2", "city": "Dubai",
+			"state": "Dubai", "pincode": "12345", "country": "United Arab Emirates",
+		})
+
+		self.assertEqual(address.update.call_args.args[0]["address_line2"], "Office 2")
+		self.assertEqual(address.update.call_args.args[0]["state"], "Dubai")
+		self.assertEqual(address.update.call_args.args[0]["pincode"], "12345")
+		address.save.assert_called_once_with(ignore_permissions=True)
+		set_value.assert_called_once_with("Supplier", "SUP-0001", "supplier_primary_address", address.name)
+
+	@patch("construction_management.api.controlled_procurement._require")
+	@patch("construction_management.api.controlled_procurement._upsert_supplier_address")
+	@patch("construction_management.api.controlled_procurement._upsert_supplier_contact")
+	@patch("construction_management.api.controlled_procurement.frappe.get_doc")
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
+	def test_update_supplier_profile_saves_new_fields(self, exists, get_doc, upsert_contact, upsert_address, require):
+		supplier = get_doc.return_value
+		supplier.name = "SUP-0001"
+		supplier.supplier_group = "Local Suppliers"
+		supplier.supplier_type = "Company"
+		supplier.supplier_name = "Acme Trading"
+		data = {"supplier_name": "Acme Trading", "trade_licence_no": "LIC-456", "po_box_no": "PO 789",
+			"contact_last_name": "Doe", "address_line2": "Office 2", "state": "Dubai", "pincode": "12345"}
+
+		controlled_procurement.update_supplier_profile("SUP-0001", data)
+
+		self.assertEqual(supplier.update.call_args.args[0]["custom_trade_licence_no"], "LIC-456")
+		self.assertEqual(supplier.update.call_args.args[0]["custom_po_box_no"], "PO 789")
+		upsert_contact.assert_called_once_with("SUP-0001", data)
+		upsert_address.assert_called_once_with("SUP-0001", data)

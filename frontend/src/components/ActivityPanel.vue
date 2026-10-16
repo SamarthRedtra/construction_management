@@ -93,7 +93,7 @@ onMounted(load)
 				<div class="cp-timeline-body">
 					<div class="cp-timeline-meta">
 						<strong>{{ row.by }}</strong>
-						<span v-if="row.type === 'email'">{{ row.direction === "Received" ? "received an email" : "sent an email" }}</span>
+						<span v-if="row.type === 'email'">{{ row.direction === "Received" ? "received an email" : row.status === "Sent" ? "sent an email" : row.status === "Error" ? "email delivery failed" : "queued an email" }}</span>
 						<span v-else-if="row.type === 'edit'">edited this document</span>
 						<span v-else-if="row.type === 'event'">updated its status</span>
 						<span v-else>commented</span>
@@ -102,7 +102,7 @@ onMounted(load)
 					<template v-if="row.type === 'email'">
 						<button class="cp-email-summary" @click="toggle(row.name)">
 							<strong>{{ row.subject || "(no subject)" }}</strong>
-							<small>To {{ row.recipients }}<template v-if="row.cc"> · Cc {{ row.cc }}</template><template v-if="row.has_attachment"> · 📎</template><template v-if="row.status"> · {{ row.status }}</template></small>
+							<small>To {{ row.recipients }}<template v-if="row.cc"> · Cc {{ row.cc }}</template><template v-if="row.has_attachment"> · 📎</template><template v-if="row.status"> · {{ row.status }}</template><template v-if="row.delivery_error"> · {{ row.delivery_error }}</template></small>
 						</button>
 						<!-- eslint-disable-next-line vue/no-v-html -- content is sanitised server-side by Communication -->
 						<div v-if="expanded.has(row.name)" class="cp-rich" v-html="row.content" />

@@ -4,6 +4,7 @@ import { call, uploadFile } from "@/api"
 import { toast, toastError } from "@/toast"
 import { debounce, session } from "@/utils"
 import CatalogTabs from "@/components/CatalogTabs.vue"
+import CatalogOriginChoice from "@/components/CatalogOriginChoice.vue"
 import LinkSelect from "@/components/LinkSelect.vue"
 import Modal from "@/components/Modal.vue"
 import PageHeader from "@/components/PageHeader.vue"
@@ -40,9 +41,38 @@ const selectedItemCodes = ref(new Set())
 const supplierLinking = ref(false)
 const supplierLinkSaving = ref(false)
 const supplierLinkForm = reactive({ company: ctx.value.default_company || "", supplier: "" })
-const emptyItem = { item_type: "Stockable", item_name: "", item_code: "", item_group: "", stock_uom: "Nos", supplier: "", asset_category: "", expense_account: "" }
+const groupChanging = ref(false)
+const groupChangeSaving = ref(false)
+const groupChangeForm = reactive({ company: ctx.value.default_company || "", item_group: "" })
+const editingItem = ref(false)
+const itemEditSaving = ref(false)
+const itemEditForm = reactive({ company: ctx.value.default_company || "", item_code: "", item_name: "", item_group: "", item_type: "Stockable", stock_uom: "Nos", supplier: "", rate: 0, asset_category: "", expense_account: "" })
+const emptyItem = { item_type: "Stockable", item_name: "", item_code: "", item_group: "", stock_uom: "Nos", supplier: "", rate: 0, asset_category: "", expense_account: "" }
 const itemForm = reactive({ company: ctx.value.default_company || "", ...emptyItem })
+const accountOrigin = ref(false)
+const disableItem = ref(null)
+const disableReason = ref("")
+const disabling = ref(false)
 const openingForm = reactive({ company: ctx.value.default_company || "", posting_date: new Date().toISOString().slice(0, 10), items: [{ item_code: "", warehouse: "", qty: 0, valuation_rate: 0 }] })
+
+const requestOrigin = () => accountOrigin.value ? "Accounts" : undefined
+
+function openCreateItem() { accountOrigin.value = false; creating.value = true }
+
+function openDisable(item) { disableItem.value = item; disableReason.value = "" }
+
+async function submitDisable() {
+	disabling.value = true
+	try {
+		const result = await call("create_catalog_disable_request", {
+			item_code: disableItem.value.name, reason: disableReason.value, company: ctx.value.default_company,
+		})
+		toast(`Disable request ${result.name} is ${result.status}`)
+		disableItem.value = null
+		await load()
+	} catch (error) { toastError(error) }
+	finally { disabling.value = false }
+}
 
 async function load(append = false) {
 	const loadId = ++latestLoad
@@ -97,6 +127,7 @@ function toggleDisplayedSelection() {
 }
 
 function openSupplierLinking() {
+	accountOrigin.value = false
 	supplierLinkForm.company = ctx.value.default_company || ""
 	supplierLinkForm.supplier = ""
 	supplierLinking.value = true
@@ -108,6 +139,7 @@ async function createSupplierLinkRequest() {
 		const result = await call("create_catalog_supplier_link_request", {
 			data: {
 				company: supplierLinkForm.company,
+				request_origin: requestOrigin(),
 				supplier: supplierLinkForm.supplier,
 				item_codes: [...selectedItemCodes.value],
 			},
@@ -124,10 +156,40 @@ async function createSupplierLinkRequest() {
 	}
 }
 
+function openGroupChanging() {
+	accountOrigin.value = false
+	groupChangeForm.company = ctx.value.default_company || ""
+	groupChangeForm.item_group = ""
+	groupChanging.value = true
+}
+
+async function createItemGroupChangeRequest() {
+	groupChangeSaving.value = true
+	try {
+		const result = await call("create_catalog_item_group_change_request", {
+			data: {
+				company: groupChangeForm.company,
+				request_origin: requestOrigin(),
+				item_group: groupChangeForm.item_group,
+				item_codes: [...selectedItemCodes.value],
+			},
+		})
+		if (result.name) toast(`Catalog request ${result.name} is ${result.status} for ${result.requested} item(s).`)
+		else toast(`All ${result.already_correct} selected item(s) already use this Item Group.`)
+		clearSelection()
+		groupChanging.value = false
+		load()
+	} catch (error) {
+		toastError(error)
+	} finally {
+		groupChangeSaving.value = false
+	}
+}
+
 async function createItem() {
 	saving.value = true
 	try {
-		const result = await call("create_controlled_item", { data: itemForm })
+		const result = await call("create_controlled_item", { data: { ...itemForm, request_origin: requestOrigin() } })
 		toast(`Catalog request ${result.name} is ${result.status}`)
 		Object.assign(itemForm, emptyItem)
 		creating.value = false
@@ -139,7 +201,33 @@ async function createItem() {
 	}
 }
 
+async function openItemEdit(item) {
+	try {
+		accountOrigin.value = false
+		const result = await call("get_catalog_item_edit_form", { item_code: item.name })
+		Object.assign(itemEditForm, { company: ctx.value.default_company || "", item_code: item.name, ...result })
+		editingItem.value = true
+	} catch (error) {
+		toastError(error)
+	}
+}
+
+async function createItemEditRequest() {
+	itemEditSaving.value = true
+	try {
+		const result = await call("create_catalog_item_edit_request", { data: { ...itemEditForm, request_origin: requestOrigin() } })
+		toast(`Catalog edit request ${result.name} is ${result.status}`)
+		editingItem.value = false
+		load()
+	} catch (error) {
+		toastError(error)
+	} finally {
+		itemEditSaving.value = false
+	}
+}
+
 async function onWorkbookChosen(event) {
+	accountOrigin.value = false
 	const file = event.target.files?.[0]
 	event.target.value = ""
 	if (!file) return
@@ -158,7 +246,7 @@ async function confirmImport() {
 	const { file_url } = importState.value
 	importState.value = { ...importState.value, stage: "importing" }
 	try {
-		const result = await call("import_catalog_workbook", { file_url })
+		const result = await call("import_catalog_workbook", { file_url, request_origin: requestOrigin() })
 		toast(`Catalog request ${result.name} is ${result.status}`)
 		importState.value = null
 	} catch (error) {
@@ -263,7 +351,8 @@ onMounted(() => { load(); loadFilterOptions() })
 			<button v-if="ctx.can_opening_stock" class="cp-btn" @click="opening = true">Opening stock</button>
 			<button v-if="ctx.can_opening_stock && ctx.default_company === 'M R G INSULATION WORKS L.L.C'" class="cp-btn" :disabled="mrgSnapshotSaving" @click="runMrgOpeningStock">{{ mrgSnapshotSaving ? "Uploading MRG stock…" : "Upload MRG stock report" }}</button>
 			<button class="cp-btn" :disabled="!selectedItemCodes.size" @click="openSupplierLinking">Add supplier to selected ({{ selectedItemCodes.size }})</button>
-			<button class="cp-btn primary" @click="creating = true">New catalog request</button>
+			<button class="cp-btn" :disabled="!selectedItemCodes.size" @click="openGroupChanging">Change group for selected ({{ selectedItemCodes.size }})</button>
+			<button class="cp-btn primary" @click="openCreateItem">New catalog request</button>
 			<input ref="fileInput" type="file" accept=".xlsx" hidden @change="onWorkbookChosen" />
 		</template>
 	</PageHeader>
@@ -297,7 +386,7 @@ onMounted(() => { load(); loadFilterOptions() })
 					<td class="num"><button v-if="['Stockable', 'Consumable'].includes(item.controlled_item_type)" class="cp-link" @click="showStock(item)">{{ item.actual_qty }}</button><span v-else>—</span></td>
 					<td><span class="cp-muted">{{ item.controlled_catalog_source || "—" }}</span></td>
 					<td>{{ item.stock_uom }}</td>
-					<td><button v-if="ctx.can_request_price_change" class="cp-btn sm" @click="openPriceRequest(item)">Request price change</button></td>
+					<td><button v-if="ctx.can_manage_catalog" class="cp-btn sm" @click="openItemEdit(item)">Edit request</button><button v-if="ctx.can_request_price_change" class="cp-btn sm" @click="openPriceRequest(item)">Request price change</button><button v-if="ctx.can_disable_catalog" class="cp-btn sm" @click="openDisable(item)">Disable</button></td>
 				</tr>
 				<tr v-if="!loading && !rows.length"><td :colspan="ctx.can_manage_catalog ? 8 : 7" class="cp-empty-row">No approved items match these filters.</td></tr>
 			</tbody>
@@ -310,10 +399,28 @@ onMounted(() => { load(); loadFilterOptions() })
 
 	<Modal v-if="supplierLinking" :title="`Add supplier to ${selectedItemCodes.size} selected item(s)`" @close="supplierLinking = false">
 		<form id="cp-supplier-link-form" class="cp-stack" @submit.prevent="createSupplierLinkRequest">
+			<CatalogOriginChoice v-model="accountOrigin" :can-choose="ctx.can_create_catalog_as_accounts && ctx.can_purchase" />
 			<p class="cp-muted">This creates one catalog request. It adds the selected supplier only after the normal approval workflow; buying prices are not changed.</p>
 			<LinkSelect v-model="supplierLinkForm.supplier" doctype="Supplier" label="Supplier" :required="true" :filters="{ disabled: 0 }" />
 		</form>
 		<template #footer><button class="cp-btn" @click="supplierLinking = false">Cancel</button><button class="cp-btn primary" form="cp-supplier-link-form" type="submit" :disabled="supplierLinkSaving">{{ supplierLinkSaving ? "Submitting…" : "Submit catalog request" }}</button></template>
+	</Modal>
+
+	<Modal v-if="groupChanging" :title="`Change group for ${selectedItemCodes.size} selected item(s)`" @close="groupChanging = false">
+		<form id="cp-group-change-form" class="cp-stack" @submit.prevent="createItemGroupChangeRequest">
+			<CatalogOriginChoice v-model="accountOrigin" :can-choose="ctx.can_create_catalog_as_accounts && ctx.can_purchase" />
+			<p class="cp-muted">This creates one catalog request. The Item Group changes only after normal approval; item codes, stock, UOMs, suppliers, and prices are not changed.</p>
+			<LinkSelect v-model="groupChangeForm.item_group" doctype="Item Group" label="Item group" :required="true" :filters="{ is_group: 0 }" />
+		</form>
+		<template #footer><button class="cp-btn" @click="groupChanging = false">Cancel</button><button class="cp-btn primary" form="cp-group-change-form" type="submit" :disabled="groupChangeSaving">{{ groupChangeSaving ? "Submitting…" : "Submit catalog request" }}</button></template>
+	</Modal>
+
+	<Modal v-if="disableItem" :title="`Disable catalog item · ${disableItem.item_name}`" @close="disableItem = null">
+		<form id="cp-disable-item-form" class="cp-stack" @submit.prevent="submitDisable">
+			<p class="cp-muted">{{ ctx.can_approve_catalog_ceo ? "This will disable the item immediately." : "The item remains available until CEO approval." }} Historical orders, stock, and accounts records are preserved.</p>
+			<label class="cp-field"><span>Reason<i>*</i></span><textarea v-model="disableReason" class="cp-input" rows="3" required /></label>
+		</form>
+		<template #footer><button class="cp-btn" @click="disableItem = null">Cancel</button><button class="cp-btn primary" form="cp-disable-item-form" type="submit" :disabled="disabling">{{ disabling ? "Submitting…" : ctx.can_approve_catalog_ceo ? "Disable item" : "Submit disable request" }}</button></template>
 	</Modal>
 
 	<Modal v-if="priceItem" :title="`Request buying price · ${priceItem.item_name}`" @close="priceItem = null">
@@ -332,6 +439,7 @@ onMounted(() => { load(); loadFilterOptions() })
 
 	<Modal v-if="creating" title="New catalog request" wide @close="creating = false">
 		<form id="cp-item-form" class="cp-stack" @submit.prevent="createItem">
+			<CatalogOriginChoice v-model="accountOrigin" :can-choose="ctx.can_create_catalog_as_accounts && ctx.can_purchase" />
 			<div class="cp-grid-2">
 				<LinkSelect v-model="itemForm.company" doctype="Company" label="Company" :required="true" />
 				<label class="cp-field">
@@ -343,6 +451,7 @@ onMounted(() => { load(); loadFilterOptions() })
 				<LinkSelect v-model="itemForm.item_group" doctype="Item Group" label="Item group" :required="true" :filters="{ is_group: 0 }" />
 				<LinkSelect v-model="itemForm.stock_uom" doctype="UOM" label="Stock UOM" :required="true" />
 				<LinkSelect v-model="itemForm.supplier" doctype="Supplier" label="Supplier" :required="true" />
+				<label class="cp-field"><span>Buying rate</span><input v-model.number="itemForm.rate" type="number" min="0" step="any" class="cp-input" /><small class="cp-hint">A positive rate is approved by Accounts, then the CEO, before it becomes active.</small></label>
 				<LinkSelect v-if="itemForm.item_type === 'Asset'" v-model="itemForm.asset_category" doctype="Asset Category" label="Asset category" placeholder="Company default" />
 				<LinkSelect v-if="itemForm.item_type === 'Service'" v-model="itemForm.expense_account" doctype="Account" label="Service expense account" placeholder="Company default" :filters="{ company: itemForm.company, is_group: 0 }" />
 			</div>
@@ -354,7 +463,27 @@ onMounted(() => { load(); loadFilterOptions() })
 		</template>
 	</Modal>
 
+	<Modal v-if="editingItem" :title="`Edit catalog item · ${itemEditForm.item_code}`" wide @close="editingItem = false">
+		<form id="cp-item-edit-form" class="cp-stack" @submit.prevent="createItemEditRequest">
+			<CatalogOriginChoice v-model="accountOrigin" :can-choose="ctx.can_create_catalog_as_accounts && ctx.can_purchase" />
+			<p class="cp-hint">Item Code is permanent. All changes below take effect only after Accounts and CEO approval.</p>
+			<div class="cp-grid-2">
+				<label class="cp-field"><span>Item code</span><input :value="itemEditForm.item_code" class="cp-input" disabled /></label>
+				<label class="cp-field"><span>Item type<i>*</i></span><select v-model="itemEditForm.item_type" class="cp-input"><option>Stockable</option><option>Consumable</option><option>Asset</option><option>Service</option></select></label>
+				<label class="cp-field"><span>Description<i>*</i></span><input v-model="itemEditForm.item_name" class="cp-input" required /></label>
+				<LinkSelect v-model="itemEditForm.item_group" doctype="Item Group" label="Item group" :required="true" :filters="{ is_group: 0 }" />
+				<LinkSelect v-model="itemEditForm.stock_uom" doctype="UOM" label="Stock UOM" :required="true" />
+				<LinkSelect v-model="itemEditForm.supplier" doctype="Supplier" label="Supplier" :required="true" />
+				<label class="cp-field"><span>Buying rate</span><input v-model.number="itemEditForm.rate" type="number" min="0" step="any" class="cp-input" /></label>
+				<LinkSelect v-if="itemEditForm.item_type === 'Asset'" v-model="itemEditForm.asset_category" doctype="Asset Category" label="Asset category" />
+				<LinkSelect v-if="itemEditForm.item_type === 'Service'" v-model="itemEditForm.expense_account" doctype="Account" label="Service expense account" :filters="{ company: itemEditForm.company, is_group: 0 }" />
+			</div>
+		</form>
+		<template #footer><button class="cp-btn" @click="editingItem = false">Cancel</button><button type="submit" form="cp-item-edit-form" class="cp-btn primary" :disabled="itemEditSaving">{{ itemEditSaving ? 'Submitting…' : 'Submit for approval' }}</button></template>
+	</Modal>
+
 	<Modal v-if="importState" title="Import catalog workbook" @close="importState.stage === 'preview' && (importState = null)">
+		<CatalogOriginChoice v-if="importState.stage === 'preview'" v-model="accountOrigin" :can-choose="ctx.can_create_catalog_as_accounts && ctx.can_purchase" />
 		<p class="cp-hint">Each row must include an existing Supplier. Use its Supplier ID from the selector, together with Description, Item Group, and the type-specific columns.</p>
 		<p v-if="importState.stage === 'uploading'" class="cp-muted">Uploading and checking {{ importState.file }}…</p>
 		<p v-else-if="importState.stage === 'importing'" class="cp-muted">Importing {{ importState.file }}…</p>

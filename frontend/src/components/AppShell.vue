@@ -20,12 +20,15 @@ const nav = computed(() => {
 		{ to: "/dashboard", label: "Overview", icon: "grid", visible: ctx.can_purchase || ctx.can_transfer },
 		{ to: "/open-lpos", label: "Open LPOs", icon: "clock", visible: ctx.can_purchase, count: counts.open_lpos },
 		{ to: "/purchase-orders", label: "Purchase Orders", icon: "cart", visible: ctx.can_purchase },
+		{ to: "/suppliers", label: "Suppliers", icon: "book", visible: ctx.can_purchase },
+		{ to: "/terms-templates", label: "LPO Terms", icon: "book", visible: ctx.can_purchase },
 		{ to: "/lpo-approvals", label: "LPO Approvals", icon: "clock", visible: ctx.can_approve_lpo },
 		{ to: "/receipts", label: "Receive Notes", icon: "inbox", visible: ctx.can_purchase },
 		{ to: "/invoices", label: "Purchase Invoices", icon: "invoice", visible: ctx.can_purchase, count: counts.unpaid_invoices },
 		{ to: "/transfers", label: "Material Transfers", icon: "swap", visible: ctx.can_transfer },
 		{ to: "/catalog", label: "Controlled Catalog", icon: "book", visible: true },
 		{ to: "/stock-ledger", label: "View Ledger", icon: "ledger", visible: ctx.can_view_stock_ledger },
+		{ to: "/stock-balance", label: "Stock Balance", icon: "ledger", visible: ctx.can_view_stock_ledger },
 		{ to: "/insights", label: "Procurement Insights", icon: "grid", visible: ctx.can_view_insights },
 	].filter((item) => item.visible)
 })

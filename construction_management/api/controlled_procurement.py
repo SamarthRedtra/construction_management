@@ -25,6 +25,7 @@ ADMIN_ROLES = {"System Manager", "CEO"}
 PURCHASE_ROLES = ADMIN_ROLES | {"Purchase User", "Purchase Manager"}
 STOCK_ROLES = ADMIN_ROLES | {"Stock User", "Stock Manager"}
 ACCOUNT_ROLES = {"Accounts User", "Accounts Manager"}
+CATALOG_CEO_USERS = {"faraaz@mrggroup.ae", "salman@mrggroup.ae"}
 CATALOG_ROLES = PURCHASE_ROLES | STOCK_ROLES | ACCOUNT_ROLES
 OPENING_STOCK_ROLES = ACCOUNT_ROLES | ADMIN_ROLES
 STOCKABLE = "Stockable"
@@ -78,6 +79,16 @@ def _payment_terms_template(value: str | None) -> str | None:
 	if value and not frappe.db.exists("Payment Terms Template", value):
 		frappe.throw(_("Payment Terms Template {0} does not exist.").format(value))
 	return value or None
+
+
+def _order_discount(data: dict) -> dict:
+	percentage = flt(data.get("additional_discount_percentage"))
+	amount = flt(data.get("discount_amount"))
+	if percentage < 0 or percentage > 100 or amount < 0:
+		frappe.throw(_("Discount must be a non-negative amount or a percentage between 0 and 100."))
+	if percentage and amount:
+		frappe.throw(_("Enter either an order discount percentage or an order discount amount, not both."))
+	return {"apply_discount_on": data.get("apply_discount_on") or "Net Total", "additional_discount_percentage": percentage, "discount_amount": amount}
 
 
 def _set_row_type(row, item: dict) -> None:
@@ -493,7 +504,11 @@ def get_workspace_context() -> dict:
 		"can_purchase": bool(roles.intersection(PURCHASE_ROLES)),
 		"can_transfer": bool(roles.intersection(STOCK_ROLES)),
 		"can_manage_catalog": bool(roles.intersection(CATALOG_ROLES)),
-		"can_approve_catalog": bool(roles.intersection(ACCOUNT_ROLES | ADMIN_ROLES)),
+		"can_create_catalog_as_accounts": _has_explicit_role("Accounts Manager"),
+		"can_approve_catalog": _has_explicit_role("Accounts Manager") or _catalog_ceo(),
+		"can_approve_catalog_accounts": _has_explicit_role("Accounts Manager"),
+		"can_approve_catalog_ceo": _catalog_ceo(),
+		"can_disable_catalog": _has_explicit_role("Accounts Manager") or _catalog_ceo(),
 		"can_request_price_change": bool(roles.intersection(CATALOG_ROLES)),
 		"can_approve_price_change": _explicit_ceo(),
 		"can_approve_po_price_accounts": any(frappe.db.exists("Has Role", {
@@ -642,11 +657,11 @@ def get_controlled_document(doctype: str, name: str) -> dict:
 		from construction_management.api.lpo_workflow import lpo_type
 		result["custom_lpo_type"] = lpo_type(doc)
 		result["approval_history"] = json.loads(doc.get("custom_lpo_approval_history") or "[]")
-		result["can_cancel"] = bool(frappe.has_permission("Purchase Order", "cancel", doc=doc))
-		result["can_amend"] = bool(frappe.has_permission("Purchase Order", "amend", doc=doc))
-	if doctype in {"Purchase Receipt", "Stock Entry"}:
+		result["can_delete"] = bool(doc.docstatus == 0 and frappe.has_permission("Purchase Order", "delete", doc=doc))
+	if doctype in {"Purchase Order", "Purchase Receipt", "Purchase Invoice", "Stock Entry"}:
 		result["can_cancel"] = bool(frappe.has_permission(doctype, "cancel", doc=doc))
 		result["can_amend"] = bool(frappe.has_permission(doctype, "amend", doc=doc))
+		result["can_email"] = bool(frappe.has_permission(doctype, "email", doc=doc))
 	if doctype == "Stock Entry":
 		result["source_project"] = get_warehouse_project(doc.from_warehouse) if doc.from_warehouse else ""
 		result["target_project"] = get_warehouse_project(doc.to_warehouse) if doc.to_warehouse else ""
@@ -797,12 +812,21 @@ def _connection_rows(doctype: str, names: list[str], company: str = "") -> list[
 	amount_field = next((field for field in CONNECTION_AMOUNT_FIELDS if meta.has_field(field)), None)
 	fields += [f"{date_field} as date"] if date_field else []
 	fields += [f"{amount_field} as amount"] if amount_field else []
+	if doctype == "Purchase Order" and meta.has_field("project"):
+		fields.append("project")
 	if not meta.is_submittable:
 		fields.remove("docstatus")
 	filters = {"name": ["in", names]}
 	if company and meta.has_field("company"):
 		filters["company"] = company
-	return frappe.get_list(doctype, filters=filters, fields=fields, order_by="creation desc", limit_page_length=50)
+	rows = frappe.get_list(doctype, filters=filters, fields=fields, order_by="creation desc", limit_page_length=50)
+	if doctype == "Purchase Order":
+		projects = {row.project for row in rows if row.get("project")}
+		labels = {row.name: row.project_name for row in frappe.get_all("Project", filters={"name": ["in", list(projects)]}, fields=["name", "project_name"])} if projects else {}
+		for row in rows:
+			if row.get("project"):
+				row.title = f"{row.project} - {labels.get(row.project) or row.project}"
+	return rows
 
 
 def _receipt_direct_connections(doc) -> list[tuple[str, str, list[str]]]:
@@ -970,9 +994,10 @@ def _receipt_items_by_po_line(po, items: list[dict], open_lpo: bool) -> dict[str
 
 @frappe.whitelist(methods=["POST"])
 def create_controlled_item(data: str | dict) -> dict:
-	"""Create a manual catalog request; CEO/System Manager requests approve immediately."""
+	"""Create a manual catalog request for the recorded approval route."""
 	data = _as_dict(data)
-	return create_catalog_request({"company": data.get("company"), "source": "Manual", "items": [data]})
+	return create_catalog_request({"company": data.get("company"), "source": "Manual",
+		"request_origin": data.get("request_origin"), "items": [data]})
 
 
 @frappe.whitelist(methods=["POST"])
@@ -994,6 +1019,7 @@ def create_purchase_order(data: str | dict) -> dict:
 		if existing:
 			return existing
 	data.update(_normalized_allocation(data))
+	data.update(_order_discount(data))
 	data["company"] = company
 	items = data.get("items") or []
 	for row in items:
@@ -1018,6 +1044,9 @@ def create_purchase_order(data: str | dict) -> dict:
 		"transaction_date": data.get("order_date") or today(),
 		"custom_lpo_type": data.get("lpo_type") or "Standard",
 		"custom_creation_request_id": request_id or None,
+		"apply_discount_on": data.get("apply_discount_on") or "Net Total",
+		"additional_discount_percentage": flt(data.get("additional_discount_percentage")),
+		"discount_amount": flt(data.get("discount_amount")),
 	})
 	for row in items:
 		_append_item(doc, row, defaults)
@@ -1061,13 +1090,12 @@ def update_purchase_order(name: str, data: str | dict) -> dict:
 	doc = _controlled_doc("Purchase Order", name, "write")
 	if doc.docstatus != 0 or not cint(doc.controlled_procurement):
 		frappe.throw(_("Only a controlled draft Purchase Order can be edited here."))
-	if doc.get("custom_po_price_status") in {"Pending Accounts", "Pending CEO"}:
-		frappe.throw(_("This Purchase Order is locked pending CEO price approval."))
 	if doc.get("custom_lpo_approval_status") in {"Pending Accounts", "Pending CEO"}:
 		frappe.throw(_("This Manual LPO is awaiting approval."))
 	if doc.get("custom_lpo_approval_status") == "Needs Correction" and doc.owner != frappe.session.user and "System Manager" not in _roles():
 		frappe.throw(_("Only the creator can correct this Manual LPO."), frappe.PermissionError)
 	data = _as_dict(data)
+	data.update(_order_discount(data))
 	if data.get("company") and data["company"] != doc.company:
 		frappe.throw(_("Switch company in the workspace; the Purchase Order company cannot be changed."))
 	items = data.get("items") or []
@@ -1082,6 +1110,9 @@ def update_purchase_order(name: str, data: str | dict) -> dict:
 		frappe.throw(_("A Purchase Order item row cannot be reassigned to another catalog item."))
 	_validate_order_supplier_items(data, items, doc)
 	from construction_management.api import po_price_approvals
+	if doc.get("custom_po_price_status") in {"Pending Accounts", "Pending CEO"}:
+		po_price_approvals.supersede(doc, "Superseded by a newer Purchase Order edit.")
+		doc.reload()
 	price_changes = po_price_approvals.prepare_rates(doc.company, data.get("supplier"), data.get("order_date") or doc.transaction_date, items, doc)
 	defaults = _allocation_defaults(data, doc.company)
 	_validate_company_links(doc.company, project=data.get("project"), warehouse=data.get("warehouse"))
@@ -1095,6 +1126,9 @@ def update_purchase_order(name: str, data: str | dict) -> dict:
 		"payment_terms_template": _payment_terms_template(data.get("payment_terms_template", doc.payment_terms_template)),
 		"tc_name": data.get("tc_name") or None,
 		"terms": data.get("terms") or None, "custom_lpo_type": data.get("lpo_type") or "Standard",
+		"apply_discount_on": data.get("apply_discount_on") or "Net Total",
+		"additional_discount_percentage": flt(data.get("additional_discount_percentage")),
+		"discount_amount": flt(data.get("discount_amount")),
 	})
 	doc.set("items", [])
 	for row in items:
@@ -1146,6 +1180,24 @@ def cancel_purchase_order(name: str) -> dict:
 	doc.flags.controlled_procurement_api = True
 	doc.cancel()
 	return {"name": doc.name, "docstatus": doc.docstatus}
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_purchase_order(name: str) -> dict:
+	"""Delete a controlled draft, retaining superseded proposal decisions as audit records."""
+	doc = _controlled_doc("Purchase Order", name, "delete")
+	if not cint(doc.get("controlled_procurement")) or doc.docstatus != 0:
+		frappe.throw(_("Only a controlled draft Purchase Order can be deleted."))
+	if doc.get("custom_po_price_status") in {"Pending Accounts", "Pending CEO"}:
+		from construction_management.api import po_price_approvals
+		proposal = json.loads(doc.get("custom_po_price_proposal") or "{}")
+		po_price_approvals.supersede(doc, f"Superseded because draft Purchase Order {doc.name} was deleted.")
+		for request_name in proposal.get("requests", []):
+			# A deleted document cannot remain a Link target. The decision comment
+			# retains its original PO number in the immutable price-request audit.
+			frappe.db.set_value("Controlled Buying Price Request", request_name, "purchase_order", None, update_modified=False)
+	doc.delete()
+	return {"name": name, "deleted": True}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1474,6 +1526,16 @@ def cancel_purchase_receipt(name: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def amend_purchase_receipt(name: str) -> dict:
 	return _cancel_and_amend("Purchase Receipt", name, True)
+
+
+@frappe.whitelist(methods=["POST"])
+def cancel_purchase_invoice(name: str) -> dict:
+	return _cancel_and_amend("Purchase Invoice", name, False)
+
+
+@frappe.whitelist(methods=["POST"])
+def amend_purchase_invoice(name: str) -> dict:
+	return _cancel_and_amend("Purchase Invoice", name, True)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -2002,7 +2064,7 @@ def preview_catalog_workbook(file_url: str) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def import_catalog_workbook(file_url: str) -> dict:
+def import_catalog_workbook(file_url: str, request_origin: str = "") -> dict:
 	_require(CATALOG_ROLES)
 	rows, exceptions = _workbook_rows(_uploaded_file_path(file_url))
 	if exceptions:
@@ -2022,6 +2084,7 @@ def import_catalog_workbook(file_url: str) -> dict:
 		except frappe.ValidationError:
 			frappe.throw(_("Correct workbook errors before submitting the import."))
 	return create_catalog_request({"company": company, "source": "Workbook Import", "source_file": file_url,
+		"request_origin": request_origin,
 		"checksum": checksum, "items": prepared})
 
 
@@ -2052,6 +2115,7 @@ def _import_catalog_rows(rows, exceptions, source_name, source_type, version, ch
 		if existing:
 			item = frappe.get_doc("Item", existing)
 			reused += 1
+			item.item_group = first["item_group"]
 		else:
 			item = frappe.get_doc({
 				"doctype": "Item", "item_code": _item_code(item_name), "item_name": item_name,
@@ -2144,17 +2208,31 @@ def _explicit_ceo() -> bool:
 	return has_explicit_ceo_role()
 
 
-def _catalog_request_status(items: list[dict] | None = None) -> str:
-	roles = _roles()
-	if items and any(flt(row.get("rate")) > 0 for row in items):
-		if _explicit_ceo():
-			return "Approved"
-		return "Pending CEO" if roles.intersection(ACCOUNT_ROLES | {"System Manager"}) else "Pending Accounts"
-	if roles.intersection(ADMIN_ROLES):
-		return "Approved"
-	if roles.intersection(ACCOUNT_ROLES):
-		return "Pending CEO"
-	return "Pending Accounts"
+def _has_explicit_role(role: str, user: str | None = None) -> bool:
+	return bool(frappe.db.exists("Has Role", {
+		"parent": user or frappe.session.user, "parenttype": "User", "role": role,
+	}))
+
+
+def _catalog_ceo(user: str | None = None) -> bool:
+	user = user or frappe.session.user
+	return user in CATALOG_CEO_USERS and _has_explicit_role("CEO", user)
+
+
+def _catalog_request_origin(requested: str | None = None) -> str:
+	if requested and requested not in {"Purchase", "Accounts"}:
+		frappe.throw(_("Select Purchase or Accounts as the request origin."))
+	if requested == "Accounts" and not (_has_explicit_role("Accounts Manager") or _catalog_ceo()):
+		frappe.throw(_("Only an Accounts Manager can create as Accounts."), frappe.PermissionError)
+	if requested:
+		return requested
+	if _roles().intersection({"Purchase User", "Purchase Manager"}):
+		return "Purchase"
+	return "Accounts" if _has_explicit_role("Accounts Manager") else "Purchase"
+
+
+def _catalog_request_status(origin: str) -> str:
+	return "Pending CEO" if origin == "Accounts" else "Pending Accounts"
 
 
 def _catalog_uom(value: str) -> str:
@@ -2205,6 +2283,8 @@ def _catalog_request_row(data: dict, company: str, supplier_link_only: bool = Fa
 	# description with a different UOM.
 	if not item_code:
 		existing = frappe.db.get_value("Item", {"item_name": data["item_name"], "disabled": 0}, "name")
+	if existing and frappe.db.get_value("Item", existing, "disabled"):
+		frappe.throw(_("Item {0} is disabled. Create an approved replacement item instead.").format(existing))
 	if existing and frappe.db.get_value("Item", existing, "stock_uom") != stock_uom:
 		frappe.throw(_("Existing item {0} has another stock UOM; its UOM cannot be changed by import.").format(existing))
 	return {
@@ -2267,10 +2347,43 @@ def create_catalog_supplier_link_request(data: str | dict) -> dict:
 	result = create_catalog_request({
 		"company": company,
 		"source": "Manual",
+		"request_origin": data.get("request_origin"),
 		"supplier_link_only": 1,
 		"items": request_items,
 	})
 	return {**result, "requested": len(request_items), "already_linked": len(linked_items)}
+
+
+@frappe.whitelist(methods=["POST"])
+def create_catalog_item_group_change_request(data: str | dict) -> dict:
+	"""Create an approval-routed request to move selected catalog Items to one Item Group."""
+	_require(CATALOG_ROLES)
+	data = _as_dict(data)
+	company = _document_company(data.get("company"))
+	target_group = _catalog_leaf_item_group(data.get("item_group"))
+	item_codes = _unique_catalog_item_codes(data.get("item_codes"))
+	if not item_codes:
+		frappe.throw(_("Select at least one controlled catalog item."))
+	items = _selected_catalog_items(item_codes)
+	if len(items) != len(item_codes):
+		frappe.throw(_("Every selected item must be an active controlled catalog item."))
+
+	request_items = [
+		{"item_code": item.name, "item_group": target_group}
+		for item in items
+		if item.item_group != target_group
+	]
+	if not request_items:
+		return {"name": "", "status": "", "requested": 0, "already_correct": len(item_codes)}
+
+	result = create_catalog_request({
+		"company": company,
+		"source": "Manual",
+		"request_origin": data.get("request_origin"),
+		"item_group_change_only": 1,
+		"items": request_items,
+	})
+	return {**result, "requested": len(request_items), "already_correct": len(item_codes) - len(request_items)}
 
 
 def _unique_catalog_item_codes(item_codes) -> list[str]:
@@ -2301,13 +2414,178 @@ def _selected_catalog_items(item_codes: list[str]) -> list:
 	)
 
 
+def _catalog_leaf_item_group(item_group: str) -> str:
+	item_group = str(item_group or "").strip()
+	group = frappe.db.get_value("Item Group", item_group, ["name", "is_group"], as_dict=True)
+	if not group or cint(group.is_group):
+		frappe.throw(_("Select an active leaf Item Group."))
+	return group.name
+
+
+def _catalog_group_change_request_row(data: dict) -> dict:
+	item_code = str(data.get("item_code") or "").strip()
+	if not item_code:
+		frappe.throw(_("Every Item Group change needs a catalog Item."))
+	target_group = _catalog_leaf_item_group(data.get("item_group"))
+	item = frappe.db.get_value(
+		"Item",
+		item_code,
+		["name", "item_name", "item_group", "stock_uom", "controlled_item_type", "disabled",
+			"is_purchase_item", "controlled_procurement_catalog"],
+		as_dict=True,
+	)
+	if not item or item.disabled or not item.is_purchase_item or not item.controlled_procurement_catalog:
+		frappe.throw(_("Item {0} is not an active controlled catalog item.").format(item_code))
+	if item.item_group == target_group:
+		frappe.throw(_("Item {0} already belongs to {1}.").format(item.name, target_group))
+	return {
+		"item_code": item.name,
+		"item_name": item.item_name,
+		"item_group": target_group,
+		"item_type": item.controlled_item_type,
+		"stock_uom": item.stock_uom,
+		"asset_category": "",
+		"expense_account": "",
+		"supplier": "",
+		"rate": 0,
+		"action": "Change Item Group",
+		"result_item": item.name,
+	}
+
+
+def _item_expense_account(item_name: str, company: str) -> str:
+	"""Service expense accounts belong to Item Defaults, not every Item schema."""
+	if not frappe.get_meta("Item").has_field("item_defaults"):
+		return ""
+	return frappe.db.get_value("Item Default", {"parent": item_name, "company": company}, "expense_account") or ""
+
+
+@frappe.whitelist(methods=["GET"])
+def get_catalog_item_edit_form(item_code: str) -> dict:
+	"""Load the approved business fields for an approval-routed catalogue edit."""
+	_require(CATALOG_ROLES)
+	item = _catalog_item(item_code)
+	if frappe.db.get_value("Item", item.name, "disabled"):
+		frappe.throw(_("Disabled catalogue items cannot be edited."))
+	fields = ["name", "item_name", "item_group", "stock_uom", "controlled_item_type", "asset_category"]
+	values = frappe.db.get_value("Item", item.name, fields, as_dict=True)
+	values.expense_account = _item_expense_account(item.name, _active_company())
+	supplier = frappe.db.get_value("Item Supplier", {"parent": item.name, "parenttype": "Item"}, "supplier") or ""
+	values.supplier = supplier
+	values.rate = flt(frappe.db.get_value("Item Price", {
+		"item_code": item.name, "supplier": supplier, "price_list": "Standard Buying", "buying": 1,
+	}, "price_list_rate")) if supplier else 0
+	return values
+
+
+@frappe.whitelist(methods=["POST"])
+def create_catalog_item_edit_request(data: str | dict) -> dict:
+	"""Request an approved change to an existing catalogue Item without changing its code."""
+	_require(CATALOG_ROLES)
+	payload = _as_dict(data)
+	item_code = str(payload.get("item_code") or "").strip()
+	if not item_code:
+		frappe.throw(_("Select the catalogue item to edit."))
+	item = _catalog_item(item_code)
+	if frappe.db.get_value("Item", item.name, "disabled"):
+		frappe.throw(_("Disabled catalogue items cannot be edited."))
+	if payload.get("replacement_item_code"):
+		frappe.throw(_("Item Code is immutable. Create an approved replacement mapping instead."))
+	current = frappe.db.get_value(
+		"Item", item.name,
+		["item_name", "item_group", "stock_uom", "controlled_item_type", "asset_category"],
+		as_dict=True,
+	)
+	current.expense_account = _item_expense_account(item.name, payload.get("company") or _active_company())
+	row = {
+		"item_code": item.name,
+		"item_name": payload.get("item_name") or current.item_name,
+		"item_group": payload.get("item_group") or current.item_group,
+		"item_type": payload.get("item_type") or current.controlled_item_type,
+		"stock_uom": payload.get("stock_uom") or current.stock_uom,
+		"asset_category": payload.get("asset_category") or current.asset_category,
+		"expense_account": payload.get("expense_account") or current.expense_account,
+		"supplier": payload.get("supplier") or frappe.db.get_value("Item Supplier", {"parent": item.name, "parenttype": "Item"}, "supplier"),
+		"rate": payload.get("rate", 0),
+	}
+	if row["stock_uom"] != current.stock_uom and frappe.db.exists("Stock Ledger Entry", {"item_code": item.name, "is_cancelled": 0}):
+		frappe.throw(_("Stock UOM cannot change after stock history exists. Create a replacement item and mapping instead."))
+	return create_catalog_request({"company": payload.get("company"), "source": "Item Edit",
+		"request_origin": payload.get("request_origin"), "items": [row]})
+
+
 def _append_catalog_log(doc, action: str, comment: str = "") -> None:
+	doc.flags.controlled_catalog_request_api = True
 	doc.append("approval_log", {
 		"action": action,
 		"actor": frappe.session.user,
 		"actioned_on": now_datetime(),
 		"comment": comment,
 	})
+
+
+def _queue_catalog_notices(doc) -> None:
+	if doc.status not in {"Pending Accounts", "Pending CEO"}:
+		return
+	from construction_management.api.catalog_email import enqueue_approval_email
+
+	enqueue_approval_email(doc.name, doc.status)
+	if doc.status == "Pending CEO":
+		from construction_management.api.controlled_price_requests import _enqueue_catalog_notice
+
+		_enqueue_catalog_notice(doc.name)
+
+
+def _is_catalog_disable_request(doc) -> bool:
+	return len(doc.items) == 1 and doc.items[0].action == "Disable"
+
+
+def _catalog_disable_row(item_code: str) -> dict:
+	item = frappe.db.get_value("Item", item_code, [
+		"name", "item_name", "item_group", "stock_uom", "controlled_item_type", "modified",
+		"disabled", "is_purchase_item", "controlled_procurement_catalog",
+	], as_dict=True)
+	if not item or item.disabled or not item.is_purchase_item or not item.controlled_procurement_catalog:
+		frappe.throw(_("Select an active controlled catalogue item."))
+	return {
+		"item_code": item.name, "item_name": item.item_name, "item_group": item.item_group,
+		"item_type": item.controlled_item_type, "stock_uom": item.stock_uom,
+		"action": "Disable", "target_modified": item.modified, "result_item": item.name,
+	}
+
+
+def _validate_catalog_disable_row(row) -> None:
+	current = _catalog_disable_row(row.item_code)
+	if str(current["target_modified"]) != str(row.target_modified):
+		frappe.throw(_("Item {0} changed since this disable request was created. Create a new request.").format(row.item_code))
+
+
+@frappe.whitelist(methods=["POST"])
+def create_catalog_disable_request(item_code: str, reason: str, company: str = "") -> dict:
+	if not (_has_explicit_role("Accounts Manager") or _catalog_ceo()):
+		frappe.throw(_("Only Accounts Manager or CEO can request item disabling."), frappe.PermissionError)
+	company = company or _active_company()
+	if not company or company not in _allowed_companies():
+		frappe.throw(_("You do not have access to this company."), frappe.PermissionError)
+	reason = (reason or "").strip()
+	if not reason:
+		frappe.throw(_("A reason is required to disable an item."))
+	row = _catalog_disable_row(item_code)
+	doc = frappe.get_doc({
+		"doctype": "Controlled Catalog Request", "company": company, "source": "Manual",
+		"request_origin": "Accounts", "requested_by": frappe.session.user,
+		"status": "Pending CEO", "disable_reason": reason, "items": [row],
+	})
+	_append_catalog_log(doc, "Created disable request", reason)
+	doc.insert(ignore_permissions=True)
+	if _catalog_ceo():
+		_materialize_catalog_request(doc)
+		doc.status = "Approved"
+		_append_catalog_log(doc, "Approved by CEO", reason)
+		doc.save(ignore_permissions=True)
+	else:
+		_queue_catalog_notices(doc)
+	return {"name": doc.name, "status": doc.status}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -2321,29 +2599,26 @@ def create_catalog_request(data: str | dict) -> dict:
 	rows = data.get("items") or []
 	if not rows:
 		frappe.throw(_("Add at least one catalog item."))
-	prepared = [
-		_catalog_request_row(row, company, supplier_link_only=bool(data.get("supplier_link_only")))
-		for row in rows
-	]
+	if data.get("supplier_link_only") and data.get("item_group_change_only"):
+		frappe.throw(_("A catalog request can only perform one special action."))
+	prepared = (
+		[_catalog_group_change_request_row(row) for row in rows]
+		if data.get("item_group_change_only")
+		else [_catalog_request_row(row, company, supplier_link_only=bool(data.get("supplier_link_only"))) for row in rows]
+	)
 	if len({row["item_code"] or row["item_name"].casefold() for row in prepared}) != len(prepared):
 		frappe.throw(_("The request contains duplicate item codes or descriptions."))
-	status = _catalog_request_status(prepared)
+	origin = _catalog_request_origin(data.get("request_origin"))
+	status = _catalog_request_status(origin)
 	doc = frappe.get_doc({
 		"doctype": "Controlled Catalog Request", "company": company, "status": status,
-		"source": data.get("source") or "Manual", "requested_by": frappe.session.user,
+		"source": data.get("source") or "Manual", "request_origin": origin,
+		"requested_by": frappe.session.user,
 		"source_file": data.get("source_file") or "", "checksum": data.get("checksum") or "", "items": prepared,
 	})
-	_append_catalog_log(doc, "Created")
-	if status == "Pending CEO":
-		_append_catalog_log(doc, "Submitted by System Manager for CEO price approval" if "System Manager" in _roles() and not _explicit_ceo() else "Accounts approved on creation")
+	_append_catalog_log(doc, "Created", f"Origin: {origin}")
 	doc.insert(ignore_permissions=True)
-	if status == "Approved":
-		_materialize_catalog_request(doc)
-		_append_catalog_log(doc, "Approved on creation")
-		doc.save(ignore_permissions=True)
-	elif status == "Pending CEO" and any(flt(row.rate) > 0 for row in doc.items):
-		from construction_management.api.controlled_price_requests import _enqueue_catalog_notice
-		_enqueue_catalog_notice(doc.name)
+	_queue_catalog_notices(doc)
 	return {"name": doc.name, "status": doc.status}
 
 
@@ -2355,14 +2630,18 @@ def get_catalog_requests(status: str = "") -> list[dict]:
 	if status:
 		filters["status"] = status
 	requests = frappe.get_list("Controlled Catalog Request", filters=filters,
-		fields=["name", "company", "status", "source", "requested_by", "creation", "modified", "rejection_reason"],
+		fields=["name", "company", "status", "source", "request_origin", "requested_by", "creation", "modified", "rejection_reason"],
 		order_by="modified desc", limit_page_length=100)
 	if requests:
 		priced = set(frappe.get_all("Controlled Catalog Request Item", filters={
 			"parent": ["in", [row.name for row in requests]], "rate": [">", 0],
 		}, pluck="parent", limit_page_length=0))
+		disabling = set(frappe.get_all("Controlled Catalog Request Item", filters={
+			"parent": ["in", [row.name for row in requests]], "action": "Disable",
+		}, pluck="parent", limit_page_length=0))
 		for row in requests:
 			row.has_price_change = row.name in priced
+			row.is_disable = row.name in disabling
 	return requests
 
 
@@ -2372,23 +2651,46 @@ def get_catalog_request(name: str) -> dict:
 	doc = frappe.get_doc("Controlled Catalog Request", name)
 	if doc.company not in _allowed_companies():
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
-	return doc.as_dict()
+	result = doc.as_dict()
+	if doc.approval_email_queue:
+		queue = frappe.db.get_value("Email Queue", doc.approval_email_queue, ["status", "error"], as_dict=True)
+		if queue:
+			result["approval_email_status"] = "Queued" if queue.status in {"Not Sent", "Sending"} else queue.status
+			if queue.status in {"Error", "Partially Sent"}:
+				result["approval_email_error"] = (queue.error or "Delivery failed. Check Email Queue.")[-400:]
+	return result
 
 
 def _can_approve_catalog(doc) -> bool:
-	roles = _roles()
-	if doc.status == "Pending CEO" and any(flt(row.rate) > 0 for row in doc.items):
-		return _explicit_ceo()
-	if roles.intersection(ADMIN_ROLES):
-		return True
 	if doc.status == "Pending Accounts":
-		return bool(roles.intersection(ACCOUNT_ROLES))
-	return doc.status == "Pending CEO" and "CEO" in roles
+		return _has_explicit_role("Accounts Manager") and doc.requested_by != frappe.session.user
+	return doc.status == "Pending CEO" and _catalog_ceo()
+
+
+@frappe.whitelist(methods=["POST"])
+def retry_catalog_approval_email(name: str) -> dict:
+	_require(CATALOG_ROLES)
+	doc = frappe.get_doc("Controlled Catalog Request", name)
+	if doc.company not in _allowed_companies() or (frappe.session.user != doc.requested_by and not _can_approve_catalog(doc)):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	if doc.status not in {"Pending Accounts", "Pending CEO"}:
+		frappe.throw(_("Only pending catalogue requests can send approval email."))
+	if doc.approval_email_queue and frappe.db.get_value("Email Queue", doc.approval_email_queue, "status") not in {"Error", "Partially Sent"}:
+		frappe.throw(_("The approval email is already queued or delivered."))
+	doc.approval_email_queue = ""
+	doc.approval_email_error = ""
+	doc.flags.controlled_catalog_request_api = True
+	doc.save(ignore_permissions=True)
+	from construction_management.api.catalog_email import enqueue_approval_email
+
+	enqueue_approval_email(doc.name, doc.status)
+	return {"name": doc.name, "status": "Retry queued"}
 
 
 @frappe.whitelist(methods=["POST"])
 def approve_catalog_request(name: str, comment: str = "") -> dict:
 	_require(CATALOG_ROLES)
+	frappe.db.sql("select name from `tabControlled Catalog Request` where name = %s for update", name)
 	doc = frappe.get_doc("Controlled Catalog Request", name)
 	if doc.company not in _allowed_companies():
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
@@ -2396,16 +2698,19 @@ def approve_catalog_request(name: str, comment: str = "") -> dict:
 		frappe.throw(_("You cannot approve this catalog request."), frappe.PermissionError)
 	if doc.status == "Pending Accounts":
 		doc.status = "Pending CEO"
+		doc.price_notified_users = ""
+		doc.price_notification_status = ""
+		doc.price_notification_error = ""
 		_append_catalog_log(doc, "Approved by Accounts", comment)
 	else:
-		doc.status = "Approved"
 		_materialize_catalog_request(doc)
-		_append_catalog_log(doc, "Approved by CEO" if _explicit_ceo() else "Approved by System Manager", comment)
+		doc.status = "Approved"
+		_append_catalog_log(doc, "Approved by CEO", comment)
 	doc.rejection_reason = ""
+	doc.approval_email_queue = ""
+	doc.approval_email_error = ""
 	doc.save(ignore_permissions=True)
-	if doc.status == "Pending CEO" and any(flt(row.rate) > 0 for row in doc.items):
-		from construction_management.api.controlled_price_requests import _enqueue_catalog_notice
-		_enqueue_catalog_notice(doc.name)
+	_queue_catalog_notices(doc)
 	return {"name": doc.name, "status": doc.status}
 
 
@@ -2414,6 +2719,7 @@ def reject_catalog_request(name: str, comment: str) -> dict:
 	_require(CATALOG_ROLES)
 	if not (comment or "").strip():
 		frappe.throw(_("A rejection reason is required."))
+	frappe.db.sql("select name from `tabControlled Catalog Request` where name = %s for update", name)
 	doc = frappe.get_doc("Controlled Catalog Request", name)
 	if doc.company not in _allowed_companies():
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
@@ -2421,6 +2727,8 @@ def reject_catalog_request(name: str, comment: str) -> dict:
 		frappe.throw(_("You cannot reject this catalog request."), frappe.PermissionError)
 	doc.status = "Needs Correction"
 	doc.rejection_reason = comment.strip()
+	doc.approval_email_queue = ""
+	doc.approval_email_error = ""
 	_append_catalog_log(doc, "Rejected", doc.rejection_reason)
 	doc.save(ignore_permissions=True)
 	return {"name": doc.name, "status": doc.status}
@@ -2429,33 +2737,50 @@ def reject_catalog_request(name: str, comment: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def resubmit_catalog_request(name: str, data: str | dict | None = None) -> dict:
 	_require(CATALOG_ROLES)
+	frappe.db.sql("select name from `tabControlled Catalog Request` where name = %s for update", name)
 	doc = frappe.get_doc("Controlled Catalog Request", name)
 	if doc.company not in _allowed_companies():
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 	if doc.status != "Needs Correction" or (doc.requested_by != frappe.session.user and not _roles().intersection(ADMIN_ROLES)):
 		frappe.throw(_("Only the requester can correct and resubmit this request."), frappe.PermissionError)
-	if data:
+	if _is_catalog_disable_request(doc):
+		if not (_has_explicit_role("Accounts Manager") or _catalog_ceo()):
+			frappe.throw(_("Only Accounts Manager or CEO can resubmit a disable request."), frappe.PermissionError)
+		if data:
+			doc.disable_reason = (_as_dict(data).get("disable_reason") or doc.disable_reason or "").strip()
+		if not doc.disable_reason:
+			frappe.throw(_("A reason is required to disable an item."))
+		_validate_catalog_disable_row(doc.items[0])
+	elif data:
 		payload = _as_dict(data)
 		rows = payload.get("items") or []
 		if not rows:
 			frappe.throw(_("Add at least one catalog item."))
-		doc.set("items", [_catalog_request_row(row, doc.company) for row in rows])
+		if all(getattr(row, "action", "") == "Change Item Group" for row in doc.items):
+			doc.set("items", [_catalog_group_change_request_row(row) for row in rows])
+		else:
+			doc.set("items", [_catalog_request_row(row, doc.company) for row in rows])
+	elif all(getattr(row, "action", "") == "Change Item Group" for row in doc.items):
+		doc.set("items", [_catalog_group_change_request_row(row.as_dict()) for row in doc.items])
 	else:
 		for row in doc.items:
 			row.supplier = _catalog_request_row(row.as_dict(), doc.company)["supplier"]
-	doc.status = "Pending CEO" if _roles().intersection(ACCOUNT_ROLES | ADMIN_ROLES) else "Pending Accounts"
+	doc.status = "Pending CEO" if _is_catalog_disable_request(doc) else _catalog_request_status(doc.request_origin or "Purchase")
 	doc.rejection_reason = ""
+	doc.price_notified_users = ""
+	doc.price_notification_status = ""
+	doc.price_notification_error = ""
+	doc.approval_email_queue = ""
+	doc.approval_email_error = ""
 	_append_catalog_log(doc, "Resubmitted")
 	doc.save(ignore_permissions=True)
-	if doc.status == "Pending CEO" and any(flt(row.rate) > 0 for row in doc.items):
-		from construction_management.api.controlled_price_requests import _enqueue_catalog_notice
-		_enqueue_catalog_notice(doc.name)
+	_queue_catalog_notices(doc)
 	return {"name": doc.name, "status": doc.status}
 
 
 def _materialize_catalog_request(doc) -> None:
-	if any(flt(row.rate) > 0 for row in doc.items) and not _explicit_ceo():
-		frappe.throw(_("A CEO must give the final decision before buying prices are applied."), frappe.PermissionError)
+	if not _catalog_ceo():
+		frappe.throw(_("Only Faraaz or Salman with the CEO role can approve catalogue changes."), frappe.PermissionError)
 	previous_source = getattr(frappe.flags, "controlled_catalog_price_source", None)
 	frappe.flags.controlled_catalog_price_source = doc.name
 	try:
@@ -2468,12 +2793,18 @@ def _materialize_catalog_request(doc) -> None:
 def _materialize_catalog_request_items(doc) -> None:
 	materialized = {}
 	for row in doc.items:
+		if row.action == "Disable":
+			_disable_catalog_item(row)
+			continue
 		if getattr(row, "action", "") == "Adopt":
 			_adopt_catalog_item(doc, row)
 			continue
 		if getattr(row, "action", "") == "Link Supplier":
 			item = frappe.get_doc("Item", row.result_item)
 			_apply_catalog_supplier_mapping(item, row.supplier, flt(row.rate), row.item_name)
+			continue
+		if getattr(row, "action", "") == "Change Item Group":
+			_change_catalog_item_group(row)
 			continue
 
 		identity = _catalog_row_identity(row)
@@ -2502,8 +2833,8 @@ def _materialize_catalog_request_items(doc) -> None:
 		elif row.item_type == ASSET:
 			item.update({"is_stock_item": 0, "is_fixed_asset": 1, "asset_category": row.asset_category or None})
 		else:
-			item.update({"is_stock_item": 0, "is_fixed_asset": 0, "company": doc.company,
-				"expense_account": row.expense_account or frappe.db.get_value("Company", doc.company, "controlled_service_expense_account")})
+			item.update({"is_stock_item": 0, "is_fixed_asset": 0, "company": doc.company})
+			_set_item_expense_account(item, doc.company, row.expense_account or frappe.db.get_value("Company", doc.company, "controlled_service_expense_account"))
 		item.flags.controlled_procurement_api = True
 		if item.is_new():
 			item.insert(ignore_permissions=True)
@@ -2513,6 +2844,40 @@ def _materialize_catalog_request_items(doc) -> None:
 			_apply_catalog_supplier_mapping(item, row.supplier, flt(row.rate), row.item_name)
 		row.result_item = item.name
 		materialized[identity] = item
+
+
+def _set_item_expense_account(item, company: str, expense_account: str) -> None:
+	"""Store a service account in Item Defaults on ERPNext schemas without Item.expense_account."""
+	if not expense_account or not item.meta.has_field("item_defaults"):
+		return
+	default = next((row for row in item.item_defaults if row.company == company), None)
+	if default:
+		default.expense_account = expense_account
+	else:
+		item.append("item_defaults", {"company": company, "expense_account": expense_account})
+
+
+def _change_catalog_item_group(row) -> None:
+	"""Apply only the approved Item Group change; all other Item fields remain intact."""
+	target_group = _catalog_leaf_item_group(row.item_group)
+	item = frappe.get_doc("Item", row.result_item)
+	if item.disabled or not item.is_purchase_item or not item.controlled_procurement_catalog:
+		frappe.throw(_("Item {0} is no longer an active controlled catalog item.").format(item.name))
+	if item.item_group != target_group:
+		item.item_group = target_group
+		item.flags.controlled_procurement_api = True
+		item.save(ignore_permissions=True)
+	row.result_item = item.name
+
+
+def _disable_catalog_item(row) -> None:
+	frappe.db.sql("select name from `tabItem` where name = %s for update", row.item_code)
+	_validate_catalog_disable_row(row)
+	item = frappe.get_doc("Item", row.item_code)
+	item.disabled = 1
+	item.flags.controlled_procurement_api = True
+	item.save(ignore_permissions=True)
+	row.result_item = item.name
 
 
 def _catalog_row_identity(row) -> tuple[str, str, str]:
@@ -2832,6 +3197,9 @@ def get_document_activity(doctype: str, name: str) -> list[dict]:
 		filters={"reference_doctype": doctype, "reference_name": name, "communication_medium": "Email"},
 		fields=["name", "subject", "content", "sender", "recipients", "cc", "sent_or_received", "delivery_status", "has_attachment", "creation"],
 	)
+	queues = frappe.get_all("Email Queue", filters={"communication": ["in", [row.name for row in emails]]},
+		fields=["communication", "status", "error", "creation"], order_by="creation desc") if emails else []
+	queue_by_communication = {row.communication: row for row in reversed(queues)}
 	users = {row.owner for row in comments} | {row.sender for row in emails} | {row.owner for row in versions} | {doc.owner}
 	names = dict(frappe.get_all("User", filters={"name": ["in", list(users)]}, fields=["name", "full_name"], as_list=True)) if users else {}
 	activity = [{"type": "event", "name": f"created-{name}", "content": _("Document created"),
@@ -2843,7 +3211,10 @@ def get_document_activity(doctype: str, name: str) -> list[dict]:
 		{
 			"type": "email", "name": row.name, "subject": row.subject, "content": row.content,
 			"by": names.get(row.sender) or row.sender, "recipients": row.recipients, "cc": row.cc,
-			"direction": row.sent_or_received, "status": row.delivery_status,
+			"direction": row.sent_or_received,
+			"status": _email_delivery_status(row, queue_by_communication.get(row.name)),
+			"delivery_error": (queue_by_communication.get(row.name).error or "")[-400:]
+				if queue_by_communication.get(row.name) and queue_by_communication.get(row.name).status == "Error" else "",
 			"has_attachment": row.has_attachment, "creation": row.creation,
 		}
 		for row in emails
@@ -2854,6 +3225,14 @@ def get_document_activity(doctype: str, name: str) -> list[dict]:
 		for row in versions if _version_changes(doctype, row.data)
 	]
 	return sorted(activity, key=lambda row: row["creation"], reverse=True)
+
+
+def _email_delivery_status(communication, queue=None) -> str:
+	if communication.sent_or_received == "Received":
+		return communication.delivery_status or "Received"
+	if queue:
+		return "Queued" if queue.status in {"Not Sent", "Sending"} else queue.status
+	return communication.delivery_status or "Queued"
 
 
 def _version_status_change(raw: str) -> bool:
@@ -2956,6 +3335,9 @@ def add_document_comment(doctype: str, name: str, content: str, tagged_users: st
 def get_email_draft(doctype: str, name: str) -> dict:
 	"""Default recipients, subject, and print formats for the email composer."""
 	doc = _controlled_doc(doctype, name)
+	frappe.has_permission(doctype, "email", doc=doc, throw=True)
+	from construction_management.api.catalog_email import outgoing_sender
+
 	# the document's contact person first, then the supplier's own email
 	recipients = doc.get("contact_email") or ""
 	if not recipients and doc.get("supplier"):
@@ -2965,6 +3347,7 @@ def get_email_draft(doctype: str, name: str) -> dict:
 		"Print Format", filters={"doc_type": doctype, "disabled": 0}, pluck="name", order_by="name asc"
 	)
 	return {
+		"sender": outgoing_sender(doc.company),
 		"recipients": recipients,
 		"subject": f"{doctype}: {doc.name}",
 		"message": _("Dear {0},<br><br>Please find attached {1} {2}.<br><br>Regards,<br>{3}").format(
@@ -2978,7 +3361,7 @@ def get_email_draft(doctype: str, name: str) -> dict:
 			or_filters=[["reference_doctype", "=", doctype], ["reference_doctype", "is", "not set"], ["reference_doctype", "=", ""]],
 			pluck="name", order_by="name asc",
 		),
-		"can_email": bool(frappe.has_permission(doctype, "email", doc=doc)),
+		"can_email": True,
 	}
 
 
@@ -3019,6 +3402,153 @@ def set_supplier_payment_terms(supplier: str, payment_terms: str = "") -> dict:
 	doc.payment_terms = _payment_terms_template(payment_terms)
 	doc.save(ignore_permissions=True)
 	return {"name": doc.name, "payment_terms": doc.payment_terms or ""}
+
+
+@frappe.whitelist(methods=["GET"])
+def get_procurement_suppliers(search: str = "") -> list[dict]:
+	"""Supplier directory for purchasing users, independent of an LPO form."""
+	_require(PURCHASE_ROLES)
+	filters = {"disabled": 0}
+	search = (search or "").strip()
+	return frappe.get_all(
+		"Supplier",
+		filters=filters,
+		or_filters=[[field, "like", f"%{search}%"] for field in ("name", "supplier_name", "tax_id")] if search else None,
+		fields=["name", "supplier_name", "supplier_group", "supplier_type", "tax_id", "payment_terms"],
+		order_by="supplier_name asc",
+		limit_page_length=100,
+	)
+
+
+@frappe.whitelist(methods=["GET"])
+def get_supplier_profile(supplier: str) -> dict:
+	_require(PURCHASE_ROLES)
+	doc = frappe.get_doc("Supplier", supplier)
+	frappe.has_permission("Supplier", "read", doc=doc, throw=True)
+	profile = {
+		"supplier_name": doc.supplier_name or "", "supplier_group": doc.supplier_group or "",
+		"supplier_type": doc.supplier_type or "Company", "tax_id": doc.tax_id or "",
+		"trade_licence_no": doc.get("custom_trade_licence_no") or "",
+		"po_box_no": doc.get("custom_po_box_no") or "",
+		"payment_terms": doc.payment_terms or "",
+	}
+	contact_name = _supplier_linked_record(supplier, "Contact", doc.supplier_primary_contact)
+	if contact_name:
+		contact = frappe.get_doc("Contact", contact_name)
+		profile.update({"contact_first_name": contact.first_name or "", "contact_last_name": contact.last_name or "",
+			"contact_email": contact.email_id or "",
+			"contact_mobile": contact.mobile_no or contact.phone or ""})
+	address_name = _supplier_linked_record(supplier, "Address", doc.supplier_primary_address)
+	if address_name:
+		address = frappe.get_doc("Address", address_name)
+		profile.update({"address_line1": address.address_line1 or "", "address_line2": address.address_line2 or "",
+			"city": address.city or "", "state": address.state or "", "pincode": address.pincode or "",
+			"country": address.country or ""})
+	return profile
+
+
+def _supplier_linked_record(supplier: str, parenttype: str, primary: str = "") -> str:
+	filters = {"link_doctype": "Supplier", "link_name": supplier, "parenttype": parenttype}
+	if primary and frappe.db.exists("Dynamic Link", {**filters, "parent": primary}):
+		return primary
+	return frappe.db.get_value("Dynamic Link", filters, "parent") or ""
+
+
+def _upsert_supplier_contact(supplier: str, data: dict) -> None:
+	first_name = (data.get("contact_first_name") or data.get("contact_name") or "").strip()
+	last_name = (data.get("contact_last_name") or "").strip()
+	email, mobile = (data.get("contact_email") or "").strip(), (data.get("contact_mobile") or "").strip()
+	if not any((first_name, last_name, email, mobile)):
+		return
+	contact_name = _supplier_linked_record(
+		supplier, "Contact", frappe.db.get_value("Supplier", supplier, "supplier_primary_contact"))
+	contact = frappe.get_doc("Contact", contact_name) if contact_name else frappe.new_doc("Contact")
+	if first_name:
+		contact.first_name = first_name
+		contact.last_name = last_name
+	elif contact.is_new():
+		frappe.throw(_("Primary contact first name is required when adding contact details."))
+	_set_primary_child(contact, "email_ids", "email_id", "is_primary", email)
+	_set_primary_child(contact, "phone_nos", "phone", "is_primary_mobile_no", mobile)
+	if not any(row.link_doctype == "Supplier" and row.link_name == supplier for row in contact.links):
+		contact.append("links", {"link_doctype": "Supplier", "link_name": supplier})
+	if contact.is_new():
+		contact.is_primary_contact = 1
+		contact.insert(ignore_permissions=True)
+	else:
+		contact.save(ignore_permissions=True)
+	frappe.db.set_value("Supplier", supplier, "supplier_primary_contact", contact.name)
+
+
+def _upsert_supplier_address(supplier: str, data: dict) -> None:
+	fields = {field: (data.get(field) or "").strip() for field in
+		("address_line1", "address_line2", "city", "state", "pincode", "country")}
+	if not any(fields.values()):
+		return
+	if not all(fields[field] for field in ("address_line1", "city", "country")):
+		frappe.throw(_("Address Line 1, City, and Country are required when adding an address."))
+	address_name = _supplier_linked_record(
+		supplier, "Address", frappe.db.get_value("Supplier", supplier, "supplier_primary_address"))
+	address = frappe.get_doc("Address", address_name) if address_name else frappe.new_doc("Address")
+	address.update({"address_title": frappe.db.get_value("Supplier", supplier, "supplier_name"),
+		"address_type": "Billing", **fields})
+	if not any(row.link_doctype == "Supplier" and row.link_name == supplier for row in address.links):
+		address.append("links", {"link_doctype": "Supplier", "link_name": supplier})
+	if address.is_new():
+		address.is_primary_address = 1
+		address.insert(ignore_permissions=True)
+	else:
+		address.save(ignore_permissions=True)
+	frappe.db.set_value("Supplier", supplier, "supplier_primary_address", address.name)
+
+
+@frappe.whitelist(methods=["POST"])
+def update_supplier_profile(supplier: str, data: str | dict) -> dict:
+	"""Maintain the purchasing supplier profile, contact and primary address."""
+	_require(PURCHASE_ROLES)
+	data = _as_dict(data)
+	doc = frappe.get_doc("Supplier", supplier)
+	group = data.get("supplier_group") or doc.supplier_group
+	if group and not frappe.db.exists("Supplier Group", group):
+		frappe.throw(_("Supplier Group {0} does not exist.").format(group))
+	supplier_type = data.get("supplier_type") or doc.supplier_type
+	if supplier_type not in SUPPLIER_TYPES:
+		frappe.throw(_("Invalid supplier type."))
+	doc.update({"supplier_name": (data.get("supplier_name") or doc.supplier_name).strip(), "supplier_group": group,
+		"supplier_type": supplier_type, "tax_id": (data.get("tax_id") or "").strip(),
+		"custom_trade_licence_no": (data.get("trade_licence_no") or "").strip(),
+		"custom_po_box_no": (data.get("po_box_no") or "").strip(),
+		"payment_terms": _payment_terms_template(data.get("payment_terms"))})
+	doc.save(ignore_permissions=True)
+	_upsert_supplier_contact(doc.name, data)
+	_upsert_supplier_address(doc.name, data)
+	return {"name": doc.name, "supplier_name": doc.supplier_name, "payment_terms": doc.payment_terms or ""}
+
+
+@frappe.whitelist(methods=["GET"])
+def get_procurement_terms_templates() -> list[dict]:
+	_require(PURCHASE_ROLES)
+	return frappe.get_all(
+		"Terms and Conditions", filters={"buying": 1}, fields=["name", "title", "terms", "disabled"],
+		order_by="title asc", limit_page_length=0,
+	)
+
+
+@frappe.whitelist(methods=["POST"])
+def save_procurement_terms_template(name: str = "", data: str | dict | None = None) -> dict:
+	"""Create or edit a buying terms template available to Procurement LPOs."""
+	_require(PURCHASE_ROLES)
+	payload = _as_dict(data or {})
+	title = (payload.get("title") or "").strip()
+	if not title:
+		frappe.throw(_("Terms template title is required."))
+	doc = frappe.get_doc("Terms and Conditions", name) if name else frappe.new_doc("Terms and Conditions")
+	doc.update({"title": title, "terms": payload.get("terms") or "", "buying": 1, "selling": 0, "disabled": cint(payload.get("disabled"))})
+	if doc.is_new():
+		doc.insert(ignore_permissions=True)
+	else:
+		doc.save(ignore_permissions=True)
+	return {"name": doc.name, "title": doc.title, "terms": doc.terms, "disabled": doc.disabled}
 
 
 @frappe.whitelist(methods=["GET"])
@@ -3110,10 +3640,14 @@ def create_supplier(data: str | dict) -> dict:
 		"supplier_group": supplier_group,
 		"supplier_type": supplier_type,
 		"tax_id": (data.get("tax_id") or "").strip(),
+		"custom_trade_licence_no": (data.get("trade_licence_no") or "").strip(),
+		"custom_po_box_no": (data.get("po_box_no") or "").strip(),
 		"payment_terms": _payment_terms_template(data.get("payment_terms")),
 	})
 	_set_supplier_naming_series(supplier)
 	supplier.insert(ignore_permissions=True)
+	_upsert_supplier_contact(supplier.name, data)
+	_upsert_supplier_address(supplier.name, data)
 	return {"name": supplier.name, "supplier_name": supplier.supplier_name, "payment_terms": supplier.payment_terms or ""}
 
 
@@ -3218,12 +3752,16 @@ def send_document_email(
 	"""Send a controlled document by email; the Communication appears in the activity feed."""
 	from frappe.core.doctype.communication.email import make
 
-	_controlled_doc(doctype, name)
+	doc = _controlled_doc(doctype, name)
+	frappe.has_permission(doctype, "email", doc=doc, throw=True)
 	if not (recipients or "").strip():
 		frappe.throw(_("Add at least one recipient."))
+	from construction_management.api.catalog_email import outgoing_sender
+
 	result = make(
 		doctype=doctype, name=name, content=message, subject=subject, recipients=recipients, cc=cc or None,
+		sender=outgoing_sender(doc.company),
 		send_email=1, print_format=(print_format or "Standard") if cint(attach_print) else None,
 		email_template=email_template or None,
 	)
-	return {"name": result.get("name"), "emails_not_sent_to": result.get("emails_not_sent_to")}
+	return {"name": result.get("name"), "status": "Queued", "emails_not_sent_to": result.get("emails_not_sent_to")}

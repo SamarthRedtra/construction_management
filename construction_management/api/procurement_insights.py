@@ -44,11 +44,20 @@ def _ledger_scope(receipt: str, project: str, item_code: str, warehouse: str, fr
 	if warehouse and frappe.db.get_value("Warehouse", warehouse, "company") != company:
 		frappe.throw(_("Warehouse does not belong to the active company."), frappe.PermissionError)
 	conditions = ["sle.company = %(company)s", "sle.is_cancelled = 0"]
-	params = {"company": company}
+	params = {"company": company, "selected_project": project or ""}
+	if project:
+		project_warehouses = [row["value"] for row in _project_warehouses(company, project)]
+		if not project_warehouses:
+			conditions.append("1 = 0")
+		else:
+			conditions.append("sle.warehouse in %(project_warehouses)s")
+			params["project_warehouses"] = project_warehouses
 	filter_values = {"project": project, "item_code": item_code, "warehouse": warehouse, "from_date": from_date, "to_date": to_date}
 	for key, column in (("project", "coalesce(nullif(sle.project, ''), nullif(wh.custom_project, ''))"), ("item_code", "sle.item_code"), ("warehouse", "sle.warehouse"), ("from_date", "sle.posting_date"), ("to_date", "sle.posting_date")):
 		value = filter_values[key]
 		if value:
+			if key == "project":
+				continue  # linked warehouse scope above is authoritative, including Project.site_location
 			operator = ">=" if key == "from_date" else "<=" if key == "to_date" else "="
 			conditions.append(f"{column} {operator} %({key})s")
 			params[key] = value
@@ -60,8 +69,11 @@ def _ledger_scope(receipt: str, project: str, item_code: str, warehouse: str, fr
 
 def _ledger_rows(where: str, params: dict, limit: int, start: int = 0) -> list[dict]:
 	return frappe.db.sql(f"""select sle.name, sle.posting_date, sle.posting_time, sle.item_code,
-		sle.warehouse, coalesce(nullif(sle.project, ''), nullif(wh.custom_project, '')) as project,
+		sle.warehouse, coalesce(nullif(%(selected_project)s, ''), nullif(sle.project, ''), nullif(wh.custom_project, '')) as project,
 		sle.actual_qty, sle.qty_after_transaction,
+		case when sle.actual_qty > 0 then sle.actual_qty else 0 end as in_qty,
+		case when sle.actual_qty < 0 then -sle.actual_qty else 0 end as out_qty,
+		sle.stock_value_difference as movement_value, sle.stock_value as valuation_balance,
 		sle.voucher_type, sle.voucher_no
 		from `tabStock Ledger Entry` sle join `tabWarehouse` wh on wh.name = sle.warehouse where {where}
 		order by sle.posting_date desc, sle.posting_time desc, sle.creation desc
@@ -111,7 +123,71 @@ def get_stock_ledger(receipt: str = "", project: str = "", item_code: str = "", 
 	"""GRN viewers see only that voucher; unrestricted ledger search requires ledger access."""
 	company, where, params = _ledger_scope(receipt, project, item_code, warehouse, from_date, to_date)
 	rows = _ledger_rows(where, params, 101, max(cint(start), 0))
-	return {"rows": rows[:100], "has_more": len(rows) > 100, "company": company, "receipt": receipt}
+	return {"rows": rows[:100], "has_more": len(rows) > 100, "company": company, "receipt": receipt,
+		"resolved_warehouses": _project_warehouses(company, project)}
+
+
+def _project_warehouses(company: str, project: str) -> list[dict]:
+	if not project:
+		return []
+	site_location = frappe.db.get_value("Project", project, "site_location") or ""
+	filters = {"company": company, "is_group": 0, "disabled": 0}
+	rows = frappe.get_all("Warehouse", filters=filters,
+		or_filters=[["custom_project", "=", project], ["name", "=", site_location]] if site_location else [["custom_project", "=", project]],
+		fields=["name", "warehouse_name"], order_by="name asc", limit_page_length=0)
+	return [{"value": row.name, "label": row.warehouse_name or row.name} for row in rows]
+
+
+@frappe.whitelist(methods=["GET"])
+def get_project_warehouses(project: str) -> dict:
+	"""Return the active warehouse scope automatically resolved for a project."""
+	_require(LEDGER_ROLES)
+	company = _company()
+	if not project or frappe.db.get_value("Project", project, "company") != company:
+		frappe.throw(_("Choose a project in the active company."), frappe.PermissionError)
+	return {"company": company, "project": project, "warehouses": _project_warehouses(company, project)}
+
+
+@frappe.whitelist(methods=["GET"])
+def get_stock_balance(project: str = "", item_code: str = "", warehouse: str = "", from_date: str = "", to_date: str = "") -> dict:
+	"""Aggregate ERPNext valuation movements for the same project/warehouse scope as the ledger."""
+	company, where, params = _ledger_scope("", project, item_code, warehouse, "", to_date)
+	period_where = "sle.posting_date <= %(to_date)s" if to_date else "1 = 1"
+	opening_where = "sle.posting_date < %(from_date)s" if from_date else "0 = 1"
+	movement_where = "sle.posting_date >= %(from_date)s" if from_date else "1 = 1"
+	if to_date:
+		movement_where += " and sle.posting_date <= %(to_date)s"
+	rows = frappe.db.sql(f"""select sle.item_code, max(item.item_name) as item_name, max(item.stock_uom) as stock_uom,
+		sum(case when {opening_where} then sle.actual_qty else 0 end) as opening_qty,
+		sum(case when {opening_where} then sle.stock_value_difference else 0 end) as opening_value,
+		sum(case when {movement_where} and sle.actual_qty > 0 then sle.actual_qty else 0 end) as in_qty,
+		sum(case when {movement_where} and sle.actual_qty < 0 then -sle.actual_qty else 0 end) as out_qty,
+		sum(case when {movement_where} and sle.actual_qty > 0 then sle.stock_value_difference else 0 end) as in_value,
+		sum(case when {movement_where} and sle.actual_qty < 0 then sle.stock_value_difference else 0 end) as out_value,
+		sum(case when {period_where} then sle.actual_qty else 0 end) as balance_qty,
+		sum(case when {period_where} then sle.stock_value_difference else 0 end) as balance_value
+		from `tabStock Ledger Entry` sle
+		join `tabWarehouse` wh on wh.name = sle.warehouse
+		left join `tabItem` item on item.name = sle.item_code
+		where {where}
+		group by sle.item_code order by sle.item_code asc""", {**params, "from_date": from_date, "to_date": to_date}, as_dict=True)
+	return {"company": company, "project": project, "rows": rows,
+		"resolved_warehouses": _project_warehouses(company, project)}
+
+
+@frappe.whitelist(methods=["GET"])
+def export_stock_balance(project: str = "", item_code: str = "", warehouse: str = "", from_date: str = "", to_date: str = "") -> None:
+	"""Export exactly the aggregate rows shown by the Procurement Stock Balance screen."""
+	report = get_stock_balance(project, item_code, warehouse, from_date, to_date)
+	output = StringIO()
+	writer = csv.writer(output)
+	writer.writerow(["Company", "Project", "Item Code", "Item Name", "UOM", "Opening Qty", "Opening Value", "In Qty", "In Value", "Out Qty", "Out Value", "Balance Qty", "Balance Value"])
+	for row in report["rows"]:
+		writer.writerow([_csv_text(report["company"]), _csv_text(report["project"]), _csv_text(row.item_code), _csv_text(row.item_name), _csv_text(row.stock_uom),
+			flt(row.opening_qty), flt(row.opening_value), flt(row.in_qty), flt(row.in_value), flt(row.out_qty), flt(row.out_value), flt(row.balance_qty), flt(row.balance_value)])
+	frappe.response["filename"] = f"stock-balance-{frappe.utils.today()}.csv"
+	frappe.response["filecontent"] = "\ufeff" + output.getvalue()
+	frappe.response["type"] = "download"
 
 
 def _csv_text(value) -> str:
@@ -128,11 +204,11 @@ def export_stock_ledger(receipt: str = "", project: str = "", item_code: str = "
 		frappe.throw(_("More than 50,000 ledger entries match. Narrow the filters before exporting."))
 	output = StringIO()
 	writer = csv.writer(output)
-	writer.writerow(["Company", "Posting Date", "Posting Time", "Item Code", "Warehouse", "Project", "Voucher Type", "Voucher No", "Movement Qty", "Balance Qty"])
+	writer.writerow(["Company", "Posting Date", "Posting Time", "Item Code", "Warehouse", "Project", "Voucher Type", "Voucher No", "In Qty", "Out Qty", "Movement Value", "Balance Qty", "Valuation Balance"])
 	for row in rows:
 		writer.writerow([_csv_text(company), row.posting_date, row.posting_time, _csv_text(row.item_code),
 			_csv_text(row.warehouse), _csv_text(row.project), _csv_text(row.voucher_type), _csv_text(row.voucher_no),
-			flt(row.actual_qty), flt(row.qty_after_transaction)])
+			flt(row.in_qty), flt(row.out_qty), flt(row.movement_value), flt(row.qty_after_transaction), flt(row.valuation_balance)])
 	frappe.response["filename"] = f"stock-ledger-{frappe.utils.today()}.csv"
 	frappe.response["filecontent"] = "\ufeff" + output.getvalue()
 	frappe.response["type"] = "download"
