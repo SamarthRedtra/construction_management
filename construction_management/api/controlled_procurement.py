@@ -436,6 +436,53 @@ def get_catalog_filter_options() -> dict:
 	}
 
 
+@frappe.whitelist(methods=["GET"])
+def get_catalog_item_by_name(item_name: str) -> dict:
+	"""Return an active controlled catalog Item that matches the description, if any."""
+	_require(CATALOG_ROLES)
+	item_name = " ".join(str(item_name or "").split())
+	if not item_name:
+		return {"matched": False}
+	item = frappe.db.get_value(
+		"Item",
+		{
+			"item_name": item_name,
+			"disabled": 0,
+			"controlled_procurement_catalog": 1,
+			"is_purchase_item": 1,
+		},
+		["name", "item_name", "item_group", "stock_uom", "controlled_item_type"],
+		as_dict=True,
+	)
+	if not item:
+		# Case-insensitive match for typed descriptions.
+		item = frappe.db.sql(
+			"""
+			SELECT name, item_name, item_group, stock_uom, controlled_item_type
+			FROM `tabItem`
+			WHERE LOWER(item_name) = LOWER(%s)
+				AND IFNULL(disabled, 0) = 0
+				AND controlled_procurement_catalog = 1
+				AND is_purchase_item = 1
+			ORDER BY name ASC
+			LIMIT 1
+			""",
+			item_name,
+			as_dict=True,
+		)
+		item = item[0] if item else None
+	if not item:
+		return {"matched": False}
+	return {
+		"matched": True,
+		"item_code": item.name,
+		"item_name": item.item_name,
+		"item_group": item.item_group,
+		"stock_uom": item.stock_uom,
+		"item_type": item.controlled_item_type,
+	}
+
+
 def _catalog_stock_totals(item_codes: list[str], company: str) -> dict[str, float]:
 	if not item_codes or not company:
 		return {}
@@ -2247,7 +2294,7 @@ def _catalog_uom(value: str) -> str:
 	frappe.throw(_("Stock UOM {0} does not exist.").format(value))
 
 
-def _catalog_request_row(data: dict, company: str, supplier_link_only: bool = False) -> dict:
+def _catalog_request_row(data: dict, company: str, supplier_link_only: bool = False, allow_uom_edit: bool = False) -> dict:
 	item_type = data.get("item_type") or STOCKABLE
 	if item_type not in STOCK_TYPES | {ASSET, SERVICE}:
 		frappe.throw(_("Select Stockable, Consumable, Asset, or Service."))
@@ -2259,8 +2306,8 @@ def _catalog_request_row(data: dict, company: str, supplier_link_only: bool = Fa
 	supplier = str(data.get("supplier") or "").strip()
 	if not supplier:
 		frappe.throw(_("Supplier is required for every catalog item."))
-	if not frappe.db.exists("Supplier", supplier):
-		frappe.throw(_("Supplier {0} does not exist.").format(supplier))
+	if not frappe.db.exists("Supplier", {"name": supplier, "disabled": 0}):
+		frappe.throw(_("Supplier {0} is not active.").format(supplier))
 	company_rules = frappe.db.get_value(
 		"Company", company, ["controlled_asset_category", "controlled_service_expense_account"], as_dict=True,
 	)
@@ -2285,8 +2332,36 @@ def _catalog_request_row(data: dict, company: str, supplier_link_only: bool = Fa
 		existing = frappe.db.get_value("Item", {"item_name": data["item_name"], "disabled": 0}, "name")
 	if existing and frappe.db.get_value("Item", existing, "disabled"):
 		frappe.throw(_("Item {0} is disabled. Create an approved replacement item instead.").format(existing))
-	if existing and frappe.db.get_value("Item", existing, "stock_uom") != stock_uom:
-		frappe.throw(_("Existing item {0} has another stock UOM; its UOM cannot be changed by import.").format(existing))
+	if existing:
+		existing_meta = frappe.db.get_value(
+			"Item",
+			existing,
+			["stock_uom", "controlled_procurement_catalog"],
+			as_dict=True,
+		)
+		existing_uom = existing_meta.stock_uom
+		if existing_uom != stock_uom:
+			if allow_uom_edit:
+				if frappe.db.exists("Stock Ledger Entry", {"item_code": existing, "is_cancelled": 0}):
+					frappe.throw(
+						_(
+							"Existing item {0} has stock UOM {1}; requested {2}. "
+							"Changing stock UOM requires an item edit with no stock history."
+						).format(existing, existing_uom, stock_uom)
+					)
+			elif cint(existing_meta.controlled_procurement_catalog):
+				# Already in the controlled catalogue: lock Stock UOM rather than fail the request.
+				stock_uom = existing_uom
+			else:
+				frappe.throw(
+					_(
+						"Existing item {0} has stock UOM {1}; requested {2}. "
+						"Its UOM cannot be changed by import. Supply a new Item Code to create a separate catalog item."
+					).format(existing, existing_uom, stock_uom)
+				)
+	rate = flt(data.get("rate"))
+	if rate < 0:
+		frappe.throw(_("Buying rate cannot be negative."))
 	return {
 		"item_code": item_code,
 		"item_name": data["item_name"].strip(),
@@ -2296,7 +2371,7 @@ def _catalog_request_row(data: dict, company: str, supplier_link_only: bool = Fa
 		"asset_category": asset_category or "",
 		"expense_account": expense_account or "",
 		"supplier": supplier,
-		"rate": flt(data.get("rate")),
+		"rate": rate,
 		"action": "Link Supplier" if supplier_link_only and existing else "Update" if existing else "Create",
 		"result_item": existing or "",
 	}
@@ -2472,10 +2547,17 @@ def get_catalog_item_edit_form(item_code: str) -> dict:
 	values.expense_account = _item_expense_account(item.name, _active_company())
 	supplier = frappe.db.get_value("Item Supplier", {"parent": item.name, "parenttype": "Item"}, "supplier") or ""
 	values.supplier = supplier
-	values.rate = flt(frappe.db.get_value("Item Price", {
-		"item_code": item.name, "supplier": supplier, "price_list": "Standard Buying", "buying": 1,
-	}, "price_list_rate")) if supplier else 0
+	values.rate = _catalog_buying_rate(item.name, supplier)
 	return values
+
+
+def _catalog_buying_rate(item_code: str, supplier: str | None) -> float:
+	"""Active Standard Buying rate for a supplier; Item Edit must not invent a new price."""
+	if not supplier:
+		return 0.0
+	return flt(frappe.db.get_value("Item Price", {
+		"item_code": item_code, "supplier": supplier, "price_list": "Standard Buying", "buying": 1,
+	}, "price_list_rate"))
 
 
 @frappe.whitelist(methods=["POST"])
@@ -2497,6 +2579,9 @@ def create_catalog_item_edit_request(data: str | dict) -> dict:
 		as_dict=True,
 	)
 	current.expense_account = _item_expense_account(item.name, payload.get("company") or _active_company())
+	supplier = (payload.get("supplier")
+		or frappe.db.get_value("Item Supplier", {"parent": item.name, "parenttype": "Item"}, "supplier")
+		or "")
 	row = {
 		"item_code": item.name,
 		"item_name": payload.get("item_name") or current.item_name,
@@ -2505,8 +2590,9 @@ def create_catalog_item_edit_request(data: str | dict) -> dict:
 		"stock_uom": payload.get("stock_uom") or current.stock_uom,
 		"asset_category": payload.get("asset_category") or current.asset_category,
 		"expense_account": payload.get("expense_account") or current.expense_account,
-		"supplier": payload.get("supplier") or frappe.db.get_value("Item Supplier", {"parent": item.name, "parenttype": "Item"}, "supplier"),
-		"rate": payload.get("rate", 0),
+		"supplier": supplier,
+		# Price changes go through Propose price / Price requests, never Item Edit.
+		"rate": _catalog_buying_rate(item.name, supplier),
 	}
 	if row["stock_uom"] != current.stock_uom and frappe.db.exists("Stock Ledger Entry", {"item_code": item.name, "is_cancelled": 0}):
 		frappe.throw(_("Stock UOM cannot change after stock history exists. Create a replacement item and mapping instead."))
@@ -2604,7 +2690,8 @@ def create_catalog_request(data: str | dict) -> dict:
 	prepared = (
 		[_catalog_group_change_request_row(row) for row in rows]
 		if data.get("item_group_change_only")
-		else [_catalog_request_row(row, company, supplier_link_only=bool(data.get("supplier_link_only"))) for row in rows]
+		else [_catalog_request_row(row, company, supplier_link_only=bool(data.get("supplier_link_only")),
+			allow_uom_edit=data.get("source") == "Item Edit") for row in rows]
 	)
 	if len({row["item_code"] or row["item_name"].casefold() for row in prepared}) != len(prepared):
 		frappe.throw(_("The request contains duplicate item codes or descriptions."))
@@ -2652,13 +2739,66 @@ def get_catalog_request(name: str) -> dict:
 	if doc.company not in _allowed_companies():
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 	result = doc.as_dict()
-	if doc.approval_email_queue:
-		queue = frappe.db.get_value("Email Queue", doc.approval_email_queue, ["status", "error"], as_dict=True)
+	result["currency"] = (frappe.db.get_value("Price List", "Standard Buying", "currency")
+		or frappe.db.get_value("Company", doc.company, "default_currency") or "")
+	result["review"] = _catalog_review_values(doc)
+	queue_name = getattr(doc, "approval_email_queue", None)
+	if queue_name:
+		queue = frappe.db.get_value("Email Queue", queue_name, ["status", "error"], as_dict=True)
 		if queue:
 			result["approval_email_status"] = "Queued" if queue.status in {"Not Sent", "Sending"} else queue.status
 			if queue.status in {"Error", "Partially Sent"}:
 				result["approval_email_error"] = (queue.error or "Delivery failed. Check Email Queue.")[-400:]
 	return result
+
+
+def _catalog_review_values(doc) -> dict:
+	"""Current master values are review context, never a replacement for the request snapshot."""
+	codes = {row.result_item or row.item_code for row in doc.items
+		if row.action != "Create" and (row.result_item or row.item_code)}
+	if not codes:
+		return {}
+	items = {item.name: item for item in frappe.get_all("Item", filters={"name": ["in", list(codes)]},
+		fields=["name", "item_name", "item_group", "controlled_item_type", "stock_uom", "asset_category",
+			"is_stock_item", "is_fixed_asset"],
+		limit_page_length=0)}
+	defaults = {row.parent: row.expense_account for row in frappe.get_all("Item Default",
+		filters={"parent": ["in", list(codes)], "company": doc.company},
+		fields=["parent", "expense_account"], limit_page_length=0)}
+	suppliers = defaultdict(list)
+	for row in frappe.get_all("Item Supplier", filters={"parent": ["in", list(codes)], "parenttype": "Item"},
+		fields=["parent", "supplier"], limit_page_length=0):
+		suppliers[row.parent].append(row.supplier)
+	prices = {}
+	as_of = getdate(today())
+	for row in frappe.get_all("Item Price", filters={"item_code": ["in", list(codes)],
+		"price_list": "Standard Buying", "buying": 1},
+		fields=["item_code", "supplier", "uom", "price_list_rate", "valid_from", "valid_upto"],
+		order_by="valid_from desc, creation desc", limit_page_length=0):
+		if (row.valid_from and getdate(row.valid_from) > as_of) or (row.valid_upto and getdate(row.valid_upto) < as_of):
+			continue
+		prices.setdefault((row.item_code, row.supplier or "", row.uom or ""), row.price_list_rate)
+	review = {}
+	for row in doc.items:
+		code = row.result_item or row.item_code
+		item = items.get(code)
+		if not item:
+			continue
+		current_uom = item.stock_uom or row.stock_uom or ""
+		rate = prices.get((code, row.supplier or "", current_uom))
+		if rate is None:
+			rate = prices.get((code, row.supplier or "", ""))
+		if rate is None:
+			rate = prices.get((code, "", current_uom))
+		if rate is None:
+			rate = prices.get((code, "", ""))
+		current_type = item.controlled_item_type or (
+			"Asset" if item.get("is_fixed_asset") else "Stockable" if item.get("is_stock_item") else "Service")
+		review[row.name] = {"item_name": item.item_name, "item_group": item.item_group,
+			"item_type": current_type, "stock_uom": item.stock_uom,
+			"asset_category": item.asset_category or "", "expense_account": defaults.get(code) or "",
+			"suppliers": suppliers.get(code, []), "rate": rate}
+	return review
 
 
 def _can_approve_catalog(doc) -> bool:
@@ -2675,10 +2815,10 @@ def retry_catalog_approval_email(name: str) -> dict:
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 	if doc.status not in {"Pending Accounts", "Pending CEO"}:
 		frappe.throw(_("Only pending catalogue requests can send approval email."))
-	if doc.approval_email_queue and frappe.db.get_value("Email Queue", doc.approval_email_queue, "status") not in {"Error", "Partially Sent"}:
+	queue_name = getattr(doc, "approval_email_queue", None)
+	if queue_name and frappe.db.get_value("Email Queue", queue_name, "status") not in {"Error", "Partially Sent"}:
 		frappe.throw(_("The approval email is already queued or delivered."))
-	doc.approval_email_queue = ""
-	doc.approval_email_error = ""
+	_clear_catalog_approval_email(doc)
 	doc.flags.controlled_catalog_request_api = True
 	doc.save(ignore_permissions=True)
 	from construction_management.api.catalog_email import enqueue_approval_email
@@ -2707,8 +2847,7 @@ def approve_catalog_request(name: str, comment: str = "") -> dict:
 		doc.status = "Approved"
 		_append_catalog_log(doc, "Approved by CEO", comment)
 	doc.rejection_reason = ""
-	doc.approval_email_queue = ""
-	doc.approval_email_error = ""
+	_clear_catalog_approval_email(doc)
 	doc.save(ignore_permissions=True)
 	_queue_catalog_notices(doc)
 	return {"name": doc.name, "status": doc.status}
@@ -2727,8 +2866,7 @@ def reject_catalog_request(name: str, comment: str) -> dict:
 		frappe.throw(_("You cannot reject this catalog request."), frappe.PermissionError)
 	doc.status = "Needs Correction"
 	doc.rejection_reason = comment.strip()
-	doc.approval_email_queue = ""
-	doc.approval_email_error = ""
+	_clear_catalog_approval_email(doc)
 	_append_catalog_log(doc, "Rejected", doc.rejection_reason)
 	doc.save(ignore_permissions=True)
 	return {"name": doc.name, "status": doc.status}
@@ -2741,41 +2879,105 @@ def resubmit_catalog_request(name: str, data: str | dict | None = None) -> dict:
 	doc = frappe.get_doc("Controlled Catalog Request", name)
 	if doc.company not in _allowed_companies():
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
-	if doc.status != "Needs Correction" or (doc.requested_by != frappe.session.user and not _roles().intersection(ADMIN_ROLES)):
+	if doc.status != "Needs Correction" or doc.requested_by != frappe.session.user:
 		frappe.throw(_("Only the requester can correct and resubmit this request."), frappe.PermissionError)
+	payload = _as_dict(data)
+	if str(payload.get("expected_modified") or "") != str(doc.modified):
+		frappe.throw(_("This request changed since you opened it. Reload before resubmitting."))
 	if _is_catalog_disable_request(doc):
 		if not (_has_explicit_role("Accounts Manager") or _catalog_ceo()):
 			frappe.throw(_("Only Accounts Manager or CEO can resubmit a disable request."), frappe.PermissionError)
-		if data:
-			doc.disable_reason = (_as_dict(data).get("disable_reason") or doc.disable_reason or "").strip()
+		old_reason = doc.disable_reason or ""
+		doc.disable_reason = (payload.get("disable_reason") or "").strip()
 		if not doc.disable_reason:
 			frappe.throw(_("A reason is required to disable an item."))
 		_validate_catalog_disable_row(doc.items[0])
-	elif data:
-		payload = _as_dict(data)
-		rows = payload.get("items") or []
-		if not rows:
-			frappe.throw(_("Add at least one catalog item."))
-		if all(getattr(row, "action", "") == "Change Item Group" for row in doc.items):
-			doc.set("items", [_catalog_group_change_request_row(row) for row in rows])
-		else:
-			doc.set("items", [_catalog_request_row(row, doc.company) for row in rows])
-	elif all(getattr(row, "action", "") == "Change Item Group" for row in doc.items):
-		doc.set("items", [_catalog_group_change_request_row(row.as_dict()) for row in doc.items])
+		changes = f"Disable reason: {old_reason} → {doc.disable_reason}" if old_reason != doc.disable_reason else "No field changes"
 	else:
-		for row in doc.items:
-			row.supplier = _catalog_request_row(row.as_dict(), doc.company)["supplier"]
+		rows, changes = _catalog_correction_rows(doc, payload.get("items"))
+		doc.set("items", rows)
 	doc.status = "Pending CEO" if _is_catalog_disable_request(doc) else _catalog_request_status(doc.request_origin or "Purchase")
 	doc.rejection_reason = ""
 	doc.price_notified_users = ""
 	doc.price_notification_status = ""
 	doc.price_notification_error = ""
-	doc.approval_email_queue = ""
-	doc.approval_email_error = ""
-	_append_catalog_log(doc, "Resubmitted")
+	_clear_catalog_approval_email(doc)
+	_append_catalog_log(doc, "Resubmitted", changes[:1000])
 	doc.save(ignore_permissions=True)
 	_queue_catalog_notices(doc)
 	return {"name": doc.name, "status": doc.status}
+
+
+def _clear_catalog_approval_email(doc) -> None:
+	if hasattr(doc, "approval_email_queue"):
+		doc.approval_email_queue = ""
+	if hasattr(doc, "approval_email_error"):
+		doc.approval_email_error = ""
+
+
+CATALOG_CORRECTION_FIELDS = (
+	"item_name", "item_group", "item_type", "stock_uom", "supplier", "rate",
+	"asset_category", "expense_account",
+)
+
+
+def _catalog_correction_rows(doc, submitted: list[dict] | None) -> tuple[list[dict], str]:
+	if not isinstance(submitted, list) or len(submitted) != len(doc.items):
+		frappe.throw(_("Correct every original row; rows cannot be added or removed."))
+	prepared, changes = [], []
+	for original, edited in zip(doc.items, submitted, strict=True):
+		if not isinstance(edited, dict) or str(edited.get("name")) != str(original.name):
+			frappe.throw(_("Request rows changed. Reload before resubmitting."))
+		for field in ("item_code", "action", "result_item"):
+			if str(edited.get(field) or "") != str(original.get(field) or ""):
+				frappe.throw(_("Item Code, action and target item cannot be changed."))
+		allowed = {"item_group"} if original.action == "Change Item Group" else (
+			{"supplier"} if original.action == "Link Supplier" else set(CATALOG_CORRECTION_FIELDS))
+		if original.action not in {"Create", "Update", "Adopt", "Link Supplier", "Change Item Group"}:
+			frappe.throw(_("This request action cannot be corrected."))
+		for field in CATALOG_CORRECTION_FIELDS:
+			if field not in allowed and field in edited and str(edited[field] or "") != str(original.get(field) or ""):
+				frappe.throw(_("{0} cannot change for this request action.").format(field))
+		candidate = original.as_dict()
+		candidate.update({field: edited[field] for field in allowed if field in edited})
+		validated = _catalog_corrected_row(doc, original, candidate)
+		prepared.append(validated)
+		for field in allowed:
+			before, after = original.get(field), validated.get(field)
+			if str(before or "") != str(after or ""):
+				changes.append(f"{original.item_code or original.result_item or original.item_name}: {field} {before or '—'} → {after or '—'}")
+	identities = [row["item_code"] or row["item_name"].casefold() for row in prepared]
+	if len(set(identities)) != len(identities):
+		frappe.throw(_("The corrected request contains duplicate item codes or descriptions."))
+	return prepared, "; ".join(changes) if changes else "No field changes"
+
+
+def _catalog_corrected_row(doc, original, candidate: dict) -> dict:
+	if original.action == "Change Item Group":
+		row = _catalog_group_change_request_row(candidate)
+		if row["result_item"] != original.result_item:
+			frappe.throw(_("The corrected row no longer targets the original item."))
+		return row
+	if candidate.get("item_group"):
+		_catalog_leaf_item_group(candidate["item_group"])
+	target = original.result_item or original.item_code
+	if original.action != "Create" and target:
+		candidate["item_code"] = target
+	row = _catalog_request_row(candidate, doc.company,
+		supplier_link_only=original.action == "Link Supplier", allow_uom_edit=doc.source == "Item Edit")
+	if original.action != "Create" and candidate.get("stock_uom") and row["stock_uom"] != candidate["stock_uom"]:
+		frappe.throw(_("The target item's Stock UOM changed. Reload and submit a new item-edit request."))
+	if original.action == "Create":
+		if row["action"] != "Create" or frappe.db.exists("Item", {"item_name": row["item_name"], "disabled": 0}):
+			frappe.throw(_("The corrected name already belongs to an item. Start an item-edit request instead."))
+	elif row["result_item"] != target:
+		frappe.throw(_("The corrected row no longer targets the original item."))
+	if original.action == "Link Supplier" and frappe.db.exists("Item Supplier", {
+		"parent": target, "parenttype": "Item", "supplier": row["supplier"]}):
+		frappe.throw(_("This supplier is already linked to the item."))
+	row.update({"item_code": original.item_code or "", "action": original.action,
+		"result_item": original.result_item or ""})
+	return row
 
 
 def _materialize_catalog_request(doc) -> None:
@@ -2963,6 +3165,50 @@ def record_opening_stock(data: str | dict) -> dict:
 	doc.insert()
 	doc.submit()
 	return {"doctype": doc.doctype, "name": doc.name}
+
+
+@frappe.whitelist()
+def get_controlled_catalog_stock_reconciliation_items(
+	warehouse: str,
+	posting_date: str,
+	posting_time: str,
+	company: str,
+	item_code: str | None = None,
+	ignore_empty_stock: int | bool = 0,
+) -> list:
+	"""Warehouse stock rows limited to active controlled-catalogue stock Items."""
+	_require(STOCK_ROLES | CATALOG_ROLES | OPENING_STOCK_ROLES)
+	if company not in _allowed_companies():
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	item_code = (item_code or "").strip() or None
+	if item_code:
+		meta = frappe.db.get_value(
+			"Item", item_code,
+			["controlled_procurement_catalog", "is_stock_item", "disabled"],
+			as_dict=True,
+		)
+		if not meta or not cint(meta.controlled_procurement_catalog) or not cint(meta.is_stock_item) or cint(meta.disabled):
+			frappe.throw(_("Select an active controlled catalogue stock item."))
+	from erpnext.stock.doctype.stock_reconciliation.stock_reconciliation import get_items
+
+	rows = get_items(
+		warehouse, posting_date, posting_time, company,
+		item_code=item_code, ignore_empty_stock=ignore_empty_stock,
+	) or []
+	return _filter_stock_reco_rows_to_catalog(rows)
+
+
+def _filter_stock_reco_rows_to_catalog(rows: list) -> list:
+	codes = {row.get("item_code") for row in rows if row.get("item_code")}
+	if not codes:
+		return []
+	catalog = set(frappe.get_all(
+		"Item",
+		filters={"name": ["in", list(codes)], "controlled_procurement_catalog": 1, "disabled": 0, "is_stock_item": 1},
+		pluck="name",
+		limit_page_length=0,
+	))
+	return [row for row in rows if row.get("item_code") in catalog]
 
 
 @frappe.whitelist(methods=["POST"])

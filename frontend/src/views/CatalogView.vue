@@ -49,6 +49,7 @@ const itemEditSaving = ref(false)
 const itemEditForm = reactive({ company: ctx.value.default_company || "", item_code: "", item_name: "", item_group: "", item_type: "Stockable", stock_uom: "Nos", supplier: "", rate: 0, asset_category: "", expense_account: "" })
 const emptyItem = { item_type: "Stockable", item_name: "", item_code: "", item_group: "", stock_uom: "Nos", supplier: "", rate: 0, asset_category: "", expense_account: "" }
 const itemForm = reactive({ company: ctx.value.default_company || "", ...emptyItem })
+const existingCatalogMatch = ref(null)
 const accountOrigin = ref(false)
 const disableItem = ref(null)
 const disableReason = ref("")
@@ -57,7 +58,36 @@ const openingForm = reactive({ company: ctx.value.default_company || "", posting
 
 const requestOrigin = () => accountOrigin.value ? "Accounts" : undefined
 
-function openCreateItem() { accountOrigin.value = false; creating.value = true }
+function openCreateItem() {
+	accountOrigin.value = false
+	existingCatalogMatch.value = null
+	Object.assign(itemForm, { company: ctx.value.default_company || "", ...emptyItem })
+	creating.value = true
+}
+
+async function onCreateDescriptionBlur() {
+	const description = (itemForm.item_name || "").trim()
+	if (!description) {
+		existingCatalogMatch.value = null
+		return
+	}
+	try {
+		const result = await call("get_catalog_item_by_name", { item_name: description })
+		if (!result?.matched) {
+			existingCatalogMatch.value = null
+			return
+		}
+		existingCatalogMatch.value = result
+		itemForm.item_code = result.item_code || ""
+		itemForm.item_name = result.item_name || description
+		itemForm.item_group = result.item_group || itemForm.item_group
+		itemForm.stock_uom = result.stock_uom || itemForm.stock_uom
+		if (result.item_type) itemForm.item_type = result.item_type
+	} catch (error) {
+		existingCatalogMatch.value = null
+		toastError(error)
+	}
+}
 
 function openDisable(item) { disableItem.value = item; disableReason.value = "" }
 
@@ -343,17 +373,20 @@ onMounted(() => { load(); loadFilterOptions() })
 
 <template>
 	<PageHeader title="Controlled Catalog" subtitle="Approved items that can be ordered, received and transferred." :breadcrumbs="[{ label: 'Procurement', to: '/dashboard' }, { label: 'Controlled Catalog' }]">
-		<template v-if="ctx.can_manage_catalog" #actions>
-			<button class="cp-btn" :disabled="!!exporting" @click="exportCatalog('csv')">{{ exporting === "csv" ? "Exporting…" : "Export CSV" }}</button>
-			<button class="cp-btn" :disabled="!!exporting" @click="exportCatalog('xlsx')">{{ exporting === "xlsx" ? "Exporting…" : "Export Excel" }}</button>
-			<button class="cp-btn" @click="downloadTemplate">Download template</button>
-			<button class="cp-btn" @click="fileInput.click()">Import workbook</button>
-			<button v-if="ctx.can_opening_stock" class="cp-btn" @click="opening = true">Opening stock</button>
-			<button v-if="ctx.can_opening_stock && ctx.default_company === 'M R G INSULATION WORKS L.L.C'" class="cp-btn" :disabled="mrgSnapshotSaving" @click="runMrgOpeningStock">{{ mrgSnapshotSaving ? "Uploading MRG stock…" : "Upload MRG stock report" }}</button>
-			<button class="cp-btn" :disabled="!selectedItemCodes.size" @click="openSupplierLinking">Add supplier to selected ({{ selectedItemCodes.size }})</button>
-			<button class="cp-btn" :disabled="!selectedItemCodes.size" @click="openGroupChanging">Change group for selected ({{ selectedItemCodes.size }})</button>
-			<button class="cp-btn primary" @click="openCreateItem">New catalog request</button>
-			<input ref="fileInput" type="file" accept=".xlsx" hidden @change="onWorkbookChosen" />
+		<template #actions>
+			<button class="cp-btn" :disabled="loading" @click="load()">{{ loading ? "Refreshing…" : "Refresh" }}</button>
+			<template v-if="ctx.can_manage_catalog">
+				<button class="cp-btn" :disabled="!!exporting" @click="exportCatalog('csv')">{{ exporting === "csv" ? "Exporting…" : "Export CSV" }}</button>
+				<button class="cp-btn" :disabled="!!exporting" @click="exportCatalog('xlsx')">{{ exporting === "xlsx" ? "Exporting…" : "Export Excel" }}</button>
+				<button class="cp-btn" @click="downloadTemplate">Download template</button>
+				<button class="cp-btn" @click="fileInput.click()">Import workbook</button>
+				<button v-if="ctx.can_opening_stock" class="cp-btn" @click="opening = true">Opening stock</button>
+				<button v-if="ctx.can_opening_stock && ctx.default_company === 'M R G INSULATION WORKS L.L.C'" class="cp-btn" :disabled="mrgSnapshotSaving" @click="runMrgOpeningStock">{{ mrgSnapshotSaving ? "Uploading MRG stock…" : "Upload MRG stock report" }}</button>
+				<button class="cp-btn" :disabled="!selectedItemCodes.size" @click="openSupplierLinking">Add supplier to selected ({{ selectedItemCodes.size }})</button>
+				<button class="cp-btn" :disabled="!selectedItemCodes.size" @click="openGroupChanging">Change group for selected ({{ selectedItemCodes.size }})</button>
+				<button class="cp-btn primary" @click="openCreateItem">New catalog request</button>
+				<input ref="fileInput" type="file" accept=".xlsx" hidden @change="onWorkbookChosen" />
+			</template>
 		</template>
 	</PageHeader>
 	<CatalogTabs />
@@ -446,16 +479,17 @@ onMounted(() => { load(); loadFilterOptions() })
 					<span>Item type<i>*</i></span>
 					<select v-model="itemForm.item_type" class="cp-input"><option>Stockable</option><option>Consumable</option><option>Asset</option><option>Service</option></select>
 				</label>
-				<label class="cp-field"><span>Description<i>*</i></span><input v-model="itemForm.item_name" class="cp-input" required /></label>
-				<label class="cp-field"><span>Item code</span><input v-model="itemForm.item_code" class="cp-input" placeholder="Auto-generated if empty" /></label>
+				<label class="cp-field"><span>Description<i>*</i></span><input v-model="itemForm.item_name" class="cp-input" required @blur="onCreateDescriptionBlur" /></label>
+				<label class="cp-field"><span>Item code</span><input v-model="itemForm.item_code" class="cp-input" placeholder="Auto-generated if empty" :disabled="!!existingCatalogMatch" /></label>
 				<LinkSelect v-model="itemForm.item_group" doctype="Item Group" label="Item group" :required="true" :filters="{ is_group: 0 }" />
-				<LinkSelect v-model="itemForm.stock_uom" doctype="UOM" label="Stock UOM" :required="true" />
+				<LinkSelect v-model="itemForm.stock_uom" doctype="UOM" label="Stock UOM" :required="true" :disabled="!!existingCatalogMatch" />
 				<LinkSelect v-model="itemForm.supplier" doctype="Supplier" label="Supplier" :required="true" />
 				<label class="cp-field"><span>Buying rate</span><input v-model.number="itemForm.rate" type="number" min="0" step="any" class="cp-input" /><small class="cp-hint">A positive rate is approved by Accounts, then the CEO, before it becomes active.</small></label>
 				<LinkSelect v-if="itemForm.item_type === 'Asset'" v-model="itemForm.asset_category" doctype="Asset Category" label="Asset category" placeholder="Company default" />
 				<LinkSelect v-if="itemForm.item_type === 'Service'" v-model="itemForm.expense_account" doctype="Account" label="Service expense account" placeholder="Company default" :filters="{ company: itemForm.company, is_group: 0 }" />
 			</div>
-			<p class="cp-hint">Choose the unit used for stock, orders, receipts and buying prices.</p>
+			<p v-if="existingCatalogMatch" class="cp-hint">Item already exists in the catalog ({{ existingCatalogMatch.item_code }}) — Stock UOM is locked to {{ existingCatalogMatch.stock_uom }}.</p>
+			<p v-else class="cp-hint">Choose the unit used for stock, orders, receipts and buying prices.</p>
 		</form>
 		<template #footer>
 			<button class="cp-btn" @click="creating = false">Cancel</button>
@@ -474,7 +508,7 @@ onMounted(() => { load(); loadFilterOptions() })
 				<LinkSelect v-model="itemEditForm.item_group" doctype="Item Group" label="Item group" :required="true" :filters="{ is_group: 0 }" />
 				<LinkSelect v-model="itemEditForm.stock_uom" doctype="UOM" label="Stock UOM" :required="true" />
 				<LinkSelect v-model="itemEditForm.supplier" doctype="Supplier" label="Supplier" :required="true" />
-				<label class="cp-field"><span>Buying rate</span><input v-model.number="itemEditForm.rate" type="number" min="0" step="any" class="cp-input" /></label>
+				<label class="cp-field"><span>Buying rate</span><input :value="itemEditForm.rate" type="number" class="cp-input" disabled /><small class="cp-hint">Price changes use Propose price / Price requests, not Item Edit.</small></label>
 				<LinkSelect v-if="itemEditForm.item_type === 'Asset'" v-model="itemEditForm.asset_category" doctype="Asset Category" label="Asset category" />
 				<LinkSelect v-if="itemEditForm.item_type === 'Service'" v-model="itemEditForm.expense_account" doctype="Account" label="Service expense account" :filters="{ company: itemEditForm.company, is_group: 0 }" />
 			</div>

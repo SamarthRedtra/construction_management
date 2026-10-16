@@ -62,7 +62,7 @@ def deliver_approval_email(name: str, expected_status: str) -> None:
 		return
 	frappe.db.sql("select name from `tabControlled Catalog Request` where name = %s for update", name)
 	doc = frappe.get_doc("Controlled Catalog Request", name)
-	if doc.status != expected_status or doc.approval_email_queue:
+	if doc.status != expected_status or getattr(doc, "approval_email_queue", None):
 		return
 	try:
 		users = catalog_approval_recipients(doc.company, expected_status, doc.requested_by)
@@ -82,14 +82,17 @@ def deliver_approval_email(name: str, expected_status: str) -> None:
 		)
 		if not queue:
 			raise RuntimeError("Frappe did not create an Email Queue entry.")
-		doc.approval_email_queue = queue.name
-		doc.approval_email_error = ""
+		if hasattr(doc, "approval_email_queue"):
+			doc.approval_email_queue = queue.name
+		if hasattr(doc, "approval_email_error"):
+			doc.approval_email_error = ""
 	except Exception as exc:
 		frappe.db.rollback()
 		doc = frappe.get_doc("Controlled Catalog Request", name)
 		if doc.status != expected_status:
 			return
-		doc.approval_email_error = str(exc)[:500]
+		if hasattr(doc, "approval_email_error"):
+			doc.approval_email_error = str(exc)[:500]
 		frappe.log_error(title=f"Catalogue approval email {name}", message=frappe.get_traceback())
 	doc.flags.controlled_catalog_request_api = True
 	doc.save(ignore_permissions=True)

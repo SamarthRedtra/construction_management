@@ -116,7 +116,7 @@ class TestCatalogApprovalWorkflow(UnitTestCase):
 
 	@patch.object(catalog, "_queue_catalog_notices")
 	@patch.object(catalog, "_append_catalog_log")
-	@patch.object(catalog, "_catalog_request_row", return_value={"supplier": "SUP-1"})
+	@patch.object(catalog, "_catalog_correction_rows", return_value=([{"supplier": "SUP-1", "action": "Update"}], "Item name corrected"))
 	@patch.object(catalog, "_allowed_companies", return_value=["MRG"])
 	@patch.object(catalog, "_roles", return_value={"Purchase Manager"})
 	@patch.object(catalog, "_require")
@@ -126,6 +126,7 @@ class TestCatalogApprovalWorkflow(UnitTestCase):
 	):
 		row = SimpleNamespace(action="Update", supplier="SUP-1", as_dict=lambda: {"supplier": "SUP-1"})
 		doc = MagicMock()
+		doc.modified = "2026-10-16 12:00:00"
 		doc.status = "Needs Correction"
 		doc.requested_by = "buyer@example.com"
 		doc.company = "MRG"
@@ -133,9 +134,154 @@ class TestCatalogApprovalWorkflow(UnitTestCase):
 		doc.items = [row]
 		get_doc.return_value = doc
 		with patch.dict(frappe.__dict__, {"db": MagicMock()}), patch.object(catalog.frappe, "session", frappe._dict(user="buyer@example.com")):
-			result = catalog.resubmit_catalog_request("CCR-1")
+			result = catalog.resubmit_catalog_request("CCR-1", {"expected_modified": doc.modified, "items": [{"name": "ROW-1"}]})
 		self.assertEqual(result["status"], "Pending CEO")
 		self.assertEqual(doc.request_origin, "Accounts")
+		log.assert_called_once_with(doc, "Resubmitted", "Item name corrected")
+
+	@patch.object(catalog, "_catalog_leaf_item_group")
+	@patch.object(catalog, "_catalog_request_row", return_value={
+		"item_code": "ITEM-1", "item_name": "Renamed Item", "item_group": "Products", "action": "Update", "result_item": "ITEM-1"})
+	def test_rejected_item_edit_can_rename_without_changing_code(self, validate, group):
+		original = SimpleNamespace(action="Update", item_code="ITEM-1", result_item="ITEM-1")
+		request = SimpleNamespace(company="MRG", source="Item Edit")
+		row = catalog._catalog_corrected_row(request, original, {
+			"item_code": "ITEM-1", "item_name": "Renamed Item", "item_group": "Products"})
+		self.assertEqual((row["item_code"], row["action"], row["result_item"]), ("ITEM-1", "Update", "ITEM-1"))
+		self.assertTrue(validate.call_args.kwargs["allow_uom_edit"])
+
+	@patch.object(catalog, "_catalog_leaf_item_group")
+	@patch.object(catalog, "_catalog_request_row", return_value={
+		"item_code": "", "item_name": "Corrected New Item", "item_group": "Products", "action": "Create", "result_item": ""})
+	def test_rejected_create_can_rename_without_acquiring_existing_code(self, validate, group):
+		original = SimpleNamespace(action="Create", item_code="", result_item="")
+		with patch.dict(frappe.__dict__, {"db": MagicMock(exists=lambda *args, **kwargs: False)}):
+			row = catalog._catalog_corrected_row(SimpleNamespace(company="MRG", source="Manual"), original,
+				{"item_code": "", "item_name": "Corrected New Item", "item_group": "Products"})
+		self.assertEqual((row["item_name"], row["item_code"], row["action"]), ("Corrected New Item", "", "Create"))
+
+	@patch.object(catalog, "_catalog_leaf_item_group")
+	@patch.object(catalog, "_catalog_request_row", return_value={
+		"item_code": "", "item_name": "Existing Item", "action": "Update", "result_item": "ITEM-2"})
+	def test_rejected_create_cannot_become_update(self, validate, group):
+		original = SimpleNamespace(action="Create", item_code="", result_item="")
+		with self.assertRaises(frappe.ValidationError):
+			catalog._catalog_corrected_row(SimpleNamespace(company="MRG", source="Manual"), original,
+				{"item_code": "", "item_name": "Existing Item", "item_group": "Products"})
+
+	def test_correction_rejects_changed_item_code_and_action(self):
+		row = MagicMock(name="ROW-1", action="Update", item_code="ITEM-1", result_item="ITEM-1")
+		row.name = "ROW-1"
+		row.get.side_effect = {"item_code": "ITEM-1", "action": "Update", "result_item": "ITEM-1"}.get
+		request = SimpleNamespace(items=[row])
+		with self.assertRaises(frappe.ValidationError):
+			catalog._catalog_correction_rows(request, [{"name": "ROW-1", "item_code": "ITEM-2", "action": "Update", "result_item": "ITEM-1"}])
+		with self.assertRaises(frappe.ValidationError):
+			catalog._catalog_correction_rows(request, [{"name": "ROW-1", "item_code": "ITEM-1", "action": "Create", "result_item": "ITEM-1"}])
+
+	@patch.object(catalog, "_catalog_group_change_request_row", return_value={"item_code": "ITEM-1", "item_name": "Item", "item_group": "New Group", "action": "Change Item Group", "result_item": "ITEM-1"})
+	def test_group_correction_only_changes_target_group(self, group):
+		original = SimpleNamespace(action="Change Item Group", item_code="ITEM-1", result_item="ITEM-1")
+		row = catalog._catalog_corrected_row(SimpleNamespace(company="MRG", source="Manual"), original,
+			{"item_code": "ITEM-1", "item_group": "New Group"})
+		self.assertEqual(row["item_group"], "New Group")
+		self.assertEqual(row["action"], "Change Item Group")
+
+	@patch.object(catalog, "_catalog_leaf_item_group")
+	@patch.object(catalog, "_catalog_request_row", return_value={
+		"item_code": "ITEM-1", "item_name": "Item", "item_group": "Products", "supplier": "SUP-2", "action": "Link Supplier", "result_item": "ITEM-1"})
+	def test_supplier_link_correction_keeps_link_action(self, validate, group):
+		original = SimpleNamespace(action="Link Supplier", item_code="ITEM-1", result_item="ITEM-1")
+		with patch.dict(frappe.__dict__, {"db": MagicMock(exists=lambda *args, **kwargs: False)}):
+			row = catalog._catalog_corrected_row(SimpleNamespace(company="MRG", source="Manual"), original,
+				{"item_code": "ITEM-1", "item_group": "Products", "supplier": "SUP-2"})
+		self.assertEqual((row["action"], row["result_item"]), ("Link Supplier", "ITEM-1"))
+
+	@patch.object(catalog, "_catalog_corrected_row")
+	def test_correction_records_changed_name_and_preserves_row_count(self, corrected):
+		original_data = {"name": "ROW-1", "item_code": "ITEM-1", "result_item": "ITEM-1", "action": "Update",
+			"item_name": "Old Name", "item_group": "Products", "item_type": "Stockable", "stock_uom": "Nos",
+			"supplier": "SUP-1", "rate": 10, "asset_category": "", "expense_account": ""}
+		original = MagicMock()
+		original.name, original.action = "ROW-1", "Update"
+		original.item_code, original.result_item, original.item_name = "ITEM-1", "ITEM-1", "Old Name"
+		original.get.side_effect = original_data.get
+		original.as_dict.return_value = original_data.copy()
+		corrected.return_value = {**original_data, "item_name": "New Name"}
+		request = SimpleNamespace(items=[original])
+		edited = {**original_data, "item_name": "New Name"}
+
+		rows, summary = catalog._catalog_correction_rows(request, [edited])
+
+		self.assertEqual(rows[0]["item_name"], "New Name")
+		self.assertIn("Old Name → New Name", summary)
+		with self.assertRaises(frappe.ValidationError):
+			catalog._catalog_correction_rows(request, [])
+
+	@patch.object(catalog, "_allowed_companies", return_value=["MRG"])
+	@patch.object(catalog, "_require")
+	@patch.object(catalog.frappe, "get_doc")
+	def test_resubmission_rejects_stale_and_other_requester(self, get_doc, require, companies):
+		doc = MagicMock(status="Needs Correction", requested_by="buyer@example.com", company="MRG",
+			modified="2026-10-16 12:00:00")
+		get_doc.return_value = doc
+		with patch.dict(frappe.__dict__, {"db": MagicMock()}), patch.object(catalog.frappe, "session", frappe._dict(user="other@example.com")):
+			with self.assertRaises(frappe.PermissionError):
+				catalog.resubmit_catalog_request("CCR-1", {"expected_modified": doc.modified})
+		with patch.dict(frappe.__dict__, {"db": MagicMock()}), patch.object(catalog.frappe, "session", frappe._dict(user="buyer@example.com")):
+			with self.assertRaises(frappe.ValidationError):
+				catalog.resubmit_catalog_request("CCR-1", {"expected_modified": "2026-10-15 12:00:00"})
+
+	@patch.object(catalog, "_queue_catalog_notices")
+	@patch.object(catalog, "_append_catalog_log")
+	@patch.object(catalog, "_validate_catalog_disable_row")
+	@patch.object(catalog, "_has_explicit_role", return_value=True)
+	@patch.object(catalog, "_allowed_companies", return_value=["MRG"])
+	@patch.object(catalog, "_require")
+	@patch.object(catalog.frappe, "get_doc")
+	def test_disable_correction_changes_reason_only(self, get_doc, require, companies, role, validate, log, notify):
+		doc = MagicMock(status="Needs Correction", requested_by="buyer@example.com", company="MRG",
+			modified="2026-10-16 12:00:00", disable_reason="Old reason", request_origin="Accounts")
+		doc.items = [SimpleNamespace(action="Disable")]
+		get_doc.return_value = doc
+		with patch.dict(frappe.__dict__, {"db": MagicMock()}), patch.object(catalog.frappe, "session", frappe._dict(user="buyer@example.com")):
+			result = catalog.resubmit_catalog_request("CCR-1", {
+				"expected_modified": doc.modified, "disable_reason": "Corrected reason"})
+		self.assertEqual(result["status"], "Pending CEO")
+		self.assertEqual(doc.disable_reason, "Corrected reason")
+		log.assert_called_once_with(doc, "Resubmitted", "Disable reason: Old reason → Corrected reason")
+
+	@patch.object(catalog, "today", return_value="2026-10-16")
+	@patch.object(catalog.frappe, "get_all")
+	def test_ceo_review_includes_current_item_and_buying_rate(self, get_all, current_date):
+		get_all.side_effect = [
+			[frappe._dict(name="ITEM-1", item_name="Old Name", item_group="Old Group",
+				controlled_item_type="Stockable", stock_uom="Nos", asset_category="")],
+			[frappe._dict(parent="ITEM-1", expense_account="")],
+			[frappe._dict(parent="ITEM-1", supplier="SUP-1")],
+			[frappe._dict(item_code="ITEM-1", supplier="SUP-1", uom="Nos", price_list_rate=12,
+				valid_from=None, valid_upto=None)],
+		]
+		row = SimpleNamespace(name="ROW-1", action="Update", item_code="ITEM-1", result_item="ITEM-1",
+			supplier="SUP-1", stock_uom="Nos")
+		review = catalog._catalog_review_values(SimpleNamespace(items=[row], company="MRG"))
+		self.assertEqual(review["ROW-1"]["item_name"], "Old Name")
+		self.assertEqual(review["ROW-1"]["item_group"], "Old Group")
+		self.assertEqual(review["ROW-1"]["suppliers"], ["SUP-1"])
+		self.assertEqual(review["ROW-1"]["rate"], 12)
+
+	@patch.object(catalog, "_catalog_review_values", return_value={"ROW-1": {"rate": 12}})
+	@patch.object(catalog, "_allowed_companies", return_value=["MRG"])
+	@patch.object(catalog, "_require")
+	@patch.object(catalog.frappe, "get_doc")
+	def test_request_detail_includes_currency_and_review(self, get_doc, require, companies, review):
+		doc = MagicMock(company="MRG", approval_email_queue="")
+		doc.as_dict.return_value = {"name": "CCR-1", "items": [{"name": "ROW-1"}]}
+		get_doc.return_value = doc
+		with patch.dict(frappe.__dict__, {"db": MagicMock(get_value=lambda *args, **kwargs: "AED")}):
+			result = catalog.get_catalog_request("CCR-1")
+		self.assertEqual(result["currency"], "AED")
+		self.assertEqual(result["review"]["ROW-1"]["rate"], 12)
 
 	def test_document_sender_uses_company_email_account(self):
 		db = MagicMock()

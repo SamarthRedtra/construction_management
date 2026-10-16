@@ -81,6 +81,7 @@ doctype_js = {
 	"Purchase Order": ["public/js/accounting_dimension_filters.js", "public/js/purchase_order.js", "public/js/controlled_procurement_documents.js"],
 	"Sales Order": ["public/js/accounting_dimension_filters.js", "public/js/deduction_summary.js", "public/js/sales_order.js"],
 	"Stock Entry": ["public/js/accounting_dimension_filters.js", "public/js/stock_entry.js", "public/js/controlled_procurement_documents.js"],
+	"Stock Reconciliation": "public/js/stock_reconciliation.js",
 	"Journal Entry": ["public/js/accounting_dimension_filters.js", "public/js/journal_entry.js"],
 	"Material Request": ["public/js/accounting_dimension_filters.js", "public/js/material_request.js"],
 	"Quotation": [

@@ -568,6 +568,145 @@ class TestControlledProcurement(UnitTestCase):
 				{"item_name": "Test", "item_group": "Products", "item_type": "Stockable", "supplier": "  "}, "MRG",
 			)
 
+	@patch(
+		"redtra_customisation.redtra_customisation.service_item_validator.ServiceItemValidator.validate_expense_account"
+	)
+	@patch("construction_management.api.controlled_procurement._catalog_uom", side_effect=lambda value: value or "Nos")
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
+	@patch("construction_management.api.controlled_procurement.frappe.db.get_value")
+	def test_catalog_request_coerces_uom_for_controlled_item(self, get_value, exists, catalog_uom, validate_expense):
+		def _get_value(doctype, name, field=None, as_dict=False, **kwargs):
+			if doctype == "Company":
+				return frappe._dict(controlled_asset_category=None, controlled_service_expense_account=None)
+			if doctype == "Item" and field == "name":
+				return "GRP-LADDER"
+			if doctype == "Item" and field == "disabled":
+				return 0
+			if doctype == "Item" and (isinstance(field, (list, tuple)) or as_dict):
+				return frappe._dict(stock_uom="Nos", controlled_procurement_catalog=1)
+			return None
+
+		get_value.side_effect = _get_value
+		row = controlled_procurement._catalog_request_row(
+			{
+				"item_name": "supply and installation of grp ladder for underground water tank",
+				"item_group": "SUBCONTRACTOR SERVICES",
+				"item_type": "Service",
+				"stock_uom": "Hour",
+				"supplier": "SUP-1",
+				"expense_account": "Expenses - MRG",
+			},
+			"MRG",
+		)
+		self.assertEqual(row["stock_uom"], "Nos")
+		self.assertEqual(row["action"], "Update")
+		self.assertEqual(row["result_item"], "GRP-LADDER")
+
+	@patch("construction_management.api.controlled_procurement._catalog_uom", side_effect=lambda value: value or "Nos")
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
+	@patch("construction_management.api.controlled_procurement.frappe.db.get_value")
+	def test_catalog_request_throws_for_legacy_uom_mismatch(self, get_value, exists, catalog_uom):
+		def _get_value(doctype, name, field=None, as_dict=False, **kwargs):
+			if doctype == "Company":
+				return frappe._dict(controlled_asset_category=None, controlled_service_expense_account=None)
+			if doctype == "Item" and field == "name":
+				return "LEGACY-ITEM"
+			if doctype == "Item" and field == "disabled":
+				return 0
+			if doctype == "Item" and (isinstance(field, (list, tuple)) or as_dict):
+				return frappe._dict(stock_uom="Nos", controlled_procurement_catalog=0)
+			return None
+
+		get_value.side_effect = _get_value
+		with self.assertRaisesRegex(frappe.ValidationError, r"stock UOM Nos; requested Hour"):
+			controlled_procurement._catalog_request_row(
+				{
+					"item_name": "Legacy Binder",
+					"item_group": "Products",
+					"item_type": "Consumable",
+					"stock_uom": "Hour",
+					"supplier": "SUP-1",
+				},
+				"MRG",
+			)
+
+	@patch("construction_management.api.controlled_procurement._require")
+	@patch("construction_management.api.controlled_procurement.frappe.db.get_value")
+	def test_get_catalog_item_by_name_returns_match(self, get_value, require):
+		get_value.return_value = frappe._dict(
+			name="GRP-LADDER",
+			item_name="supply and installation of grp ladder for underground water tank",
+			item_group="SUBCONTRACTOR SERVICES",
+			stock_uom="Nos",
+			controlled_item_type="Service",
+		)
+		result = controlled_procurement.get_catalog_item_by_name(
+			"supply and installation of grp ladder for underground water tank"
+		)
+		self.assertTrue(result["matched"])
+		self.assertEqual(result["stock_uom"], "Nos")
+		self.assertEqual(result["item_code"], "GRP-LADDER")
+
+	@patch("construction_management.api.controlled_procurement.create_catalog_request", return_value={"name": "CCR-1"})
+	@patch("construction_management.api.controlled_procurement._catalog_buying_rate", return_value=1.91)
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=False)
+	@patch("construction_management.api.controlled_procurement.frappe.db.get_value")
+	@patch("construction_management.api.controlled_procurement._catalog_item")
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_item_edit_request_ignores_client_rate(self, require, catalog_item, get_value, exists, buying_rate, create_request):
+		catalog_item.return_value = frappe._dict(name="PACKERS")
+		get_value.side_effect = [
+			0,  # disabled
+			frappe._dict(
+				item_name="INJECTION PACKERS ALLUMINIUM",
+				item_group="INJECTION ITEMS",
+				stock_uom="Nos",
+				controlled_item_type="Stockable",
+				asset_category="",
+			),
+			"",  # expense account via _item_expense_account path — overridden below
+		]
+
+		with patch(
+			"construction_management.api.controlled_procurement._item_expense_account", return_value=""
+		):
+			controlled_procurement.create_catalog_item_edit_request({
+				"item_code": "PACKERS",
+				"item_name": "INJECTION PACKERS ALLUMINIUM",
+				"item_group": "INJECTION ITEMS",
+				"item_type": "Stockable",
+				"stock_uom": "Nos",
+				"supplier": "SUP-1",
+				"rate": 999.0,
+				"company": "MRG",
+			})
+
+		row = create_request.call_args.args[0]["items"][0]
+		self.assertEqual(row["rate"], 1.91)
+		buying_rate.assert_called_once_with("PACKERS", "SUP-1")
+
+	@patch("construction_management.api.controlled_procurement.frappe.get_all", return_value=["CAT-1"])
+	def test_filter_stock_reco_rows_to_catalog(self, get_all):
+		rows = [
+			{"item_code": "CAT-1", "qty": 2},
+			{"item_code": "LEGACY-1", "qty": 5},
+		]
+		filtered = controlled_procurement._filter_stock_reco_rows_to_catalog(rows)
+		self.assertEqual(filtered, [{"item_code": "CAT-1", "qty": 2}])
+		get_all.assert_called_once()
+
+	@patch("construction_management.api.controlled_procurement._allowed_companies", return_value=["MRG"])
+	@patch("construction_management.api.controlled_procurement._require")
+	@patch("construction_management.api.controlled_procurement.frappe.db.get_value")
+	def test_catalog_stock_reco_rejects_non_catalog_item(self, get_value, require, companies):
+		get_value.return_value = frappe._dict(
+			controlled_procurement_catalog=0, is_stock_item=1, disabled=0,
+		)
+		with self.assertRaisesRegex(frappe.ValidationError, "controlled catalogue stock item"):
+			controlled_procurement.get_controlled_catalog_stock_reconciliation_items(
+				"Stores - MRG", "2026-10-16", "12:00:00", "MRG", item_code="LEGACY-1",
+			)
+
 	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
 	@patch("construction_management.api.controlled_procurement._active_company", return_value="MRG")
 	@patch("construction_management.api.controlled_procurement._workbook_rows")

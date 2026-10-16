@@ -1,17 +1,23 @@
 <script setup>
 import { computed, onMounted, ref } from "vue"
+import { useRoute, useRouter } from "vue-router"
 import { call } from "@/api"
 import { toast, toastError } from "@/toast"
 import { session } from "@/utils"
 import CatalogTabs from "@/components/CatalogTabs.vue"
-import LinkSelect from "@/components/LinkSelect.vue"
+import CatalogRequestItemEditor from "@/components/CatalogRequestItemEditor.vue"
+import CatalogRequestItemReview from "@/components/CatalogRequestItemReview.vue"
 import Modal from "@/components/Modal.vue"
 import PageHeader from "@/components/PageHeader.vue"
 
 const ctx = computed(() => session.context)
+const route = useRoute()
+const router = useRouter()
 const requests = ref([])
 const requestDetail = ref(null)
 const approvingRequest = ref("")
+const resubmitting = ref(false)
+const refreshing = ref(false)
 
 function canDecide(request) {
 	return (request.status === "Pending Accounts" && request.requested_by !== ctx.value.user && ctx.value.can_approve_catalog_accounts)
@@ -26,12 +32,29 @@ async function loadRequests() {
 	}
 }
 
+async function refresh() {
+	if (refreshing.value) return
+	refreshing.value = true
+	try {
+		await loadRequests()
+		if (requestDetail.value?.name) await showRequest({ name: requestDetail.value.name })
+	} finally {
+		refreshing.value = false
+	}
+}
+
 async function showRequest(request) {
 	try {
 		requestDetail.value = await call("get_catalog_request", { name: request.name })
+		if (route.query.request !== request.name) await router.replace({ query: { ...route.query, request: request.name } })
 	} catch (error) {
 		toastError(error)
 	}
+}
+
+async function closeRequest() {
+	requestDetail.value = null
+	if (route.query.request) await router.replace({ query: { ...route.query, request: undefined } })
 }
 
 async function approve(request) {
@@ -63,13 +86,19 @@ async function reject(request) {
 }
 
 async function resubmit(request) {
+	if (resubmitting.value) return
+	resubmitting.value = true
 	try {
-		await call("resubmit_catalog_request", { name: request.name, data: { items: request.items, disable_reason: request.disable_reason } })
+		await call("resubmit_catalog_request", { name: request.name, data: {
+			items: request.items, disable_reason: request.disable_reason, expected_modified: request.modified,
+		} })
 		toast("Catalog request resubmitted")
 		await loadRequests()
 		if (requestDetail.value?.name === request.name) await showRequest(request)
 	} catch (error) {
 		toastError(error)
+	} finally {
+		resubmitting.value = false
 	}
 }
 
@@ -86,11 +115,18 @@ async function retryApprovalEmail(request) {
 	} catch (error) { toastError(error) }
 }
 
-onMounted(loadRequests)
+onMounted(async () => {
+	await loadRequests()
+	if (route.query.request) await showRequest({ name: route.query.request })
+})
 </script>
 
 <template>
-	<PageHeader title="Catalog Approval Requests" subtitle="Review catalog changes and follow their approval history." :breadcrumbs="[{ label: 'Procurement', to: '/dashboard' }, { label: 'Controlled Catalog', to: '/catalog' }, { label: 'Approval requests' }]" />
+	<PageHeader title="Catalog Approval Requests" subtitle="Review catalog changes and follow their approval history." :breadcrumbs="[{ label: 'Procurement', to: '/dashboard' }, { label: 'Controlled Catalog', to: '/catalog' }, { label: 'Approval requests' }]">
+		<template #actions>
+			<button class="cp-btn" :disabled="refreshing" @click="refresh">{{ refreshing ? "Refreshing…" : "Refresh" }}</button>
+		</template>
+	</PageHeader>
 	<CatalogTabs />
 
 	<section class="cp-card">
@@ -103,10 +139,7 @@ onMounted(loadRequests)
 					<td><span class="cp-pill info">{{ request.status }}</span></td>
 					<td>{{ request.is_disable ? "Disable item" : request.source }}<small>{{ request.request_origin || "Purchase" }} route</small></td>
 					<td class="cp-table-actions">
-						<button class="cp-btn sm" @click="showRequest(request)">View</button>
-						<button v-if="canDecide(request)" class="cp-btn sm" :disabled="Boolean(approvingRequest)" @click="approve(request)">{{ approvingRequest === request.name ? "Approving…" : "Approve" }}</button>
-						<button v-if="canDecide(request)" class="cp-btn sm" :disabled="Boolean(approvingRequest)" @click="reject(request)">Reject</button>
-						<button v-if="request.status === 'Needs Correction' && request.requested_by === ctx.user" class="cp-btn sm" @click="showRequest(request)">Correct</button>
+						<button class="cp-btn sm" @click="showRequest(request)">{{ request.status === 'Needs Correction' && request.requested_by === ctx.user ? 'Edit and Resubmit' : canDecide(request) ? 'Review' : 'View' }}</button>
 					</td>
 				</tr>
 				<tr v-if="!requests.length"><td colspan="5" class="cp-empty-row">No catalog requests.</td></tr>
@@ -114,17 +147,30 @@ onMounted(loadRequests)
 		</table>
 	</section>
 
-	<Modal v-if="requestDetail" :title="requestDetail.name" wide @close="requestDetail = null">
-		<p><span class="cp-pill info">{{ requestDetail.status }}</span> · {{ requestDetail.request_origin || "Purchase" }} route<span v-if="requestDetail.rejection_reason"> · {{ requestDetail.rejection_reason }}</span></p>
-		<label v-if="requestDetail.disable_reason && requestDetail.status === 'Needs Correction' && requestDetail.requested_by === ctx.user" class="cp-field"><span>Disable reason</span><textarea v-model="requestDetail.disable_reason" class="cp-input" rows="3" required /></label>
-		<p v-else-if="requestDetail.disable_reason"><strong>Disable reason:</strong> {{ requestDetail.disable_reason }}</p>
+	<Modal v-if="requestDetail" :title="requestDetail.name" size="xl" @close="closeRequest">
+		<p><span class="cp-pill info">{{ requestDetail.status }}</span> · {{ requestDetail.request_origin || "Purchase" }} route</p>
+		<div class="cp-grid-2"><p><strong>Company:</strong> {{ requestDetail.company }}</p><p><strong>Currency:</strong> {{ requestDetail.currency || '—' }}</p><p><strong>Requested by:</strong> {{ requestDetail.requested_by }}</p><p><strong>Source:</strong> {{ requestDetail.source }}</p></div>
+		<p v-if="requestDetail.source_file"><a :href="requestDetail.source_file" target="_blank" rel="noopener noreferrer">Open source workbook</a></p>
+		<p v-if="requestDetail.rejection_reason"><strong>Correction requested:</strong> {{ requestDetail.rejection_reason }}</p>
+		<form v-if="requestDetail.status === 'Needs Correction' && requestDetail.requested_by === ctx.user" id="cp-catalog-correction-form" class="cp-stack" @submit.prevent="resubmit(requestDetail)">
+			<p class="cp-hint">Correct the highlighted request. Item Code and request type cannot be changed. Saving immediately restarts its approval route.</p>
+			<label v-if="requestDetail.items.length === 1 && requestDetail.items[0].action === 'Disable'" class="cp-field"><span>Disable reason<i>*</i></span><textarea v-model="requestDetail.disable_reason" class="cp-input" rows="3" required /></label>
+			<CatalogRequestItemEditor v-for="row in requestDetail.items.filter((item) => item.action !== 'Disable')" :key="row.name" :row="row" :company="requestDetail.company" :allow-uom-edit="requestDetail.source === 'Item Edit'" />
+		</form>
+		<template v-else>
+			<p v-if="requestDetail.disable_reason"><strong>Disable reason:</strong> {{ requestDetail.disable_reason }}</p>
+			<h3 class="cp-section-title">Item details · Current vs proposed</h3>
+			<CatalogRequestItemReview v-for="(row, index) in requestDetail.items" :key="row.name" :row="row" :current="requestDetail.review?.[row.name] || null" :currency="requestDetail.currency" :initially-open="index === 0" />
+		</template>
 		<p v-if="requestDetail.status.startsWith('Pending')">Approval email: {{ requestDetail.approval_email_status || (requestDetail.approval_email_error ? "Failed to queue" : "Queueing") }}<span v-if="requestDetail.approval_email_error"> — {{ requestDetail.approval_email_error }}</span> <button v-if="requestDetail.approval_email_error || ['Error', 'Partially Sent'].includes(requestDetail.approval_email_status)" class="cp-btn sm" @click="retryApprovalEmail(requestDetail)">Retry email</button></p>
 		<p v-if="requestDetail.price_notification_status">CEO Raven notification: {{ requestDetail.price_notification_status }}<span v-if="requestDetail.price_notification_error"> — {{ requestDetail.price_notification_error }}</span> <button v-if="requestDetail.price_notification_status === 'Failed'" class="cp-btn sm" @click="retryPriceNotice(requestDetail)">Retry Raven</button></p>
-		<table class="cp-table"><thead><tr><th>Description</th><th>Type</th><th>UOM</th><th>Supplier</th><th>Rate</th><th>Action</th><th>Catalog item</th></tr></thead><tbody><tr v-for="row in requestDetail.items" :key="row.name"><td>{{ row.item_name }}</td><td>{{ row.item_type }}</td><td>{{ row.stock_uom || "Nos" }}</td><td><LinkSelect v-if="row.action !== 'Disable' && requestDetail.status === 'Needs Correction' && requestDetail.requested_by === ctx.user" v-model="row.supplier" doctype="Supplier" :required="true" /><span v-else>{{ row.supplier || "—" }}</span></td><td>{{ row.rate }}</td><td>{{ row.action }}</td><td>{{ row.result_item || "Awaiting approval" }}</td></tr></tbody></table>
 		<h3 class="cp-section-title">Approval process</h3>
 		<ul><li v-for="log in requestDetail.approval_log" :key="log.name"><strong>{{ log.action }}</strong> · {{ log.actor }} · {{ log.actioned_on }}<template v-if="log.comment"> — {{ log.comment }}</template></li></ul>
-		<template v-if="requestDetail.status === 'Needs Correction' && requestDetail.requested_by === ctx.user" #footer>
-			<button class="cp-btn primary" @click="resubmit(requestDetail)">Resubmit for approval</button>
+		<template #footer>
+			<button class="cp-btn" @click="closeRequest">Close</button>
+			<button v-if="canDecide(requestDetail)" class="cp-btn" :disabled="Boolean(approvingRequest)" @click="reject(requestDetail)">Reject</button>
+			<button v-if="canDecide(requestDetail)" class="cp-btn primary" :disabled="Boolean(approvingRequest)" @click="approve(requestDetail)">{{ approvingRequest ? 'Approving…' : 'Approve after review' }}</button>
+			<button v-if="requestDetail.status === 'Needs Correction' && requestDetail.requested_by === ctx.user" form="cp-catalog-correction-form" type="submit" class="cp-btn primary" :disabled="resubmitting">{{ resubmitting ? 'Resubmitting…' : 'Save and Resubmit' }}</button>
 		</template>
 	</Modal>
 

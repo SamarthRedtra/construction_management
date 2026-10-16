@@ -72,7 +72,11 @@ onMounted(async () => {
 </script>
 
 <template>
-	<PageHeader title="Buying Price Requests" subtitle="CEO decisions and Raven delivery for catalog and Purchase Order prices." :breadcrumbs="[{ label: 'Procurement', to: '/dashboard' }, { label: 'Controlled Catalog', to: '/catalog' }, { label: 'Price requests' }]" />
+	<PageHeader title="Buying Price Requests" subtitle="CEO decisions and Raven delivery for catalog and Purchase Order prices." :breadcrumbs="[{ label: 'Procurement', to: '/dashboard' }, { label: 'Controlled Catalog', to: '/catalog' }, { label: 'Price requests' }]">
+		<template #actions>
+			<button class="cp-btn" :disabled="loading" @click="load">{{ loading ? "Refreshing…" : "Refresh" }}</button>
+		</template>
+	</PageHeader>
 	<CatalogTabs />
 	<section class="cp-card">
 		<table class="cp-table">
