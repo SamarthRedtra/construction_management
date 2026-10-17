@@ -56,9 +56,8 @@ class TestCatalogApprovalWorkflow(UnitTestCase):
 			catalog._validate_catalog_disable_row(SimpleNamespace(
 				item_code="ITEM-1", target_modified="2026-10-14 10:00:00"))
 
-	@patch.object(catalog, "_catalog_ceo", return_value=False)
-	@patch.object(catalog, "_has_explicit_role", return_value=False)
-	def test_purchase_manager_cannot_request_disable(self, role, ceo):
+	@patch.object(catalog, "_can_request_catalog_disable", return_value=False)
+	def test_purchase_user_cannot_request_disable(self, can_disable):
 		with self.assertRaises(frappe.PermissionError):
 			catalog.create_catalog_disable_request("ITEM-1", "Duplicate")
 
@@ -67,9 +66,29 @@ class TestCatalogApprovalWorkflow(UnitTestCase):
 	@patch.object(catalog, "_catalog_disable_row", return_value={"item_code": "ITEM-1"})
 	@patch.object(catalog, "_allowed_companies", return_value=["MRG"])
 	@patch.object(catalog, "_catalog_ceo", return_value=False)
-	@patch.object(catalog, "_has_explicit_role", return_value=True)
+	@patch.object(catalog, "_has_explicit_role", side_effect=lambda role, user=None: role == "Purchase Manager")
+	@patch.object(catalog, "_can_request_catalog_disable", return_value=True)
 	@patch.object(catalog.frappe, "get_doc")
-	def test_accounts_manager_disable_waits_for_ceo(self, get_doc, role, ceo, companies, row, log, notify):
+	def test_purchase_manager_disable_waits_for_ceo(self, get_doc, can_disable, role, ceo, companies, row, log, notify):
+		doc = MagicMock()
+		doc.name = "CCR-1"
+		doc.status = "Pending CEO"
+		get_doc.return_value = doc
+		result = catalog.create_catalog_disable_request("ITEM-1", "Duplicate", "MRG")
+		self.assertEqual(result["status"], "Pending CEO")
+		doc.insert.assert_called_once_with(ignore_permissions=True)
+		self.assertEqual(get_doc.call_args.args[0]["request_origin"], "Purchase")
+		notify.assert_called_once_with(doc)
+
+	@patch.object(catalog, "_queue_catalog_notices")
+	@patch.object(catalog, "_append_catalog_log")
+	@patch.object(catalog, "_catalog_disable_row", return_value={"item_code": "ITEM-1"})
+	@patch.object(catalog, "_allowed_companies", return_value=["MRG"])
+	@patch.object(catalog, "_catalog_ceo", return_value=False)
+	@patch.object(catalog, "_has_explicit_role", return_value=True)
+	@patch.object(catalog, "_can_request_catalog_disable", return_value=True)
+	@patch.object(catalog.frappe, "get_doc")
+	def test_accounts_manager_disable_waits_for_ceo(self, get_doc, can_disable, role, ceo, companies, row, log, notify):
 		doc = MagicMock()
 		doc.name = "CCR-1"
 		doc.status = "Pending CEO"

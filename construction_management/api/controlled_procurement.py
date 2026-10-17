@@ -555,7 +555,7 @@ def get_workspace_context() -> dict:
 		"can_approve_catalog": _has_explicit_role("Accounts Manager") or _catalog_ceo(),
 		"can_approve_catalog_accounts": _has_explicit_role("Accounts Manager"),
 		"can_approve_catalog_ceo": _catalog_ceo(),
-		"can_disable_catalog": _has_explicit_role("Accounts Manager") or _catalog_ceo(),
+		"can_disable_catalog": _can_request_catalog_disable(),
 		"can_request_price_change": bool(roles.intersection(CATALOG_ROLES)),
 		"can_approve_price_change": _explicit_ceo(),
 		"can_approve_po_price_accounts": any(frappe.db.exists("Has Role", {
@@ -2266,6 +2266,15 @@ def _catalog_ceo(user: str | None = None) -> bool:
 	return user in CATALOG_CEO_USERS and _has_explicit_role("CEO", user)
 
 
+def _can_request_catalog_disable(user: str | None = None) -> bool:
+	"""Accounts Manager, Purchase Manager, or catalog CEO may request disable."""
+	return (
+		_has_explicit_role("Accounts Manager", user)
+		or _has_explicit_role("Purchase Manager", user)
+		or _catalog_ceo(user)
+	)
+
+
 def _catalog_request_origin(requested: str | None = None) -> str:
 	if requested and requested not in {"Purchase", "Accounts"}:
 		frappe.throw(_("Select Purchase or Accounts as the request origin."))
@@ -2648,8 +2657,8 @@ def _validate_catalog_disable_row(row) -> None:
 
 @frappe.whitelist(methods=["POST"])
 def create_catalog_disable_request(item_code: str, reason: str, company: str = "") -> dict:
-	if not (_has_explicit_role("Accounts Manager") or _catalog_ceo()):
-		frappe.throw(_("Only Accounts Manager or CEO can request item disabling."), frappe.PermissionError)
+	if not _can_request_catalog_disable():
+		frappe.throw(_("Only Accounts Manager, Purchase Manager, or CEO can request item disabling."), frappe.PermissionError)
 	company = company or _active_company()
 	if not company or company not in _allowed_companies():
 		frappe.throw(_("You do not have access to this company."), frappe.PermissionError)
@@ -2657,9 +2666,10 @@ def create_catalog_disable_request(item_code: str, reason: str, company: str = "
 	if not reason:
 		frappe.throw(_("A reason is required to disable an item."))
 	row = _catalog_disable_row(item_code)
+	origin = "Accounts" if (_has_explicit_role("Accounts Manager") or _catalog_ceo()) else "Purchase"
 	doc = frappe.get_doc({
 		"doctype": "Controlled Catalog Request", "company": company, "source": "Manual",
-		"request_origin": "Accounts", "requested_by": frappe.session.user,
+		"request_origin": origin, "requested_by": frappe.session.user,
 		"status": "Pending CEO", "disable_reason": reason, "items": [row],
 	})
 	_append_catalog_log(doc, "Created disable request", reason)
@@ -2885,8 +2895,8 @@ def resubmit_catalog_request(name: str, data: str | dict | None = None) -> dict:
 	if str(payload.get("expected_modified") or "") != str(doc.modified):
 		frappe.throw(_("This request changed since you opened it. Reload before resubmitting."))
 	if _is_catalog_disable_request(doc):
-		if not (_has_explicit_role("Accounts Manager") or _catalog_ceo()):
-			frappe.throw(_("Only Accounts Manager or CEO can resubmit a disable request."), frappe.PermissionError)
+		if not _can_request_catalog_disable():
+			frappe.throw(_("Only Accounts Manager, Purchase Manager, or CEO can resubmit a disable request."), frappe.PermissionError)
 		old_reason = doc.disable_reason or ""
 		doc.disable_reason = (payload.get("disable_reason") or "").strip()
 		if not doc.disable_reason:
@@ -3235,9 +3245,11 @@ CATALOG_ITEM_MASTER_TABLES = ("supplier_items",)
 
 def validate_item(doc, method=None) -> None:
 	api = getattr(doc.flags, "controlled_procurement_api", False)
-	if doc.is_new() and not _roles().intersection(ADMIN_ROLES) and not api:
+	roles = _roles()
+	if doc.is_new() and not roles.intersection(ADMIN_ROLES) and not api:
 		frappe.throw(_("Only CEO and System Manager can create items."), frappe.PermissionError)
-	if _catalog_item_master_guard(doc) and not api:
+	# System Manager / CEO may fix catalog Items in Desk; everyone else uses catalog requests.
+	if _catalog_item_master_guard(doc) and not api and not roles.intersection(ADMIN_ROLES):
 		frappe.throw(_("Create controlled catalog items through a catalog request."), frappe.PermissionError)
 	if cint(doc.get("controlled_procurement_catalog")) and not frappe.db.exists("UOM", doc.stock_uom):
 		frappe.throw(_("Controlled catalog items require a valid stock UOM."))

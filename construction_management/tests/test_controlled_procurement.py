@@ -680,10 +680,20 @@ class TestControlledProcurement(UnitTestCase):
 			controlled_procurement.validate_item(self._item_doc(changed=("item_name",)))
 
 	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
-	@patch("construction_management.api.controlled_procurement._roles", return_value={"System Manager"})
-	def test_validate_item_blocks_new_controlled_item(self, roles, exists):
-		with self.assertRaisesRegex(frappe.PermissionError, "catalog request"):
+	@patch("construction_management.api.controlled_procurement._roles", return_value={"Purchase User"})
+	def test_validate_item_blocks_new_item_for_purchase_user(self, roles, exists):
+		with self.assertRaisesRegex(frappe.PermissionError, "Only CEO and System Manager"):
 			controlled_procurement.validate_item(self._item_doc(is_new=True))
+
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
+	@patch("construction_management.api.controlled_procurement._roles", return_value={"System Manager"})
+	def test_validate_item_allows_master_change_for_system_manager(self, roles, exists):
+		controlled_procurement.validate_item(self._item_doc(changed=("item_name",)))
+
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
+	@patch("construction_management.api.controlled_procurement._roles", return_value={"CEO"})
+	def test_validate_item_allows_master_change_for_ceo(self, roles, exists):
+		controlled_procurement.validate_item(self._item_doc(changed=("stock_uom",)))
 
 	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
 	@patch("construction_management.api.controlled_procurement._roles", return_value={"Purchase User"})
