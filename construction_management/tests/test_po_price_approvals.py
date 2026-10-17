@@ -42,11 +42,12 @@ class TestPOPriceApprovals(UnitTestCase):
 	@patch.object(approvals.frappe, "get_cached_value", return_value="AED")
 	@patch.object(approvals.frappe.db, "get_value", return_value=frappe._dict(buying=1, enabled=1, currency="AED"))
 	@patch.object(approvals, "_current", return_value={"rate": 10, "price_list": "Standard Buying"})
-	def test_new_order_changed_rate_is_held_at_active_rate(self, current, get_value, currency):
+	def test_new_order_changed_rate_stays_on_po_row(self, current, get_value, currency):
 		rows = [{"item_code": "ITEM-1", "rate": 12, "rate_edited": True, "price_change_reason": "Supplier revision"}]
 		changes = approvals.prepare_rates("MRG", "SUP-1", "2026-10-02", rows)
-		self.assertEqual(rows[0]["rate"], 10)
+		self.assertEqual(rows[0]["rate"], 12)
 		self.assertEqual(changes[0]["rate"], 12)
+		self.assertEqual(changes[0]["old_po_rate"], 10)
 		self.assertEqual(changes[0]["reason"], "Supplier revision")
 
 	@patch.object(approvals, "_current", return_value={"rate": 15, "price_list": "Standard Buying"})
@@ -97,3 +98,18 @@ class TestPOPriceApprovals(UnitTestCase):
 			custom_po_price_proposal='{"po_modified":"earlier","requests":[],"changes":[]}')
 		self.assertEqual(approvals.approve_po_price("PO-1")["status"], "Needs Correction")
 		finish.assert_called_once()
+
+	@patch.object(approvals.frappe, "get_doc")
+	def test_restore_draft_po_rates_on_reject(self, get_doc):
+		row = SimpleNamespace(item_code="ITEM-1", rate=12)
+		po = MagicMock()
+		po.docstatus = 0
+		po.items = [row]
+		po.flags = SimpleNamespace()
+		get_doc.return_value = po
+		approvals._restore_draft_po_rates(
+			frappe._dict(name="PO-1", docstatus=0),
+			{"changes": [{"index": 0, "item_code": "ITEM-1", "rate": 12, "old_po_rate": 10}]},
+		)
+		self.assertEqual(row.rate, 10)
+		po.save.assert_called_once_with(ignore_permissions=True)

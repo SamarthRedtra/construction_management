@@ -36,7 +36,7 @@ def _current(item_code, supplier, company, date):
 
 
 def prepare_rates(company, supplier, date, rows, previous=None):
-	"""Keep active rates on the PO; hold only intentionally changed rates in a proposal."""
+	"""Stage intentional rate changes for CEO approval; keep the proposed rate on the PO draft."""
 	old_rows = list(previous.items) if previous else []
 	changes = []
 	for index, row in enumerate(rows):
@@ -63,11 +63,11 @@ def prepare_rates(company, supplier, date, rows, previous=None):
 		if not list_info or not cint(list_info.buying) or not cint(list_info.enabled) or list_info.currency != frappe.get_cached_value("Company", company, "default_currency"):
 			frappe.throw(_("Select an enabled buying Price List in the company currency before requesting this rate."))
 		# General fallback is read-only for this supplier: approval creates its supplier price.
+		# PO line keeps `proposed`; catalog Item Price updates only after CEO approval.
 		changes.append({"index": index, "item_code": code, "rate": proposed, "reason": reason,
 			"price_list": price_list, "old_po_rate": flt(old.rate) if old else active_rate,
 			"old_active_rate": active_rate, "old_active_supplier": active.get("supplier") or "",
 			"old_active_item_price": active.get("item_price") or ""})
-		row["rate"] = flt(old.rate) if old else (active_rate if active_rate is not None else 0)
 	return changes
 
 
@@ -233,11 +233,14 @@ def _history(doc, action, comment=""):
 
 
 def _finish(doc, status, comment=""):
+	proposal = json.loads(doc.get("custom_po_price_proposal") or "{}")
 	frappe.db.set_value("Purchase Order", doc.name, {
 		"custom_po_price_status": status, "custom_po_price_history": _history(doc, status, comment),
 		"custom_po_price_proposal": None,
 	}, update_modified=False)
-	for name in json.loads(doc.custom_po_price_proposal or "{}").get("requests", []):
+	if status in {"Rejected", "Needs Correction"}:
+		_restore_draft_po_rates(doc, proposal)
+	for name in proposal.get("requests", []):
 		request = frappe.get_doc("Controlled Buying Price Request", name)
 		if request.status == "Pending CEO":
 			request.status = status
@@ -246,6 +249,34 @@ def _finish(doc, status, comment=""):
 			request.decided_on = now_datetime()
 			request.decision_comment = comment
 			prices._save_request(request)
+
+
+def _restore_draft_po_rates(doc, proposal: dict) -> None:
+	"""Put rejected / invalid proposals back to the prior PO rates on draft orders."""
+	if cint(doc.docstatus) != 0:
+		return
+	changes = proposal.get("changes") or []
+	if not changes:
+		return
+	po = frappe.get_doc("Purchase Order", doc.name)
+	changed = False
+	for change in changes:
+		index = change.get("index")
+		if index is None or index >= len(po.items):
+			continue
+		row = po.items[index]
+		if row.item_code != change.get("item_code"):
+			continue
+		old_rate = change.get("old_po_rate")
+		if old_rate is None or flt(row.rate) == flt(old_rate):
+			continue
+		row.rate = flt(old_rate)
+		changed = True
+	if not changed:
+		return
+	po.flags.controlled_procurement_api = True
+	po.flags.lpo_workflow_transition = True
+	po.save(ignore_permissions=True)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -282,8 +313,10 @@ def approve_po_price(name: str, comment: str = "") -> dict:
 		frappe.flags.controlled_po_price_apply = True
 		try:
 			if proposal.get("submitted_items") is not None:
-				from erpnext.accounts.services.child_item_update import update_child_qty_rate
-				update_child_qty_rate("Purchase Order", json.dumps(proposal["submitted_items"]), name)
+				from construction_management.api.controlled_procurement import _erpnext_update_child_qty_rate
+				_erpnext_update_child_qty_rate()(
+					"Purchase Order", json.dumps(proposal["submitted_items"]), name,
+				)
 			else:
 				doc.reload()
 				for change in proposal["changes"]:

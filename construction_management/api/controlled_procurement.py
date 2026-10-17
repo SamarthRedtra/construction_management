@@ -759,12 +759,32 @@ def get_tax_options(company: str = "") -> dict:
 	}
 
 
+def _erpnext_get_taxes_and_charges():
+	"""ERPNext moved this helper; try both locations for bench compatibility."""
+	try:
+		from erpnext.controllers.accounts_controller import get_taxes_and_charges
+		return get_taxes_and_charges
+	except ImportError:
+		from erpnext.accounts.services.taxes import get_taxes_and_charges
+		return get_taxes_and_charges
+
+
+def _erpnext_update_child_qty_rate():
+	"""ERPNext moved this helper; try both locations for bench compatibility."""
+	try:
+		from erpnext.controllers.accounts_controller import update_child_qty_rate
+		return update_child_qty_rate
+	except ImportError:
+		from erpnext.accounts.services.child_item_update import update_child_qty_rate
+		return update_child_qty_rate
+
+
 def _apply_taxes(doc, taxes_and_charges: str | None, vat_by_row: list[str] | None = None) -> None:
 	"""Load the header tax template and tag Zero-rated / Exempt lines with their Item Tax Template.
 
 	ERPNext rebuilds each line's tax map from these on save, so the template is all a line needs.
 	"""
-	from erpnext.accounts.services.taxes import get_taxes_and_charges
+	get_taxes_and_charges = _erpnext_get_taxes_and_charges()
 
 	doc.set("taxes", [])
 	doc.taxes_and_charges = taxes_and_charges or None
@@ -1601,7 +1621,7 @@ def update_purchase_order_items(name: str, items: str | list) -> dict:
 
 	Lines already received cannot go below their received qty or be removed; ERPNext enforces that.
 	"""
-	from erpnext.accounts.services.child_item_update import update_child_qty_rate
+	update_child_qty_rate = _erpnext_update_child_qty_rate()
 
 	po = _controlled_doc("Purchase Order", name, "write")
 	if po.get("custom_po_price_status") in {"Pending Accounts", "Pending CEO"}:
