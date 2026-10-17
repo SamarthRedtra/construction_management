@@ -132,6 +132,26 @@ class TestProcurementRevisions(UnitTestCase):
 		amended.insert.assert_called_once()
 		self.assertEqual(result["name"], "GRN-1-1")
 
+	@patch("construction_management.api.controlled_procurement.frappe.copy_doc")
+	@patch("construction_management.api.controlled_procurement._controlled_doc")
+	def test_amend_purchase_order_clears_creation_request_id(self, controlled_doc, copy_doc):
+		original = MagicMock()
+		original.name = "PUR-ORD-1"
+		original.docstatus = 2
+		original.get = MagicMock(side_effect=lambda key, default=None: {
+			"controlled_procurement": 1, "custom_lpo_type": "Standard",
+		}.get(key, default))
+		controlled_doc.return_value = original
+		amended = MagicMock()
+		amended.name = "PUR-ORD-1-1"
+		amended.docstatus = 0
+		amended.custom_creation_request_id = "5986ee97-755b-411c-8f33-652c5c5f2c35"
+		copy_doc.return_value = amended
+		result = procurement.amend_purchase_order("PUR-ORD-1")
+		self.assertIsNone(amended.custom_creation_request_id)
+		amended.insert.assert_called_once()
+		self.assertEqual(result["name"], "PUR-ORD-1-1")
+
 	@patch("construction_management.api.controlled_procurement._controlled_doc")
 	def test_cancellation_restrictions_are_not_bypassed(self, controlled_doc):
 		doc = controlled_doc.return_value

@@ -1274,6 +1274,8 @@ def amend_purchase_order(name: str) -> dict:
 		frappe.throw(_("Cancel the Purchase Order before amending it."))
 	amended = frappe.copy_doc(doc)
 	amended.amended_from = doc.name
+	# copy_doc defaults to ignore_no_copy=True; clear the unique create idempotency key.
+	amended.custom_creation_request_id = None
 	amended.custom_lpo_approval_status = "Draft" if doc.get("custom_lpo_type") == "Manual" else None
 	amended.custom_lpo_approval_history = None
 	amended.flags.controlled_procurement_api = True
