@@ -169,11 +169,14 @@ def _enqueue_notice(name: str) -> None:
 	))
 
 
-def _enqueue_catalog_notice(name: str) -> None:
-	frappe.db.after_commit.add(lambda: frappe.enqueue(
-		"construction_management.api.controlled_price_requests.deliver_catalog_notice",
-		queue="short", request_name=name,
-	))
+def _enqueue_catalog_notice(name: str, expected_status: str | None = None) -> None:
+	def enqueue(name=name, expected_status=expected_status):
+		frappe.enqueue(
+			"construction_management.api.controlled_price_requests.deliver_catalog_notice",
+			queue="short", request_name=name, expected_status=expected_status,
+		)
+
+	frappe.db.after_commit.add(enqueue)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -377,29 +380,31 @@ def deliver_price_notice(request_name: str) -> None:
 	_save_request(doc)
 
 
-def deliver_catalog_notice(request_name: str) -> None:
+def deliver_catalog_notice(request_name: str, expected_status: str | None = None) -> None:
 	doc = frappe.get_doc("Controlled Catalog Request", request_name)
-	if doc.status != "Pending CEO":
+	status = expected_status or doc.status
+	if status not in {"Pending Accounts", "Pending CEO", "Needs Correction"}:
 		return
-	from construction_management.api.catalog_email import catalog_approval_recipients
-
-	recipients = [user for user in catalog_approval_recipients(doc.company, "Pending CEO")
-		if frappe.db.exists("Raven User", {"user": user, "enabled": 1})]
+	if doc.status != status:
+		return
+	recipients, text, empty_error = _catalog_raven_payload(doc, status)
 	delivered = set(json.loads(doc.price_notified_users or "[]"))
 	errors = []
 	if not recipients:
-		errors.append("No enabled Raven catalogue CEO has access to this company.")
+		errors.append(empty_error)
 	for user in recipients:
 		frappe.db.sql("select name from `tabControlled Catalog Request` where name = %s for update", request_name)
 		doc.reload()
+		if doc.status != status:
+			return
 		delivered = set(json.loads(doc.price_notified_users or "[]"))
 		if user in delivered:
 			continue
 		try:
 			bot = frappe.get_doc("Raven Bot", "procurement bot")
-			message = bot.send_direct_message(user,
-				text=f"Catalog request {doc.name} awaits CEO approval for {doc.company}.",
-				link_doctype=doc.doctype, link_document=doc.name)
+			message = bot.send_direct_message(
+				user, text=text, link_doctype=doc.doctype, link_document=doc.name,
+			)
 			if not message:
 				raise RuntimeError("Raven returned no message")
 			delivered.add(user)
@@ -416,6 +421,31 @@ def deliver_catalog_notice(request_name: str) -> None:
 	doc.save(ignore_permissions=True)
 
 
+def _catalog_raven_payload(doc, status: str) -> tuple[list[str], str, str]:
+	from construction_management.api.catalog_email import catalog_approval_recipients
+
+	if status == "Needs Correction":
+		requester = doc.requested_by
+		recipients = [requester] if requester and frappe.db.exists(
+			"Raven User", {"user": requester, "enabled": 1},
+		) else []
+		reason = (doc.rejection_reason or "").strip()
+		text = f"Catalog request {doc.name} needs correction for {doc.company}."
+		if reason:
+			text = f"{text} Reason: {reason}"
+		return recipients, text, "Requester has no enabled Raven user."
+
+	stage = "Accounts" if status == "Pending Accounts" else "CEO"
+	candidates = catalog_approval_recipients(doc.company, status, doc.requested_by)
+	recipients = [
+		user for user in candidates
+		if frappe.db.exists("Raven User", {"user": user, "enabled": 1})
+	]
+	text = f"Catalog request {doc.name} awaits {stage} approval for {doc.company}."
+	empty_error = f"No enabled Raven catalogue {stage} has access to this company."
+	return recipients, text, empty_error
+
+
 @frappe.whitelist(methods=["POST"])
 def retry_price_notice(name: str) -> dict:
 	doc = frappe.get_doc("Controlled Buying Price Request", name)
@@ -430,11 +460,11 @@ def retry_price_notice(name: str) -> dict:
 def retry_catalog_price_notice(name: str) -> dict:
 	doc = frappe.get_doc("Controlled Catalog Request", name)
 	_require_company(doc.company)
-	from construction_management.api.controlled_procurement import _catalog_ceo
+	from construction_management.api.controlled_procurement import _can_approve_catalog, _catalog_ceo
 
-	if frappe.session.user != doc.requested_by and not _catalog_ceo():
+	if frappe.session.user != doc.requested_by and not _catalog_ceo() and not _can_approve_catalog(doc):
 		frappe.throw(_("Only the requester or an approver can retry notifications."), frappe.PermissionError)
-	if doc.status != "Pending CEO":
-		frappe.throw(_("This catalogue request has no pending CEO decision."))
-	_enqueue_catalog_notice(name)
+	if doc.status not in {"Pending Accounts", "Pending CEO"}:
+		frappe.throw(_("This catalogue request has no pending approval notification."))
+	_enqueue_catalog_notice(doc.name, doc.status)
 	return {"name": name, "notification_status": "Retry queued"}

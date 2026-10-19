@@ -107,14 +107,6 @@ async function retryPriceNotice(request) {
 	catch (error) { toastError(error) }
 }
 
-async function retryApprovalEmail(request) {
-	try {
-		await call("retry_catalog_approval_email", { name: request.name })
-		toast("Approval email retry queued")
-		await showRequest(request)
-	} catch (error) { toastError(error) }
-}
-
 onMounted(async () => {
 	await loadRequests()
 	if (route.query.request) await showRequest({ name: route.query.request })
@@ -162,8 +154,7 @@ onMounted(async () => {
 			<h3 class="cp-section-title">Item details · Current vs proposed</h3>
 			<CatalogRequestItemReview v-for="(row, index) in requestDetail.items" :key="row.name" :row="row" :current="requestDetail.review?.[row.name] || null" :currency="requestDetail.currency" :initially-open="index === 0" />
 		</template>
-		<p v-if="requestDetail.status.startsWith('Pending')">Approval email: {{ requestDetail.approval_email_status || (requestDetail.approval_email_error ? "Failed to queue" : "Queueing") }}<span v-if="requestDetail.approval_email_error"> — {{ requestDetail.approval_email_error }}</span> <button v-if="requestDetail.approval_email_error || ['Error', 'Partially Sent'].includes(requestDetail.approval_email_status)" class="cp-btn sm" @click="retryApprovalEmail(requestDetail)">Retry email</button></p>
-		<p v-if="requestDetail.price_notification_status">CEO Raven notification: {{ requestDetail.price_notification_status }}<span v-if="requestDetail.price_notification_error"> — {{ requestDetail.price_notification_error }}</span> <button v-if="requestDetail.price_notification_status === 'Failed'" class="cp-btn sm" @click="retryPriceNotice(requestDetail)">Retry Raven</button></p>
+		<p v-if="requestDetail.price_notification_status">Raven notification: {{ requestDetail.price_notification_status }}<span v-if="requestDetail.price_notification_error"> — {{ requestDetail.price_notification_error }}</span> <button v-if="requestDetail.price_notification_status === 'Failed'" class="cp-btn sm" @click="retryPriceNotice(requestDetail)">Retry Raven</button></p>
 		<h3 class="cp-section-title">Approval process</h3>
 		<ul><li v-for="log in requestDetail.approval_log" :key="log.name"><strong>{{ log.action }}</strong> · {{ log.actor }} · {{ log.actioned_on }}<template v-if="log.comment"> — {{ log.comment }}</template></li></ul>
 		<template #footer>

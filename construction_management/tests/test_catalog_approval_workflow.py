@@ -325,26 +325,68 @@ class TestCatalogApprovalWorkflow(UnitTestCase):
 			self.assertEqual(catalog_email.catalog_approval_recipients("MRG", "Pending CEO"),
 				["faraaz@mrggroup.ae", "salman@mrggroup.ae"])
 
-	@patch.object(catalog_email, "outgoing_sender", return_value="purchase@mrggroup.ae")
-	@patch.object(catalog_email, "catalog_approval_recipients", return_value=["manager@example.com"])
-	@patch.object(catalog_email.frappe, "sendmail", return_value=SimpleNamespace(name="QUEUE-1"))
-	@patch.object(catalog_email.frappe, "get_doc")
-	def test_approval_email_creates_traceable_queue(self, get_doc, sendmail, recipients, sender):
+	@patch("construction_management.api.controlled_price_requests._enqueue_catalog_notice")
+	@patch("construction_management.api.catalog_email.enqueue_approval_email")
+	def test_queue_catalog_notices_raven_only_for_pending_stages(self, email, raven):
+		catalog._queue_catalog_notices(SimpleNamespace(name="CCR-1", status="Pending Accounts"))
+		email.assert_not_called()
+		raven.assert_called_once_with("CCR-1", "Pending Accounts")
+		email.reset_mock()
+		raven.reset_mock()
+		catalog._queue_catalog_notices(SimpleNamespace(name="CCR-1", status="Pending CEO"))
+		email.assert_not_called()
+		raven.assert_called_once_with("CCR-1", "Pending CEO")
+		email.reset_mock()
+		raven.reset_mock()
+		catalog._queue_catalog_notices(SimpleNamespace(name="CCR-1", status="Approved"))
+		email.assert_not_called()
+		raven.assert_not_called()
+
+	@patch.object(catalog, "_queue_catalog_rejection_notice")
+	@patch.object(catalog, "_append_catalog_log")
+	@patch.object(catalog, "_can_approve_catalog", return_value=True)
+	@patch.object(catalog, "_allowed_companies", return_value=["MRG"])
+	@patch.object(catalog, "_require")
+	@patch.object(catalog.frappe, "get_doc")
+	def test_reject_enqueues_requester_raven_notice(
+		self, get_doc, require, companies, can_approve, log, reject_notice,
+	):
 		doc = MagicMock()
-		doc.status = "Pending Accounts"
-		doc.approval_email_queue = ""
 		doc.company = "MRG"
-		doc.requested_by = "buyer@example.com"
+		doc.status = "Pending Accounts"
 		doc.name = "CCR-1"
-		doc.doctype = "Controlled Catalog Request"
 		get_doc.return_value = doc
-		db = MagicMock()
-		db.get_value.return_value = "manager@example.com"
-		with patch.dict(frappe.__dict__, {"db": db}), patch.object(catalog_email.frappe.utils, "get_url", return_value="https://example.com/approvals"):
-			catalog_email.deliver_approval_email("CCR-1", "Pending Accounts")
-		self.assertEqual(doc.approval_email_queue, "QUEUE-1")
-		self.assertEqual(sendmail.call_args.kwargs["sender"], "purchase@mrggroup.ae")
-		doc.save.assert_called_once_with(ignore_permissions=True)
+		with patch.dict(frappe.__dict__, {"db": MagicMock()}):
+			result = catalog.reject_catalog_request("CCR-1", "Fix UOM")
+		self.assertEqual(result["status"], "Needs Correction")
+		self.assertEqual(doc.rejection_reason, "Fix UOM")
+		reject_notice.assert_called_once_with(doc)
+
+	@patch.object(catalog, "_require")
+	def test_retry_catalog_approval_email_is_disabled(self, require):
+		with self.assertRaisesRegex(frappe.ValidationError, "emails are disabled"):
+			catalog.retry_catalog_approval_email("CCR-1")
+
+	@patch("construction_management.api.controlled_price_requests.frappe.db.exists", return_value=True)
+	@patch("construction_management.api.catalog_email.catalog_approval_recipients", return_value=["accounts@example.com"])
+	def test_catalog_raven_payload_accounts_stage(self, recipients, exists):
+		from construction_management.api.controlled_price_requests import _catalog_raven_payload
+
+		users, text, _error = _catalog_raven_payload(SimpleNamespace(
+			name="CCR-1", company="MRG", requested_by="buyer@example.com", rejection_reason="",
+		), "Pending Accounts")
+		self.assertEqual(users, ["accounts@example.com"])
+		self.assertIn("Accounts approval", text)
+
+	@patch("construction_management.api.controlled_price_requests.frappe.db.exists", return_value=True)
+	def test_catalog_raven_payload_rejection_to_requester(self, exists):
+		from construction_management.api.controlled_price_requests import _catalog_raven_payload
+
+		users, text, _error = _catalog_raven_payload(SimpleNamespace(
+			name="CCR-1", company="MRG", requested_by="buyer@example.com", rejection_reason="Fix UOM",
+		), "Needs Correction")
+		self.assertEqual(users, ["buyer@example.com"])
+		self.assertIn("Fix UOM", text)
 
 	def test_document_activity_does_not_label_queued_mail_sent(self):
 		communication = SimpleNamespace(sent_or_received="Sent", delivery_status="")

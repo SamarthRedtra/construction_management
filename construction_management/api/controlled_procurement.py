@@ -2642,15 +2642,19 @@ def _append_catalog_log(doc, action: str, comment: str = "") -> None:
 
 
 def _queue_catalog_notices(doc) -> None:
+	"""Raven-only stage notices (no catalogue approval email)."""
 	if doc.status not in {"Pending Accounts", "Pending CEO"}:
 		return
-	from construction_management.api.catalog_email import enqueue_approval_email
+	from construction_management.api.controlled_price_requests import _enqueue_catalog_notice
 
-	enqueue_approval_email(doc.name, doc.status)
-	if doc.status == "Pending CEO":
-		from construction_management.api.controlled_price_requests import _enqueue_catalog_notice
+	_enqueue_catalog_notice(doc.name, doc.status)
 
-		_enqueue_catalog_notice(doc.name)
+
+def _queue_catalog_rejection_notice(doc) -> None:
+	"""Tell the requester on Raven that Accounts/CEO sent the request back."""
+	from construction_management.api.controlled_price_requests import _enqueue_catalog_notice
+
+	_enqueue_catalog_notice(doc.name, "Needs Correction")
 
 
 def _is_catalog_disable_request(doc) -> bool:
@@ -2842,21 +2846,7 @@ def _can_approve_catalog(doc) -> bool:
 @frappe.whitelist(methods=["POST"])
 def retry_catalog_approval_email(name: str) -> dict:
 	_require(CATALOG_ROLES)
-	doc = frappe.get_doc("Controlled Catalog Request", name)
-	if doc.company not in _allowed_companies() or (frappe.session.user != doc.requested_by and not _can_approve_catalog(doc)):
-		frappe.throw(_("Not permitted"), frappe.PermissionError)
-	if doc.status not in {"Pending Accounts", "Pending CEO"}:
-		frappe.throw(_("Only pending catalogue requests can send approval email."))
-	queue_name = getattr(doc, "approval_email_queue", None)
-	if queue_name and frappe.db.get_value("Email Queue", queue_name, "status") not in {"Error", "Partially Sent"}:
-		frappe.throw(_("The approval email is already queued or delivered."))
-	_clear_catalog_approval_email(doc)
-	doc.flags.controlled_catalog_request_api = True
-	doc.save(ignore_permissions=True)
-	from construction_management.api.catalog_email import enqueue_approval_email
-
-	enqueue_approval_email(doc.name, doc.status)
-	return {"name": doc.name, "status": "Retry queued"}
+	frappe.throw(_("Catalogue approval emails are disabled. Use Raven notification retry instead."))
 
 
 @frappe.whitelist(methods=["POST"])
@@ -2898,9 +2888,13 @@ def reject_catalog_request(name: str, comment: str) -> dict:
 		frappe.throw(_("You cannot reject this catalog request."), frappe.PermissionError)
 	doc.status = "Needs Correction"
 	doc.rejection_reason = comment.strip()
+	doc.price_notified_users = ""
+	doc.price_notification_status = ""
+	doc.price_notification_error = ""
 	_clear_catalog_approval_email(doc)
 	_append_catalog_log(doc, "Rejected", doc.rejection_reason)
 	doc.save(ignore_permissions=True)
+	_queue_catalog_rejection_notice(doc)
 	return {"name": doc.name, "status": doc.status}
 
 
