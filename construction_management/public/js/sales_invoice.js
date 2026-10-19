@@ -72,6 +72,29 @@ frappe.ui.form.on('Sales Invoice', {
 		}
 	},
 
+	custom_retention_after_discount: function (frm) {
+		// Client-only recalc. Do not call recalculate_si_deductions here —
+		// that reloads from DB and clears this unsaved checkbox.
+		if (frm.doc.docstatus !== 0 || !frm.doc.project) {
+			return;
+		}
+		recalculate_deductions(frm);
+	},
+
+	discount_amount: function (frm) {
+		if (frm.doc.docstatus !== 0 || !cint(frm.doc.custom_retention_after_discount)) {
+			return;
+		}
+		recalculate_deductions(frm);
+	},
+
+	additional_discount_percentage: function (frm) {
+		if (frm.doc.docstatus !== 0 || !cint(frm.doc.custom_retention_after_discount)) {
+			return;
+		}
+		recalculate_deductions(frm);
+	},
+
 	refresh: function (frm) {
 		if (frm.doc.docstatus === 1 && !cint(frm.doc.is_return) &&
 			flt(frm.doc.outstanding_amount) > 0 && flt(frm.doc.outstanding_amount) <= 0.30) {
@@ -734,13 +757,25 @@ function recalculate_deductions(frm) {
 	if (frm._recalculating_deductions) return;
 	frm._recalculating_deductions = true;
 
+	const headerDiscount = flt(frm.doc.base_discount_amount) || flt(frm.doc.discount_amount);
+	const taxRate = (frm.doc.taxes || []).reduce((sum, row) => sum + flt(row.rate), 0) / 100;
+	const retentionDiscount = retention_discount_ex_vat(
+		headerDiscount,
+		frm.doc.apply_discount_on,
+		taxRate
+	);
+
 	// Get retention/advance percentages from server
 	frappe.call({
 		method: 'construction_management.api.boq_invoice.get_deduction_details',
 		args: {
 			project: frm.doc.project,
 			items: frm.doc.items,
-			invoice_name: frm.doc.name
+			invoice_name: frm.doc.name,
+			after_discount: cint(frm.doc.custom_retention_after_discount),
+			discount_amount: headerDiscount,
+			apply_discount_on: frm.doc.apply_discount_on,
+			tax_rate: taxRate,
 		},
 		callback: function (r) {
 			if (!r.message || !r.message.enable_progressive_boq) {
@@ -754,6 +789,8 @@ function recalculate_deductions(frm) {
 			const hasPerItemDeductions = (frm.doc.items || []).some(
 				i => _DEDUCTION_ITEMS.includes(i.item_code) && i.boq_item
 			);
+			const afterDiscount = cint(frm.doc.custom_retention_after_discount);
+			const discountAmount = retentionDiscount;
 
 			// Build a map of boq_item -> BOQ item amount (non-deduction items)
 			const boq_amounts = {};
@@ -762,6 +799,9 @@ function recalculate_deductions(frm) {
 					boq_amounts[item.boq_item] = flt(item.amount);
 				}
 			});
+			const discountShares = afterDiscount
+				? allocate_discount_shares_client(boq_amounts, discountAmount)
+				: {};
 
 			// Recalculate each per-item deduction row
 			let changed = false;
@@ -769,9 +809,13 @@ function recalculate_deductions(frm) {
 				if (!item.boq_item) return;
 
 				const parent_amount = boq_amounts[item.boq_item] || 0;
+				const retentionParent = Math.max(
+					0,
+					parent_amount - flt(discountShares[item.boq_item] || 0)
+				);
 
 				if (item.item_code === 'RETENTION-DEDUCTION' && retention_pct > 0) {
-					const new_retention = flt(parent_amount * retention_pct / 100, precision('rate', item));
+					const new_retention = flt(retentionParent * retention_pct / 100, precision('rate', item));
 					if (flt(item.rate) !== -new_retention) {
 						frappe.model.set_value(item.doctype, item.name, {
 							'rate': -new_retention,
@@ -849,6 +893,9 @@ function recalculate_deductions(frm) {
 				sync_global_deductions(frm, r.message);
 			}
 			frm.refresh_field('items');
+			if (afterDiscount && retention_pct > 0) {
+				converge_retention_from_net_amounts(frm, retention_pct);
+			}
 			construction_management.deduction_summary.render(frm);
 		},
 		always: function () {
@@ -857,14 +904,126 @@ function recalculate_deductions(frm) {
 	});
 }
 
+function converge_retention_from_net_amounts(frm, retention_pct) {
+	// Match server: retention = % of post-discount taxable (net_amount).
+	retention_pct = flt(retention_pct);
+	if (retention_pct <= 0) {
+		return;
+	}
+	for (let pass = 0; pass < 5; pass++) {
+		frm.trigger('calculate_taxes_and_totals');
+		const boqNets = {};
+		let serviceNet = 0;
+		(frm.doc.items || []).forEach((item) => {
+			if (_DEDUCTION_ITEMS.includes(item.item_code) || cint(item.custom_service_deduction)) {
+				return;
+			}
+			if (item.boq_item) {
+				boqNets[item.boq_item] = flt(boqNets[item.boq_item]) + flt(item.net_amount);
+			} else if (cint(item.custom_include_in_deductions)) {
+				serviceNet += flt(item.net_amount);
+			}
+		});
+		let changed = false;
+		(frm.doc.items || []).forEach((item) => {
+			if (item.item_code !== 'RETENTION-DEDUCTION') {
+				return;
+			}
+			let base = 0;
+			if (cint(item.custom_service_deduction)) {
+				base = Math.max(0, serviceNet);
+			} else if (item.boq_item) {
+				base = Math.max(0, flt(boqNets[item.boq_item]));
+			} else {
+				base = Math.max(
+					0,
+					Object.values(boqNets).reduce((s, v) => s + flt(v), 0) + serviceNet
+				);
+			}
+			const newAmt = flt((base * retention_pct) / 100, precision('rate', item));
+			if (flt(item.rate) !== -newAmt || flt(item.amount) !== -newAmt) {
+				item.qty = 1;
+				item.rate = -newAmt;
+				item.amount = -newAmt;
+				changed = true;
+			}
+		});
+		if (!changed) {
+			break;
+		}
+	}
+	frm.trigger('calculate_taxes_and_totals');
+	frm.refresh_field('items');
+}
+
+function retention_discount_ex_vat(discount, applyDiscountOn, taxRate) {
+	discount = flt(discount);
+	taxRate = flt(taxRate);
+	if (discount <= 0) {
+		return 0;
+	}
+	if (applyDiscountOn === 'Grand Total' && taxRate > 0) {
+		return flt(discount / (1 + taxRate), 2);
+	}
+	return discount;
+}
+
+function allocate_discount_shares_client(amounts, discount) {
+	discount = flt(discount);
+	const keys = Object.keys(amounts || {}).filter((key) => flt(amounts[key]) > 0);
+	const total = keys.reduce((sum, key) => sum + flt(amounts[key]), 0);
+	const shares = {};
+	if (discount <= 0 || total <= 0) {
+		Object.keys(amounts || {}).forEach((key) => {
+			shares[key] = 0;
+		});
+		return shares;
+	}
+	let allocated = 0;
+	keys.forEach((key, idx) => {
+		let share;
+		if (idx === keys.length - 1) {
+			share = flt(discount - allocated, 2);
+		} else {
+			share = flt((discount * flt(amounts[key])) / total, 2);
+			allocated += share;
+		}
+		shares[key] = Math.max(0, share);
+	});
+	Object.keys(amounts || {}).forEach((key) => {
+		if (shares[key] === undefined) {
+			shares[key] = 0;
+		}
+	});
+	return shares;
+}
+
 function sync_additional_service_deductions(frm, details) {
-	const serviceTotal = (frm.doc.items || []).reduce((total, item) => {
+	let serviceTotal = (frm.doc.items || []).reduce((total, item) => {
 		if (item.custom_include_in_deductions && !item.boq_item &&
 			!item.custom_service_deduction && !_DEDUCTION_ITEMS.includes(item.item_code)) {
 			return total + flt(item.amount);
 		}
 		return total;
 	}, 0);
+	if (cint(frm.doc.custom_retention_after_discount) && serviceTotal > 0) {
+		const workAmounts = { __services__: serviceTotal };
+		(frm.doc.items || []).forEach((item) => {
+			if (item.boq_item && !_DEDUCTION_ITEMS.includes(item.item_code) && !cint(item.custom_service_deduction)) {
+				workAmounts[item.boq_item] = flt(workAmounts[item.boq_item]) + flt(item.amount);
+			}
+		});
+		const taxRate = (frm.doc.taxes || []).reduce((sum, row) => sum + flt(row.rate), 0) / 100;
+		const shares = allocate_discount_shares_client(
+			workAmounts,
+			retention_discount_ex_vat(
+				flt(frm.doc.base_discount_amount) || flt(frm.doc.discount_amount),
+				frm.doc.apply_discount_on,
+				taxRate
+			)
+		);
+		serviceTotal = Math.max(0, serviceTotal - flt(shares.__services__ || 0));
+	}
 	const retention = Math.max(0, flt(serviceTotal) * flt(details.retention_percentage) / 100);
 	const boqAdvance = (frm.doc.items || []).reduce((total, item) =>
 		total + (item.item_code === 'ADVANCE-DEDUCTION' && item.boq_item && !item.custom_service_deduction

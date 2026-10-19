@@ -1397,6 +1397,154 @@ def resolve_advance_deduction_for_boq_items(
 	return flt(min(advance_deduction, max_from_pct, get_advance_balance(project)), 2)
 
 
+def get_additional_discount_amount(doc=None, discount_amount=None) -> float:
+	"""Document additional discount (header), as stored on the invoice."""
+	if discount_amount is not None and discount_amount != "":
+		return flt(discount_amount)
+	if not doc:
+		return 0.0
+	return flt(doc.get("base_discount_amount")) or flt(doc.get("discount_amount"))
+
+
+def _doc_effective_tax_rate(doc) -> float:
+	"""Sum of tax row rates as a decimal (5% → 0.05)."""
+	total = 0.0
+	for row in doc.get("taxes") or []:
+		rate = row.get("rate") if hasattr(row, "get") else getattr(row, "rate", 0)
+		total += flt(rate)
+	return total / 100.0
+
+
+def normalize_retention_discount(discount, apply_discount_on=None, tax_rate=0) -> float:
+	"""Convert header discount to the amount subtracted from pre-tax work."""
+	discount = flt(discount)
+	if discount <= 0:
+		return 0.0
+	if apply_discount_on == "Grand Total" and flt(tax_rate) > 0:
+		# Grand Total discount is VAT-inclusive; retention base is pre-tax.
+		return flt(discount / (1.0 + flt(tax_rate)), 2)
+	return discount
+
+
+def get_retention_discount_amount(doc=None, discount_amount=None) -> float:
+	"""Discount to subtract from pre-tax work when Retention After Discount is on."""
+	discount = get_additional_discount_amount(doc, discount_amount)
+	if discount <= 0 or not doc:
+		return discount
+	apply_on = doc.get("apply_discount_on") if hasattr(doc, "get") else None
+	return normalize_retention_discount(discount, apply_on, _doc_effective_tax_rate(doc))
+
+
+def get_retention_base_amount(
+	gross_work,
+	doc=None,
+	after_discount: bool = False,
+	discount_amount=None,
+	apply_discount_on=None,
+	tax_rate=None,
+) -> float:
+	"""Gross work, optionally reduced by retention discount (ex-VAT when needed)."""
+	base = flt(gross_work)
+	if not after_discount:
+		return base
+	if discount_amount is not None and apply_discount_on is not None:
+		retention_discount = normalize_retention_discount(
+			discount_amount, apply_discount_on, tax_rate or 0
+		)
+	else:
+		retention_discount = get_retention_discount_amount(doc, discount_amount)
+	return max(0.0, base - retention_discount)
+
+
+def allocate_discount_by_share(amounts: dict, discount: float) -> dict:
+	"""Pro-rate document discount across positive amount buckets (BOQ parents, etc.)."""
+	discount = flt(discount)
+	total = sum(flt(v) for v in amounts.values() if flt(v) > 0)
+	if discount <= 0 or total <= 0:
+		return {key: 0.0 for key in amounts}
+
+	shares = {}
+	allocated = 0.0
+	positive_keys = [key for key, value in amounts.items() if flt(value) > 0]
+	for idx, key in enumerate(positive_keys):
+		if idx == len(positive_keys) - 1:
+			share = flt(discount - allocated, 2)
+		else:
+			share = flt(discount * flt(amounts[key]) / total, 2)
+			allocated += share
+		shares[key] = max(0.0, share)
+	for key in amounts:
+		shares.setdefault(key, 0.0)
+	return shares
+
+
+_DEDUCTION_ITEM_CODES = ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION")
+
+
+def _work_net_bases_for_retention(doc, variance_item=None) -> tuple[dict, float]:
+	"""Post-discount taxable (net_amount) keyed by boq_item, plus additional-service net."""
+	boq_nets = {}
+	service_net = 0.0
+	for item in doc.get("items") or []:
+		if item.item_code in _DEDUCTION_ITEM_CODES or cint(item.get("custom_service_deduction")):
+			continue
+		if variance_item and item.item_code == variance_item:
+			continue
+		if item.get("boq_item"):
+			key = item.boq_item
+			boq_nets[key] = flt(boq_nets.get(key)) + flt(item.net_amount)
+		elif cint(item.get("custom_include_in_deductions")):
+			service_net += flt(item.net_amount)
+	return boq_nets, service_net
+
+
+def set_retention_from_work_net_amounts(doc, retention_pct, variance_item=None) -> bool:
+	"""Set retention rows to % of linked work net_amount (ERPNext taxable after discount).
+
+	Grand Total discount is allocated across work *and* retention, so the retention base
+	must match displayed taxable — not a work-only share of the header discount.
+	"""
+	retention_pct = flt(retention_pct)
+	if retention_pct <= 0:
+		return False
+
+	boq_nets, service_net = _work_net_bases_for_retention(doc, variance_item)
+	has_per_boq = any(
+		item.item_code == "RETENTION-DEDUCTION" and item.get("boq_item")
+		for item in doc.get("items") or []
+	)
+	changed = False
+	for item in doc.get("items") or []:
+		if item.item_code != "RETENTION-DEDUCTION":
+			continue
+		if cint(item.get("custom_service_deduction")):
+			base = max(0.0, service_net)
+		elif item.get("boq_item"):
+			base = max(0.0, flt(boq_nets.get(item.boq_item)))
+		elif not has_per_boq:
+			base = max(0.0, sum(boq_nets.values()) + service_net)
+		else:
+			continue
+		new_amt = flt(base * retention_pct / 100, 2)
+		if flt(item.amount) != -new_amt or flt(item.rate) != -new_amt:
+			item.qty = 1
+			item.rate = -new_amt
+			item.amount = -new_amt
+			changed = True
+	return changed
+
+
+def converge_retention_after_discount(doc, retention_pct, variance_item=None, max_passes: int = 5):
+	"""Recompute taxes and retention until retention = % of post-discount work taxable."""
+	if not cint(doc.get("custom_retention_after_discount")) or flt(retention_pct) <= 0:
+		return
+	for _ in range(max_passes):
+		doc.run_method("calculate_taxes_and_totals")
+		if not set_retention_from_work_net_amounts(doc, retention_pct, variance_item):
+			break
+	doc.run_method("calculate_taxes_and_totals")
+
+
 @frappe.whitelist()
 def get_deduction_details(
 	project: str,
@@ -1404,6 +1552,10 @@ def get_deduction_details(
 	invoice_name: str | None = None,
 	sales_order_name: str | None = None,
 	sales_order_names: str | list | None = None,
+	after_discount: int | str | None = None,
+	discount_amount=None,
+	apply_discount_on: str | None = None,
+	tax_rate=None,
 ) -> dict:
 	"""
 	Calculate available retention and advance deduction details for a project/invoice.
@@ -1414,6 +1566,8 @@ def get_deduction_details(
 		invoice_name: Name of current invoice to exclude from balance (optional)
 		sales_order_name: Draft SO name — advance lines on this order are added back to the pool for recalculation (optional)
 		sales_order_names: List of SO names — same add-back for combined SO invoicing (optional)
+		after_discount: When truthy, retention % uses gross work minus additional discount
+		discount_amount: Optional override for additional discount (company currency preferred)
 		
 	Returns:
 		dict with retention_percentage, available_advance, suggested_retention, suggested_advance,
@@ -1464,8 +1618,44 @@ def get_deduction_details(
 	else:
 		total_net_amount_for_advance = total_net_amount
 	
-	# Retention is usually on Gross Amount
-	suggested_retention = flt(total_gross_amount * retention_percentage / 100, 2)
+	# Retention is usually on Gross Amount; optionally after additional discount.
+	# When discount_amount is passed from the client/header, convert Grand Total
+	# (VAT-inclusive) discount to ex-VAT via apply_discount_on + tax_rate.
+	if cint(after_discount) and invoice_name and apply_discount_on is None:
+		si_meta = frappe.db.get_value(
+			"Sales Invoice",
+			invoice_name,
+			["apply_discount_on", "base_discount_amount", "discount_amount"],
+			as_dict=True,
+		)
+		if si_meta:
+			apply_discount_on = si_meta.apply_discount_on
+			if discount_amount in (None, ""):
+				discount_amount = (
+					flt(si_meta.base_discount_amount) or flt(si_meta.discount_amount)
+				)
+		if tax_rate is None:
+			tax_rate = (
+				flt(
+					frappe.db.sql(
+						"""
+						SELECT COALESCE(SUM(rate), 0) FROM `tabSales Taxes and Charges`
+						WHERE parent = %s AND parenttype = 'Sales Invoice'
+						""",
+						invoice_name,
+					)[0][0]
+				)
+				/ 100.0
+			)
+
+	retention_base = get_retention_base_amount(
+		total_gross_amount,
+		after_discount=cint(after_discount),
+		discount_amount=discount_amount,
+		apply_discount_on=apply_discount_on,
+		tax_rate=tax_rate,
+	)
+	suggested_retention = flt(retention_base * retention_percentage / 100, 2)
 	
 	available_advance = get_advance_balance(project)
 	
@@ -1518,6 +1708,8 @@ def get_deduction_details(
 		"suggested_retention": suggested_retention,
 		"suggested_advance": suggested_advance,
 		"total_billable_amount": total_gross_amount,
+		"retention_base_amount": retention_base,
+		"retention_after_discount": cint(after_discount),
 		"available_boq_balance": flt(available_boq_balance),
 		"enable_progressive_boq": enable_progressive_boq,
 		"skip_advance_boq_items": skip_advance_boq_items,
@@ -1883,6 +2075,7 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 			)
 
 		if project_doc.retention_percentage and flt(project_doc.retention_percentage) > 0:
+			# Initial amount; if Retention After Discount is on, adjusted after the loop.
 			retention_amount = flt(amt * flt(project_doc.retention_percentage) / 100, 2)
 			if retention_amount > 0:
 				retention_item_code = get_or_create_retention_item()
@@ -1906,6 +2099,8 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 					},
 				)
 
+	# After-discount retention converges after taxes (see converge_retention_after_discount).
+
 	skip_advance = doc_skips_advance_deduction(doc)
 	if skip_advance:
 		advance_base_items = []
@@ -1915,6 +2110,8 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 			doc.project,
 			items_for_deductions,
 			invoice_name=doc.name,
+			after_discount=cint(doc.get("custom_retention_after_discount")),
+			discount_amount=get_retention_discount_amount(doc),
 		)
 		advance_pct = flt(deduction_details.get("advance_percentage", 0))
 		available_advance = flt(deduction_details.get("available_advance", 0))
@@ -2029,7 +2226,11 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 			)
 
 	doc.flags.ignore_deduction_recalc = True
-	doc.run_method("calculate_taxes_and_totals")
+	retention_pct = flt(project_doc.retention_percentage)
+	if cint(doc.get("custom_retention_after_discount")) and retention_pct > 0:
+		converge_retention_after_discount(doc, retention_pct, variance_item)
+	else:
+		doc.run_method("calculate_taxes_and_totals")
 	doc.save()
 
 	return {
