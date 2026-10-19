@@ -325,6 +325,30 @@ class TestCatalogApprovalWorkflow(UnitTestCase):
 			self.assertEqual(catalog_email.catalog_approval_recipients("MRG", "Pending CEO"),
 				["faraaz@mrggroup.ae", "salman@mrggroup.ae"])
 
+	@patch.object(catalog_email.frappe, "get_all")
+	def test_accounts_recipients_exclude_catalog_ceo_users(self, get_all):
+		# Faraaz is Accounts Manager and catalog CEO; Accounts stage must skip him.
+		def get_all_side_effect(*args, **kwargs):
+			filters = kwargs.get("filters") or {}
+			if filters.get("role") == "Accounts Manager":
+				return ["accounts@example.com", "faraaz@mrggroup.ae"]
+			if filters.get("role") == "CEO":
+				return ["faraaz@mrggroup.ae", "salman@mrggroup.ae"]
+			return []
+
+		get_all.side_effect = get_all_side_effect
+		db = MagicMock()
+		db.exists.return_value = True
+		with patch.dict(frappe.__dict__, {"db": db}):
+			self.assertEqual(
+				catalog_email.catalog_approval_recipients("MRG", "Pending Accounts"),
+				["accounts@example.com"],
+			)
+			self.assertEqual(
+				catalog_email.catalog_approval_recipients("MRG", "Pending CEO"),
+				["faraaz@mrggroup.ae", "salman@mrggroup.ae"],
+			)
+
 	@patch("construction_management.api.controlled_price_requests._enqueue_catalog_notice")
 	@patch("construction_management.api.catalog_email.enqueue_approval_email")
 	def test_queue_catalog_notices_raven_only_for_pending_stages(self, email, raven):

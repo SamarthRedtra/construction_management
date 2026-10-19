@@ -38,6 +38,9 @@ def catalog_approval_recipients(company: str, status: str, requester: str = "") 
 	users = set(frappe.get_all("Has Role", filters={"role": role, "parenttype": "User"}, pluck="parent", limit_page_length=0))
 	if status == "Pending CEO":
 		users &= CATALOG_CEO_USERS
+	elif status == "Pending Accounts":
+		# CEOs wait until Pending CEO even if they also have Accounts Manager.
+		users -= CATALOG_CEO_USERS
 	recipients = []
 	for user in sorted(users):
 		if status == "Pending Accounts" and user == requester:
