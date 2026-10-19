@@ -76,6 +76,9 @@ def validate_purchase_order(doc, method=None):
 		return
 	if getattr(frappe.flags, "controlled_po_price_apply", False):
 		return
+	# Always block submit while a price proposal is pending (API flag skips draft save checks).
+	if getattr(doc, "_action", None) == "submit" and doc.get("custom_po_price_status") in {"Pending Accounts", "Pending CEO"}:
+		frappe.throw(_("This Purchase Order is pending CEO price approval and cannot be submitted."), frappe.PermissionError)
 	if getattr(doc.flags, "controlled_procurement_api", False):
 		return  # Workspace endpoints supersede and stage proposals atomically.
 	previous = doc.get_doc_before_save() if not doc.is_new() else None

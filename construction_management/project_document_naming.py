@@ -67,15 +67,13 @@ def allocate_project_document_name(doc) -> str | None:
 
 	period = get_project_document_period(doc)
 	combined_invoice = is_combined_sales_invoice(doc)
-	if combined_invoice:
-		series_prefix = f"{prefix}/{period}/"
-	else:
-		project_no = frappe.db.get_value("Project", doc.project, "custom_project_no")
-		if not project_no:
-			frappe.throw(
-				_("Project {0} needs a Project No before creating {1}.").format(doc.project, doc.doctype)
-			)
-		series_prefix = f"{prefix}/{project_no}/{period}/"
+	project_no = frappe.db.get_value("Project", doc.project, "custom_project_no")
+	if not project_no:
+		frappe.throw(
+			_("Project {0} needs a Project No before creating {1}.").format(doc.project, doc.doctype)
+		)
+	# Combined and normal TINVs both include Project No; combined period is MonthYY[-…].
+	series_prefix = f"{prefix}/{project_no}/{period}/"
 
 	if doc.doctype == "Sales Invoice" and not combined_invoice:
 		_seed_invoice_series(series_prefix, f"SINV/{project_no}/{period}/")

@@ -76,6 +76,7 @@ class TestProjectDocumentNaming(UnitTestCase):
 
 	@patch("construction_management.project_document_naming.getseries", return_value="1")
 	@patch("construction_management.project_document_naming._seed_invoice_series")
+	@patch("construction_management.project_document_naming.frappe.db.get_value", return_value="1033")
 	@patch(
 		"construction_management.project_document_naming.frappe.get_all",
 		return_value=[
@@ -83,7 +84,7 @@ class TestProjectDocumentNaming(UnitTestCase):
 			frappe._dict(name="PINV/1033/2025-OCT/2", transaction_date="2025-10-23"),
 		],
 	)
-	def test_combined_sales_invoice_uses_the_source_month(self, get_all, seed, getseries):
+	def test_combined_sales_invoice_uses_the_source_month(self, get_all, get_value, seed, getseries):
 		doc = frappe._dict(
 			doctype="Sales Invoice",
 			project="PROJECT-1033",
@@ -91,12 +92,13 @@ class TestProjectDocumentNaming(UnitTestCase):
 			custom_source_sales_orders="PINV/1033/2025-OCT/1, PINV/1033/2025-OCT/2",
 		)
 		assign_project_document_name(doc)
-		self.assertEqual(doc.name, "TINV/October25/1")
+		self.assertEqual(doc.name, "TINV/1033/October25/1")
 		seed.assert_not_called()
-		getseries.assert_called_once_with("TINV/October25/", 1)
+		getseries.assert_called_once_with("TINV/1033/October25/", 1)
 
 	@patch("construction_management.project_document_naming.getseries", return_value="1")
 	@patch("construction_management.project_document_naming._seed_invoice_series")
+	@patch("construction_management.project_document_naming.frappe.db.get_value", return_value="1033")
 	@patch(
 		"construction_management.project_document_naming.frappe.get_all",
 		return_value=[
@@ -105,7 +107,7 @@ class TestProjectDocumentNaming(UnitTestCase):
 			frappe._dict(name="PINV/1033/2026-JUL/1", transaction_date="2026-07-12"),
 		],
 	)
-	def test_combined_sales_invoice_uses_an_ordered_cross_month_range(self, get_all, seed, getseries):
+	def test_combined_sales_invoice_uses_an_ordered_cross_month_range(self, get_all, get_value, seed, getseries):
 		doc = frappe._dict(
 			doctype="Sales Invoice",
 			project="PROJECT-1033",
@@ -116,11 +118,12 @@ class TestProjectDocumentNaming(UnitTestCase):
 
 		assign_project_document_name(doc)
 
-		self.assertEqual(doc.name, "TINV/June26-July26-August26/1")
+		self.assertEqual(doc.name, "TINV/1033/June26-July26-August26/1")
 		seed.assert_not_called()
-		getseries.assert_called_once_with("TINV/June26-July26-August26/", 1)
+		getseries.assert_called_once_with("TINV/1033/June26-July26-August26/", 1)
 
 	@patch("construction_management.project_document_naming.getseries", return_value="2")
+	@patch("construction_management.project_document_naming.frappe.db.get_value", return_value="1033")
 	@patch(
 		"construction_management.project_document_naming.frappe.get_all",
 		return_value=[
@@ -128,7 +131,9 @@ class TestProjectDocumentNaming(UnitTestCase):
 			frappe._dict(name="PINV/1033/2026-JUN/2", transaction_date="2026-06-27"),
 		],
 	)
-	def test_combined_sales_invoice_collapses_duplicate_months_and_increments_series(self, get_all, getseries):
+	def test_combined_sales_invoice_collapses_duplicate_months_and_increments_series(
+		self, get_all, get_value, getseries
+	):
 		doc = frappe._dict(
 			doctype="Sales Invoice",
 			project="PROJECT-1033",
@@ -137,8 +142,8 @@ class TestProjectDocumentNaming(UnitTestCase):
 
 		assign_project_document_name(doc)
 
-		self.assertEqual(doc.name, "TINV/June26/2")
-		getseries.assert_called_once_with("TINV/June26/", 1)
+		self.assertEqual(doc.name, "TINV/1033/June26/2")
+		getseries.assert_called_once_with("TINV/1033/June26/", 1)
 
 	@patch(
 		"construction_management.project_document_naming.frappe.get_all",

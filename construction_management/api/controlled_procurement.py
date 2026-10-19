@@ -1986,6 +1986,10 @@ def submit_document(doctype: str, name: str) -> dict:
 		from construction_management.api.lpo_workflow import lpo_type
 		if cint(doc.get("controlled_procurement")) and lpo_type(doc) == "Manual":
 			frappe.throw(_("Send this Manual LPO for Accounts and CEO approval instead of submitting it directly."))
+		# Defense in depth: do not rely only on before_submit when API flag skips validate.
+		price_status = frappe.db.get_value("Purchase Order", name, "custom_po_price_status")
+		if cint(doc.get("controlled_procurement")) and price_status in {"Pending Accounts", "Pending CEO"}:
+			frappe.throw(_("This Purchase Order is pending CEO price approval and cannot be submitted."), frappe.PermissionError)
 	doc.flags.controlled_procurement_api = True
 	doc.submit()
 	return {"doctype": doctype, "name": doc.name, "docstatus": doc.docstatus}

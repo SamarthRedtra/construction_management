@@ -80,6 +80,33 @@ class TestPOPriceApprovals(UnitTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			approvals.before_submit_purchase_order(doc)
 
+	def test_validate_blocks_submit_even_with_api_flag(self):
+		doc = frappe._dict(
+			controlled_procurement=1,
+			custom_po_price_status="Pending CEO",
+			_action="submit",
+			flags=SimpleNamespace(controlled_procurement_api=True),
+		)
+		with self.assertRaisesRegex(frappe.PermissionError, "cannot be submitted"):
+			approvals.validate_purchase_order(doc)
+
+	@patch("construction_management.api.controlled_procurement._controlled_doc")
+	@patch("construction_management.api.controlled_procurement.frappe.db.get_value", return_value="Pending CEO")
+	def test_submit_document_blocks_pending_price_po(self, get_value, controlled_doc):
+		from construction_management.api import controlled_procurement as procurement
+
+		doc = MagicMock()
+		doc.docstatus = 0
+		doc.controlled_procurement = 1
+		doc.get = MagicMock(side_effect=lambda key, default=None: {
+			"controlled_procurement": 1, "custom_lpo_type": "Standard",
+		}.get(key, default))
+		controlled_doc.return_value = doc
+		with patch("construction_management.api.lpo_workflow.lpo_type", return_value="Standard"):
+			with self.assertRaisesRegex(frappe.PermissionError, "cannot be submitted"):
+				procurement.submit_document("Purchase Order", "PO-1")
+		doc.submit.assert_not_called()
+
 	@patch.object(approvals.prices, "_require_company")
 	@patch.object(approvals.prices, "has_explicit_ceo_role", return_value=False)
 	@patch.object(approvals.frappe, "get_doc")

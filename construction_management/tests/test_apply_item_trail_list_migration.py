@@ -27,7 +27,65 @@ class TestApplyItemTrailListMigration(UnitTestCase):
 			"new_item_code": "",
 			"new_item_name": "New Name",
 			"action": "name_only",
+			"current_uom": "",
+			"trail_uom": "",
+			"uom_flag": "",
 		}])
+
+	def test_load_mapping_accepts_optional_uom_columns(self):
+		with NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as handle:
+			handle.write(
+				"old_item_code,new_item_code,new_item_name,action,current_uom,trail_uom,uom_flag\n"
+			)
+			handle.write("OLD-1,NEW-1,Pipe,rename_code,Nos,LM,yes\n")
+			path = handle.name
+		try:
+			rows = patch_mod.load_mapping_rows(path)
+		finally:
+			Path(path).unlink(missing_ok=True)
+		self.assertEqual(rows[0]["current_uom"], "Nos")
+		self.assertEqual(rows[0]["trail_uom"], "LM")
+		self.assertEqual(rows[0]["uom_flag"], "yes")
+		self.assertEqual(rows[0]["action"], "rename_code")
+
+	@patch.object(patch_mod.frappe.db, "get_value", return_value="Nos")
+	@patch.object(patch_mod.frappe.db, "exists", return_value=True)
+	def test_collect_uom_review_rows_flags_mismatch_and_merge(self, exists, get_value):
+		rows = [
+			{
+				"old_item_code": "OLD-1",
+				"new_item_code": "NEW-1",
+				"new_item_name": "Pipe",
+				"action": "rename_code",
+				"current_uom": "Nos",
+				"trail_uom": "LM",
+				"uom_flag": "yes",
+			},
+			{
+				"old_item_code": "OLD-2",
+				"new_item_code": "KEEP-2",
+				"new_item_name": "",
+				"action": "merge",
+				"current_uom": "Nos",
+				"trail_uom": "BAGS",
+				"uom_flag": "",
+			},
+			{
+				"old_item_code": "OLD-3",
+				"new_item_code": "",
+				"new_item_name": "Same",
+				"action": "name_only",
+				"current_uom": "Nos",
+				"trail_uom": "Nos",
+				"uom_flag": "",
+			},
+		]
+		flagged = patch_mod.collect_uom_review_rows(rows)
+		self.assertEqual(len(flagged), 2)
+		self.assertEqual(flagged[0]["old_item_code"], "OLD-1")
+		self.assertIn("uom_flag=yes", flagged[0]["reason"])
+		self.assertEqual(flagged[1]["old_item_code"], "OLD-2")
+		self.assertIn("merge not allowed", flagged[1]["reason"])
 
 	def test_validate_row_requires_name_for_name_only(self):
 		with self.assertRaises(frappe.ValidationError):
