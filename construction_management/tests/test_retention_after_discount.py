@@ -9,9 +9,9 @@ from frappe.utils import flt
 
 from construction_management.api.boq_invoice import (
 	allocate_discount_by_share,
+	allocate_retention_after_discount,
 	get_retention_base_amount,
 	normalize_retention_discount,
-	set_retention_from_work_net_amounts,
 )
 
 
@@ -80,38 +80,19 @@ class TestRetentionAfterDiscount(UnitTestCase):
 		self.assertEqual(retention_b, 270.0)
 		self.assertEqual(flt(retention_a + retention_b, 2), 900.0)
 
-	def test_grand_total_discount_is_converted_ex_vat_for_retention(self):
-		# Matches TINV/1177: discount 41485 on Grand Total @ 5% VAT
-		ex_vat = normalize_retention_discount(41485, "Grand Total", 0.05)
-		self.assertEqual(ex_vat, flt(41485 / 1.05, 2))
+	def test_tinv_1177_gross_minus_raw_discount(self):
+		# total work 82164.16 − discount 41485 = 40679.16 → 10% = 4067.92
+		work = 82164.16
+		discount = 41485.0
+		base = get_retention_base_amount(work, after_discount=True, discount_amount=discount)
+		self.assertEqual(flt(base, 2), 40679.16)
+		self.assertEqual(flt(base * 10 / 100, 2), 4067.92)
 
-	def test_retention_uses_work_net_amount_after_discount(self):
-		# Taxable after discount (ERPNext net_amount) is the retention base.
-		work = frappe._dict(
-			item_code="WORK",
-			boq_item="BOQ-A",
-			net_amount=37964.07,
-			custom_service_deduction=0,
-			custom_include_in_deductions=0,
-			amount=76828.16,
-			rate=128,
-			qty=1,
-		)
-		ret = frappe._dict(
-			item_code="RETENTION-DEDUCTION",
-			boq_item="BOQ-A",
-			net_amount=0,
-			custom_service_deduction=0,
-			amount=-3988.45,
-			rate=-3988.45,
-			qty=1,
-		)
-		doc = frappe._dict()
-		doc["items"] = [work, ret]
-		changed = set_retention_from_work_net_amounts(doc, 10)
-		self.assertTrue(changed)
-		self.assertEqual(flt(ret.amount, 2), -3796.41)
-		self.assertEqual(flt(ret.rate, 2), -3796.41)
+		amounts = {"BOQ-A": 76828.16, "BOQ-B": 5336.0}
+		by_boq = allocate_retention_after_discount(amounts, 10, discount)
+		self.assertEqual(flt(by_boq["BOQ-A"] + by_boq["BOQ-B"], 2), 4067.92)
 
-	def test_net_total_discount_is_not_converted(self):
+	def test_grand_total_discount_is_not_converted_ex_vat(self):
+		# Retention uses header discount as entered, including Grand Total.
+		self.assertEqual(normalize_retention_discount(41485, "Grand Total", 0.05), 41485)
 		self.assertEqual(normalize_retention_discount(41485, "Net Total", 0.05), 41485)

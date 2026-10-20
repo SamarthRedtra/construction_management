@@ -1406,33 +1406,14 @@ def get_additional_discount_amount(doc=None, discount_amount=None) -> float:
 	return flt(doc.get("base_discount_amount")) or flt(doc.get("discount_amount"))
 
 
-def _doc_effective_tax_rate(doc) -> float:
-	"""Sum of tax row rates as a decimal (5% → 0.05)."""
-	total = 0.0
-	for row in doc.get("taxes") or []:
-		rate = row.get("rate") if hasattr(row, "get") else getattr(row, "rate", 0)
-		total += flt(rate)
-	return total / 100.0
-
-
 def normalize_retention_discount(discount, apply_discount_on=None, tax_rate=0) -> float:
-	"""Convert header discount to the amount subtracted from pre-tax work."""
-	discount = flt(discount)
-	if discount <= 0:
-		return 0.0
-	if apply_discount_on == "Grand Total" and flt(tax_rate) > 0:
-		# Grand Total discount is VAT-inclusive; retention base is pre-tax.
-		return flt(discount / (1.0 + flt(tax_rate)), 2)
-	return discount
+	"""Header discount as entered (no VAT conversion). Kept for callers/tests."""
+	return max(0.0, flt(discount))
 
 
 def get_retention_discount_amount(doc=None, discount_amount=None) -> float:
-	"""Discount to subtract from pre-tax work when Retention After Discount is on."""
-	discount = get_additional_discount_amount(doc, discount_amount)
-	if discount <= 0 or not doc:
-		return discount
-	apply_on = doc.get("apply_discount_on") if hasattr(doc, "get") else None
-	return normalize_retention_discount(discount, apply_on, _doc_effective_tax_rate(doc))
+	"""Discount to subtract from work when Retention After Discount is on (raw header)."""
+	return get_additional_discount_amount(doc, discount_amount)
 
 
 def get_retention_base_amount(
@@ -1443,16 +1424,11 @@ def get_retention_base_amount(
 	apply_discount_on=None,
 	tax_rate=None,
 ) -> float:
-	"""Gross work, optionally reduced by retention discount (ex-VAT when needed)."""
+	"""Gross work, optionally reduced by the header discount amount as entered."""
 	base = flt(gross_work)
 	if not after_discount:
 		return base
-	if discount_amount is not None and apply_discount_on is not None:
-		retention_discount = normalize_retention_discount(
-			discount_amount, apply_discount_on, tax_rate or 0
-		)
-	else:
-		retention_discount = get_retention_discount_amount(doc, discount_amount)
+	retention_discount = get_retention_discount_amount(doc, discount_amount)
 	return max(0.0, base - retention_discount)
 
 
@@ -1478,71 +1454,11 @@ def allocate_discount_by_share(amounts: dict, discount: float) -> dict:
 	return shares
 
 
-_DEDUCTION_ITEM_CODES = ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION")
-
-
-def _work_net_bases_for_retention(doc, variance_item=None) -> tuple[dict, float]:
-	"""Post-discount taxable (net_amount) keyed by boq_item, plus additional-service net."""
-	boq_nets = {}
-	service_net = 0.0
-	for item in doc.get("items") or []:
-		if item.item_code in _DEDUCTION_ITEM_CODES or cint(item.get("custom_service_deduction")):
-			continue
-		if variance_item and item.item_code == variance_item:
-			continue
-		if item.get("boq_item"):
-			key = item.boq_item
-			boq_nets[key] = flt(boq_nets.get(key)) + flt(item.net_amount)
-		elif cint(item.get("custom_include_in_deductions")):
-			service_net += flt(item.net_amount)
-	return boq_nets, service_net
-
-
-def set_retention_from_work_net_amounts(doc, retention_pct, variance_item=None) -> bool:
-	"""Set retention rows to % of linked work net_amount (ERPNext taxable after discount).
-
-	Grand Total discount is allocated across work *and* retention, so the retention base
-	must match displayed taxable — not a work-only share of the header discount.
-	"""
-	retention_pct = flt(retention_pct)
-	if retention_pct <= 0:
-		return False
-
-	boq_nets, service_net = _work_net_bases_for_retention(doc, variance_item)
-	has_per_boq = any(
-		item.item_code == "RETENTION-DEDUCTION" and item.get("boq_item")
-		for item in doc.get("items") or []
-	)
-	changed = False
-	for item in doc.get("items") or []:
-		if item.item_code != "RETENTION-DEDUCTION":
-			continue
-		if cint(item.get("custom_service_deduction")):
-			base = max(0.0, service_net)
-		elif item.get("boq_item"):
-			base = max(0.0, flt(boq_nets.get(item.boq_item)))
-		elif not has_per_boq:
-			base = max(0.0, sum(boq_nets.values()) + service_net)
-		else:
-			continue
-		new_amt = flt(base * retention_pct / 100, 2)
-		if flt(item.amount) != -new_amt or flt(item.rate) != -new_amt:
-			item.qty = 1
-			item.rate = -new_amt
-			item.amount = -new_amt
-			changed = True
-	return changed
-
-
-def converge_retention_after_discount(doc, retention_pct, variance_item=None, max_passes: int = 5):
-	"""Recompute taxes and retention until retention = % of post-discount work taxable."""
-	if not cint(doc.get("custom_retention_after_discount")) or flt(retention_pct) <= 0:
-		return
-	for _ in range(max_passes):
-		doc.run_method("calculate_taxes_and_totals")
-		if not set_retention_from_work_net_amounts(doc, retention_pct, variance_item):
-			break
-	doc.run_method("calculate_taxes_and_totals")
+def allocate_retention_after_discount(boq_amounts: dict, retention_pct: float, discount: float) -> dict:
+	"""Per-BOQ retention that sums to (sum(work) − discount) × retention% (last line absorbs fils)."""
+	total_work = sum(flt(v) for v in boq_amounts.values() if flt(v) > 0)
+	total_retention = flt(max(0.0, total_work - flt(discount)) * flt(retention_pct) / 100, 2)
+	return allocate_discount_by_share(boq_amounts, total_retention)
 
 
 @frappe.whitelist()
@@ -1618,42 +1534,23 @@ def get_deduction_details(
 	else:
 		total_net_amount_for_advance = total_net_amount
 	
-	# Retention is usually on Gross Amount; optionally after additional discount.
-	# When discount_amount is passed from the client/header, convert Grand Total
-	# (VAT-inclusive) discount to ex-VAT via apply_discount_on + tax_rate.
-	if cint(after_discount) and invoice_name and apply_discount_on is None:
+	# Retention is usually on Gross Amount; optionally gross − header discount.
+	if cint(after_discount) and invoice_name and discount_amount in (None, ""):
 		si_meta = frappe.db.get_value(
 			"Sales Invoice",
 			invoice_name,
-			["apply_discount_on", "base_discount_amount", "discount_amount"],
+			["base_discount_amount", "discount_amount"],
 			as_dict=True,
 		)
 		if si_meta:
-			apply_discount_on = si_meta.apply_discount_on
-			if discount_amount in (None, ""):
-				discount_amount = (
-					flt(si_meta.base_discount_amount) or flt(si_meta.discount_amount)
-				)
-		if tax_rate is None:
-			tax_rate = (
-				flt(
-					frappe.db.sql(
-						"""
-						SELECT COALESCE(SUM(rate), 0) FROM `tabSales Taxes and Charges`
-						WHERE parent = %s AND parenttype = 'Sales Invoice'
-						""",
-						invoice_name,
-					)[0][0]
-				)
-				/ 100.0
+			discount_amount = (
+				flt(si_meta.base_discount_amount) or flt(si_meta.discount_amount)
 			)
 
 	retention_base = get_retention_base_amount(
 		total_gross_amount,
 		after_discount=cint(after_discount),
 		discount_amount=discount_amount,
-		apply_discount_on=apply_discount_on,
-		tax_rate=tax_rate,
 	)
 	suggested_retention = flt(retention_base * retention_percentage / 100, 2)
 	
@@ -2099,7 +1996,28 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 					},
 				)
 
-	# After-discount retention converges after taxes (see converge_retention_after_discount).
+	# Recompute per-BOQ retention after discount once all revenue lines are known.
+	if cint(doc.get("custom_retention_after_discount")) and flt(project_doc.retention_percentage) > 0:
+		boq_amounts = {}
+		for row in doc.items:
+			if (
+				row.item_code not in deduction_item_codes
+				and (not variance_item or row.item_code != variance_item)
+				and row.get("boq_item")
+				and flt(row.amount) > 0
+			):
+				boq_amounts[row.boq_item] = flt(boq_amounts.get(row.boq_item)) + flt(row.amount)
+		retention_pct = flt(project_doc.retention_percentage)
+		retention_by_boq = allocate_retention_after_discount(
+			boq_amounts, retention_pct, get_retention_discount_amount(doc)
+		)
+		for row in doc.items:
+			if row.item_code != "RETENTION-DEDUCTION" or not row.get("boq_item"):
+				continue
+			retention_amount = flt(retention_by_boq.get(row.boq_item))
+			row.qty = 1
+			row.rate = -retention_amount
+			row.amount = -retention_amount
 
 	skip_advance = doc_skips_advance_deduction(doc)
 	if skip_advance:
@@ -2226,11 +2144,7 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 			)
 
 	doc.flags.ignore_deduction_recalc = True
-	retention_pct = flt(project_doc.retention_percentage)
-	if cint(doc.get("custom_retention_after_discount")) and retention_pct > 0:
-		converge_retention_after_discount(doc, retention_pct, variance_item)
-	else:
-		doc.run_method("calculate_taxes_and_totals")
+	doc.run_method("calculate_taxes_and_totals")
 	doc.save()
 
 	return {

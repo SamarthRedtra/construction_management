@@ -472,6 +472,7 @@ class SalesInvoiceOverride(SalesInvoice):
 		from construction_management.api.boq_invoice import (
 			allocate_capped_amounts,
 			allocate_discount_by_share,
+			allocate_retention_after_discount,
 			doc_skips_advance_deduction,
 			get_deduction_details,
 			get_retention_discount_amount,
@@ -486,16 +487,14 @@ class SalesInvoiceOverride(SalesInvoice):
 			strip_advance_deduction_rows(self)
 
 		after_discount = cint(self.get("custom_retention_after_discount"))
-		# Ex-VAT when Apply Discount On = Grand Total (matches taxable work after discount).
+		# Raw header discount (gross work − discount_amount × retention%).
 		discount_amount = get_retention_discount_amount(self)
 		details = get_deduction_details(
 			self.project,
 			self.items,
 			invoice_name=self.name,
 			after_discount=after_discount,
-			discount_amount=flt(self.get("base_discount_amount")) or flt(self.get("discount_amount")),
-			apply_discount_on=self.get("apply_discount_on"),
-			tax_rate=self.get_effective_tax_rate(),
+			discount_amount=discount_amount,
 		)
 
 		if not details.get("enable_progressive_boq"):
@@ -541,9 +540,14 @@ class SalesInvoiceOverride(SalesInvoice):
 				if item.get("boq_item") and item.item_code not in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"):
 					boq_amounts[item.boq_item] = flt(item.amount)
 
-			discount_shares = (
-				allocate_discount_by_share(boq_amounts, discount_amount)
-				if after_discount
+			retention_by_boq = (
+				allocate_retention_after_discount(boq_amounts, retention_pct, discount_amount)
+				if after_discount and retention_pct > 0
+				else {
+					key: flt(flt(amt) * retention_pct / 100, 2)
+					for key, amt in boq_amounts.items()
+				}
+				if retention_pct > 0
 				else {key: 0.0 for key in boq_amounts}
 			)
 
@@ -553,12 +557,9 @@ class SalesInvoiceOverride(SalesInvoice):
 				if not item.get("boq_item"):
 					continue
 				parent_amount = boq_amounts.get(item.boq_item, 0)
-				retention_parent = max(
-					0.0, parent_amount - flt(discount_shares.get(item.boq_item))
-				)
 
 				if item.item_code == "RETENTION-DEDUCTION" and retention_pct > 0:
-					new_retention = flt(retention_parent * retention_pct / 100, 2)
+					new_retention = flt(retention_by_boq.get(item.boq_item))
 					item.rate = -new_retention
 					item.amount = -new_retention
 					item.qty = 1
@@ -601,16 +602,13 @@ class SalesInvoiceOverride(SalesInvoice):
 				if not parent:
 					continue
 
-				retention_parent = max(
-					0.0, parent_amount - flt(discount_shares.get(boq_item))
-				)
 				if retention_pct > 0 and not any(
 					item.item_code == "RETENTION-DEDUCTION" and item.get("boq_item") == boq_item
 					for item in self.items
 				):
 					self._append_boq_deduction_row(
 						"RETENTION-DEDUCTION",
-						flt(retention_parent * retention_pct / 100, 2),
+						flt(retention_by_boq.get(boq_item)),
 						f"Retention deduction ({retention_pct}%)",
 						parent,
 					)
@@ -718,14 +716,7 @@ class SalesInvoiceOverride(SalesInvoice):
 		self._normalize_deduction_uoms()
 
 		# Recalculate totals to handle the updated items
-		if after_discount and retention_pct > 0:
-			# Grand Total discount shares across work+retention; converge so retention
-			# is % of ERPNext taxable (net_amount), matching the tax break-up.
-			from construction_management.api.boq_invoice import converge_retention_after_discount
-
-			converge_retention_after_discount(self, retention_pct, variance_item_code)
-		else:
-			self.run_method("calculate_taxes_and_totals")
+		self.run_method("calculate_taxes_and_totals")
 
 	def _remove_additional_service_deduction_rows(self):
 		self.set(
