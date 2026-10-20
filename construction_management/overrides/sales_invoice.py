@@ -93,7 +93,7 @@ def _consolidate_income_gl_by_boq_item(gl_map, income_accounts, unbilled_revenue
 
 		result.append(tmpl)
 
-	return result
+	return _normalize_signed_gl_amounts(result)
 
 
 def _flush_leftover_so_unbilled(
@@ -177,11 +177,139 @@ def _gl_map_debit_credit_diff(gl_map, precision=2):
 	return flt(debit - credit, precision)
 
 
+_DEDUCTION_ITEM_CODES = ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION")
+
+
+def _normalize_signed_gl_amounts(gl_map):
+	"""Flip negative credit/debit into the opposite side so consolidate never leaves credit=-x."""
+	for entry in gl_map or []:
+		credit = flt(entry.get("credit"))
+		debit = flt(entry.get("debit"))
+		if credit < 0:
+			entry["debit"] = flt(debit - credit, 2)
+			entry["credit"] = 0.0
+			for debit_f, credit_f in (
+				("debit_in_account_currency", "credit_in_account_currency"),
+				("debit_in_transaction_currency", "credit_in_transaction_currency"),
+				("debit_in_reporting_currency", "credit_in_reporting_currency"),
+			):
+				if credit_f in entry and entry.get(credit_f) is not None:
+					c = flt(entry.get(credit_f))
+					if c < 0:
+						entry[debit_f] = flt(flt(entry.get(debit_f)) - c, 2)
+						entry[credit_f] = 0.0
+		if debit < 0:
+			entry["credit"] = flt(credit - debit, 2)
+			entry["debit"] = 0.0
+			for debit_f, credit_f in (
+				("debit_in_account_currency", "credit_in_account_currency"),
+				("debit_in_transaction_currency", "credit_in_transaction_currency"),
+				("debit_in_reporting_currency", "credit_in_reporting_currency"),
+			):
+				if debit_f in entry and entry.get(debit_f) is not None:
+					d = flt(entry.get(debit_f))
+					if d < 0:
+						entry[credit_f] = flt(flt(entry.get(credit_f)) - d, 2)
+						entry[debit_f] = 0.0
+	return gl_map
+
+
+class RetentionAfterDiscountTaxesAndTotals:
+	"""calculate_taxes_and_totals subclass: full header discount on work lines only."""
+
+	def __init__(self, doc):
+		from erpnext.controllers.taxes_and_totals import calculate_taxes_and_totals
+
+		class _Impl(calculate_taxes_and_totals):
+			def apply_discount_amount(self):
+				if not cint(self.doc.get("custom_retention_after_discount")) or not flt(
+					self.doc.discount_amount
+				):
+					return super().apply_discount_amount()
+				return self._apply_full_discount_on_work_only()
+
+			def _apply_full_discount_on_work_only(self):
+				"""Subtract full discount_amount from work nets (exclude retention/advance)."""
+				self.doc.base_discount_amount = flt(
+					self.doc.discount_amount * self.doc.conversion_rate,
+					self.doc.precision("base_discount_amount"),
+				)
+				discount = flt(self.doc.discount_amount)
+				if discount <= 0:
+					return
+
+				variance_item = None
+				if self.doc.company and frappe.db.exists("BOQ Settings", self.doc.company):
+					variance_item = frappe.get_cached_value(
+						"BOQ Settings", self.doc.company, "varience_item"
+					)
+
+				work_items = []
+				for item in self._items:
+					code = item.item_code
+					if code in _DEDUCTION_ITEM_CODES or (variance_item and code == variance_item):
+						item.distributed_discount_amount = 0
+						continue
+					if flt(item.net_amount) <= 0:
+						item.distributed_discount_amount = 0
+						continue
+					work_items.append(item)
+
+				total_work = sum(flt(item.net_amount) for item in work_items)
+				if total_work <= 0:
+					return
+
+				discount = min(discount, total_work)
+				allocated = 0.0
+				# Apply as Net Total so the second _calculate rebuilds tax from reduced nets.
+				original_apply_on = self.doc.apply_discount_on
+				self.doc.apply_discount_on = "Net Total"
+				try:
+					for idx, item in enumerate(work_items):
+						if idx == len(work_items) - 1:
+							distributed = flt(
+								discount - allocated,
+								item.precision("distributed_discount_amount"),
+							)
+						else:
+							distributed = flt(
+								discount * flt(item.net_amount) / total_work,
+								item.precision("distributed_discount_amount"),
+							)
+							allocated += distributed
+						item.distributed_discount_amount = max(0.0, distributed)
+						item.net_amount = flt(
+							item.net_amount - item.distributed_discount_amount,
+							item.precision("net_amount"),
+						)
+						item.net_rate = (
+							flt(item.net_amount / item.qty, item.precision("net_rate"))
+							if item.qty
+							else 0
+						)
+						self._set_in_company_currency(item, ["net_rate", "net_amount"])
+
+					self.discount_amount_applied = True
+					self._calculate()
+				finally:
+					self.doc.apply_discount_on = original_apply_on
+
+		_Impl(doc)
+
+
 class SalesInvoiceOverride(SalesInvoice):
 	def autoname(self):
 		from construction_management.project_document_naming import assign_project_document_name
 
 		assign_project_document_name(self)
+
+	def calculate_taxes_and_totals(self):
+		if cint(self.get("custom_retention_after_discount")) and flt(self.discount_amount):
+			RetentionAfterDiscountTaxesAndTotals(self)
+			self.calculate_commission()
+			self.calculate_contribution()
+			return
+		super().calculate_taxes_and_totals()
 
 	def validate(self):
 		if self.get("custom_is_advance_release"):
@@ -1308,6 +1436,7 @@ class SalesInvoiceOverride(SalesInvoice):
 			income_accounts,
 			unbilled_revenue_acc,
 		)
+		new_entries = _normalize_signed_gl_amounts(new_entries)
 		return self._settle_additional_discount_to_sales(new_entries, income_accounts)
 
 

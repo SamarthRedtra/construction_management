@@ -96,3 +96,16 @@ class TestRetentionAfterDiscount(UnitTestCase):
 		# Retention uses header discount as entered, including Grand Total.
 		self.assertEqual(normalize_retention_discount(41485, "Grand Total", 0.05), 41485)
 		self.assertEqual(normalize_retention_discount(41485, "Net Total", 0.05), 41485)
+
+	def test_full_discount_on_work_only_math(self):
+		# Taxable = gross − full discount − retention (not ex-VAT Grand Total reduction).
+		gross = 82164.16
+		discount = 41485.0
+		retention = 4067.92
+		taxable = flt(gross - discount - retention, 2)
+		self.assertEqual(taxable, 36611.24)
+		self.assertEqual(flt(taxable * 0.05, 2), 1830.56)
+		self.assertEqual(flt(taxable * 1.05, 2), 38441.80)
+		unbilled = 95508.5
+		sales_dr = flt(unbilled - (gross - discount), 2)
+		self.assertEqual(sales_dr, 54829.34)

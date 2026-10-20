@@ -24,6 +24,42 @@ def validate(doc, method):
 	ensure_item_projects(doc)
 	apply_purchase_deductions(doc)
 	validate_extra_accounting_entries(doc)
+	warn_negative_stock_receipt(doc)
+
+
+def warn_negative_stock_receipt(doc):
+	"""Warn when receiving into a warehouse that already has negative qty for the item.
+
+	ERPNext then values part of the receipt at the prior (negative) rate and posts the
+	gap to expense — which used to hit COGS. Prefer Stock Adjustment; still warn so
+	users can backdate the receipt before the issues that created the deficit.
+	"""
+	if doc.get("is_return") or doc.docstatus == 2:
+		return
+	seen = set()
+	for row in doc.get("items") or []:
+		if not row.item_code or not row.warehouse or row.item_code in DEDUCTION_ITEM_CODES:
+			continue
+		key = (row.item_code, row.warehouse)
+		if key in seen:
+			continue
+		seen.add(key)
+		bin_qty = frappe.db.get_value(
+			"Bin",
+			{"item_code": row.item_code, "warehouse": row.warehouse},
+			"actual_qty",
+		)
+		if bin_qty is None or flt(bin_qty) >= 0:
+			continue
+		frappe.msgprint(
+			_(
+				"Warehouse {0} has negative stock ({1}) for {2}. Receiving now will create a "
+				"valuation adjustment (not full Stock In Hand at purchase rate). "
+				"Prefer backdating this receipt before the issue that created the deficit."
+			).format(frappe.bold(row.warehouse), flt(bin_qty), frappe.bold(row.item_code)),
+			indicator="orange",
+			alert=True,
+		)
 
 
 def before_validate(doc, method):

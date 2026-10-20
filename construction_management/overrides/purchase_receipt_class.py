@@ -85,8 +85,35 @@ class PurchaseReceiptOverride(PurchaseReceipt):
 			inventory_account_map=inventory_account_map,
 			via_landed_cost_voucher=via_landed_cost_voucher,
 		)
+		gl_entries = self._remap_stock_divisional_loss_to_adjustment(gl_entries)
 		gl_entries = self._net_provisional_deduction_entries(gl_entries)
 		return self._append_extra_accounting_entries(gl_entries)
+
+	def _remap_stock_divisional_loss_to_adjustment(self, gl_entries):
+		"""ERPNext posts PR rate-vs-SLE gaps to Company default_expense_account (often COGS).
+
+		That gap appears when receiving into negative stock (issues before receipt). It is a
+		stock valuation adjustment, not cost of goods sold — route it to Stock Adjustment.
+		"""
+		if not gl_entries:
+			return gl_entries
+
+		cogs = frappe.get_cached_value("Company", self.company, "default_expense_account")
+		adjustment = frappe.get_cached_value("Company", self.company, "stock_adjustment_account")
+		if not cogs or not adjustment or cogs == adjustment:
+			return gl_entries
+
+		remarks_marker = "Accounting Entry for Stock"
+		for entry in gl_entries:
+			if entry.get("account") != cogs:
+				continue
+			if flt(entry.get("debit")) <= 0:
+				continue
+			remarks = entry.get("remarks") or ""
+			if remarks_marker not in remarks and not remarks.startswith("Accounting Entry for"):
+				continue
+			entry["account"] = adjustment
+		return gl_entries
 
 	def _ignore_accounting_ledger_links_on_cancel(self):
 		"""Ledger rows are non-submittable accounting records; they should not be cancelled as linked docs."""
