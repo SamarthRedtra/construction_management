@@ -311,6 +311,26 @@ class SalesInvoiceOverride(SalesInvoice):
 			return
 		super().calculate_taxes_and_totals()
 
+	def calculate_commission(self):
+		"""Keep commission on invoice Total (base_total), not Net Total after retention/advance.
+
+		ERPNext sums item.base_net_amount (grant_commission). BOQ invoices with retention
+		then store a reduced eligible amount; Project Commission reads Sales Team incentives
+		from that wrong base. Redtra's calculator uses base_total — call it here so every
+		taxes_and_totals path (including apply_automatic_deductions) stays consistent.
+		"""
+		if cint(self.docstatus) == 1:
+			# Preserve submitted values (manual edits / paid-invoice defer writes).
+			return
+		try:
+			from redtra_customisation.redtra_customisation.custom.sales_invoice import (
+				calculate_commission as redtra_calculate_commission,
+			)
+		except ImportError:
+			return super().calculate_commission()
+
+		redtra_calculate_commission(self)
+
 	def validate(self):
 		if self.get("custom_is_advance_release"):
 			from construction_management.api.advance_release import validate_advance_release
