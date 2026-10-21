@@ -117,7 +117,7 @@ class TestApplyItemTrailListMigration(UnitTestCase):
 		})
 		self.assertEqual(outcome["status"], "skipped")
 
-	@patch.object(patch_mod.frappe, "rename_doc")
+	@patch("frappe.model.rename_doc.rename_doc")
 	@patch.object(patch_mod.frappe.db, "exists", side_effect=lambda dt, name: name == "OLD-1")
 	def test_rename_code_calls_rename_doc(self, exists, rename_doc):
 		outcome = patch_mod.apply_row({
@@ -126,7 +126,9 @@ class TestApplyItemTrailListMigration(UnitTestCase):
 		self.assertEqual(outcome["status"], "applied")
 		rename_doc.assert_called_once()
 		self.assertEqual(rename_doc.call_args.kwargs["merge"], False)
-		self.assertEqual(rename_doc.call_args.args[:3], ("Item", "OLD-1", "NEW-1"))
+		self.assertEqual(rename_doc.call_args.kwargs["doctype"], "Item")
+		self.assertEqual(rename_doc.call_args.kwargs["old"], "OLD-1")
+		self.assertEqual(rename_doc.call_args.kwargs["new"], "NEW-1")
 
 	@patch.object(patch_mod.frappe.db, "exists", side_effect=lambda dt, name: name == "NEW-1")
 	def test_rename_code_skips_when_already_migrated(self, exists):
@@ -143,7 +145,7 @@ class TestApplyItemTrailListMigration(UnitTestCase):
 			})
 
 	@patch.object(patch_mod, "merge_blocker", return_value=None)
-	@patch.object(patch_mod.frappe, "rename_doc")
+	@patch("frappe.model.rename_doc.rename_doc")
 	@patch.object(patch_mod.frappe.db, "exists", return_value=True)
 	def test_merge_calls_rename_doc_with_merge(self, exists, rename_doc, merge_blocker):
 		outcome = patch_mod.apply_row({

@@ -8498,16 +8498,25 @@ function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
 			}
 			.boq-term-header {
 				display: flex;
-				justify-content: space-between;
-				align-items: center;
+				flex-direction: column;
+				gap: 6px;
 				cursor: pointer;
 				padding: 2px 0;
+			}
+			.boq-term-header-row {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				gap: 10px;
+				width: 100%;
+				min-width: 0;
 			}
 			.boq-term-header-left {
 				display: flex;
 				align-items: center;
 				gap: 10px;
 				flex: 1;
+				min-width: 0;
 			}
 			.boq-term-srno {
 				display: inline-flex;
@@ -8540,14 +8549,17 @@ function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
 				background: #f3f4f6;
 				padding: 4px 10px;
 				border-radius: 4px;
-				word-break: break-word;
-				max-width: 80%;
 				flex: 1;
 				min-width: 0;
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				word-break: normal;
 			}
 			.chevron-icon {
 				transition: transform 0.3s ease;
 				color: #6b7280;
+				flex-shrink: 0;
 			}
 			.boq-term-card.collapsed .chevron-icon {
 				transform: rotate(-90deg);
@@ -8557,8 +8569,8 @@ function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
 				font-weight: 700;
 				padding: 2px 8px;
 				border-radius: 12px;
-				margin-left: auto;
-				margin-right: 12px;
+				flex-shrink: 0;
+				white-space: nowrap;
 				transition: all 0.3s ease;
 			}
 			.header-total-indicator.valid {
@@ -8574,10 +8586,16 @@ function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
 			.boq-term-breakdown {
 				font-size: 11px;
 				color: #6b7280;
-				margin-left: 8px;
 				font-style: italic;
-				display: inline-block;
-				vertical-align: middle;
+				display: block;
+				width: 100%;
+				padding-left: 50px;
+				line-height: 1.4;
+				word-break: break-word;
+				overflow-wrap: anywhere;
+			}
+			.boq-term-card.collapsed .boq-term-breakdown:empty {
+				display: none;
 			}
 			.remove-boq-btn {
 				background: #fee2e2;
@@ -8590,6 +8608,8 @@ function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
 				cursor: pointer;
 				transition: all 0.2s;
 				z-index: 2;
+				flex-shrink: 0;
+				white-space: nowrap;
 			}
 			.remove-boq-btn:hover {
 				background: #fecaca;
@@ -8597,6 +8617,7 @@ function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
 			}
 			.payment-terms-table {
 				width: 100%;
+				table-layout: fixed;
 				border-collapse: separate;
 				border-spacing: 0 6px;
 			}
@@ -8628,6 +8649,8 @@ function render_payment_terms_table(wrapper, frm, boqItems, paymentTermsData) {
 			}
 			.payment-terms-table input {
 				width: 100%;
+				min-width: 0;
+				box-sizing: border-box;
 				padding: 5px 10px;
 				border: 1px solid #e5e7eb;
 				border-radius: 4px;
@@ -8766,22 +8789,26 @@ function renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData) {
 	Object.keys(paymentTermsData).forEach((boqItemName, cardIdx) => {
 		const terms = paymentTermsData[boqItemName];
 		const boqLabel = boqItems.find(b => b.name === boqItemName)?.label || boqItemName;
+		const safeLabel = frappe.utils.escape_html(boqLabel || "");
+		const safeBoqItem = frappe.utils.escape_html(boqItemName || "");
 		const isExpanded = expandedItems.includes(boqItemName);
 		const srNo = cardIdx + 1;
 
 		const cardHtml = `
-			<div class="boq-term-card ${isExpanded ? '' : 'collapsed'}" data-boq-item="${boqItemName}">
+			<div class="boq-term-card ${isExpanded ? '' : 'collapsed'}" data-boq-item="${safeBoqItem}">
 				<div class="boq-term-header">
-					<div class="boq-term-header-left">
-						<span class="boq-term-srno" title="${__('Sr. No.')}">${srNo}</span>
-						<svg class="chevron-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<polyline points="6 9 12 15 18 9"></polyline>
-						</svg>
-						<div class="boq-term-label" title="${boqLabel}">${boqLabel}</div>
-						<span class="boq-term-breakdown" data-boq-item="${boqItemName}"></span>
-						<span class="header-total-indicator" data-boq-item="${boqItemName}">0%</span>
+					<div class="boq-term-header-row">
+						<div class="boq-term-header-left">
+							<span class="boq-term-srno" title="${__('Sr. No.')}">${srNo}</span>
+							<svg class="chevron-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<polyline points="6 9 12 15 18 9"></polyline>
+							</svg>
+							<div class="boq-term-label" title="${safeLabel}">${safeLabel}</div>
+							<span class="header-total-indicator" data-boq-item="${safeBoqItem}">0%</span>
+						</div>
+						<button type="button" class="remove-boq-btn" data-boq-item="${safeBoqItem}">Remove</button>
 					</div>
-					<button class="remove-boq-btn" data-boq-item="${boqItemName}">Remove</button>
+					<span class="boq-term-breakdown" data-boq-item="${safeBoqItem}"></span>
 				</div>
 				<div class="boq-term-content">
 					<table class="payment-terms-table">
@@ -8793,18 +8820,18 @@ function renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData) {
 								<th style="width: 15%; text-align: center;">Actions</th>
 							</tr>
 						</thead>
-						<tbody class="terms-tbody" data-boq-item="${boqItemName}">
+						<tbody class="terms-tbody" data-boq-item="${safeBoqItem}">
 						</tbody>
 					</table>
 					<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
-						<button class="add-term-btn" data-boq-item="${boqItemName}">
+						<button type="button" class="add-term-btn" data-boq-item="${safeBoqItem}">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<line x1="12" y1="5" x2="12" y2="19"></line>
 								<line x1="5" y1="12" x2="19" y2="12"></line>
 							</svg>
 							Add Payment Term
 						</button>
-						<div class="total-indicator" data-boq-item="${boqItemName}">
+						<div class="total-indicator" data-boq-item="${safeBoqItem}">
 							Total: <span class="total-value">0%</span>
 						</div>
 					</div>
@@ -8814,8 +8841,9 @@ function renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData) {
 
 		container.append(cardHtml);
 
-		// Render terms rows
-		const tbody = container.find(`.terms-tbody[data-boq-item="${boqItemName}"]`);
+		// Render terms rows (use last card — attribute selectors break on special chars in BOQ names)
+		const card = container.children(".boq-term-card").last();
+		const tbody = card.find(".terms-tbody");
 		terms.forEach((term, idx) => {
 			addTermRow(tbody, term, idx, boqItemName);
 		});
@@ -8894,13 +8922,16 @@ function renderBoqTermsList(wrapper, frm, boqItems, paymentTermsData) {
 }
 
 function addTermRow(tbody, term, idx, boqItemName) {
+	const safeMilestone = frappe.utils.escape_html(String(term.milestone || ""));
+	const safeBoqItem = frappe.utils.escape_html(String(boqItemName || ""));
+	const percentage = parseFloat(term.percentage) || 0;
 	const rowHtml = `
 		<tr data-idx="${idx}">
 			<td class="text-center" style="text-align:center;font-weight:600;color:#6b7280;">${idx + 1}</td>
-			<td><input type="text" value="${term.milestone || ''}" data-field="milestone" placeholder="e.g., After Installation"></td>
-			<td class="text-right"><input type="number" value="${term.percentage || 0}" data-field="percentage" min="0" max="100" step="0.01"></td>
+			<td><input type="text" value="${safeMilestone}" data-field="milestone" placeholder="e.g., After Installation"></td>
+			<td class="text-right"><input type="number" value="${percentage}" data-field="percentage" min="0" max="100" step="0.01"></td>
 			<td style="text-align: center;">
-				<button class="remove-term-btn" data-boq-item="${boqItemName}" data-idx="${idx}" title="Remove Milestone">
+				<button type="button" class="remove-term-btn" data-boq-item="${safeBoqItem}" data-idx="${idx}" title="Remove Milestone">
 					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<polyline points="3 6 5 6 21 6"></polyline>
 						<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -8913,7 +8944,13 @@ function addTermRow(tbody, term, idx, boqItemName) {
 }
 
 function updateTotal(wrapper, boqItemName) {
-	const card = wrapper.find(`.boq-term-card[data-boq-item="${boqItemName}"]`);
+	// Prefer filter over attribute CSS selector — BOQ names may contain &, quotes, etc.
+	const card = wrapper.find(".boq-term-card").filter(function () {
+		return $(this).attr("data-boq-item") === boqItemName;
+	});
+	if (!card.length) {
+		return;
+	}
 	const inputs = card.find('input[data-field="percentage"]');
 	let total = 0;
 
@@ -8921,9 +8958,9 @@ function updateTotal(wrapper, boqItemName) {
 		total += parseFloat($(this).val()) || 0;
 	});
 
-	const indicator = card.find(`.total-indicator[data-boq-item="${boqItemName}"]`);
-	const headerIndicator = card.find(`.header-total-indicator[data-boq-item="${boqItemName}"]`);
-	const breakdownIndicator = card.find(`.boq-term-breakdown[data-boq-item="${boqItemName}"]`);
+	const indicator = card.find(".total-indicator");
+	const headerIndicator = card.find(".header-total-indicator");
+	const breakdownIndicator = card.find(".boq-term-breakdown");
 	const valueSpan = indicator.find('.total-value');
 
 	const breakdownParts = [];

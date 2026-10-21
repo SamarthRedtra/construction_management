@@ -219,7 +219,7 @@ onMounted(async () => {
 		<div class="cp-busy-card">
 			<span class="cp-spinner" aria-hidden="true" />
 			<div>
-				<strong>{{ bulk.progress.label }} {{ bulk.progress.total }} selected…</strong>
+				<strong>{{ bulk.progress.label || "Processing" }} {{ bulk.progress.total }} selected…</strong>
 				<p>Keep this page open until the batch finishes.</p>
 			</div>
 		</div>

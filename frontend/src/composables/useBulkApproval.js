@@ -1,9 +1,12 @@
-import { computed, ref } from "vue"
+import { computed, reactive, ref } from "vue"
 import { call } from "@/api"
 import { toast, toastError } from "@/toast"
 
 /**
  * Multi-select + bulk approve/reject for procurement queues.
+ * Returns a reactive object so template access unwraps nested refs
+ * (plain `{ busy: ref() }` stays truthy in v-if and sticks the overlay open).
+ *
  * @param {(row: object) => boolean} canSelect
  * @param {(row: object) => string} rowKey
  */
@@ -89,7 +92,7 @@ export function useBulkApproval(canSelect, rowKey = (row) => row.name) {
 		}
 	}
 
-	return {
+	return reactive({
 		selected,
 		selectedCount,
 		hasSelection,
@@ -102,7 +105,7 @@ export function useBulkApproval(canSelect, rowKey = (row) => row.name) {
 		allEligibleSelected,
 		toggleSelectAll,
 		runBulk,
-	}
+	})
 }
 
 function formatFailures(summary) {

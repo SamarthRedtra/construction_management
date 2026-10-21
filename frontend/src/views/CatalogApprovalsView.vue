@@ -270,7 +270,7 @@ onMounted(async () => {
 		<div class="cp-busy-card">
 			<span class="cp-spinner" aria-hidden="true" />
 			<div>
-				<strong v-if="bulk.busy">{{ bulk.progress.label }} {{ bulk.progress.total }} selected…</strong>
+				<strong v-if="bulk.busy">{{ bulk.progress.label || "Processing" }} {{ bulk.progress.total }} selected…</strong>
 				<strong v-else>Approving {{ approvingRequest }}…</strong>
 				<p>Applying catalog items and approved prices. This can take a few moments; please keep this page open.</p>
 			</div>

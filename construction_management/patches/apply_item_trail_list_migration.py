@@ -226,10 +226,13 @@ def _apply_rename(row: dict, merge: bool) -> dict:
 	elif new_exists:
 		return _fail(row, f"rename_code {old} → {new}: target already exists (use merge)")
 
-	frappe.rename_doc(
-		"Item",
-		old,
-		new,
+	# Use model.rename_doc: frappe.rename_doc() does not forward ignore_permissions.
+	from frappe.model.rename_doc import rename_doc
+
+	rename_doc(
+		doctype="Item",
+		old=old,
+		new=new,
 		force=True,
 		merge=merge,
 		ignore_permissions=True,
@@ -281,7 +284,8 @@ def _set_item_name(item_code: str, item_name: str) -> None:
 
 
 def _cell(value) -> str:
-	return " ".join(str(value or "").split())
+	# Preserve internal spaces — Item Codes often keep double spaces from legacy masters.
+	return str(value or "").strip()
 
 
 def _truthy_flag(value: str) -> bool:

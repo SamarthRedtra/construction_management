@@ -156,7 +156,7 @@ onMounted(load)
 		<div class="cp-busy-card">
 			<span class="cp-spinner" aria-hidden="true" />
 			<div>
-				<strong v-if="bulk.busy">{{ bulk.progress.label }} {{ bulk.progress.total }} selected…</strong>
+				<strong v-if="bulk.busy">{{ bulk.progress.label || "Processing" }} {{ bulk.progress.total }} selected…</strong>
 				<strong v-else>Approving {{ acting }}…</strong>
 				<p>Keep this page open until the action finishes.</p>
 			</div>
