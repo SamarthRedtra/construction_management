@@ -53,6 +53,51 @@ def _as_dict(value: str | dict | None) -> dict:
 	return value or {}
 
 
+def _as_name_list(value, limit: int = 50) -> list[str]:
+	if isinstance(value, str):
+		value = frappe.parse_json(value) if value.strip().startswith("[") else [value]
+	if not isinstance(value, list) or not value:
+		frappe.throw(_("Select at least one document."))
+	names = []
+	for item in value:
+		name = item.get("name") if isinstance(item, dict) else item
+		if not name or not isinstance(name, str):
+			frappe.throw(_("Invalid selection."))
+		names.append(name)
+	if len(names) > limit:
+		frappe.throw(_("Select at most {0} documents at a time.").format(limit))
+	return names
+
+
+def _bulk_error_message(exc: Exception) -> str:
+	message = getattr(exc, "message", None) or (exc.args[0] if exc.args else str(exc))
+	if isinstance(message, (list, tuple)):
+		message = message[0] if message else str(exc)
+	return frappe.utils.strip_html(str(message))[:400]
+
+
+def _run_bulk(items: list, worker) -> dict:
+	"""Run worker per item; commit successes so one failure does not undo others."""
+	results = []
+	approved = 0
+	failed = 0
+	for item in items:
+		name = item if isinstance(item, str) else (item.get("name") or "")
+		try:
+			out = worker(item)
+			frappe.db.commit()
+			status = None
+			if isinstance(out, dict):
+				status = out.get("status") or out.get("approval_status")
+			results.append({"name": name, "ok": True, "status": status})
+			approved += 1
+		except Exception as exc:
+			frappe.db.rollback()
+			results.append({"name": name, "ok": False, "error": _bulk_error_message(exc)})
+			failed += 1
+	return {"results": results, "approved": approved, "failed": failed}
+
+
 def _normalized_allocation(values: dict) -> dict:
 	"""Remove browser placeholder values before applying BOQ allocation rules."""
 	allocation = {}
@@ -1211,12 +1256,15 @@ def update_purchase_order(name: str, data: str | dict) -> dict:
 
 
 @frappe.whitelist(methods=["GET"])
-def get_lpo_approvals() -> dict:
+def get_lpo_approvals(status: str = "") -> dict:
 	_require(ACCOUNT_ROLES | ADMIN_ROLES)
 	company = _document_company(None)
+	statuses = ["Pending Accounts", "Pending CEO", "Needs Correction"]
+	if status and status in statuses:
+		statuses = [status]
 	rows = frappe.get_all("Purchase Order", filters={
 		"company": company, "controlled_procurement": 1, "custom_lpo_type": "Manual",
-		"docstatus": 0, "custom_lpo_approval_status": ["in", ["Pending Accounts", "Pending CEO", "Needs Correction"]],
+		"docstatus": 0, "custom_lpo_approval_status": ["in", statuses],
 	}, fields=["name", "supplier_name", "project", "grand_total", "currency", "owner", "modified", "custom_lpo_reference", "custom_lpo_approval_status"], order_by="modified desc", limit_page_length=100)
 	return {"rows": rows}
 
@@ -1237,6 +1285,20 @@ def approve_lpo(name: str) -> dict:
 def reject_lpo(name: str, comment: str) -> dict:
 	from construction_management.api.lpo_workflow import reject
 	return reject(name, comment)
+
+
+@frappe.whitelist(methods=["POST"])
+def bulk_approve_lpos(names: str | list | None = None) -> dict:
+	_require(ACCOUNT_ROLES | ADMIN_ROLES)
+	return _run_bulk(_as_name_list(names), lambda name: approve_lpo(name))
+
+
+@frappe.whitelist(methods=["POST"])
+def bulk_reject_lpos(names: str | list | None = None, comment: str = "") -> dict:
+	_require(ACCOUNT_ROLES | ADMIN_ROLES)
+	if not (comment or "").strip():
+		frappe.throw(_("Enter a rejection reason."))
+	return _run_bulk(_as_name_list(names), lambda name: reject_lpo(name, comment))
 
 
 @frappe.whitelist(methods=["POST"])
@@ -2750,12 +2812,21 @@ def create_catalog_request(data: str | dict) -> dict:
 
 
 @frappe.whitelist(methods=["GET"])
-def get_catalog_requests(status: str = "") -> list[dict]:
+def get_catalog_requests(
+	status: str = "",
+	request_origin: str = "",
+	source: str = "",
+	kind: str = "",
+) -> list[dict]:
 	_require(CATALOG_ROLES)
 	company = _active_company()
 	filters = {"company": company} if company else {"company": ["in", _allowed_companies()]}
 	if status:
 		filters["status"] = status
+	if request_origin:
+		filters["request_origin"] = request_origin
+	if source:
+		filters["source"] = source
 	requests = frappe.get_list("Controlled Catalog Request", filters=filters,
 		fields=["name", "company", "status", "source", "request_origin", "requested_by", "creation", "modified", "rejection_reason"],
 		order_by="modified desc", limit_page_length=100)
@@ -2769,6 +2840,11 @@ def get_catalog_requests(status: str = "") -> list[dict]:
 		for row in requests:
 			row.has_price_change = row.name in priced
 			row.is_disable = row.name in disabling
+		kind = (kind or "").strip().lower()
+		if kind == "disable":
+			requests = [row for row in requests if row.is_disable]
+		elif kind == "change":
+			requests = [row for row in requests if not row.is_disable]
 	return requests
 
 
@@ -2900,6 +2976,24 @@ def reject_catalog_request(name: str, comment: str) -> dict:
 	doc.save(ignore_permissions=True)
 	_queue_catalog_rejection_notice(doc)
 	return {"name": doc.name, "status": doc.status}
+
+
+@frappe.whitelist(methods=["POST"])
+def bulk_approve_catalog_requests(names: str | list | None = None) -> dict:
+	"""Approve many catalog requests; each uses the same rules as approve_catalog_request."""
+	_require(CATALOG_ROLES)
+	return _run_bulk(_as_name_list(names), lambda name: approve_catalog_request(name))
+
+
+@frappe.whitelist(methods=["POST"])
+def bulk_reject_catalog_requests(names: str | list | None = None, comment: str = "") -> dict:
+	_require(CATALOG_ROLES)
+	if not (comment or "").strip():
+		frappe.throw(_("A rejection reason is required."))
+	return _run_bulk(
+		_as_name_list(names),
+		lambda name: reject_catalog_request(name, comment),
+	)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -3938,6 +4032,7 @@ def get_catalog_buying_price(item_code: str, supplier: str = "", company: str = 
 # Keep the Procurement API prefix stable for the Vue workspace.
 from construction_management.api.controlled_price_requests import (
 	approve_price_change,
+	bulk_decide_price_requests,
 	get_price_context,
 	get_price_request,
 	get_price_requests,

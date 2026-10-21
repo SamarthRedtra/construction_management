@@ -165,6 +165,17 @@ select.cp-input { appearance: none; background-image: url("data:image/svg+xml,%3
 .cp-section-bar .cp-section-title { flex: 1; border: 0; }
 .cp-filters { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
 .cp-filters .cp-search { flex: 1 1 320px; max-width: 480px; }
+.cp-approval-filters { display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: flex-end; margin-bottom: 14px; }
+.cp-chip-group { display: flex; flex-direction: column; gap: 6px; }
+.cp-chip-group-label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.cp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cp-chip { height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); font-size: 12px; font-weight: 500; color: var(--ink-2); }
+.cp-chip:hover { border-color: var(--border-strong); }
+.cp-chip.active { background: var(--brand-soft); border-color: color-mix(in srgb, var(--brand) 40%, transparent); color: var(--brand-ink); }
+.cp-bulk-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; }
+.cp-bulk-bar strong { font-size: 13px; }
+.cp-check { width: 16px; height: 16px; accent-color: var(--brand); }
+.cp-table th.cp-check-col, .cp-table td.cp-check-col { width: 36px; text-align: center; }
 .cp-sort-control { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
 .cp-sort-control > svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .cp-sort-control select { width: 170px; height: 36px; }

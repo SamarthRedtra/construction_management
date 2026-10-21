@@ -429,3 +429,55 @@ class TestCatalogApprovalWorkflow(UnitTestCase):
 		result = catalog.send_document_email("Purchase Order", "PO-1", "supplier@example.com", "Order")
 		self.assertEqual(result["status"], "Queued")
 		self.assertEqual(make.call_args.kwargs["sender"], "purchase@mrggroup.ae")
+
+	@patch.object(catalog, "_require")
+	@patch.object(catalog, "approve_catalog_request")
+	def test_bulk_approve_catalog_advances_each_request(self, approve, require):
+		approve.side_effect = [
+			{"name": "CCR-1", "status": "Pending CEO"},
+			{"name": "CCR-2", "status": "Pending CEO"},
+		]
+		with patch.dict(frappe.__dict__, {"db": MagicMock()}):
+			result = catalog.bulk_approve_catalog_requests(["CCR-1", "CCR-2"])
+		self.assertEqual(result["approved"], 2)
+		self.assertEqual(result["failed"], 0)
+		self.assertEqual([row["status"] for row in result["results"]], ["Pending CEO", "Pending CEO"])
+		self.assertEqual(approve.call_count, 2)
+
+	@patch.object(catalog, "_require")
+	@patch.object(catalog, "approve_catalog_request")
+	def test_bulk_approve_continues_after_ineligible(self, approve, require):
+		approve.side_effect = [
+			frappe.PermissionError("You cannot approve this catalog request."),
+			{"name": "CCR-2", "status": "Pending CEO"},
+		]
+		with patch.dict(frappe.__dict__, {"db": MagicMock()}):
+			result = catalog.bulk_approve_catalog_requests(["CCR-1", "CCR-2"])
+		self.assertEqual(result["approved"], 1)
+		self.assertEqual(result["failed"], 1)
+		self.assertFalse(result["results"][0]["ok"])
+		self.assertTrue(result["results"][1]["ok"])
+
+	@patch.object(catalog, "_require")
+	def test_bulk_reject_catalog_requires_comment(self, require):
+		with self.assertRaises(frappe.ValidationError):
+			catalog.bulk_reject_catalog_requests(["CCR-1"], "")
+
+	@patch.object(catalog, "_require")
+	@patch.object(catalog, "reject_catalog_request")
+	def test_bulk_reject_catalog_sets_needs_correction(self, reject, require):
+		reject.return_value = {"name": "CCR-1", "status": "Needs Correction"}
+		with patch.dict(frappe.__dict__, {"db": MagicMock()}):
+			result = catalog.bulk_reject_catalog_requests(["CCR-1"], "Fix rates")
+		self.assertEqual(result["approved"], 1)
+		reject.assert_called_once_with("CCR-1", "Fix rates")
+		self.assertEqual(result["results"][0]["status"], "Needs Correction")
+
+	@patch.object(catalog, "_require")
+	@patch.object(catalog, "approve_lpo")
+	def test_bulk_approve_lpos(self, approve, require):
+		approve.return_value = {"name": "PO-1", "approval_status": "Pending CEO"}
+		with patch.dict(frappe.__dict__, {"db": MagicMock()}):
+			result = catalog.bulk_approve_lpos(["PO-1"])
+		self.assertEqual(result["approved"], 1)
+		self.assertEqual(result["results"][0]["status"], "Pending CEO")

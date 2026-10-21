@@ -288,6 +288,56 @@ def approve_price_change(name: str, comment: str = "") -> dict:
 	return {"name": doc.name, "status": doc.status, "result_item_price": doc.result_item_price}
 
 
+def _decide_price_row(row: dict, approved: bool, comment: str = "") -> dict:
+	"""Dispatch one price-queue row using the same method matrix as the Vue list."""
+	from construction_management.api import po_price_approvals
+
+	name = row.get("name")
+	if not name:
+		frappe.throw(_("Invalid selection."))
+	is_po = bool(row.get("purchase_order"))
+	status = row.get("status") or ""
+	if is_po:
+		if status == "Pending Accounts":
+			return (
+				po_price_approvals.approve_accounts_po_price(name)
+				if approved
+				else po_price_approvals.reject_accounts_po_price(name, comment)
+			)
+		return (
+			po_price_approvals.approve_po_price(name, comment)
+			if approved
+			else po_price_approvals.reject_po_price(name, comment)
+		)
+	return approve_price_change(name, comment) if approved else reject_price_change(name, comment)
+
+
+@frappe.whitelist(methods=["POST"])
+def bulk_decide_price_requests(
+	rows: str | list | None = None,
+	approved: int | bool = 1,
+	comment: str = "",
+) -> dict:
+	"""Approve or reject many catalog/PO price requests; failures do not abort the batch."""
+	from construction_management.api.controlled_procurement import _as_name_list, _run_bulk
+
+	if isinstance(rows, str):
+		rows = frappe.parse_json(rows)
+	if not isinstance(rows, list) or not rows:
+		frappe.throw(_("Select at least one document."))
+	# Cap via name-list helper shape
+	_as_name_list([row.get("name") if isinstance(row, dict) else row for row in rows])
+	if not cint(approved) and not (comment or "").strip():
+		frappe.throw(_("A rejection reason is required."))
+	approved_flag = bool(cint(approved))
+
+	def worker(row):
+		payload = row if isinstance(row, dict) else {"name": row}
+		return _decide_price_row(payload, approved_flag, comment)
+
+	return _run_bulk(rows, worker)
+
+
 @frappe.whitelist(methods=["POST"])
 def reject_price_change(name: str, comment: str) -> dict:
 	doc = frappe.get_doc("Controlled Buying Price Request", name)

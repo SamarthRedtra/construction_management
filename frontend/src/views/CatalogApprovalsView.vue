@@ -4,11 +4,13 @@ import { useRoute, useRouter } from "vue-router"
 import { call } from "@/api"
 import { toast, toastError } from "@/toast"
 import { session } from "@/utils"
+import ApprovalFilterChips from "@/components/ApprovalFilterChips.vue"
 import CatalogTabs from "@/components/CatalogTabs.vue"
 import CatalogRequestItemEditor from "@/components/CatalogRequestItemEditor.vue"
 import CatalogRequestItemReview from "@/components/CatalogRequestItemReview.vue"
 import Modal from "@/components/Modal.vue"
 import PageHeader from "@/components/PageHeader.vue"
+import { useBulkApproval } from "@/composables/useBulkApproval"
 
 const ctx = computed(() => session.context)
 const route = useRoute()
@@ -18,11 +20,64 @@ const requestDetail = ref(null)
 const approvingRequest = ref("")
 const resubmitting = ref(false)
 const refreshing = ref(false)
+const filters = ref({ status: "", request_origin: "", source: "", kind: "" })
+
+const filterGroups = [
+	{
+		key: "status",
+		label: "Status",
+		options: [
+			{ value: "Pending Accounts", label: "Pending Accounts" },
+			{ value: "Pending CEO", label: "Pending CEO" },
+			{ value: "Needs Correction", label: "Needs Correction" },
+			{ value: "Approved", label: "Approved" },
+		],
+	},
+	{
+		key: "request_origin",
+		label: "Origin",
+		options: [
+			{ value: "Purchase", label: "Purchase" },
+			{ value: "Accounts", label: "Accounts" },
+		],
+	},
+	{
+		key: "source",
+		label: "Source",
+		options: [
+			{ value: "Manual", label: "Manual" },
+			{ value: "Workbook Import", label: "Workbook Import" },
+			{ value: "Item Edit", label: "Item Edit" },
+		],
+	},
+	{
+		key: "kind",
+		label: "Kind",
+		options: [
+			{ value: "disable", label: "Disable item" },
+			{ value: "change", label: "Change" },
+		],
+	},
+]
 
 function canDecide(request) {
 	return (request.status === "Pending Accounts" && request.requested_by !== ctx.value.user && ctx.value.can_approve_catalog_accounts)
 		|| (request.status === "Pending CEO" && ctx.value.can_approve_catalog_ceo)
 }
+
+const bulk = useBulkApproval(canDecide)
+
+const filteredRequests = computed(() => {
+	const f = filters.value
+	return (requests.value || []).filter((row) => {
+		if (f.status && row.status !== f.status) return false
+		if (f.request_origin && (row.request_origin || "Purchase") !== f.request_origin) return false
+		if (f.source && row.source !== f.source) return false
+		if (f.kind === "disable" && !row.is_disable) return false
+		if (f.kind === "change" && row.is_disable) return false
+		return true
+	})
+})
 
 async function loadRequests() {
 	try {
@@ -107,6 +162,23 @@ async function retryPriceNotice(request) {
 	catch (error) { toastError(error) }
 }
 
+async function bulkApprove() {
+	const summary = await bulk.runBulk(filteredRequests.value, "bulk_approve_catalog_requests", {}, { actionLabel: "Approving" })
+	if (summary) await loadRequests()
+}
+
+async function bulkReject() {
+	const comment = window.prompt("Reason for rejection (applied to all selected)")
+	if (!comment?.trim()) return
+	const summary = await bulk.runBulk(
+		filteredRequests.value,
+		"bulk_reject_catalog_requests",
+		{ comment: comment.trim() },
+		{ actionLabel: "Rejecting" },
+	)
+	if (summary) await loadRequests()
+}
+
 onMounted(async () => {
 	await loadRequests()
 	if (route.query.request) await showRequest({ name: route.query.request })
@@ -122,10 +194,39 @@ onMounted(async () => {
 	<CatalogTabs />
 
 	<section class="cp-card">
+		<ApprovalFilterChips v-model="filters" :groups="filterGroups" />
+		<div v-if="bulk.hasSelection" class="cp-bulk-bar">
+			<strong>{{ bulk.selectedCount }} selected</strong>
+			<button class="cp-btn sm primary" :disabled="bulk.busy" @click="bulkApprove">Approve selected</button>
+			<button class="cp-btn sm" :disabled="bulk.busy" @click="bulkReject">Reject selected</button>
+			<button class="cp-btn sm" :disabled="bulk.busy" @click="bulk.clearSelection()">Clear</button>
+		</div>
 		<table class="cp-table">
-			<thead><tr><th>Request</th><th>Requested by</th><th>Status</th><th>Source</th><th /></tr></thead>
+			<thead>
+				<tr>
+					<th class="cp-check-col">
+						<input
+							type="checkbox"
+							class="cp-check"
+							:checked="bulk.allEligibleSelected(filteredRequests)"
+							:disabled="!filteredRequests.some(canDecide)"
+							@change="bulk.toggleSelectAll(filteredRequests, $event.target.checked)"
+						/>
+					</th>
+					<th>Request</th><th>Requested by</th><th>Status</th><th>Source</th><th />
+				</tr>
+			</thead>
 			<tbody>
-				<tr v-for="request in requests" :key="request.name">
+				<tr v-for="request in filteredRequests" :key="request.name">
+					<td class="cp-check-col">
+						<input
+							type="checkbox"
+							class="cp-check"
+							:disabled="!canDecide(request)"
+							:checked="bulk.isSelected(request)"
+							@change="bulk.toggle(request, $event.target.checked)"
+						/>
+					</td>
 					<td><button class="cp-link" @click="showRequest(request)">{{ request.name }}</button><small>{{ request.company }}</small></td>
 					<td>{{ request.requested_by }}</td>
 					<td><span class="cp-pill info">{{ request.status }}</span></td>
@@ -134,7 +235,7 @@ onMounted(async () => {
 						<button class="cp-btn sm" @click="showRequest(request)">{{ request.status === 'Needs Correction' && request.requested_by === ctx.user ? 'Edit and Resubmit' : canDecide(request) ? 'Review' : 'View' }}</button>
 					</td>
 				</tr>
-				<tr v-if="!requests.length"><td colspan="5" class="cp-empty-row">No catalog requests.</td></tr>
+				<tr v-if="!filteredRequests.length"><td colspan="6" class="cp-empty-row">No catalog requests match these filters.</td></tr>
 			</tbody>
 		</table>
 	</section>
@@ -165,11 +266,12 @@ onMounted(async () => {
 		</template>
 	</Modal>
 
-	<div v-if="approvingRequest" class="cp-busy-overlay" role="status" aria-live="assertive" aria-label="Catalog approval in progress">
+	<div v-if="approvingRequest || bulk.busy" class="cp-busy-overlay" role="status" aria-live="assertive" aria-label="Catalog approval in progress">
 		<div class="cp-busy-card">
 			<span class="cp-spinner" aria-hidden="true" />
 			<div>
-				<strong>Approving {{ approvingRequest }}…</strong>
+				<strong v-if="bulk.busy">{{ bulk.progress.label }} {{ bulk.progress.total }} selected…</strong>
+				<strong v-else>Approving {{ approvingRequest }}…</strong>
 				<p>Applying catalog items and approved prices. This can take a few moments; please keep this page open.</p>
 			</div>
 		</div>

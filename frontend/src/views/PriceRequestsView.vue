@@ -4,16 +4,62 @@ import { useRoute } from "vue-router"
 import { call } from "@/api"
 import { toast, toastError } from "@/toast"
 import { session } from "@/utils"
+import ApprovalFilterChips from "@/components/ApprovalFilterChips.vue"
 import CatalogTabs from "@/components/CatalogTabs.vue"
 import Modal from "@/components/Modal.vue"
 import PageHeader from "@/components/PageHeader.vue"
 import PriceHistory from "@/components/PriceHistory.vue"
+import { useBulkApproval } from "@/composables/useBulkApproval"
 
 const ctx = computed(() => session.context)
 const route = useRoute()
 const requests = ref([])
 const loading = ref(false)
 const detail = ref(null)
+const filters = ref({ status: "", kind: "" })
+
+const filterGroups = [
+	{
+		key: "status",
+		label: "Status",
+		options: [
+			{ value: "Pending Accounts", label: "Pending Accounts" },
+			{ value: "Pending CEO", label: "Pending CEO" },
+			{ value: "Needs Correction", label: "Needs Correction" },
+			{ value: "Approved", label: "Approved" },
+			{ value: "Rejected", label: "Rejected" },
+		],
+	},
+	{
+		key: "kind",
+		label: "Kind",
+		options: [
+			{ value: "catalog", label: "Catalog price" },
+			{ value: "po", label: "Purchase Order" },
+		],
+	},
+]
+
+function canDecide(row) {
+	if (row.purchase_order && row.status === "Pending Accounts") return Boolean(ctx.value.can_approve_po_price_accounts)
+	if (row.status === "Pending CEO") {
+		if (row.purchase_order && row.custom_lpo_type === "Manual" && row.docstatus === 0) return false
+		return Boolean(ctx.value.can_approve_price_change)
+	}
+	return false
+}
+
+const bulk = useBulkApproval(canDecide)
+
+const filteredRequests = computed(() => {
+	const f = filters.value
+	return (requests.value || []).filter((row) => {
+		if (f.status && row.status !== f.status) return false
+		if (f.kind === "catalog" && row.purchase_order) return false
+		if (f.kind === "po" && !row.purchase_order) return false
+		return true
+	})
+})
 
 async function showDetail(row) {
 	try { detail.value = row.purchase_order ? row : await call("get_price_request", { name: row.name }) }
@@ -64,6 +110,44 @@ function oldPrice(change, currency, supplier) {
 	return rate == null ? "New price" : `${currency} ${rate}`
 }
 
+async function bulkApprove() {
+	const summary = await bulk.runBulk(
+		filteredRequests.value,
+		"bulk_decide_price_requests",
+		{ approved: 1 },
+		{
+			useRows: true,
+			mapRow: (row) => ({
+				name: row.name,
+				purchase_order: row.purchase_order || "",
+				status: row.status,
+			}),
+			actionLabel: "Approving",
+		},
+	)
+	if (summary) await load()
+}
+
+async function bulkReject() {
+	const comment = window.prompt("Reason for rejection (applied to all selected)")
+	if (!comment?.trim()) return
+	const summary = await bulk.runBulk(
+		filteredRequests.value,
+		"bulk_decide_price_requests",
+		{ approved: 0, comment: comment.trim() },
+		{
+			useRows: true,
+			mapRow: (row) => ({
+				name: row.name,
+				purchase_order: row.purchase_order || "",
+				status: row.status,
+			}),
+			actionLabel: "Rejecting",
+		},
+	)
+	if (summary) await load()
+}
+
 onMounted(async () => {
 	await load()
 	const requested = requests.value.find((row) => row.name === route.query.request)
@@ -79,10 +163,39 @@ onMounted(async () => {
 	</PageHeader>
 	<CatalogTabs />
 	<section class="cp-card">
+		<ApprovalFilterChips v-model="filters" :groups="filterGroups" />
+		<div v-if="bulk.hasSelection" class="cp-bulk-bar">
+			<strong>{{ bulk.selectedCount }} selected</strong>
+			<button class="cp-btn sm primary" :disabled="bulk.busy" @click="bulkApprove">Approve selected</button>
+			<button class="cp-btn sm" :disabled="bulk.busy" @click="bulkReject">Reject selected</button>
+			<button class="cp-btn sm" :disabled="bulk.busy" @click="bulk.clearSelection()">Clear</button>
+		</div>
 		<table class="cp-table">
-			<thead><tr><th>Request / item</th><th>Scope</th><th>Rate</th><th>Status</th><th>Requested / decided</th><th>Raven</th><th /></tr></thead>
+			<thead>
+				<tr>
+					<th class="cp-check-col">
+						<input
+							type="checkbox"
+							class="cp-check"
+							:checked="bulk.allEligibleSelected(filteredRequests)"
+							:disabled="!filteredRequests.some(canDecide)"
+							@change="bulk.toggleSelectAll(filteredRequests, $event.target.checked)"
+						/>
+					</th>
+					<th>Request / item</th><th>Scope</th><th>Rate</th><th>Status</th><th>Requested / decided</th><th>Raven</th><th />
+				</tr>
+			</thead>
 			<tbody>
-				<tr v-for="row in requests" :key="row.name">
+				<tr v-for="row in filteredRequests" :key="row.name">
+					<td class="cp-check-col">
+						<input
+							type="checkbox"
+							class="cp-check"
+							:disabled="!canDecide(row)"
+							:checked="bulk.isSelected(row)"
+							@change="bulk.toggle(row, $event.target.checked)"
+						/>
+					</td>
 					<td><button class="cp-link" @click="showDetail(row)">{{ row.name }}</button><small>{{ row.purchase_order ? 'Purchase Order · ' : '' }}{{ row.item_code }} · {{ row.company }}</small></td>
 					<td>{{ row.supplier || "General" }}<small>{{ row.price_list }}</small></td>
 					<td><template v-if="row.purchase_order">{{ row.proposal.changes?.map((change) => `${change.item_code}: ${oldPrice(change, row.currency || ctx.currency, row.supplier)} → ${row.currency || ctx.currency} ${change.rate}`).join('; ') || 'Decision recorded' }}</template><template v-else>{{ row.target_item_price ? `${row.currency} ${row.old_rate}` : "New price" }} → <strong>{{ row.currency }} {{ row.proposed_rate }}</strong></template></td>
@@ -98,10 +211,19 @@ onMounted(async () => {
 						<button v-if="row.notification_status !== 'Delivered' && (ctx.can_approve_price_change || row.requested_by === ctx.user || ctx.can_override_lpo)" class="cp-btn sm" @click="retry(row)">Retry Raven</button>
 					</td>
 				</tr>
-				<tr v-if="!loading && !requests.length"><td colspan="7" class="cp-empty-row">No buying price requests for this company.</td></tr>
+				<tr v-if="!loading && !filteredRequests.length"><td colspan="8" class="cp-empty-row">No buying price requests match these filters.</td></tr>
 			</tbody>
 		</table>
 	</section>
+	<div v-if="bulk.busy" class="cp-busy-overlay" role="status" aria-live="assertive">
+		<div class="cp-busy-card">
+			<span class="cp-spinner" aria-hidden="true" />
+			<div>
+				<strong>{{ bulk.progress.label }} {{ bulk.progress.total }} selected…</strong>
+				<p>Keep this page open until the batch finishes.</p>
+			</div>
+		</div>
+	</div>
 	<Modal v-if="detail" :title="detail.name" wide @close="detail = null">
 		<p v-if="detail.purchase_order"><strong>Purchase Order:</strong> <RouterLink :to="`/purchase-orders/${detail.name}`">{{ detail.name }}</RouterLink></p>
 		<template v-if="detail.purchase_order"><div v-for="change in detail.proposal.changes || []" :key="change.index"><p><strong>{{ change.item_code }}</strong> · {{ detail.supplier || "General" }} · {{ change.price_list }}</p><p>{{ oldPrice(change, detail.currency || ctx.currency, detail.supplier) }} → <strong>{{ detail.currency || ctx.currency }} {{ change.rate }}</strong> · {{ change.reason }}</p><PriceHistory :item-code="change.item_code" :supplier="detail.supplier" :price-list="change.price_list" :company="detail.company" /></div></template>
