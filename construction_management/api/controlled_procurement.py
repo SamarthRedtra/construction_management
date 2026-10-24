@@ -1367,7 +1367,9 @@ def create_purchase_receipt(data: str | dict) -> dict:
 	doc.update({
 		"company": po.company, "supplier": po.supplier, "project": defaults["project"],
 		"bill_no": defaults["bill_no"], "boq_item": defaults["boq_item"],
-		"posting_date": data.get("received_on"), "custom_purchase_order": po.name,
+		"posting_date": data.get("received_on"),
+		"set_posting_time": 1 if data.get("received_on") else 0,
+		"custom_purchase_order": po.name,
 		"supplier_delivery_note": (data.get("supplier_delivery_note") or "").strip(),
 		"controlled_procurement": 1,
 	})
@@ -1864,9 +1866,9 @@ def create_purchase_invoice(data: str | dict) -> dict:
 	doc.set("items", kept)
 	doc.custom_supplier_invoice_no = data["supplier_invoice_no"].strip()
 	doc.bill_date = data.get("supplier_invoice_date") or None
-	if data.get("posting_date"):
-		doc.set_posting_time = 1
-		doc.posting_date = data["posting_date"]
+	# ERPNext resets posting_date to today unless set_posting_time is on.
+	doc.set_posting_time = 1
+	doc.posting_date = getdate(data.get("posting_date") or doc.posting_date)
 	if data.get("due_date"):
 		doc.due_date = data["due_date"]
 		doc.payment_terms_template = None
