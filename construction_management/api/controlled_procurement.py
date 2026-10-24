@@ -1632,6 +1632,27 @@ def update_purchase_receipt(name: str, data: str | dict) -> dict:
 	return {"name": doc.name}
 
 
+def _uniquify_supplier_delivery_note(doc) -> None:
+	"""Cancelled docs keep the DO number; amended copies need a free unique value.
+
+	Purchase Receipt enforces unique supplier_delivery_note at DB level, so a plain
+	copy_doc insert collides with the cancelled predecessor. Append '-' / '-N'.
+	"""
+	if not getattr(doc, "meta", None) or not doc.meta.has_field("supplier_delivery_note"):
+		return
+	base = (doc.get("supplier_delivery_note") or "").strip()
+	if not base:
+		return
+	candidate = f"{base}-"
+	n = 1
+	while frappe.db.exists(doc.doctype, {"supplier_delivery_note": candidate}):
+		n += 1
+		if n > 100:
+			frappe.throw(_("Could not allocate a unique Supplier DO No. from {0}.").format(base))
+		candidate = f"{base}-{n}"
+	doc.supplier_delivery_note = candidate
+
+
 def _cancel_and_amend(doctype: str, name: str, amend: bool) -> dict:
 	doc = _controlled_doc(doctype, name, "amend" if amend else "cancel")
 	if amend:
@@ -1639,6 +1660,8 @@ def _cancel_and_amend(doctype: str, name: str, amend: bool) -> dict:
 			frappe.throw(_("Cancel the document before amending it."))
 		amended = frappe.copy_doc(doc)
 		amended.amended_from = doc.name
+		# Unique Supplier DO No. on PR (and PI if present) survives on the cancelled doc.
+		_uniquify_supplier_delivery_note(amended)
 		amended.flags.controlled_procurement_api = True
 		amended.insert()
 		return {"name": amended.name, "docstatus": amended.docstatus}
