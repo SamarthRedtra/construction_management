@@ -116,9 +116,10 @@ class TestProcurementRevisions(UnitTestCase):
 		self.assertIn("Item ROW-1: Qty 1 → 2", changes)
 		self.assertEqual(len(changes), 4)
 
+	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=False)
 	@patch("construction_management.api.controlled_procurement.frappe.copy_doc")
 	@patch("construction_management.api.controlled_procurement._controlled_doc")
-	def test_amendment_links_native_predecessor(self, controlled_doc, copy_doc):
+	def test_amendment_links_native_predecessor(self, controlled_doc, copy_doc, exists):
 		original = MagicMock(name="GRN-1")
 		original.name = "GRN-1"
 		original.docstatus = 2
@@ -126,11 +127,31 @@ class TestProcurementRevisions(UnitTestCase):
 		amended = MagicMock()
 		amended.name = "GRN-1-1"
 		amended.docstatus = 0
+		amended.doctype = "Purchase Receipt"
+		amended.meta.has_field.return_value = True
+		amended.get = MagicMock(side_effect=lambda key, default=None: {
+			"supplier_delivery_note": "87567252",
+		}.get(key, default))
 		copy_doc.return_value = amended
 		result = procurement._cancel_and_amend("Purchase Receipt", "GRN-1", True)
 		self.assertEqual(amended.amended_from, "GRN-1")
+		self.assertEqual(amended.supplier_delivery_note, "87567252-")
 		amended.insert.assert_called_once()
 		self.assertEqual(result["name"], "GRN-1-1")
+
+	def test_uniquify_supplier_delivery_note_skips_taken_suffixes(self):
+		taken = {"87567252-", "87567252-2"}
+		doc = MagicMock()
+		doc.doctype = "Purchase Receipt"
+		doc.meta.has_field.return_value = True
+		doc.get = MagicMock(return_value="87567252")
+
+		def exists(_doctype, filters):
+			return filters.get("supplier_delivery_note") in taken
+
+		with patch("construction_management.api.controlled_procurement.frappe.db.exists", side_effect=exists):
+			procurement._uniquify_supplier_delivery_note(doc)
+		self.assertEqual(doc.supplier_delivery_note, "87567252-3")
 
 	@patch("construction_management.api.controlled_procurement.frappe.copy_doc")
 	@patch("construction_management.api.controlled_procurement._controlled_doc")
