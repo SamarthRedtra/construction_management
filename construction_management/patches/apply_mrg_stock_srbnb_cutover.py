@@ -33,30 +33,33 @@ def execute():
 	dup_result = apply_duplicate_repair(site)
 	print(f"Duplicate repair status: {dup_result.get('status')}")
 
-	rebook_result = apply_mat_reco_rebook(site)
+	try:
+		rebook_result = apply_mat_reco_rebook(site)
+	except Exception as exc:
+		still_sa = count_mat_reco_on_stock_adjustment()
+		if still_sa:
+			raise
+		print(
+			f"MAT-RECO rebook raised after work completed ({exc}); "
+			f"no MAT-RECO remain on Stock Adjustment — continuing."
+		)
+		rebook_result = {"planned": [], "rebooked": [], "skipped": [], "errors": [{"error": str(exc)}]}
+
 	print(
 		f"MAT-RECO rebook: planned={len(rebook_result.get('planned', []))} "
 		f"rebooked={len(rebook_result.get('rebooked', []))} "
 		f"skipped={len(rebook_result.get('skipped', []))} "
 		f"errors={len(rebook_result.get('errors', []))}"
 	)
-	if rebook_result.get("errors"):
-		# Per-voucher commits may have finished most rows; only fail if SA targets remain.
-		still_sa = frappe.db.count(
-			"Stock Reconciliation",
-			{
-				"company": COMPANY,
-				"posting_date": "2026-09-30",
-				"docstatus": 1,
-				"name": ["like", "MAT-RECO-%"],
-				"expense_account": "Stock Adjustment - MRG",
-			},
+	still_sa = count_mat_reco_on_stock_adjustment()
+	if rebook_result.get("errors") and still_sa:
+		frappe.throw(
+			f"MAT-RECO SRBNB rebook had errors and {still_sa} vouchers still on "
+			f"Stock Adjustment: {rebook_result['errors'][0]}"
 		)
-		if still_sa:
-			frappe.throw(
-				f"MAT-RECO SRBNB rebook had errors and {still_sa} vouchers still on "
-				f"Stock Adjustment: {rebook_result['errors'][0]}"
-			)
+	if still_sa:
+		frappe.throw(f"{still_sa} submitted MAT-RECO on 2026-09-30 still use Stock Adjustment - MRG")
+	if rebook_result.get("errors") and not still_sa:
 		print(
 			f"Rebook reported errors but no MAT-RECO remain on Stock Adjustment; continuing. "
 			f"First error was: {rebook_result['errors'][0]}"
@@ -126,6 +129,19 @@ def apply_mat_reco_rebook(site: str) -> dict:
 	)
 
 	return rebook(dry_run=0, expected_site=site, allow_production=1, include_mrg_dup=0)
+
+
+def count_mat_reco_on_stock_adjustment() -> int:
+	return frappe.db.count(
+		"Stock Reconciliation",
+		{
+			"company": COMPANY,
+			"posting_date": "2026-09-30",
+			"docstatus": 1,
+			"name": ["like", "MAT-RECO-%"],
+			"expense_account": "Stock Adjustment - MRG",
+		},
+	)
 
 
 def finish_revaluations(site: str, plan_hash: str) -> None:
