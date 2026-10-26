@@ -270,17 +270,33 @@ def allow_negative_stock_for_reconciliations():
 def verify_rebook(result):
 	if result["errors"]:
 		return
+	# Cancel/amend mid-batch can repost other open SRs, so the opening `before`
+	# snapshot is not a reliable conserved total. Verify per amended voucher instead.
 	if abs(result["after"][FROM_ACCOUNT]) > 0.011:
 		raise ValueError(
 			f"Live Stock Adjustment net still present on target vouchers: "
 			f"{result['after'][FROM_ACCOUNT]}"
 		)
-	# Conserved signed net: prior Stock Adjustment + prior SRBNB equals live SRBNB.
-	expected_to = result["before"][FROM_ACCOUNT] + result["before"][TO_ACCOUNT]
-	if abs(result["after"][TO_ACCOUNT] - expected_to) > 0.02:
+	remaining = frappe.db.count(
+		"Stock Reconciliation",
+		{
+			"company": COMPANY,
+			"posting_date": POSTING_DATE,
+			"docstatus": 1,
+			"name": ["like", MAT_RECO_PREFIX],
+			"expense_account": FROM_ACCOUNT,
+		},
+	)
+	if remaining and not result.get("include_mrg_dup"):
 		raise ValueError(
-			f"SRBNB net {result['after'][TO_ACCOUNT]} does not match "
-			f"conserved batch total {expected_to}"
+			f"{remaining} submitted MAT-RECO on {POSTING_DATE} still use {FROM_ACCOUNT}"
+		)
+	rebooked_from = sum(flt(row["from_account_net"]) for row in result["rebooked"])
+	rebooked_to = sum(flt(row["to_account_net"]) for row in result["rebooked"])
+	if abs(rebooked_to - rebooked_from) > 0.02:
+		raise ValueError(
+			f"Rebooked SRBNB net {rebooked_to} does not match captured Stock Adjustment "
+			f"net {rebooked_from}"
 		)
 	for row in result["rebooked"]:
 		if abs(flt(row["to_account_net"]) - flt(row["from_account_net"])) > 0.011:

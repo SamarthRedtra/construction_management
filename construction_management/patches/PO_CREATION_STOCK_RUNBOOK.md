@@ -7,10 +7,11 @@
 3. `repost_mrg_corrected_stock_to_2026_09_30`
 4. `apply_item_trail_list_migration` (old → new item on existing POs)
 5. `create_pos_from_po_creation_sheet` (this sheet → draft POs dated 2025-09-04)
+6. `apply_mrg_stock_srbnb_cutover` — creates `MRG-DUP-*` on **Stock Received But Not Billed - MRG**, remaps 30-Sep `MAT-RECO-*` from Stock Adjustment → SRBNB, then tries revaluation finish
 
-## Duplicate repair (manual — do not auto-patch)
+## Duplicate repair (manual fallback)
 
-If `tabBin.actual_qty < 0` remains for MRG after the above:
+If migrate cutover was skipped / failed, or `tabBin.actual_qty < 0` remains:
 
 ```sh
 # Preview (writes plan_hash)
