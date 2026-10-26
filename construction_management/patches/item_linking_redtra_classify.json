@@ -1,0 +1,2125 @@
+{
+  "total_unique_pairs": 421,
+  "go_csv_rows": 86,
+  "merge_count": 85,
+  "name_only_count": 1,
+  "noop_same_code": 140,
+  "already_migrated": 6,
+  "blocked": 189,
+  "other": 0,
+  "blocked_samples": [
+    {
+      "old": "RENDROC HS ( 25 KG PER BAG )",
+      "new": "CP-RENDEROC_HS__(20KG/BAG_)",
+      "old_uom": "Nos",
+      "new_uom": "BAGS",
+      "reason": "stock_uom mismatch"
+    },
+    {
+      "old": "RENDEROC FC ( 20 KG )",
+      "new": "CP-RENDEROC_FC_(20KG/BAG_)",
+      "old_uom": "Nos",
+      "new_uom": "BAGS",
+      "reason": "stock_uom mismatch"
+    },
+    {
+      "old": "CEMENT (50KG BAG)",
+      "new": "CP-OPC_CEMENT_(_50KG_/_BAG_)",
+      "old_uom": "Nos",
+      "new_uom": "BAGS",
+      "reason": "stock_uom mismatch"
+    },
+    {
+      "old": "SOFT BRUSH WITH STICK",
+      "new": "CP-SOFT_BRUSH_WITH_STICK",
+      "old_uom": "Nos",
+      "new_uom": "Box",
+      "reason": "stock_uom mismatch"
+    },
+    {
+      "old": "SAFETY GOGGLES BLACK",
+      "new": "CP-SAFETY_GOGGLES_BLACK",
+      "old_uom": "Nos",
+      "new_uom": "Box",
+      "reason": "stock_uom mismatch"
+    },
+    {
+      "old": "PAPER A3",
+      "new": "CP-PAPER_A3__(5_REAM/BOX)_(2500_SHEETS)",
+      "old_uom": "Box",
+      "new_uom": "Box",
+      "reason": "is_stock_item ('0' vs '1')"
+    },
+    {
+      "old": "A4 Paper80 GSM (5 Ream/Box) (2500 Sheets)",
+      "new": "CP-A4_PAPER80_GSM_(5_REAM/BOX)_(2500_SHEETS)",
+      "old_uom": "Box",
+      "new_uom": "Box",
+      "reason": "is_stock_item ('0' vs '1')"
+    },
+    {
+      "old": "GARBAGE BAG",
+      "new": "CP-GARBAGE_BAG",
+      "old_uom": "PKT",
+      "new_uom": "BUNDLE",
+      "reason": "stock_uom mismatch"
+    },
+    {
+      "old": "Box File -PVC (Green)",
+      "new": "CP-BOX_FILE__PVC_(GREEN)",
+      "old_uom": "CTN",
+      "new_uom": "CTN",
+      "reason": "is_stock_item ('0' vs '1')"
+    },
+    {
+      "old": "POWER FLOAT",
+      "new": "HIRE OF POWER FLOAT",
+      "old_uom": "Nos",
+      "new_uom": "Day",
+      "reason": "stock_uom mismatch"
+    },
+    {
+      "old": "ROCKET THINNER 2.5 LITR",
+      "new": "CP-ROCKET_THINNER_2.5_LITR",
+      "old_uom": "Nos",
+      "new_uom": "GALLON",
+      "reason": "stock_uom mismatch"
+    },
+    {
+      "old": "HIRE 66 SEATER BUS WITH DRIVER & WITH FUEL",
+      "new": "CP-HIRE_66_SEATER_BUS_WITH_DRIVER_WITH_FUEL",
+      "old_uom": "Nos",
+      "new_uom": "Months",
+      "reason": "stock_uom mismatch"
+    },
+    {
+      "old": "BED SHEET",
+      "new": "CP-SINGLE_BEDSHEET",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')"
+    },
+    {
+      "old": "AWAZEL PU 4045 POLYOL (220KG) DRUM",
+      "new": "CP-AWAZEL_PU_4045_POLYOL_(220KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch"
+    },
+    {
+      "old": "BITUBOARD 3.2 MM (2M X1M X 3.2MM)",
+      "new": "CP-BITUBOARD_3.2_MM_(1M*2M_)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch"
+    },
+    {
+      "old": "BIFLEX PL 4MM /180 GSM",
+      "new": "CP-BIFLEX_PL_4MM_/180_GSM_(1M*10M_ROLL)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch"
+    },
+    {
+      "old": "BETOFLEX PU-PPLY BETOL 220 KG",
+      "new": "CP-BETOFLEX_PU_PPLY_BETOL_220KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch"
+    },
+    {
+      "old": "BETOFLEX PU-ISO BETOL 250 KG",
+      "new": "CP-BETOFLEX_PU_ISO_BETOL_(250KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch"
+    },
+    {
+      "old": "BETOFLEX BETOTECH MESH  65 GSM 0.8M*100M",
+      "new": "CP-BETOFLEX_BETOTECH_MESH__65_GSM__(0.8M*100M)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch"
+    },
+    {
+      "old": "BAKING ROD 15 MM",
+      "new": "CP-BACKING_ROD_15MM_(360_LM_X_15MM)",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')"
+    }
+  ],
+  "blocked_all": [
+    {
+      "old": "RENDROC HS ( 25 KG PER BAG )",
+      "new": "CP-RENDEROC_HS__(20KG/BAG_)",
+      "old_uom": "Nos",
+      "new_uom": "BAGS",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00395"
+    },
+    {
+      "old": "RENDEROC FC ( 20 KG )",
+      "new": "CP-RENDEROC_FC_(20KG/BAG_)",
+      "old_uom": "Nos",
+      "new_uom": "BAGS",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00395"
+    },
+    {
+      "old": "CEMENT (50KG BAG)",
+      "new": "CP-OPC_CEMENT_(_50KG_/_BAG_)",
+      "old_uom": "Nos",
+      "new_uom": "BAGS",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00508, MRG-LPO-00458, MRG-LPO-00436, MRG-LPO-00366"
+    },
+    {
+      "old": "SOFT BRUSH WITH STICK",
+      "new": "CP-SOFT_BRUSH_WITH_STICK",
+      "old_uom": "Nos",
+      "new_uom": "Box",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00091-1, MRG-LPO-00091, MRG-LPO-00064"
+    },
+    {
+      "old": "SAFETY GOGGLES BLACK",
+      "new": "CP-SAFETY_GOGGLES_BLACK",
+      "old_uom": "Nos",
+      "new_uom": "Box",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00278, MRG-LPO-00169, PUR-ORD-2026-00013"
+    },
+    {
+      "old": "PAPER A3",
+      "new": "CP-PAPER_A3__(5_REAM/BOX)_(2500_SHEETS)",
+      "old_uom": "Box",
+      "new_uom": "Box",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00607, MRG-LPO-00329-1, MRG-LPO-00329"
+    },
+    {
+      "old": "A4 Paper80 GSM (5 Ream/Box) (2500 Sheets)",
+      "new": "CP-A4_PAPER80_GSM_(5_REAM/BOX)_(2500_SHEETS)",
+      "old_uom": "Box",
+      "new_uom": "Box",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00607, MRG-LPO-00329-1, MRG-LPO-00360, MRG-LPO-00329, PUR-ORD-2026-00016"
+    },
+    {
+      "old": "GARBAGE BAG",
+      "new": "CP-GARBAGE_BAG",
+      "old_uom": "PKT",
+      "new_uom": "BUNDLE",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00628, MRG-LPO-00453, MRG-LPO-00344, MRG-LPO-00278, MRG-LPO-00021"
+    },
+    {
+      "old": "Box File -PVC (Green)",
+      "new": "CP-BOX_FILE__PVC_(GREEN)",
+      "old_uom": "CTN",
+      "new_uom": "CTN",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00607, MRG-LPO-00329-1, MRG-LPO-00329, PUR-ORD-2026-00016"
+    },
+    {
+      "old": "POWER FLOAT",
+      "new": "HIRE OF POWER FLOAT",
+      "old_uom": "Nos",
+      "new_uom": "Day",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00310-1, MRG-LPO-00370, MRG-LPO-00310, MRG-LPO-00205, MRG-LPO-00168"
+    },
+    {
+      "old": "ROCKET THINNER 2.5 LITR",
+      "new": "CP-ROCKET_THINNER_2.5_LITR",
+      "old_uom": "Nos",
+      "new_uom": "GALLON",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00344"
+    },
+    {
+      "old": "HIRE 66 SEATER BUS WITH DRIVER & WITH FUEL",
+      "new": "CP-HIRE_66_SEATER_BUS_WITH_DRIVER_WITH_FUEL",
+      "old_uom": "Nos",
+      "new_uom": "Months",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00073, MRG-LPO-00072, PUR-ORD-2025-00015-1, MRG-LPO-00042-1, MRG-LPO-00042"
+    },
+    {
+      "old": "BED SHEET",
+      "new": "CP-SINGLE_BEDSHEET",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00537, MRG-LPO-00467, MRG-LPO-00417"
+    },
+    {
+      "old": "AWAZEL PU 4045 POLYOL (220KG) DRUM",
+      "new": "CP-AWAZEL_PU_4045_POLYOL_(220KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00231, MRG-LPO-00132-1, MRG-LPO-00220, MRG-LPO-00132"
+    },
+    {
+      "old": "BITUBOARD 3.2 MM (2M X1M X 3.2MM)",
+      "new": "CP-BITUBOARD_3.2_MM_(1M*2M_)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00074"
+    },
+    {
+      "old": "BIFLEX PL 4MM /180 GSM",
+      "new": "CP-BIFLEX_PL_4MM_/180_GSM_(1M*10M_ROLL)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00209, MRG-LPO-00164-1, MRG-LPO-00164"
+    },
+    {
+      "old": "BETOFLEX PU-PPLY BETOL 220 KG",
+      "new": "CP-BETOFLEX_PU_PPLY_BETOL_220KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00045-1, MRG-LPO-00045"
+    },
+    {
+      "old": "BETOFLEX PU-ISO BETOL 250 KG",
+      "new": "CP-BETOFLEX_PU_ISO_BETOL_(250KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00045-1, MRG-LPO-00045"
+    },
+    {
+      "old": "BETOFLEX BETOTECH MESH  65 GSM 0.8M*100M",
+      "new": "CP-BETOFLEX_BETOTECH_MESH__65_GSM__(0.8M*100M)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00045-1, MRG-LPO-00045"
+    },
+    {
+      "old": "BAKING ROD 15 MM",
+      "new": "CP-BACKING_ROD_15MM_(360_LM_X_15MM)",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00496"
+    },
+    {
+      "old": "AWAZEL PU 4040 POLYOL (220KG) DRUM",
+      "new": "CP-AWAZEL_PU_4040_POLYOL_(220KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00230"
+    },
+    {
+      "old": "AWAZEL PU 111 ISOCYNATE (250KG) DRUM",
+      "new": "CP-AWAZEL_PU_111_ISOCYNATE_(250KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00231, MRG-LPO-00230, MRG-LPO-00132-1, MRG-LPO-00220, MRG-LPO-00212, MRG-LPO-00211, MRG-LPO-00132"
+    },
+    {
+      "old": "ALLUMINIUM FLASHING 13CM 3 BEND",
+      "new": "CP-ALUMINIUM__FLASHING_(13CM_X_1MM_X_3_BEND_X_2.44M_LONG_)",
+      "old_uom": "LM",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00567, MRG-LPO-00466"
+    },
+    {
+      "old": "4MM NEOFLEX S4180 180GSM",
+      "new": "CP-4MM_NEOFLEX_S4180_180GSM_(1M*10M_ROLL)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00574, MRG-LPO-00287, MRG-LPO-00187-1, MRG-LPO-00187, MRG-LPO-00131-1, MRG-LPO-00131"
+    },
+    {
+      "old": "BIFLEX PL 4MM /180 GSM",
+      "new": "CP-BIFLEX_PL_4MM_/200_GSM_(1*10_MTR_ROLL)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00209, MRG-LPO-00164-1, MRG-LPO-00164"
+    },
+    {
+      "old": "HUNTSMAN SP 40 (220KG) DRUM",
+      "new": "CP-HUNTSMAN_SP_40_(220KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00271, MRG-LPO-00270"
+    },
+    {
+      "old": "WEBERDRY SPF 45W -PART B (220KG) DRUM",
+      "new": "CP-WEBERDRY_SPF_45W__PART_B_(220KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00509, MRG-LPO-00353-1, MRG-LPO-00353, MRG-LPO-00162, MRG-LPO-00130, MRG-LPO-00111, MRG-LPO-00102, MRG-LPO-00013"
+    },
+    {
+      "old": "WEBERDRY SPF 45W -PART A (250KG) DRUM",
+      "new": "CP-WEBERDRY_SPF_45W__PART_A_(250KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00509, MRG-LPO-00353-1, MRG-LPO-00353, MRG-LPO-00162, MRG-LPO-00130, MRG-LPO-00111, MRG-LPO-00102, MRG-LPO-00013"
+    },
+    {
+      "old": "SOPRAMASTIC LM",
+      "new": "CP-SOPRAMASTIC_LM_(20KG_PAIL)",
+      "old_uom": "PAIL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00026"
+    },
+    {
+      "old": "SOPRALENE FLAME 180 4P10",
+      "new": "CP-SOPRALENE_FLAME_180_4P10___(1M*10M_ROLL)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00611"
+    },
+    {
+      "old": "SOPRADERE HT",
+      "new": "CP-PRIMER__SOPRADERE_HT_(200LTR_/DRUM)",
+      "old_uom": "DRUM",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00026"
+    },
+    {
+      "old": "SIKASHIELD PB P15 PE SA 3MM BOARD (1M X 2M THICKNESS 3MM)",
+      "new": "CP-SIKASHIELD_PB_P15_PE_SA_3MM_BOARD_(1M*2M_)",
+      "old_uom": "BD",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00015"
+    },
+    {
+      "old": "SIKAFLEX-428 PRECAST CONCRETE GREY",
+      "new": "CP-SIKAFLEX_428_PRECAST_CONCRETE_GREY_(600_ML_SAUSAGE)",
+      "old_uom": "PCS",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00276, MRG-LPO-00066-1, MRG-LPO-00066"
+    },
+    {
+      "old": "SIKABIT P -12 AE BITUMENIOUS PRIMER  (180KG) DRUM",
+      "new": "CP-SIKABIT_P__12_AE_BITUMENIOUS_PRIMER__(200LTR_/DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00241, MRG-LPO-00015"
+    },
+    {
+      "old": "SIKA TOP 550 SEAL J (FORMERLY KNOWN AS MASTERSEAL 550J LIGHT GREY) (15KG+5KG) SET",
+      "new": "CP-SIKA_TOP_550_SEAL_J__(_PART_A_15KG+_PART_B_5KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00597, MRG-LPO-00470, MRG-LPO-00350, MRG-LPO-00276, MRG-LPO-00097, MRG-LPO-00043, MRG-LPO-00018"
+    },
+    {
+      "old": "SIKA TOP 550 SEAL H (POWDER PART A+B 20 KG GREY)",
+      "new": "CP-SIKA_TOP_550_SEAL_H(_PART_A_15KG+_PART_B_5KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00053"
+    },
+    {
+      "old": "SIKA LGOLFLEX-620",
+      "new": "CP-SIKA_LGOLFLEX_620_(200LTR_/DRUM)",
+      "old_uom": "Litre",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00053"
+    },
+    {
+      "old": "RHEOTEC GEOTEXTILE  120 GSM 300 M2 PER ROLL",
+      "new": "CP-RHEOTEC_GEOTEXTILE__120_GSM_(3_M_*100_M)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00285"
+    },
+    {
+      "old": "RHEOSEAL 4S -200 GSM SL APP",
+      "new": "CP-RHEOSEAL_4S__200_GSM_SL_APP__(1M*10M_ROLL)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00126, MRG-LPO-00111-1"
+    },
+    {
+      "old": "RHEOPRIME SB  ( 200 LTR DRUM )",
+      "new": "CP-RHEOPRIME_SB__(200LTR_/DRUM)",
+      "old_uom": "DRUM",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00594, MRG-LPO-00573, MRG-LPO-00521, MRG-LPO-00450, MRG-LPO-00393, MRG-LPO-00386, MRG-LPO-00293, MRG-LPO-00285, MRG-LPO-00178, MRG-LPO-00126, MRG-LPO-00111-1"
+    },
+    {
+      "old": "RHEOGROUT EP 102 (30KG KIT)",
+      "new": "CP-RHEOGROUT_EP_102_(30KG_KIT)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00327"
+    },
+    {
+      "old": "REFILL 4\"",
+      "new": "ROLLER REFILL 4\"",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00278"
+    },
+    {
+      "old": "PY40L BSP 10 M MEMBRANE SBS MODIFIED POLYES 180G",
+      "new": "CP-PY40L_BSP_10_M_MEMBRANE_SBS_MODIFIED_POLYES_180G___(1M*10M_ROLL)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00566-1, MRG-LPO-00566, MRG-LPO-00522, MRG-LPO-00150, MRG-LPO-00009"
+    },
+    {
+      "old": "PY40200L BSP 10 M MEMBRANE SBS MODIFIED 200G",
+      "new": "CP-PY40200L_BSP_10_M_MEMBRANE_SBS_MODIFIED_200G___(1M*10M_ROLL)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00615, MRG-LPO-00564, MRG-LPO-00477, MRG-LPO-00449, MRG-LPO-00351, MRG-LPO-00232, PUR-ORD-2026-00011"
+    },
+    {
+      "old": "PRIMER D41 (16 KG) CAN",
+      "new": "CP-PRIMER_D41_(16_KG)_CAN",
+      "old_uom": "CAN",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00232"
+    },
+    {
+      "old": "Polyflex white (15+5kg) (20 KG KIT)",
+      "new": "CP-POLYFLEX_WHITE_(_PART_A_15KG+_PART_B_5KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00387, MRG-LPO-00308"
+    },
+    {
+      "old": "NITOCOTE CM210 GREY  (15KG+5KG) SET",
+      "new": "CP-NITOCOTE_CM210_GREY_(_PART_A_15KG+_PART_B_5KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00610, MRG-LPO-00589, MRG-LPO-00445, MRG-LPO-00233, MRG-LPO-00207, MRG-LPO-00039-1, MRG-LPO-00039"
+    },
+    {
+      "old": "NEOTEX SP-ELASTOMERIC ACRYLIC COATING (20KG/PAIL) DARK GREY",
+      "new": "CP-NEOTEX_SP_DARK_GREY_(20KG/PAIL)",
+      "old_uom": "PAIL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00446, MRG-LPO-00352"
+    },
+    {
+      "old": "NEOSEAL PUD 560 (20KG/PAIL) WHITE",
+      "new": "CP-NEOSEAL_PUD_560__WHITE_(20LTR_PAIL)",
+      "old_uom": "PAIL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00259"
+    },
+    {
+      "old": "NEOSEAL FLEX 588 -WHITE (PART A 26.25 KG+PART B 8.75 KG)",
+      "new": "CP-NEOSEAL_FLEX_588__WHITE_(PART_A_26.25_KG+PART_B_8.75_KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00536, MRG-LPO-00504, MRG-LPO-00446, MRG-LPO-00229"
+    },
+    {
+      "old": "NEOSEAL FLEX 588 -GREY (PART A 25KG+PART B 10KG)",
+      "new": "CP-NEOSEAL_FLEX_588__GREY_(PART_A_25KG+PART_B_10KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00504, MRG-LPO-00483, MRG-LPO-00089"
+    },
+    {
+      "old": "NEOSEAL FLEX 550-DARK GREY(PART A 15KG+PART B 5KG)",
+      "new": "CP-NEOSEAL_FLEX_550_DARK_GREY_(PART_A_15KG+PART_B_5KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00127"
+    },
+    {
+      "old": "NEOSEAL FLEX 550 -LIGHT GREY (PART A 15KG+PART B 5KG)",
+      "new": "CP-NEOSEAL_FLEX_550__LIGHT_GREY_(PART_A_15KG+PART_B_5KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00568, MRG-LPO-00536, MRG-LPO-00408, MRG-LPO-00352, MRG-LPO-00290, MRG-LPO-00238, MRG-LPO-00208-1, MRG-LPO-00208, MRG-LPO-00055, MRG-LPO-00051, MRG-LPO-00025"
+    },
+    {
+      "old": "NEOSEAL FLEX 550 - WHITE  (PART A 15KG+ PART B 5KG)",
+      "new": "CP-NEOSEAL_FLEX_550___WHITE__(_PART_A_15KG+_PART_B_5KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00596, MRG-LPO-00568, MRG-LPO-00536, MRG-LPO-00457, MRG-LPO-00446, MRG-LPO-00352, MRG-LPO-00290, MRG-LPO-00238, MRG-LPO-00208-1, MRG-LPO-00229, MRG-LPO-00208, MRG-LPO-00127, MRG-LPO-00112, MRG-LPO-00099, MRG-LPO-00089, MRG-LPO-00080, MRG-LPO-00025, MRG-LPO-00006, PUR-ORD-2026-00015"
+    },
+    {
+      "old": "NEONATE MDI (250KG) DRUM",
+      "new": "CP-NEONATE_MDI_(250KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00596, MRG-LPO-00578, MRG-LPO-00563, MRG-LPO-00559, MRG-LPO-00516, MRG-LPO-00471, MRG-LPO-00432, MRG-LPO-00420, MRG-LPO-00263, MRG-LPO-00208-1, MRG-LPO-00208, MRG-LPO-00143, MRG-LPO-00131-1, MRG-LPO-00131, MRG-LPO-00128, MRG-LPO-00084-1, MRG-LPO-00084, MRG-LPO-00062, MRG-LPO-00044, MRG-LPO-00036-1, MRG-LPO-00036, MRG-LPO-00025, MRG-LPO-00006"
+    },
+    {
+      "old": "NEOGROUT NS 20 KG",
+      "new": "CP-NEOGROUT_NS_(20KG/BAG)",
+      "old_uom": "BAG",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00089"
+    },
+    {
+      "old": "NEOFLEX PU 25 LM (POLYURETHENE SEALANT) 600 ML-GREY",
+      "new": "CP-NEOFLEX_PU_25_LM_GREY_(600_ML_SAUSAGE)",
+      "old_uom": "TUBE",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00575, MRG-LPO-00352, MRG-LPO-00263, MRG-LPO-00143, MRG-LPO-00128, MRG-LPO-00112, MRG-LPO-00089, MRG-LPO-00062, MRG-LPO-00036-1, MRG-LPO-00036, MRG-LPO-00023"
+    },
+    {
+      "old": "NEOBOND SBR 250  ( 20 LTR TIN )",
+      "new": "CP-NEOBOND_SBR_250_(_20LTR_/_PAIL_)",
+      "old_uom": "PAIL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00089"
+    },
+    {
+      "old": "MS 60 6mm Protection Board (1x2m)",
+      "new": "CP-MS_60_6MM_PROTECTION_BOARD_(1M*2M_)",
+      "old_uom": "SHEET",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00600, MRG-LPO-00564, MRG-LPO-00477, MRG-LPO-00449, MRG-LPO-00428, MRG-LPO-00351, MRG-LPO-00291, MRG-LPO-00232"
+    },
+    {
+      "old": "mMC-0211 GR-246354 GUN REPAIR KIT , AIR VALVE  O-RING",
+      "new": "CP-GR_246354_GUN_REPAIR_KIT,AIR_VALVE_O_RING",
+      "old_uom": "PKT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00106"
+    },
+    {
+      "old": "MC-0127 DOP-20 KG",
+      "new": "CP-MC_0127_DOP_20KG",
+      "old_uom": "PAIL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00106"
+    },
+    {
+      "old": "MC-0078 GR-248130 SEAL O RING  ( PACK OF 6  )",
+      "new": "CP-GR_248130_SEAL_ORING(PACK_OF_6)",
+      "old_uom": "PKT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00332-1, MRG-LPO-00332, MRG-LPO-00106"
+    },
+    {
+      "old": "MC 0112 SCUFF JACKET 3X30 MTR",
+      "new": "CP-MC_0112_SCUFF_JACKET_3\"X30_MTR",
+      "old_uom": "MTR",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00106"
+    },
+    {
+      "old": "JK PROFIX -WPC 11",
+      "new": "CP-JK_PROFIX__WPC_11_(_PART_A_20KG+_PART_B_10KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00309-1, MRG-LPO-00309, MRG-LPO-00101, MRG-LPO-00098, MRG-LPO-00075, MRG-LPO-00052, MRG-LPO-00041"
+    },
+    {
+      "old": "JK PROFIX PU SPRAY 45-A (220KG/DRUM)",
+      "new": "CP-JK_PROFIX_PU_SPRAY_45_A_(220KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00152-1, MRG-LPO-00149-1, MRG-LPO-00152, MRG-LPO-00149, MRG-LPO-00101, MRG-LPO-00081, MRG-LPO-00068"
+    },
+    {
+      "old": "HUNTSMAN SP 45 (220KG) DRUM",
+      "new": "CP-HUNTSMAN_SP_45_(220KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00558, MRG-LPO-00451, MRG-LPO-00396, MRG-LPO-00273, MRG-LPO-00270, MRG-LPO-00144-2, MRG-LPO-00144-1, MRG-LPO-00144, MRG-LPO-00139-1, MRG-LPO-00139, MRG-LPO-00057, MRG-LPO-00017"
+    },
+    {
+      "old": "HUNTSMAN 200 (250KG) DRUM",
+      "new": "CP-HUNTSMAN_200_(250KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00558, MRG-LPO-00451, MRG-LPO-00273, MRG-LPO-00271, MRG-LPO-00270, MRG-LPO-00144-2, MRG-LPO-00144-1, MRG-LPO-00144, MRG-LPO-00139-1, MRG-LPO-00139, MRG-LPO-00057, MRG-LPO-00017"
+    },
+    {
+      "old": "GR-AR6060 MIX CHAMBER KIT ROUND PATTERN",
+      "new": "CP-GR_AR6060_MIX_CHAMBER_KIT_ROUND_PATTERN",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00106"
+    },
+    {
+      "old": "GR-246355 COMPLETE ORING SET MC",
+      "new": "CP-GR_246355_COMPLETE_ORING_SET_MC",
+      "old_uom": "PKT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00106"
+    },
+    {
+      "old": "GAS PIPE",
+      "new": "CP-GAS_PIPE",
+      "old_uom": "MTR",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00278"
+    },
+    {
+      "old": "FLAT CHISEL",
+      "new": "SDS MAX FLAT CHISEL 400 MM (HILTI BIT",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00247"
+    },
+    {
+      "old": "DUPRIME 200 LTR DRUM",
+      "new": "CP-DUPRIME_(200LTR_/DRUM)",
+      "old_uom": "DRUM",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00274-1, MRG-LPO-00274"
+    },
+    {
+      "old": "DUPLAST P-MEMBRANE 4MM 1M X 10 MTR ROLL",
+      "new": "CP-DUPLAST_P_MEMBRANE_4MM___(1M*10M_ROLL)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00274-1"
+    },
+    {
+      "old": "DUPLAST P 270 4MM APP MEMBRANE  1M X 10 MTR ROLL",
+      "new": "CP-DUPLAST_P_270_4MM_APP_MEMBRANE_(1M*10M_ROLL)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00602, MRG-LPO-00460, MRG-LPO-00274-1, MRG-LPO-00274"
+    },
+    {
+      "old": "DEEP TRAY FOR DIESEL DRUMS ( 2 DRUMS )",
+      "new": "CP-DEEP_TRAY_(_2DRUM__IN_1_TRAY_)",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('1' vs '0')",
+      "lpo": "MRG-LPO-00385-1, MRG-LPO-00385, MRG-LPO-00384, MRG-LPO-00194, MRG-LPO-00167-2, MRG-LPO-00167-1, MRG-LPO-00167"
+    },
+    {
+      "old": "CRESFOAM SF-45 (220KG) DRUM",
+      "new": "CP-CRESFOAM_SF_45_(220KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00517, MRG-LPO-00468"
+    },
+    {
+      "old": "CRESFOAM MDI (250KG) DRUM",
+      "new": "CP-CRESFOAM_MDI_(250KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00517, MRG-LPO-00468"
+    },
+    {
+      "old": "CORROPRUFE SBS 4180",
+      "new": "CP-CORROPRUFE_SBS_4180__(1M*10M_ROLL)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00554-2, MRG-LPO-00554-1, MRG-LPO-00554, MRG-LPO-00426, MRG-LPO-00357-1, MRG-LPO-00357, MRG-LPO-00330, MRG-LPO-00314, MRG-LPO-00261, MRG-LPO-00008"
+    },
+    {
+      "old": "CORROPRIME SB 200LTRS",
+      "new": "CP-CORROPRIME_SB(200LTR_/DRUM)",
+      "old_uom": "Litre",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00532, MRG-LPO-00426, MRG-LPO-00330, MRG-LPO-00008"
+    },
+    {
+      "old": "CORROBOARD 3.2 MM",
+      "new": "CP-CORROBOARD_3.2_MM__(1M*2M_)",
+      "old_uom": "SHEET",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00426, MRG-LPO-00357-1, MRG-LPO-00330, MRG-LPO-00118, MRG-LPO-00008"
+    },
+    {
+      "old": "COLPHENE BSW H 3.5",
+      "new": "CP-COLPHENE_BSW_H_3.5__(1*10_MTR_ROLL)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00027, MRG-LPO-00026"
+    },
+    {
+      "old": "WEBERSEAL PS  1000 GG/PG 4 Ltr / PACK",
+      "new": "CP-WEBERSEAL_PS__1000_GG/PG_(4_LTR/PACK)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00418, SKD-LPO-00396, MRG-LPO-00153, MRG-LPO-00010"
+    },
+    {
+      "old": "WEBERDRY SPF 45B -PART B (220KG) DRUM",
+      "new": "CP-WEBERDRY_SPF_45B__PART_B_(220KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00162-1"
+    },
+    {
+      "old": "WEBERDRY SPF 45B -PART A (250KG) DRUM",
+      "new": "CP-WEBERDRY_SPF_45B__PART_A_(250KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00162-1"
+    },
+    {
+      "old": "WEBERDRY 136 FX GREY KIT (22.5KG)",
+      "new": "CP-WEBERDRY_136_FX_GREY_KIT__(_PART_A_15_KG+_PART_B_7.5_KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00153"
+    },
+    {
+      "old": "WEBERDRY 116 FX WHITE  KIT (18 KG)",
+      "new": "CP-WEBERDRY_116_FX_WHITE__(_PART_A_13.63_KG+_PART_B_4.67_KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00447, MRG-LPO-00418, SKD-LPO-00396, MRG-LPO-00163-2, MRG-LPO-00163-1, MRG-LPO-00163, MRG-LPO-00123, MRG-LPO-00013"
+    },
+    {
+      "old": "WEBERDRY 116 FX SP  WHITE  KIT (22.5 KG)",
+      "new": "CP-WEBERDRY_116_FX_SP__WHITE___(_PART_A_13.63_KG+_PART_B_4.67_KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00353-1, MRG-LPO-00353, MRG-LPO-00209"
+    },
+    {
+      "old": "WEBERDRY 116 FX SP  GREY  KIT (22.5 KG)",
+      "new": "CP-WEBERDRY_116_FX_SP__GREY____(_PART_A_13.63_KG+_PART_B_4.67_KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00353-1, MRG-LPO-00353, MRG-LPO-00163-2, MRG-LPO-00163-1, MRG-LPO-00163, MRG-LPO-00013"
+    },
+    {
+      "old": "WEBERDRY 116 FX GREY  KIT (18KG)",
+      "new": "CP-WEBERDRY_116_FX_GREY___18_KG__(_PART_A_13.63_KG+_PART_B_4.67_KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00448, MRG-LPO-00418, SKD-LPO-00396"
+    },
+    {
+      "old": "WEBER JOINTSEAL PU 300 WHITE  (PC) (20 TUBE X 1 BOX)",
+      "new": "CP-WEBER_JOINTSEAL_PU_300_WHITE__(600_ML_SAUSAGE)",
+      "old_uom": "TUBE",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00495, MRG-LPO-00399, MRG-LPO-00163"
+    },
+    {
+      "old": "WEBER JOINTSEAL PU 300 GREY (PC) (20 TUBE X 1 BOX)",
+      "new": "CP-WEBER_JOINTSEAL_PU_300_GREY_(600_ML_SAUSAGE)",
+      "old_uom": "TUBE",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00163-2, MRG-LPO-00163-1, MRG-LPO-00013"
+    },
+    {
+      "old": "WEBER DRY PRIMER SB 200 LTR",
+      "new": "CP-WEBER_DRY_PRIMER_SB(200LTR_/DRUM)",
+      "old_uom": "Litre",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00427, MRG-LPO-00164-2, MRG-LPO-00164-1, MRG-LPO-00164"
+    },
+    {
+      "old": "WATERPRROFING GAS (22KG)",
+      "new": "CP-WATERPRROFING_GAS_(22KG)",
+      "old_uom": "CYLINDER",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00079, MRG-LPO-00022"
+    },
+    {
+      "old": "ULTRALOK HARD 40 (GREY)",
+      "new": "CP-COATLOK_HARD_40_GREY(_PART_A_15KG+_PART_B_5KG)",
+      "old_uom": "Set",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00017"
+    },
+    {
+      "old": "SOPRALENE FLAM 200 4P5 ( SIZE 10 X  1M )",
+      "new": "CP-SOPRALENE_FLAM_200_4P5__(1M*10M_ROLL)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00146"
+    },
+    {
+      "old": "SOPRALENE FLAM 200 4P20 (SIZE 10 X 1 M )",
+      "new": "CP-SOPRALENE_FLAM_200_4P20_(1M*10M_ROLL)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00510, MRG-LPO-00125"
+    },
+    {
+      "old": "SOPRALENE FLAM  180 5P20",
+      "new": "CP-SOPRALENE_FLAM__180_5P20__(1M*10M_ROLL)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00124"
+    },
+    {
+      "old": "SOPRADERE HT 20 LTR",
+      "new": "CP-SOPRADERE_HT_(200LTR_/DRUM)",
+      "old_uom": "PAIL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00146"
+    },
+    {
+      "old": "SOPRABOARD SF 3MM",
+      "new": "CP-SOPRABOARD_SF_3.0MM__(1M*2M_)",
+      "old_uom": "BD",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00026"
+    },
+    {
+      "old": "SIKASHIELD PB P15 PE 6MM BOARD (1X2Sqm sheet)",
+      "new": "CP-SIKASHIELD_PB_P15_PE_6MM_BOARD_(1M*2M_)",
+      "old_uom": "BD",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00065"
+    },
+    {
+      "old": "Sikashield E65 PE SA 4mm",
+      "new": "CP-SIKASHIELD_E65_PE_SA_4MM___(1M*10M_ROLL)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00582"
+    },
+    {
+      "old": "SIKALASTIC 311 (AE)",
+      "new": "CP-SIKALATIC_311__AE_(_20_LTR_PAIL_)",
+      "old_uom": "Set",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00515, MRG-LPO-00350"
+    },
+    {
+      "old": "SIKALASTIC  -152 AE  PART A+B SYSTEM CON.33KG",
+      "new": "CP-SIKALASTIC__152_AE(_PART_A_8KG+_PART_B_25KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00601, MRG-LPO-00066-1, MRG-LPO-00066"
+    },
+    {
+      "old": "SIKA TOP 550 SEAL K (FORMERLY KNOWN AS MASTERSEAL 550K WHITE) (23KG+5KG+18KG)",
+      "new": "CP-SIKA_TOP_550_SEAL_K_(_PART_A_15KG+_PART_B_5KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00597, MRG-LPO-00470, MRG-LPO-00350, MRG-LPO-00276, MRG-LPO-00240, MRG-LPO-00097, MRG-LPO-00053"
+    },
+    {
+      "old": "SIKA TOP - 588 SEAL GREY PART A 25KG/PART B 10 KG",
+      "new": "CP-NEOSEAL_FLEX_588__GREY_(PART_A_25KG+PART_B_10KG)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00603"
+    },
+    {
+      "old": "SIKA SHIELD P26 MG SA 4MM ROLL 1MX10M",
+      "new": "CP-SIKA_SHIELD_P26_MG_SA_4MM___(1M*10M_ROLL)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00334, MRG-LPO-00276, MRG-LPO-00241, MRG-LPO-00066-1, MRG-LPO-00066, MRG-LPO-00016"
+    },
+    {
+      "old": "SIKA SHIELD E36 PE SA 4MM ROLL 1MX10M",
+      "new": "CP-SIKA_SHIELD_E36_PE_SA_4MM___(1M*10M_ROLL)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00096"
+    },
+    {
+      "old": "SIKA SHIELD E35 PE SA 4MM ROLL 1MX10M",
+      "new": "CP-SIKA_SHIELD_E35_PE_SA_4MM__(1M*10M_ROLL)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00276, MRG-LPO-00241, MRG-LPO-00066-1, MRG-LPO-00066, MRG-LPO-00015, MRG-LPO-00014"
+    },
+    {
+      "old": "RHEOSEAL RBE350 ( 200 LTR PER DRUM )",
+      "new": "CP-RHEOSEAL_RBE350(200LTR_/DRUM)",
+      "old_uom": "Litre",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00475, MRG-LPO-00285, MRG-LPO-00178, MRG-LPO-00126, MRG-LPO-00111-1, MRG-LPO-00059"
+    },
+    {
+      "old": "REOPRIME D-41 DRUMS-200LTR",
+      "new": "CP-RHEOPRIME_SB__(200LTR_/DRUM)",
+      "old_uom": "Litre",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00019"
+    },
+    {
+      "old": "PROOFEX TORCHSEAL 4S 200  S( -20) (10M X 1M) 1 PELLETE 23 ROLL",
+      "new": "CP-PROOFEX_TORCHSEAL_4S_200_S__20_(1M*10M_ROLL)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00083, MRG-LPO-00082"
+    },
+    {
+      "old": "PROBOARD BITUMINIOUS PROTECTION BOARD  6MM",
+      "new": "CP-PROBOARD_BITUMINIOUS_PROTECTION_BOARD__6MM____(1M*2M_)",
+      "old_uom": "BD",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00474-1, MRG-LPO-00474, MRG-LPO-00427, MRG-LPO-00324, MRG-LPO-00164-2, MRG-LPO-00164-1, MRG-LPO-00164"
+    },
+    {
+      "old": "PRIMER D41  (180KG) DRUM",
+      "new": "CP-PRIMER_D41__(200LTR_/DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00477, MRG-LPO-00371, MRG-LPO-00333, MRG-LPO-00319"
+    },
+    {
+      "old": "POLYFOAM SS45 PART A 220 KG",
+      "new": "CP-POLYFOAM_SS45_PART_A_(220KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00272-1, MRG-LPO-00272"
+    },
+    {
+      "old": "POLYFOAM MDI PART B 250 KG",
+      "new": "CP-POLYFOAM_MDI_PART_B_(250KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00272-1, MRG-LPO-00272"
+    },
+    {
+      "old": "NW 250 GSM PET -WHITE (3 MTR *100 MTR)",
+      "new": "CP-NW_250_GSM_PET__WHITE_(3_M_*100_M)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00545, MRG-LPO-00277, MRG-LPO-00085, PUR-ORD-2026-00018"
+    },
+    {
+      "old": "NW 120 GSM PET -WHITE (3 MTR *100 MTR)",
+      "new": "CP-NW_120_GSM_PET__WHITE_(3_M_*100_M)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00588, MRG-LPO-00414, MRG-LPO-00307-1, MRG-LPO-00307, MRG-LPO-00277, MRG-LPO-00145, MRG-LPO-00085, MRG-LPO-00056, PUR-ORD-2026-00018"
+    },
+    {
+      "old": "NEOTEX SP-ELASTOMERIC ACRYLIC COATING (20KG/PAIL) WHITE",
+      "new": "CP-NEOTEX_SP_WHITE_(20KG/PAIL)",
+      "old_uom": "PAIL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00596, MRG-LPO-00290, MRG-LPO-00112, MRG-LPO-00025"
+    },
+    {
+      "old": "NEOTEX SP-ELASTOMERIC ACRYLIC COATING (20KG/PAIL) LIGHT GREY",
+      "new": "CP-NEOTEX_SP_LIGHT_GREY_(20KG/PAIL)",
+      "old_uom": "PAIL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00596, MRG-LPO-00025"
+    },
+    {
+      "old": "NEOSULPHIDE SEALANT-PG (4LTR/PACK) PART A+PART B",
+      "new": "CP-NEOSULPHIDE_SEALANT_PG_PART_A+PART_B_(4LTR/PACK)",
+      "old_uom": "PACK",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00432, MRG-LPO-00238, MRG-LPO-00208-1, MRG-LPO-00208"
+    },
+    {
+      "old": "NEOSULPHIDE SEALANT-GUN GRADE 2.5LTR(PART 4 4KG+PART B 0.250KG)",
+      "new": "CP-NEOSULPHIDE_SEALANT_GG_PART_A+PART_B__(_2.5LTR/PACK_)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00596, MRG-LPO-00352, MRG-LPO-00089, MRG-LPO-00025, MRG-LPO-00023"
+    },
+    {
+      "old": "NEOSEAL WP 509 -BLACK 24 LTR",
+      "new": "CP-NEOSEAL_WP_509__BLACK_(24LTR_PAIL)",
+      "old_uom": "KIT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00626, MRG-LPO-00624, MRG-LPO-00623, MRG-LPO-00575, MRG-LPO-00446, MRG-LPO-00263, MRG-LPO-00143, MRG-LPO-00128, MRG-LPO-00112, MRG-LPO-00107, MRG-LPO-00080, MRG-LPO-00036-1, MRG-LPO-00036, PUR-ORD-2026-00015"
+    },
+    {
+      "old": "NEOPOL SRS 45  (220KG) DRUM",
+      "new": "CP-NEOPOL_SRS_45__(220KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00596, MRG-LPO-00578, MRG-LPO-00563, MRG-LPO-00559, MRG-LPO-00516, MRG-LPO-00471, MRG-LPO-00432, MRG-LPO-00420, MRG-LPO-00263, MRG-LPO-00208-1, MRG-LPO-00208, MRG-LPO-00143, MRG-LPO-00131-1, MRG-LPO-00131, MRG-LPO-00128, MRG-LPO-00084-1, MRG-LPO-00084, MRG-LPO-00062, MRG-LPO-00044, MRG-LPO-00036-1, MRG-LPO-00036, MRG-LPO-00025, MRG-LPO-00006"
+    },
+    {
+      "old": "NEOFLEX ANTI-ROOT WATERPROOFING MEMBRANE 4MM (1X10MTR)",
+      "new": "CP-NEOFLEX_ANTI_ROOT_WATERPROOFING_MEMBRANE_4MM__(1M*10M_ROLL)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00259"
+    },
+    {
+      "old": "NEOCOAT RBE -6010  (200LTR/DRUM)",
+      "new": "CP-NEOCOAT_RBE__6010_(200LTR_/DRUM)",
+      "old_uom": "Litre",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00036-1, MRG-LPO-00036"
+    },
+    {
+      "old": "NEOCOAT RBE -4010 (200LTR/DRUM)",
+      "new": "CP-NEOCOAT_RBE__4010_(200LTR_/DRUM)",
+      "old_uom": "Litre",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00208-1, MRG-LPO-00208"
+    },
+    {
+      "old": "NEOCOAT RBE -3510  (200LTR/DRUM)",
+      "new": "CP-NEOCOAT_RBE__3510__(200LTR_/DRUM)",
+      "old_uom": "Litre",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00054, MRG-LPO-00048-1, MRG-LPO-00048"
+    },
+    {
+      "old": "NEOBOARD BITUMENIOUS PROTECTION BOARD  6MM (1X2MTR)",
+      "new": "CP-NEOBOARD_BITUMENIOUS_PROTECTION_BOARD__6MM_(1M*2M_)",
+      "old_uom": "BD",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00260"
+    },
+    {
+      "old": "MS60 200CM MEMBRANCE PROTECTION BOARD 6MM",
+      "new": "CP-MS_60_6MM_PROTECTION_BOARD_(1M*2M_)",
+      "old_uom": "BD",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00615"
+    },
+    {
+      "old": "MIXBUILD MC GREY 25KG/BAG",
+      "new": "CP-MIXBUILD_MC_GREY(_25KG/BAG)",
+      "old_uom": "BAG",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00576, MRG-LPO-00398-1, MRG-LPO-00398"
+    },
+    {
+      "old": "MASON HAMMER",
+      "new": "CP-MASON_HAMMER",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00247"
+    },
+    {
+      "old": "JK PROFIX PU MDI-B (250KG/DRUM)",
+      "new": "CP-JK_PROFIX_PU_MDI_B_(250KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00152-1, MRG-LPO-00149-1, MRG-LPO-00152, MRG-LPO-00149, MRG-LPO-00101, MRG-LPO-00081, MRG-LPO-00068"
+    },
+    {
+      "old": "Item Code: MC-0130 DPM - 20 KG",
+      "new": "CP-MC_0130_DPM___20_KG",
+      "old_uom": "PAIL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00332-1, MRG-LPO-00332, MRG-LPO-00106"
+    },
+    {
+      "old": "GR-248129 ORING KIT PACKAGE OF 6",
+      "new": "CP-GR_248129_ORING_KIT_(PACK_OF_6)",
+      "old_uom": "PKT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00332-1, MRG-LPO-00332, MRG-LPO-00106"
+    },
+    {
+      "old": "GR-248128 SIDE SEAL ORING",
+      "new": "CP-GR_248128_SIDE_SEAL_ORING",
+      "old_uom": "PKT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00332-1, MRG-LPO-00332, MRG-LPO-00106"
+    },
+    {
+      "old": "GR-246350 GUN REPAIR KIT-B SIDE CATRIDGE",
+      "new": "CP-GR_246350_GUN_REPAIR_KIT_B_SIDE_CATRIDGE",
+      "old_uom": "PKT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00106"
+    },
+    {
+      "old": "GR-246349 GUN REPAIR KIT-A SIDE CARTRIDG",
+      "new": "CP-GR_246349_GUN_REPAIR_KIT_A_SIDE_CARTRIDG",
+      "old_uom": "PKT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00106"
+    },
+    {
+      "old": "GR-246348 REPAIR KIT SIDE SEAL",
+      "new": "CP-GR_246348_REPAIR_KIT_SIDE_SEAL",
+      "old_uom": "PKT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00106"
+    },
+    {
+      "old": "DUMASTIC 20 KG",
+      "new": "CP-DUMASTIC_(20KG_PAIL)",
+      "old_uom": "PAIL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00602, MRG-LPO-00460, MRG-LPO-00423, MRG-LPO-00274-1, MRG-LPO-00274"
+    },
+    {
+      "old": "DIEN 40 4mm SBS Membrane 180gsm 180gsm (1x10)",
+      "new": "CP-DIEN_40_4MM_SBS_MEMBRANE_180GSM_(1M*10M_ROLL)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00487, MRG-LPO-00478, MRG-LPO-00333, MRG-LPO-00319"
+    },
+    {
+      "old": "DALTAFOAM TS (220KG) DRUM",
+      "new": "CP-DALTAFOAM_TS_(220KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00270"
+    },
+    {
+      "old": "CRESCOAT RBE 10 (200L -CT) (200LTR/DRUM)",
+      "new": "CP-CRESCOAT_RBE_10__(200LTR_/DRUM)",
+      "old_uom": "Litre",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "PUR-ORD-2026-00019"
+    },
+    {
+      "old": "COLPHENE BSW SP LAP",
+      "new": "CP-COLPHENE_SP_LAP__(1M*10M_ROLL)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00027, MRG-LPO-00026"
+    },
+    {
+      "old": "CANVAS CLOTH (1 BUNDDLE X 19)",
+      "new": "CP-CANVAS_CLOTH_(25_PCS_PER_BUNDLE_)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00281"
+    },
+    {
+      "old": "BIFLEX PL 4MM /200 GSM",
+      "new": "CP-BIFLEX_PL_4MM_/200_GSM_(1*10_MTR_ROLL)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00427, MRG-LPO-00324, MRG-LPO-00164-2"
+    },
+    {
+      "old": "BACKING ROD 20MM (200 LM/BAG) SHERIDAN",
+      "new": "CP-BACKING_ROD_20MM_(200_LM_X_20MM)",
+      "old_uom": "BUNDLE",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00403, MRG-LPO-00263"
+    },
+    {
+      "old": "BACKING ROD 20MM",
+      "new": "CP-BACKING_ROD_20MM_(200_LM_X_20MM)",
+      "old_uom": "BUNDLE",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00078"
+    },
+    {
+      "old": "BACKING ROD 15MM (360 LM/BAG) SHERIDAN",
+      "new": "CP-BACKING_ROD_15MM_(360_LM_X_15MM)",
+      "old_uom": "BUNDLE",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00263"
+    },
+    {
+      "old": "AWAZEL TORCH BRENNER 220 MM .TITANIUM S",
+      "new": "CP-AWAZEL_TORCH_BRENNER_220_MM_TITANIUM_S",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('1' vs '0')",
+      "lpo": "MRG-LPO-00598"
+    },
+    {
+      "old": "STICKER 10 X 5 CM",
+      "new": "CP-STICKER_10_X_5_CM",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "SKD-LPO-00316, MRG-LPO-00134, MRG-LPO-00133"
+    },
+    {
+      "old": "SINGLE BLANKET",
+      "new": "CP-SINGLE_BLANKET___PREMIUM",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00537, MRG-LPO-00467, MRG-LPO-00417"
+    },
+    {
+      "old": "ROLLER 9\"",
+      "new": "CP-PAINT_ROLLER_WITH__REFILL_9\"",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00278"
+    },
+    {
+      "old": "PVC WATER STOPPER L 25 MM X 15MTR",
+      "new": "CP-PVC_WATERSTOPPER__DOUBLE_FACE_(15M/ROLL)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "SKD-LPO-00161"
+    },
+    {
+      "old": "PILLOW",
+      "new": "CP-VENAZIA_FIBER_PILLOW",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00537, MRG-LPO-00467, MRG-LPO-00417"
+    },
+    {
+      "old": "PEN KRISH",
+      "new": "CP-KRISH_BALL_PEN_RED_(50PCS/PKT)",
+      "old_uom": "PKT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00607, MRG-LPO-00329-1, MRG-LPO-00329"
+    },
+    {
+      "old": "MATTRESS",
+      "new": "CP-FULL_MEDICAL_MATTRESS",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00537, MRG-LPO-00467, MRG-LPO-00417"
+    },
+    {
+      "old": "AWAZEL PU 4048 POLYOL (220KG) DRUM",
+      "new": "CP-AWAZEL_PU_4048_POLYOL_(220KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00231, MRG-LPO-00212, MRG-LPO-00211"
+    },
+    {
+      "old": "ASMACO PUF MDI (250KG) DRUM",
+      "new": "CP-ASMACO_PUF_MDI_(250KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00413"
+    },
+    {
+      "old": "ASMACO PUF 4040 (220KG) DRUM",
+      "new": "CP-ASMACO_PUF_4040_(220KG_DRUM)",
+      "old_uom": "Kg",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00413"
+    },
+    {
+      "old": "BITUMEN IMPEREGNATED BOARD 10 MM -CUTTING",
+      "new": "FILLER BOARD 10MM THICK WITH 7CM CUTTING PCS",
+      "old_uom": "SHEET",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00604, MRG-LPO-00578, MRG-LPO-00263, MRG-LPO-00131-1, MRG-LPO-00131, MRG-LPO-00062, MRG-LPO-00025, MRG-LPO-00024"
+    },
+    {
+      "old": "BETOFLEX 4P",
+      "new": "CP-BETOFLEX_4P_(1*10_MTR_ROLL)",
+      "old_uom": "M2",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00061, MRG-LPO-00047, MRG-LPO-00045-1, MRG-LPO-00045"
+    },
+    {
+      "old": "BAKING ROD 20MM",
+      "new": "CP-BACKING_ROD_20MM_(200_LM_X_20MM)",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00621, MRG-LPO-00496"
+    },
+    {
+      "old": "AWAZELBOND BS 1000",
+      "new": "CP-AWAZELBOND_BS_1000_(1M*10M_ROLL)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00333"
+    },
+    {
+      "old": "AWAZEL FABRIC 1MX  50M ROLL",
+      "new": "CP-AWAZEL_FABRIC_(1M*50M)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00577, MRG-LPO-00547, MRG-LPO-00469, MRG-LPO-00404, MRG-LPO-00286"
+    },
+    {
+      "old": "AWAZEL AWATEX RBE 6500  (200LTR/DRUM)",
+      "new": "CP-AWAZEL_AWATEX_RBE_6500__(200LTR_/DRUM)",
+      "old_uom": "Litre",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00355"
+    },
+    {
+      "old": "ALUMINIUM PATTI 3 MTR",
+      "new": "ALLUMINIUM HOLLOW SECTION 3M",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00247"
+    },
+    {
+      "old": "WHITE BOARD MARKER",
+      "new": "CP-WHITE_BOARD__MARKER",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00607, MRG-LPO-00329-1, MRG-LPO-00329"
+    },
+    {
+      "old": "WATER THERMOS (16 LTR)",
+      "new": "CP-WATER_THERMOS_(16_LITRE)",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00091-1, MRG-LPO-00247"
+    },
+    {
+      "old": "Sign here Sticker(50 Sheets/Pad)",
+      "new": "CP-SIGN_HERE_STICKER_(50_SHEETS/PAD)",
+      "old_uom": "PKT",
+      "new_uom": "PKT",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "PUR-ORD-2026-00016"
+    },
+    {
+      "old": "RAPPING ROLL",
+      "new": "CP-WRAPPING_ROLL_(1.2_KG/ROLL)",
+      "old_uom": "ROLL",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00343"
+    },
+    {
+      "old": "Punch pocket A4 (100sheets/pkt)",
+      "new": "CP-PUNCH_POCKET_A4_(_100SHEETS/PKT_)",
+      "old_uom": "PKT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "PUR-ORD-2026-00016"
+    },
+    {
+      "old": "PEN UNIBALL UB157 12 PCS PER PKT",
+      "new": "CP-PEN_UNIBALL_UB157_(12_PCS/PKT)",
+      "old_uom": "PKT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00329-1, MRG-LPO-00329"
+    },
+    {
+      "old": "PAPER CLIP",
+      "new": "CP-PAPER_CLIP_233_(10_PKT/BOX)",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00607"
+    },
+    {
+      "old": "PAINT ROLLER WITH REFILL 4\"",
+      "new": "CP-PAINT_ROLLER_WITH_REFILL__4\"",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00247"
+    },
+    {
+      "old": "Metal Fastner (50pcs/pkt)",
+      "new": "CP-METAL_FASTNER_(50_PCS/PKT)",
+      "old_uom": "Box",
+      "new_uom": "Box",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00607, MRG-LPO-00329-1, MRG-LPO-00329, PUR-ORD-2026-00016"
+    },
+    {
+      "old": "LEASE CHARGES ADVANCE FOR PRINTER",
+      "new": "CP-LEASE_CHARGES_FOR_PRINTER_(MONTHLY)",
+      "old_uom": "Months",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00197, MRG-LPO-00116-1, MRG-LPO-00094-1, MRG-LPO-00116, MRG-LPO-00094"
+    },
+    {
+      "old": "FIS note book / diary A5",
+      "new": "CP-FIS_NOTE_BOOK_/DIARY_A5",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('0' vs '1')",
+      "lpo": "MRG-LPO-00607, PUR-ORD-2026-00016"
+    },
+    {
+      "old": "Divider 1-5",
+      "new": "CP-DIVIDER_01___5_(50_SETS/BOX)",
+      "old_uom": "Box",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00329-1, MRG-LPO-00329, PUR-ORD-2026-00016"
+    },
+    {
+      "old": "Divider 1-15",
+      "new": "CP-DIVIDER_01___15_(25_SETS/BOX)",
+      "old_uom": "Box",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00607, PUR-ORD-2026-00016"
+    },
+    {
+      "old": "Divider 1-12",
+      "new": "CP-DIVIDER_01___12_(30_SETS/BOX)",
+      "old_uom": "Box",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00607, MRG-LPO-00329-1, MRG-LPO-00329, PUR-ORD-2026-00016"
+    },
+    {
+      "old": "BINDER CLIP 15MM 12 PCS PER PKT",
+      "new": "CP-BINDER_CLIP_15MM_(12_PCS/PKT)",
+      "old_uom": "PKT",
+      "new_uom": "Nos",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00329-1, MRG-LPO-00329"
+    },
+    {
+      "old": "2 DOOR LOCKER HEAVY DUTY",
+      "new": "CP-DOUBLE_DOOR_LOCKER_HEAVY_DUTY",
+      "old_uom": "Nos",
+      "new_uom": "Nos",
+      "reason": "is_stock_item ('1' vs '0')",
+      "lpo": "MRG-LPO-00115-1, MRG-LPO-00115"
+    },
+    {
+      "old": "Correction Pen (12pcs/box)",
+      "new": "CP-CORRECTION_PEN_(12PCS/BOX)",
+      "old_uom": "PKT",
+      "new_uom": "PCS",
+      "reason": "stock_uom mismatch",
+      "lpo": "PUR-ORD-2026-00016"
+    },
+    {
+      "old": "Marker pen round tip Red",
+      "new": "CP-MARKER_PEN_ROUND_TIP_RED",
+      "old_uom": "Box",
+      "new_uom": "PKT",
+      "reason": "stock_uom mismatch",
+      "lpo": "PUR-ORD-2026-00016"
+    },
+    {
+      "old": "STAMP INK",
+      "new": "CP-STAMP_INK",
+      "old_uom": "Nos",
+      "new_uom": "PKT",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00329-1, MRG-LPO-00329"
+    },
+    {
+      "old": "LETTER HEAD",
+      "new": "CP-LETTER_HEAD_PAPER",
+      "old_uom": "Nos",
+      "new_uom": "PKT",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00313-1"
+    },
+    {
+      "old": "Split A/C 2 Ton",
+      "new": "CP-SPLIT__A/C_2_TON",
+      "old_uom": "Nos",
+      "new_uom": "Set",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00502-1, MRG-LPO-00502"
+    },
+    {
+      "old": "FOAM CONCRETE MACHINE",
+      "new": "CP-FOAM_CONCRETE_MACHINE_MODEL_:_DE_H",
+      "old_uom": "Nos",
+      "new_uom": "Set",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00402"
+    },
+    {
+      "old": "COMMERCIAL PLYWOOD 12MM ( 8' X 4' X 12MM )",
+      "new": "CP-COMMERCIAL_PLYWOOD_12MM_(_8'_X_4'_X_12MM_)",
+      "old_uom": "Nos",
+      "new_uom": "SHEET",
+      "reason": "stock_uom mismatch",
+      "lpo": "MRG-LPO-00397"
+    }
+  ],
+  "already_list": [
+    {
+      "old": "GEOTEXTILE WHITE PP 120  (3 X 100)300 M\u00c2\u00b2/ ROLL",
+      "new": "CP-GEOTEXTILE_WHITE_PP_120_(3_M_*100_M)"
+    },
+    {
+      "old": "GEOTEC 250 GSM GEOTEXTILE  (6 X 100) 600 M\u00c2\u00b2 /ROLL",
+      "new": "CP-GEOTEC_250_GSM_GEOTEXTILE__(6_M_*100_M)"
+    },
+    {
+      "old": "GEOTEC -120GSM GEOTEXTILE  (3 X 100)300 M\u00c2\u00b2/ ROLL",
+      "new": "CP-GEOTEC__120_GSM_GEOTEXTILE__(3_M_*100_M)"
+    },
+    {
+      "old": "GEOTEC -100GSM GEOTEXTILE  (3 X 100)300 M\u00c2\u00b2/ ROLL",
+      "new": "CP-GEOTEC__100_GSM_GEOTEXTILE_(3_M_*100_M)"
+    },
+    {
+      "old": "CRESGEO PET -120 GSM  (3 X 100)300 M\u00c2\u00b2/ ROLL",
+      "new": "CP-CRESGEO_PET__120_GSM___(3_M_*100_M)"
+    },
+    {
+      "old": "AWAZEL TEX 120 GSM (2.9 X 100)290 M\u00c2\u00b2/ ROLL",
+      "new": "CP-AWAZEL_TEX_120_GSM__(2.9_M*100_M)"
+    }
+  ],
+  "name_only_list": [
+    {
+      "old": "AWAZEL WATER INJECTION  ( FOAM PLUS CATALYSET 5 KG SET  )",
+      "new_name": "AWAZEL WATER INJECTION ( FOAM PLUS CATALYSET 5 KG SET )"
+    }
+  ],
+  "go_merge_list": [
+    {
+      "old": "MASKING TAPE 2''",
+      "new": "CP-MASKING_TAPE_2''X_25_YRD",
+      "uom": "Box"
+    },
+    {
+      "old": "RENTAL BUS 34 SEATER",
+      "new": "CP-HIRE_OF_34_SEATER_BUS_WITH_DRIVER_WITHOUT_FUEL",
+      "uom": "Months"
+    },
+    {
+      "old": "AWAZEL DS 40 250 (High Performance APP modified bituminous membrane, reinforced with Polyester) ,",
+      "new": "CP-AWAZEL_DS_40_250_HIGH_PERFORMANCE_APP_(1M*10M_ROLL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "ALUMINUM INJ PACKER DOUBLE RUBBER 13X115",
+      "new": "INJECTION PACKERS ALLUMINIUM",
+      "uom": "Nos"
+    },
+    {
+      "old": "ALU FLASHING 10CM X 1MM X 1BEND",
+      "new": "CP-ALUMINIUM_FLASHING_(10CM_X_1MM_X_1BEND_X_2.44M_LONG_)",
+      "uom": "Nos"
+    },
+    {
+      "old": "SOPRALENE FLAM JARDIN 200 4P20",
+      "new": "CP-SOPRALENE_FLAM_JARDIN_200_4P20___(1M*10M_ROLL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "SOPRABOARD SF 3.2MM",
+      "new": "CP-SOPRABOARD_SF_3.2MM__(1M*2M_)",
+      "uom": "Nos"
+    },
+    {
+      "old": "RUBBER GLOVES",
+      "new": "CP-RUBBER_GLOVES__(12_PCS/DZN)",
+      "uom": "Nos"
+    },
+    {
+      "old": "RHEOSEAL SBS 4S 180 ( -5 )",
+      "new": "CP-RHEOSEAL_SBS_4S_180_(__5_)__(1M*10M_ROLL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "RHEOBOARD 6MM",
+      "new": "CP-RHEOBOARD_6MM__(1M*2M_)",
+      "uom": "Nos"
+    },
+    {
+      "old": "RHEOBOARD  4MM (1M*2M )-PROTECTION BOARD",
+      "new": "CP-RHEOBOARD__4MM_(1M*2M_)",
+      "uom": "Nos"
+    },
+    {
+      "old": "RHEO MASTIC SEALANT 20KG PER PAIL",
+      "new": "CP-RHEO_MASTIC_SEALANT_(20KG_PAIL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "REPAIR KIT SIDE SEAL",
+      "new": "CP-GR_246348_REPAIR_KIT_SIDE_SEAL",
+      "uom": "Nos"
+    },
+    {
+      "old": "POLYTHENE P 20 KG PAIL -GREY COLOUR",
+      "new": "CP-POLYTHANE_P_(20LTR_PAIL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "POLYTHANE P ( 20 LTR PAIL )",
+      "new": "CP-POLYTHANE_P_(20LTR_PAIL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "POLYFLEX GN MINERAL 180 ( 1M X 10M PER ROLL )",
+      "new": "CP-POLYFLEX_GN_MINERAL_180___(1M*10M_ROLL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "PLASIFLEX FLAM 180 4F  1M X  10M PER ROLL",
+      "new": "CP-PLASIFLEX_FLAM_180_4F___(1M*10M_ROLL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "PAINT ROLLER 9\" WITH REFILL",
+      "new": "CP-PAINT_ROLLER_WITH__REFILL_9\"",
+      "uom": "Nos"
+    },
+    {
+      "old": "NW 100 GSM PET -WHITE (3 MTR *100 )",
+      "new": "CP-NW_100_GSM_PET__WHITE_(3_M_*100_M)",
+      "uom": "Nos"
+    },
+    {
+      "old": "NEOFLEX MINERAL 4MM 1M X  10MTR ROLL",
+      "new": "CP-NEOFLEX_MINERAL_4MM__(1M*10M_ROLL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "MONOGUM FLAM 270 4P10 1M X  10M ROLL",
+      "new": "CP-MONOGUM_FLAM_270_4P10__(1*10_MTR_ROLL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "MIX GROUT NS 25 KG BAG",
+      "new": "CP-MIX_GROUT_NS_(_25KG/BAG)",
+      "uom": "Nos"
+    },
+    {
+      "old": "MIX CHAMBER KIT ROUND PATTERN",
+      "new": "CP-GR_AR6060_MIX_CHAMBER_KIT_ROUND_PATTERN",
+      "uom": "Nos"
+    },
+    {
+      "old": "HAND SHOVEL ( SAND WORK",
+      "new": "HAND SHOVEL ( CONCRETE WORK",
+      "uom": "Nos"
+    },
+    {
+      "old": "GUN REPAIR KIT AIR VALVE O -RING",
+      "new": "CP-GR_246354_GUN_REPAIR_KIT,AIR_VALVE_O_RING",
+      "uom": "Nos"
+    },
+    {
+      "old": "FLUID VALVE",
+      "new": "GR-246356-FLUID VALVE",
+      "uom": "Nos"
+    },
+    {
+      "old": "FIRE EXTINGUSHERS DRY POWDER",
+      "new": "FIRE EXTINGUISHER DCP 6KG",
+      "uom": "Nos"
+    },
+    {
+      "old": "CP-SOPRADERE_HT_(200LTR_/DRUM)",
+      "new": "CP-PRIMER__SOPRADERE_HT_(200LTR_/DRUM)",
+      "uom": "Nos"
+    },
+    {
+      "old": "COCO BRUSH WITH STICKER",
+      "new": "COCO BROOM WITH STICK",
+      "uom": "Nos"
+    },
+    {
+      "old": "CHECK VALVE FACE O RING",
+      "new": "CP-GR_248133_CHECK_VALVE_FACE_O_RING",
+      "uom": "Nos"
+    },
+    {
+      "old": "CARPENTER AARI 18'' ( HAND SAW CUTTER",
+      "new": "CP-CARPENTER_AARI_18''_(_HAND_SAW_CUTTER_)",
+      "uom": "Nos"
+    },
+    {
+      "old": "BUNK BED",
+      "new": "CP-BUNK_BED_HEAVY_DUTY_32_TO_33_KG___BROAD_SQUARE_TUBE_SILVER__(SIZE_:_1.90_X_0.9M_)",
+      "uom": "Nos"
+    },
+    {
+      "old": "X-103-lV HYDROPHILIC POLYURETHEN",
+      "new": "X-103-lV HYDROPHILIC POLYURETHEN  ( 4 LTR  PER PACK  )",
+      "uom": "Nos"
+    },
+    {
+      "old": "X-102-lV HYDROPHILIC POLYURETHEN",
+      "new": "X-102-lV HYDROPHILIC POLYURETHEN (  4 LTR TIN )",
+      "uom": "Nos"
+    },
+    {
+      "old": "WEBERAD 225 MB 20 LTR PER PAIL",
+      "new": "CP-WEBERAD_225_MB_(_20LTR_/_PAIL_)",
+      "uom": "Nos"
+    },
+    {
+      "old": "UNIFORMS 100% COTTON PANT SHIRT DARK GREY COLOR WITH REFLECTING TAPE &",
+      "new": "COVERALL PREMIUM COTTON 100% WITH ONE COLOUR PRINTING AS PER SAMPLE",
+      "uom": "Nos"
+    },
+    {
+      "old": "SPIRIT LEVEL 1.00 MTR",
+      "new": "CP-SPIRIT_LEVEL__100_CM",
+      "uom": "Nos"
+    },
+    {
+      "old": "SOPRAMASTIC LM 20 LTR PAIL",
+      "new": "CP-SOPRAMASTIC_LM_(20KG_PAIL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "SOPRABOARD SF 6MM ( 2M X  1M )",
+      "new": "CP-SOPRABOARD_SF_6MM_(1M*2M_)",
+      "uom": "Nos"
+    },
+    {
+      "old": "SOPRABOARD SF (3.0MM)",
+      "new": "CP-SOPRABOARD_SF_3.0MM__(1M*2M_)",
+      "uom": "Nos"
+    },
+    {
+      "old": "SCRAPER 3''",
+      "new": "SCRAPPER 3",
+      "uom": "Nos"
+    },
+    {
+      "old": "SBS MEMBRANE  SOPRALENE  FLAME 270 4P10",
+      "new": "CP-SBS_MEMBRANE__SOPRALENE__FLAME_270_4P10__(1M*10M_ROLL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "ROOFMATE   50MM ( 1.25 X 0.60M ) DENSITY 32-35 KG",
+      "new": "CP-E_FOAM__50MM_(_1.25_X_0.60M_)_DENSITY_32_35_KG",
+      "uom": "Nos"
+    },
+    {
+      "old": "RHEOSEAL  SBS 4S 200 -5  1M X  10M ROLL",
+      "new": "CP-RHEOSEAL__SBS_4S_200__5___(_(1M*10M_ROLL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "RHEOBOARD  3.2MM 1X2 MTR",
+      "new": "CP-RHEOBOARD__3.2MM_(1M*2M_)",
+      "uom": "Nos"
+    },
+    {
+      "old": "REFILL 9'' (100 PCS) CTN",
+      "new": "PAINT REFILL 9\"",
+      "uom": "Nos"
+    },
+    {
+      "old": "PROTECTION BOARD  (6MMX2MX1M) SHEET",
+      "new": "CP-PROTECTION_BOARD_6MM_(1M*2M_)",
+      "uom": "Nos"
+    },
+    {
+      "old": "PROTECTION BOARD  (3.2mmx2mx1m)",
+      "new": "CP-PROTECTION_BOARD__3.2MM_(1M*2M_)",
+      "uom": "Nos"
+    },
+    {
+      "old": "PRIMER  SOPRADERE HT",
+      "new": "CP-PRIMER__SOPRADERE_HT_(200LTR_/DRUM)",
+      "uom": "Nos"
+    },
+    {
+      "old": "POLYFLEX MS 270 APP MEMBRTANE  ( 1M X  10M PER ROLL )",
+      "new": "CP-POLYFLEX_MS_270_APP_MEMBRTANE____(1M*10M_ROLL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "Polyflex grey (15+5kg) (20 KG KIT)",
+      "new": "CP-POLYFLEX_GREY(_PART_A_15KG+_PART_B_5KG)",
+      "uom": "Nos"
+    },
+    {
+      "old": "NITOFLOR FC150 NEUTRAL (16.6L)",
+      "new": "CP-NITOFLOR_FC150_NEUTRAL_(16.6L/PACK_)",
+      "uom": "Nos"
+    },
+    {
+      "old": "NITOFLOR COLOR POT SILVER GREY RAL7001 (0.63kg/0.35L)",
+      "new": "CP-NITOFLOR_COLOR_POT_SILVER_GREY_RAL7001_(0.63KG/0.35L_PACK)",
+      "uom": "Nos"
+    },
+    {
+      "old": "LUBRICIANT GREASE(WB)",
+      "new": "CP-GR_118665_LUBRICANT_GREASE(WB)",
+      "uom": "Nos"
+    },
+    {
+      "old": "HACK SAW BLADE",
+      "new": "CP-HACKSAW_BLADE",
+      "uom": "Nos"
+    },
+    {
+      "old": "GR-11865 LUBRICANT GREASE ( WB )",
+      "new": "CP-GR_118665_LUBRICANT_GREASE(WB)",
+      "uom": "Nos"
+    },
+    {
+      "old": "FACE MASK 50 PCS PER PKT",
+      "new": "CP-FACE_MASK__(50_PCS_/_PKT_)",
+      "uom": "Nos"
+    },
+    {
+      "old": "EXTRUDED POLYSTRENE SHEET 100MM DENSITY 32-35 KG",
+      "new": "CP-ROOFMATE___100MM_(_1.25_X_0.60M_)_DENSITY_32_35_KG",
+      "uom": "Nos"
+    },
+    {
+      "old": "EXTRUDED POLYSTRENE 50MM DENSITY 32-35",
+      "new": "CP-EXTRUDED_INSULATION_BOARD__50MM_(_1.25_X_0.60M_)_DENSITY_32_35_KG",
+      "uom": "Nos"
+    },
+    {
+      "old": "EXTRUDED INSULATION BOARD 75MM (SIZE : 1.25 X  0.60M X 75MM  )",
+      "new": "CP-ROOFMATE__75MM_(_1.25_X_0.60M_)_DENSITY_32_35_KG",
+      "uom": "Nos"
+    },
+    {
+      "old": "EXTRUDED INSULATION BOARD 60MM  DENSITY 32-35 KG",
+      "new": "CP-E_FOAM__60MM_(_1.25_X_0.60M_)_DENSITY_32_35_KG",
+      "uom": "Nos"
+    },
+    {
+      "old": "EXTRUDED INSULATION BOARD  70MM ( 1.25 X 0.60M )",
+      "new": "CP-ROOFMATE__70MM_(_1.25_X_0.60M_)_DENSITY_32_35_KG",
+      "uom": "Nos"
+    },
+    {
+      "old": "DPM -20KG",
+      "new": "CP-MC_0130_DPM___20_KG",
+      "uom": "Nos"
+    },
+    {
+      "old": "CONCRETE PRIMER D41 ( 200 LTR PER DRUM )",
+      "new": "CP-CONCRETE_PRIMER_D41_(200LTR_/DRUM)",
+      "uom": "Nos"
+    },
+    {
+      "old": "GNSS/ LTE modules, Internal GNSS, LTE Antennas, Reliable 4G Connection, Internal Back-up Battery.",
+      "new": "CP-GNSS/_LTE_MODULES,_INTERNAL_GNSS,_LTE_ANTENNAS,_RELIABLE_4G_CONNECTION,_INTERNAL_BACK_UP_BATTERY.",
+      "uom": "Nos"
+    },
+    {
+      "old": "GAS STOVE 2 BURNER HEAVY DUTY FLAMES LOW CONSUMPTION",
+      "new": "CP-GAS_STOVE_WITH_2_BURNER",
+      "uom": "Nos"
+    },
+    {
+      "old": "CLOTH SCISSOR",
+      "new": "MESH CUTTER SCISSOR 7\"",
+      "uom": "Nos"
+    },
+    {
+      "old": "AQUADERE HT 200 LTR PER DRUM",
+      "new": "CP-AQUADERE_HT__(200LTR_/DRUM)",
+      "uom": "Nos"
+    },
+    {
+      "old": "HEAVY DUTY METAL SHOE RACK WITH DOOR",
+      "new": "CP-METAL_SHOE_RACK_HD_(_SIZE_:_90X40X60CM)",
+      "uom": "Nos"
+    },
+    {
+      "old": "ANGLE GRINDER 9\" DWE492 220V DEWALT",
+      "new": "GRINDER DEWALT 9\" DWE492",
+      "uom": "Nos"
+    },
+    {
+      "old": "AWAZEL PU 670 20 LTR PAIL",
+      "new": "CP-AWAZEL_PU_670__(20LTR_PAIL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "AWAZEL DS 40 250 MINERAL (APP modified bituminous membrane, surfaced with Mineral slates)",
+      "new": "CP-AWAZEL_DS_40_250_MINERAL_APP_(1M*10M_ROLL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "AWAZEL ACRYLIC COAT  15 KG PAIL",
+      "new": "CP-AWAZEL_ACRYLIC_COAT__(15KG/_PAIL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "AWAZEL PU FLEX",
+      "new": "CP-AWAZEL_PU_FLEX__(600_ML_SAUSAGE)",
+      "uom": "Nos"
+    },
+    {
+      "old": "WATER THERMOS 16 LTR",
+      "new": "CP-WATER_THERMOS_(16_LITRE)",
+      "uom": "Nos"
+    },
+    {
+      "old": "TILE ADHESIVE",
+      "new": "CP-WEBERCOL_PRO_GREY__(25KG/_BAG_)",
+      "uom": "BAGS"
+    },
+    {
+      "old": "SUPERSEAL  ( 200 LTR PER DRUM )",
+      "new": "CP-SUPERSEAL_WB_(200_LTR_/DRUM)",
+      "uom": "Nos"
+    },
+    {
+      "old": "SHUTTERING OIL",
+      "new": "CP-NEORELEASE_SB___(200KG_DRUM)",
+      "uom": "Nos"
+    },
+    {
+      "old": "PREMIERFLEX 200 AD 270 ( 1M X  10M PER ROLL )",
+      "new": "CP-PREMIERFLEX_200_AD_270_(1M*10M_ROLL)",
+      "uom": "Nos"
+    },
+    {
+      "old": "NEOCURE -S",
+      "new": "CP-NEOCURE_S___(200KG_DRUM)",
+      "uom": "Nos"
+    },
+    {
+      "old": "MATERX LAVACHEM FLOWABLE",
+      "new": "CP-MATERX_LAVACHEM_FLOWABLE_(_25KG/BAG)",
+      "uom": "BAGS"
+    },
+    {
+      "old": "lease charges printer",
+      "new": "CP-LEASE_CHARGES_FOR_PRINTER_(MONTHLY)",
+      "uom": "Nos"
+    },
+    {
+      "old": "LEASE CHARGES FOR PRINTER UPSTAIR",
+      "new": "CP-LEASE_CHARGES_FOR_PRINTER_(MONTHLY)",
+      "uom": "Nos"
+    },
+    {
+      "old": "LEASE CHARGES FOR PRINTER DOWNSTAIR",
+      "new": "CP-LEASE_CHARGES_FOR_PRINTER_(MONTHLY)",
+      "uom": "Nos"
+    },
+    {
+      "old": "DEEP TRAY ( DRUM TRAY )",
+      "new": "CP-DEEP_TRAY_(_2DRUM__IN_1_TRAY_)",
+      "uom": "Nos"
+    }
+  ]
+}

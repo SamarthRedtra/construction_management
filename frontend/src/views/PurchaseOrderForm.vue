@@ -62,7 +62,7 @@ async function loadSupplierTerms(supplier) {
 	if (form.supplier === supplier) form.payment_terms_template = terms
 }
 
-async function loadBuyingPrice(row) {
+async function loadBuyingPrice(row, { keepRateIfMissing = false } = {}) {
 	const code = row.item_code
 	const supplier = form.supplier
 	if (!code || !supplier) return
@@ -72,10 +72,20 @@ async function loadBuyingPrice(row) {
 	try {
 		const price = await call("get_catalog_buying_price", { item_code: code, supplier, company: session.context.default_company || form.company, order_date: form.order_date })
 		if (row.price_request_id === revision && row.item_code === code && form.supplier === supplier && !row.rate_edited) {
-			row.rate = price.rate ?? 0
-			row.price_missing = price.rate == null
-			row.fetched_rate = price.rate
-			row.fetched_item_price = price.item_price || ""
+			if (price.rate != null) {
+				row.rate = price.rate
+				row.price_missing = false
+				row.fetched_rate = price.rate
+				row.fetched_item_price = price.item_price || ""
+			} else if (keepRateIfMissing && Number(row.rate) > 0) {
+				// Order date changed but no Item Price for that date — keep the loaded rate.
+				row.price_missing = false
+			} else {
+				row.rate = 0
+				row.price_missing = true
+				row.fetched_rate = null
+				row.fetched_item_price = ""
+			}
 		}
 	} catch (error) {
 		if (row.price_request_id === revision) toastError(error)
@@ -185,7 +195,7 @@ watch(() => form.lpo_type, () => {
 	if (!hydrating.value && form.lpo_type !== "Manual" && form.supplier) checkSelectedItemsForSupplier(form.supplier)
 })
 watch(() => form.order_date, () => {
-	if (!hydrating.value) form.items.filter((row) => row.item_code && !row.rate_edited).forEach((row) => loadBuyingPrice(row))
+	if (!hydrating.value) form.items.filter((row) => row.item_code && !row.rate_edited).forEach((row) => loadBuyingPrice(row, { keepRateIfMissing: true }))
 })
 watch(() => form.tc_name, () => { if (!hydrating.value) applyTerms().catch(toastError) })
 
