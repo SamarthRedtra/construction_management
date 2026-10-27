@@ -53,9 +53,9 @@ const canEditDraft = computed(() => props.kind === "orders" && isControlled.valu
 const canRequestApproval = computed(() => manualLpo.value && isDraft.value && ctx.value.can_purchase && ["Draft", "Needs Correction"].includes(approvalStatus.value)
 	&& (approvalStatus.value !== "Needs Correction" || doc.value?.owner === ctx.value.user || ctx.value.can_override_lpo))
 const canStageApprove = computed(() => manualLpo.value && isDraft.value && ((approvalStatus.value === "Pending Accounts" && ctx.value.can_approve_lpo_accounts) || (approvalStatus.value === "Pending CEO" && ctx.value.can_approve_lpo_ceo)))
-const canDeleteOrder = computed(() => props.kind === "orders" && isControlled.value && isDraft.value && doc.value?.can_delete && ctx.value.can_purchase)
 const canEditStockDraft = computed(() => ["receipts", "transfers"].includes(props.kind) && isControlled.value && isDraft.value && (props.kind === "receipts" ? ctx.value.can_purchase : ctx.value.can_transfer))
 const canManageDocument = computed(() => props.kind === "transfers" ? ctx.value.can_transfer : ctx.value.can_purchase)
+const canDeleteDocument = computed(() => ["orders", "receipts"].includes(props.kind) && isControlled.value && doc.value?.can_delete && canManageDocument.value && (isDraft.value || doc.value?.docstatus === 2))
 const canCancelDocument = computed(() => isControlled.value && doc.value?.docstatus === 1 && doc.value?.can_cancel && canManageDocument.value)
 const canAmendDocument = computed(() => isControlled.value && doc.value?.docstatus === 2 && doc.value?.can_amend && canManageDocument.value)
 const canReceive = computed(() => props.kind === "orders" && ctx.value.can_purchase && doc.value?.docstatus === 1
@@ -205,13 +205,21 @@ function rejectApproval() {
 	if (comment?.trim()) orderAction("reject_lpo", { comment: comment.trim() })
 }
 
-async function deleteDraftOrder() {
-	if (!window.confirm("Delete this draft Purchase Order? Its price-proposal history will be retained for audit.")) return
+async function deleteDocument() {
+	const label = config.value.single
+	const draftNote = props.kind === "orders" && isDraft.value
+		? " Its price-proposal history will be retained for audit."
+		: ""
+	const prompt = isDraft.value
+		? `Delete this draft ${label}?${draftNote}`
+		: `Delete this cancelled ${label}? Only unlinked documents can be deleted.`
+	if (!window.confirm(prompt)) return
 	busy.value = true
 	try {
-		await call("delete_purchase_order", { name: props.docname })
+		const method = props.kind === "orders" ? "delete_purchase_order" : "delete_purchase_receipt"
+		await call(method, { name: props.docname })
 		toast(`${props.docname} deleted`)
-		await router.replace("/purchase-orders")
+		await router.replace(config.value.path)
 	} catch (requestError) {
 		toastError(requestError)
 	} finally {
@@ -254,7 +262,7 @@ onMounted(load)
 				<button v-if="canRequestApproval" class="cp-btn brand" :disabled="busy" @click="orderAction('request_lpo_approval')">Request approval</button>
 				<button v-if="canStageApprove" class="cp-btn brand" :disabled="busy" @click="orderAction('approve_lpo')">Approve {{ approvalStatus === 'Pending Accounts' ? 'as Accounts' : 'as CEO' }}</button>
 				<button v-if="canStageApprove" class="cp-btn" :disabled="busy" @click="rejectApproval">Reject</button>
-				<button v-if="canDeleteOrder" class="cp-btn" :disabled="busy" @click="deleteDraftOrder">Delete draft</button>
+				<button v-if="canDeleteDocument" class="cp-btn" :disabled="busy" @click="deleteDocument">{{ isDraft ? "Delete draft" : "Delete" }}</button>
 				<button v-if="canCancelDocument" class="cp-btn" :disabled="busy" @click="documentAction('cancel')">Cancel</button>
 				<button v-if="canAmendDocument" class="cp-btn" :disabled="busy" @click="documentAction('amend')">Amend</button>
 				<RouterLink v-if="kind === 'receipts' && doc.docstatus === 1" :to="{ path: '/stock-ledger', query: { receipt: doc.name } }" class="cp-btn">View stock ledger</RouterLink>
@@ -324,6 +332,7 @@ onMounted(load)
 						<td>
 							<strong>{{ row.item_name || row.item_code }}</strong>
 							<small>{{ row.item_code }}<template v-if="row.controlled_item_type"> · {{ row.controlled_item_type }}</template></small>
+							<span v-if="row.controlled_procurement_catalog" class="cp-pill info" style="margin-left: 6px">Controlled</span>
 							<small v-if="plainText(row.description) && plainText(row.description) !== row.item_name" class="cp-note">{{ plainText(row.description) }}</small>
 						</td>
 						<td>{{ row.project || "—" }}<small>{{ [row.bill_no, row.boq_item].filter(Boolean).join(" · ") }}</small></td>

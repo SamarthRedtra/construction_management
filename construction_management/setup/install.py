@@ -199,6 +199,18 @@ def create_controlled_procurement_fields():
 			"fieldtype": "Data", "insert_after": insert_after, "read_only": 1,
 			"in_list_view": 1,
 		})
+	# Desk visibility: show catalogue membership on PO lines without opening Item.
+	fields_to_create.append({
+		"dt": "Purchase Order Item",
+		"fieldname": "controlled_procurement_catalog",
+		"label": "Controlled Catalog",
+		"fieldtype": "Check",
+		"insert_after": "controlled_item_type",
+		"fetch_from": "item_code.controlled_procurement_catalog",
+		"read_only": 1,
+		"in_list_view": 1,
+		"description": "Item is in the controlled procurement catalogue",
+	})
 	fields_to_create.extend([
 		{
 			"dt": "Post Dated Cheques", "fieldname": "custom_purchase_order",

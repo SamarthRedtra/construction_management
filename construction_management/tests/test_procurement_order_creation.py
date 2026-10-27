@@ -31,12 +31,18 @@ class TestProcurementOrderCreation(UnitTestCase):
 
 	def test_supplier_do_number_rejects_whitespace(self):
 		with self.assertRaisesRegex(frappe.ValidationError, "Supplier DO No"):
-			validate_supplier_delivery_note(frappe._dict(supplier_delivery_note="  "))
+			validate_supplier_delivery_note(frappe._dict(supplier_delivery_note="  ", docstatus=0))
 
-	def test_supplier_do_number_is_trimmed(self):
-		doc = frappe._dict(supplier_delivery_note="  DO-123  ")
+	@patch("construction_management.overrides.purchase_receipt.frappe.db.get_value", return_value=None)
+	def test_supplier_do_number_is_trimmed(self, get_value):
+		doc = frappe._dict(supplier_delivery_note="  DO-123  ", docstatus=0, name="GRN-NEW")
 		validate_supplier_delivery_note(doc)
 		self.assertEqual(doc.supplier_delivery_note, "DO-123")
+
+	@patch("construction_management.overrides.purchase_receipt.frappe.db.get_value", return_value="GRN-OTHER")
+	def test_supplier_do_number_rejects_active_duplicate(self, get_value):
+		with self.assertRaisesRegex(frappe.ValidationError, "already used on Receive Note GRN-OTHER"):
+			validate_supplier_delivery_note(frappe._dict(supplier_delivery_note="DO-123", docstatus=0, name="GRN-NEW"))
 
 	@patch("construction_management.api.controlled_procurement.frappe.get_all")
 	def test_receive_note_discovers_source_and_direct_documents(self, get_all):

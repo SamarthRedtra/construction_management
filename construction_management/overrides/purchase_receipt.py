@@ -79,9 +79,33 @@ def before_submit(doc, method):
 
 def validate_supplier_delivery_note(doc):
 	"""Require a supplier DO number on every Purchase Receipt, including returns."""
+	from construction_management.api.controlled_procurement import (
+		SUPPLIER_DO_CANCELLED_MARKER,
+		original_supplier_delivery_note,
+	)
+
 	doc.supplier_delivery_note = (doc.get("supplier_delivery_note") or "").strip()
 	if not doc.supplier_delivery_note:
 		frappe.throw(_("Supplier DO No. is required for every Receive Note."))
+	# Active docs must not keep a cancel tombstone; cancelled rows are rewritten on cancel.
+	if doc.docstatus != 2 and SUPPLIER_DO_CANCELLED_MARKER in doc.supplier_delivery_note:
+		doc.supplier_delivery_note = original_supplier_delivery_note(doc.supplier_delivery_note)
+	if doc.docstatus == 2:
+		return
+	_assert_supplier_delivery_note_unique(doc)
+
+
+def _assert_supplier_delivery_note_unique(doc):
+	"""Clearer error than the DB unique index when another open/submitted GRN holds the DO."""
+	dn = doc.supplier_delivery_note
+	name = getattr(doc, "name", None) or ""
+	other = frappe.db.get_value(
+		"Purchase Receipt",
+		{"supplier_delivery_note": dn, "docstatus": ["<", 2], "name": ["!=", name]},
+		"name",
+	)
+	if other:
+		frappe.throw(_("Supplier DO No. {0} is already used on Receive Note {1}.").format(dn, other))
 
 
 def bump_provisional_po_qty_before_receipt(doc):

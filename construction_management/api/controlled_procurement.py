@@ -138,10 +138,21 @@ def _order_discount(data: dict) -> dict:
 
 def _set_row_type(row, item: dict) -> None:
 	row.controlled_item_type = item.controlled_item_type
+	meta = getattr(row, "meta", None)
+	if meta and meta.has_field("controlled_procurement_catalog"):
+		# _catalog_item only returns catalogue members; default 1 when payload omits the flag.
+		flag = (
+			item.get("controlled_procurement_catalog")
+			if isinstance(item, dict)
+			else getattr(item, "controlled_procurement_catalog", None)
+		)
+		row.controlled_procurement_catalog = cint(1 if flag is None else flag)
 
 
 def _append_item(doc, row_data: dict, defaults: dict, warehouses: bool = False) -> None:
 	item = _catalog_item(row_data.get("item_code"))
+	if doc.doctype == "Purchase Order" and item.controlled_item_type == SERVICE:
+		_ensure_service_item_default_for_company(item.name, doc.company)
 	row = doc.append("items", {
 		"item_code": item.name,
 		"qty": flt(row_data.get("qty")),
@@ -725,8 +736,11 @@ def get_controlled_documents(doctype: str, search: str = "", start: int = 0, pag
 	start = max(cint(start), 0)
 	page_length = min(max(cint(page_length) or 25, 1), 100)
 	order_by = f"{DOCUMENT_SORT_FIELDS[doctype][sort_by]} {sort_order.lower()}, name asc"
+	rows = frappe.get_list(doctype, filters=filters, or_filters=or_filters, fields=fields, order_by=order_by, limit_start=start, limit_page_length=page_length)
+	if doctype == "Purchase Order":
+		_annotate_po_list_catalog_flags(rows)
 	return {
-		"rows": frappe.get_list(doctype, filters=filters, or_filters=or_filters, fields=fields, order_by=order_by, limit_start=start, limit_page_length=page_length),
+		"rows": rows,
 		"total_count": len(frappe.get_list(doctype, filters=filters, or_filters=or_filters, pluck="name", limit_page_length=0)),
 	}
 
@@ -749,7 +763,8 @@ def get_controlled_document(doctype: str, name: str) -> dict:
 		from construction_management.api.lpo_workflow import lpo_type
 		result["custom_lpo_type"] = lpo_type(doc)
 		result["approval_history"] = json.loads(doc.get("custom_lpo_approval_history") or "[]")
-		result["can_delete"] = bool(doc.docstatus == 0 and frappe.has_permission("Purchase Order", "delete", doc=doc))
+	if doctype in {"Purchase Order", "Purchase Receipt"}:
+		result["can_delete"] = _can_delete_controlled_document(doc)
 	if doctype in {"Purchase Order", "Purchase Receipt", "Purchase Invoice", "Stock Entry"}:
 		result["can_cancel"] = bool(frappe.has_permission(doctype, "cancel", doc=doc))
 		result["can_amend"] = bool(frappe.has_permission(doctype, "amend", doc=doc))
@@ -1313,11 +1328,12 @@ def cancel_purchase_order(name: str) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def delete_purchase_order(name: str) -> dict:
-	"""Delete a controlled draft, retaining superseded proposal decisions as audit records."""
+	"""Delete a controlled draft or unlinked cancelled Purchase Order."""
 	doc = _controlled_doc("Purchase Order", name, "delete")
-	if not cint(doc.get("controlled_procurement")) or doc.docstatus != 0:
-		frappe.throw(_("Only a controlled draft Purchase Order can be deleted."))
-	if doc.get("custom_po_price_status") in {"Pending Accounts", "Pending CEO"}:
+	if not cint(doc.get("controlled_procurement")):
+		frappe.throw(_("Only a controlled Purchase Order can be deleted."))
+	_assert_deletable_controlled_document(doc)
+	if doc.docstatus == 0 and doc.get("custom_po_price_status") in {"Pending Accounts", "Pending CEO"}:
 		from construction_management.api import po_price_approvals
 		proposal = json.loads(doc.get("custom_po_price_proposal") or "{}")
 		po_price_approvals.supersede(doc, f"Superseded because draft Purchase Order {doc.name} was deleted.")
@@ -1325,6 +1341,15 @@ def delete_purchase_order(name: str) -> dict:
 			# A deleted document cannot remain a Link target. The decision comment
 			# retains its original PO number in the immutable price-request audit.
 			frappe.db.set_value("Controlled Buying Price Request", request_name, "purchase_order", None, update_modified=False)
+	doc.delete()
+	return {"name": name, "deleted": True}
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_purchase_receipt(name: str) -> dict:
+	"""Delete a controlled draft or unlinked cancelled Receive Note."""
+	doc = _controlled_doc("Purchase Receipt", name, "delete")
+	_assert_deletable_controlled_document(doc)
 	doc.delete()
 	return {"name": name, "deleted": True}
 
@@ -1634,25 +1659,63 @@ def update_purchase_receipt(name: str, data: str | dict) -> dict:
 	return {"name": doc.name}
 
 
-def _uniquify_supplier_delivery_note(doc) -> None:
-	"""Cancelled docs keep the DO number; amended copies need a free unique value.
+SUPPLIER_DO_CANCELLED_MARKER = "#CANCELLED#"
 
-	Purchase Receipt enforces unique supplier_delivery_note at DB level, so a plain
-	copy_doc insert collides with the cancelled predecessor. Append '-' / '-N'.
-	"""
+
+def original_supplier_delivery_note(value: str | None) -> str:
+	"""Strip cancel tombstone so amend/new GRN can reuse the supplier's DO number."""
+	value = (value or "").strip()
+	if SUPPLIER_DO_CANCELLED_MARKER in value:
+		return value.split(SUPPLIER_DO_CANCELLED_MARKER, 1)[0].strip()
+	return value
+
+
+def release_supplier_delivery_note_on_cancel(doc) -> None:
+	"""Free the unique Supplier DO No. while keeping a required audit value on the cancelled PR."""
 	if not getattr(doc, "meta", None) or not doc.meta.has_field("supplier_delivery_note"):
 		return
-	base = (doc.get("supplier_delivery_note") or "").strip()
-	if not base:
+	dn = (doc.get("supplier_delivery_note") or "").strip()
+	if not dn or SUPPLIER_DO_CANCELLED_MARKER in dn:
 		return
-	candidate = f"{base}-"
-	n = 1
-	while frappe.db.exists(doc.doctype, {"supplier_delivery_note": candidate}):
-		n += 1
-		if n > 100:
-			frappe.throw(_("Could not allocate a unique Supplier DO No. from {0}.").format(base))
-		candidate = f"{base}-{n}"
-	doc.supplier_delivery_note = candidate
+	tombstone = f"{dn}{SUPPLIER_DO_CANCELLED_MARKER}{doc.name}"
+	doc.db_set("supplier_delivery_note", tombstone, update_modified=False)
+	doc.supplier_delivery_note = tombstone
+
+
+def _restore_supplier_delivery_note_for_amend(doc) -> None:
+	if not getattr(doc, "meta", None) or not doc.meta.has_field("supplier_delivery_note"):
+		return
+	doc.supplier_delivery_note = original_supplier_delivery_note(doc.get("supplier_delivery_note"))
+
+
+def _document_is_unlinked(doctype: str, name: str) -> bool:
+	from frappe.model.delete_doc import get_linked_docs
+
+	return not get_linked_docs(frappe.get_doc(doctype, name), method="Delete")
+
+
+def _can_delete_controlled_document(doc) -> bool:
+	if not frappe.has_permission(doc.doctype, "delete", doc=doc):
+		return False
+	if doc.docstatus == 0:
+		return True
+	if doc.docstatus == 2:
+		return _document_is_unlinked(doc.doctype, doc.name)
+	return False
+
+
+def _assert_deletable_controlled_document(doc) -> None:
+	if doc.docstatus == 0:
+		return
+	if doc.docstatus == 2:
+		if not _document_is_unlinked(doc.doctype, doc.name):
+			frappe.throw(
+				_("{0} {1} is still linked to other documents and cannot be deleted.").format(
+					_(doc.doctype), doc.name
+				)
+			)
+		return
+	frappe.throw(_("Cancel {0} {1} before deleting it, or delete only a draft.").format(_(doc.doctype), doc.name))
 
 
 def _cancel_and_amend(doctype: str, name: str, amend: bool) -> dict:
@@ -1662,8 +1725,8 @@ def _cancel_and_amend(doctype: str, name: str, amend: bool) -> dict:
 			frappe.throw(_("Cancel the document before amending it."))
 		amended = frappe.copy_doc(doc)
 		amended.amended_from = doc.name
-		# Unique Supplier DO No. on PR (and PI if present) survives on the cancelled doc.
-		_uniquify_supplier_delivery_note(amended)
+		# Cancel tombstoned the DO on the cancelled doc; restore the original for the amend.
+		_restore_supplier_delivery_note_for_amend(amended)
 		amended.flags.controlled_procurement_api = True
 		amended.insert()
 		return {"name": amended.name, "docstatus": amended.docstatus}
@@ -3184,7 +3247,8 @@ def _materialize_catalog_request_items(doc) -> None:
 		elif row.item_type == ASSET:
 			item.update({"is_stock_item": 0, "is_fixed_asset": 1, "asset_category": row.asset_category or None})
 		else:
-			item.update({"is_stock_item": 0, "is_fixed_asset": 0, "company": doc.company})
+			# Service items stay company-agnostic; expense account lives in Item Defaults per company.
+			item.update({"is_stock_item": 0, "is_fixed_asset": 0})
 			_set_item_expense_account(item, doc.company, row.expense_account or frappe.db.get_value("Company", doc.company, "controlled_service_expense_account"))
 		item.flags.controlled_procurement_api = True
 		if item.is_new():
@@ -3206,6 +3270,30 @@ def _set_item_expense_account(item, company: str, expense_account: str) -> None:
 		default.expense_account = expense_account
 	else:
 		item.append("item_defaults", {"company": company, "expense_account": expense_account})
+
+
+def _ensure_service_item_default_for_company(item_code: str, company: str) -> None:
+	"""Guarantee a Service catalog item has an Item Default expense row for the PO company."""
+	if not company or not item_code:
+		return
+	if frappe.db.get_value("Item", item_code, "controlled_item_type") != SERVICE:
+		return
+	if not frappe.get_meta("Item").has_field("item_defaults"):
+		return
+	if frappe.db.exists("Item Default", {"parent": item_code, "company": company}):
+		return
+	expense_account = frappe.db.get_value("Company", company, "controlled_service_expense_account")
+	if not expense_account:
+		frappe.throw(
+			_("Set Controlled Service Expense Account on Company {0} before using Service catalog items.").format(company)
+		)
+	from redtra_customisation.redtra_customisation.service_item_validator import ServiceItemValidator
+
+	ServiceItemValidator.validate_expense_account(expense_account, company)
+	item = frappe.get_doc("Item", item_code)
+	_set_item_expense_account(item, company, expense_account)
+	item.flags.controlled_procurement_api = True
+	item.save(ignore_permissions=True)
 
 
 def _change_catalog_item_group(row) -> None:
@@ -3446,6 +3534,8 @@ def validate_transaction(doc, method=None) -> None:
 		if row.uom != item.stock_uom or row.stock_uom != item.stock_uom:
 			frappe.throw(_("Controlled procurement item {0} must use its stock UOM {1}.").format(row.item_code, item.stock_uom))
 		_set_row_type(row, item)
+		if doc.doctype == "Purchase Order" and item.controlled_item_type == SERVICE:
+			_ensure_service_item_default_for_company(item.name, doc.company)
 		if doc.doctype == "Stock Entry" and (item.controlled_item_type not in STOCK_TYPES or not cint(item.is_stock_item)):
 			frappe.throw(_("Material Transfer accepts Stockable or Consumable controlled items only."))
 		if transfer:
@@ -3478,6 +3568,28 @@ def _document_list_fields(doctype: str) -> list[str]:
 	if doctype == "Purchase Invoice":
 		return fields + ["supplier", "supplier_name", "posting_date", "due_date", "outstanding_amount", "custom_supplier_invoice_no", "is_paid"]
 	return fields + ["posting_date", "purpose", "controlled_procurement", "total_outgoing_value"]
+
+
+def _annotate_po_list_catalog_flags(rows: list) -> None:
+	"""Mark list rows that include at least one controlled-catalog item line."""
+	for row in rows:
+		row["has_catalog_items"] = 0
+	names = [row.name for row in rows if row.get("name")]
+	if not names or not frappe.db.has_column("Purchase Order Item", "controlled_procurement_catalog"):
+		return
+	catalog_parents = {
+		parent
+		for parent in frappe.get_all(
+			"Purchase Order Item",
+			filters={"parent": ["in", names], "controlled_procurement_catalog": 1},
+			pluck="parent",
+			distinct=True,
+			limit_page_length=0,
+		)
+	}
+	for row in rows:
+		if row.name in catalog_parents:
+			row["has_catalog_items"] = 1
 
 
 def _workspace_filters(doctype: str, filters: dict) -> dict:

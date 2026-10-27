@@ -126,7 +126,14 @@ onMounted(() => load())
 			</thead>
 			<tbody>
 				<tr v-for="row in rows" :key="row.name" class="clickable" :class="{ 'cp-new-order-row': row.name === createdOrder }" @click="$router.push(`${config.path}/${row.name}`)">
-					<td><strong>{{ row.name }}</strong><small v-if="row.supplier">{{ row.supplier_name || row.supplier }}</small><small v-if="kind === 'orders'">{{ row.custom_lpo_type || (row.custom_is_provisional_po ? 'Open' : 'Standard') }} LPO<template v-if="row.custom_lpo_approval_status"> · {{ row.custom_lpo_approval_status }}</template></small><small v-if="row.custom_supplier_invoice_no">Supplier inv {{ row.custom_supplier_invoice_no }}</small></td>
+					<td>
+						<strong>{{ row.name }}</strong>
+						<span v-if="row.controlled_procurement" class="cp-pill info" style="margin-left: 6px" title="Controlled procurement document">Controlled</span>
+						<span v-if="row.has_catalog_items" class="cp-pill info" style="margin-left: 6px" title="Contains controlled catalog item lines">Catalog</span>
+						<small v-if="row.supplier">{{ row.supplier_name || row.supplier }}</small>
+						<small v-if="kind === 'orders'">{{ row.custom_lpo_type || (row.custom_is_provisional_po ? 'Open' : 'Standard') }} LPO<template v-if="row.custom_lpo_approval_status"> · {{ row.custom_lpo_approval_status }}</template></small>
+						<small v-if="row.custom_supplier_invoice_no">Supplier inv {{ row.custom_supplier_invoice_no }}</small>
+					</td>
 					<td>{{ row.project || "—" }}<small v-if="row.bill_no">{{ row.bill_no }}</small></td>
 					<td v-if="kind === 'receipts'">{{ row.supplier_delivery_note || "—" }}</td>
 					<td>{{ formatDate(dateOf(row)) }}<small v-if="row.schedule_date || row.due_date" :class="{ 'cp-overdue': kind === 'invoices' && isOverdue(row) }">Due {{ formatDate(row.schedule_date || row.due_date) }}</small></td>

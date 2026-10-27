@@ -128,6 +128,7 @@ function selectItem(row, item) {
 	row.item_code = item.name
 	row.item_name = item.item_name
 	row.controlled_item_type = item.controlled_item_type
+	row.controlled_procurement_catalog = item.controlled_procurement_catalog == null ? 1 : Number(item.controlled_procurement_catalog)
 	row.stock_uom = item.stock_uom
 	row.notes = item.item_name
 	resetRate(row)
@@ -143,6 +144,7 @@ function clearItem(row, message = "") {
 	row.item_code = ""
 	row.item_name = ""
 	row.controlled_item_type = ""
+	row.controlled_procurement_catalog = 0
 	row.stock_uom = ""
 	row.notes = ""
 	resetRate(row)
@@ -200,7 +202,7 @@ watch(() => form.order_date, () => {
 watch(() => form.tc_name, () => { if (!hydrating.value) applyTerms().catch(toastError) })
 
 function addRow() {
-	form.items.push({ item_code: "", item_name: "", controlled_item_type: "", stock_uom: "", qty: 1, rate: 0, vat: "standard", notes: "", use_override: false, project: "", bill_no: "", boq_item: "", rate_edited: false, price_change_reason: "", price_loading: false, price_missing: false })
+	form.items.push({ item_code: "", item_name: "", controlled_item_type: "", controlled_procurement_catalog: 0, stock_uom: "", qty: 1, rate: 0, vat: "standard", notes: "", use_override: false, project: "", bill_no: "", boq_item: "", rate_edited: false, price_change_reason: "", price_loading: false, price_missing: false })
 }
 
 function normalizedAllocation(values) {
@@ -283,7 +285,8 @@ onMounted(async () => {
 			warehouse: doc.set_warehouse || "",
 			contact_person: doc.contact_person || "", payment_terms_template: doc.payment_terms_template || "", tc_name: doc.tc_name || "", terms: doc.terms || "",
 			taxes_and_charges: doc.taxes_and_charges || null, apply_discount_on: doc.apply_discount_on || "Net Total", additional_discount_percentage: doc.additional_discount_percentage || 0, discount_amount: doc.discount_amount || 0, project: doc.project || "", bill_no: doc.bill_no || "", boq_item: doc.boq_item || "",
-			items: (doc.items || []).map((row) => ({ docname: row.name, item_code: row.item_code, item_name: row.item_name, controlled_item_type: row.controlled_item_type, stock_uom: row.stock_uom,
+			items: (doc.items || []).map((row) => ({ docname: row.name, item_code: row.item_code, item_name: row.item_name, controlled_item_type: row.controlled_item_type,
+				controlled_procurement_catalog: Number(row.controlled_procurement_catalog || 0), stock_uom: row.stock_uom,
 				qty: row.qty, rate: row.rate, fetched_rate: row.rate, vat: row.vat, notes: row.description || "", rate_edited: true, price_change_reason: "",
 				project: row.project || "", bill_no: row.bill_no || "", boq_item: row.boq_item || "",
 				use_override: ["project", "bill_no", "boq_item"].some((field) => (row[field] || "") !== (doc[field] || "")),
@@ -385,6 +388,8 @@ onMounted(async () => {
 							<tr>
 								<td>
 									<ItemPicker v-model="row.item_code" :display-name="row.item_name" :supplier="form.lpo_type === 'Manual' ? '' : form.supplier" :disabled="form.lpo_type === 'Manual' && !form.supplier" :hide-code="true" :unique-items="true" @selected="selectItem(row, $event)" @cleared="clearItem(row)" />
+									<small v-if="row.item_code" class="cp-muted">{{ [row.item_code, row.controlled_item_type].filter(Boolean).join(" · ") }}</small>
+									<span v-if="row.controlled_procurement_catalog" class="cp-pill info" style="margin-left: 6px">Controlled</span>
 									<button type="button" class="cp-link sm" @click="row.use_override = !row.use_override">{{ row.use_override ? "Use order allocation" : "Different project / BOQ for this line" }}</button>
 								</td>
 								<td>{{ row.item_code ? form.supplier : "—" }}</td>

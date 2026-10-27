@@ -44,6 +44,10 @@ class PurchaseReceiptOverride(PurchaseReceipt):
 	def on_cancel(self):
 		super().on_cancel()
 		self._ignore_accounting_ledger_links_on_cancel()
+		from construction_management.api.controlled_procurement import release_supplier_delivery_note_on_cancel
+
+		# Free unique Supplier DO No. for amend / new GRN while keeping a required audit value.
+		release_supplier_delivery_note_on_cancel(self)
 
 	def make_gl_entries(self, gl_entries=None, from_repost=False, via_landed_cost_voucher=False):
 		if self.docstatus == 2:
