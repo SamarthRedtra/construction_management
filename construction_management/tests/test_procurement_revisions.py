@@ -157,6 +157,28 @@ class TestProcurementRevisions(UnitTestCase):
 		)
 		self.assertEqual(procurement.original_supplier_delivery_note("87567252"), "87567252")
 
+	def test_material_transfer_sets_posting_time_flag(self):
+		"""Regression: without set_posting_time ERPNext overwrites posting_date to today."""
+		doc = MagicMock()
+		doc.company = "MRG"
+		doc.posting_date = None
+		doc.items = []
+		with patch("construction_management.api.controlled_procurement._require"), \
+			patch("construction_management.api.controlled_procurement._document_company", return_value="MRG"), \
+			patch("construction_management.api.controlled_procurement._validate_line_data"), \
+			patch("construction_management.api.controlled_procurement._validate_transfer_warehouses"), \
+			patch("construction_management.api.controlled_procurement._catalog_item", return_value=frappe._dict(controlled_item_type="Stockable", is_stock_item=1)), \
+			patch("construction_management.api.controlled_procurement._append_item"), \
+			patch("construction_management.api.controlled_procurement.frappe.new_doc", return_value=doc), \
+			patch("construction_management.api.controlled_procurement.frappe.db.get_value", return_value="Material Transfer"):
+			procurement.create_material_transfer({
+				"company": "MRG", "source_warehouse": "From", "target_warehouse": "To",
+				"posting_date": "2026-01-15",
+				"items": [{"item_code": "ITEM-1", "qty": 1, "rate": 10, "notes": "line note"}],
+			})
+		self.assertEqual(doc.set_posting_time, 1)
+		self.assertEqual(str(doc.posting_date), "2026-01-15")
+
 	@patch("construction_management.api.controlled_procurement.frappe.copy_doc")
 	@patch("construction_management.api.controlled_procurement._controlled_doc")
 	def test_amend_purchase_order_clears_creation_request_id(self, controlled_doc, copy_doc):

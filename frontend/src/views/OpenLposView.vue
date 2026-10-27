@@ -5,8 +5,11 @@ import { toastError } from "@/toast"
 import { debounce, formatCurrency, formatDate, formatNumber, companyFilters } from "@/utils"
 import LinkSelect from "@/components/LinkSelect.vue"
 import PageHeader from "@/components/PageHeader.vue"
+import PaginationBar from "@/components/PaginationBar.vue"
 import PrintDialog from "@/components/PrintDialog.vue"
 import StatusPill from "@/components/StatusPill.vue"
+
+const PAGE_SIZE = 50
 
 const rows = ref([])
 const summary = ref({ open_lpos: 0, pending_value: 0, overdue: 0 })
@@ -15,19 +18,32 @@ const overdueOnly = ref(false)
 const loading = ref(true)
 const printing = ref("")
 const totalCount = ref(0)
+const page = ref(1)
 let requestId = 0
 
 const visibleRows = computed(() => (overdueOnly.value ? rows.value.filter((row) => row.is_overdue) : rows.value))
 
-async function load(more = false) {
+function resetToFirstPage() {
+	if (page.value !== 1) page.value = 1
+	else load()
+}
+
+async function load() {
 	const currentRequest = ++requestId
 	loading.value = true
 	try {
-		const result = await call("get_open_lpos", { ...filters.value, start: more ? rows.value.length : 0, page_length: 50, open_po_only: 1 })
+		const result = await call("get_open_lpos", {
+			...filters.value,
+			start: (page.value - 1) * PAGE_SIZE,
+			page_length: PAGE_SIZE,
+			open_po_only: 1,
+		})
 		if (currentRequest !== requestId) return
-		rows.value = more ? [...rows.value, ...result.rows] : result.rows
+		rows.value = result.rows
 		summary.value = result.summary
 		totalCount.value = result.total_count
+		const maxPage = Math.max(1, Math.ceil((result.total_count || 0) / PAGE_SIZE) || 1)
+		if (page.value > maxPage) page.value = maxPage
 	} catch (error) {
 		if (currentRequest === requestId) toastError(error)
 	} finally {
@@ -35,8 +51,9 @@ async function load(more = false) {
 	}
 }
 
-watch(() => filters.value.search, debounce(() => load(), 300))
-watch(() => [filters.value.supplier, filters.value.project], () => load())
+watch(() => filters.value.search, debounce(() => resetToFirstPage(), 300))
+watch(() => [filters.value.supplier, filters.value.project], () => resetToFirstPage())
+watch(page, () => load())
 onMounted(() => load())
 </script>
 
@@ -93,10 +110,7 @@ onMounted(() => load())
 				<tr v-if="loading"><td colspan="8" class="cp-empty-row">Loading…</td></tr>
 			</tbody>
 		</table>
-		<footer v-if="rows.length" class="cp-card-foot">
-			<span>{{ rows.length }} of {{ totalCount }} Open LPOs</span>
-			<button v-if="rows.length < totalCount" type="button" class="cp-btn sm" :disabled="loading" @click="load(true)">Load more</button>
-		</footer>
+		<PaginationBar v-model:page="page" :page-size="PAGE_SIZE" :total="totalCount" :loading="loading" />
 	</section>
 	<PrintDialog v-if="printing" doctype="Purchase Order" :docname="printing" @close="printing = ''" />
 </template>

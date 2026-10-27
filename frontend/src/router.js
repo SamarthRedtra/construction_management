@@ -34,5 +34,10 @@ const routes = [
 export default createRouter({
 	history: createWebHistory("/procurement"),
 	routes,
-	scrollBehavior: () => ({ top: 0 }),
+	scrollBehavior(to, from, savedPosition) {
+		if (savedPosition) return savedPosition
+		// Query-only updates (preview, filters, page) must not jump the viewport.
+		if (to.path === from.path) return false
+		return { top: 0 }
+	},
 })

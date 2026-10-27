@@ -124,18 +124,30 @@ async function lookupItemSuppliers(row) {
 	}
 }
 
-function selectItem(row, item) {
+async function selectItem(row, item) {
 	row.item_code = item.name
 	row.item_name = item.item_name
 	row.controlled_item_type = item.controlled_item_type
 	row.controlled_procurement_catalog = item.controlled_procurement_catalog == null ? 1 : Number(item.controlled_procurement_catalog)
 	row.stock_uom = item.stock_uom
 	row.notes = item.item_name
+	row.requires_supplier_link = false
 	resetRate(row)
 	itemSupplierMessage.value = ""
 	eligibleSuppliers.value = []
 	supplierChoiceItem.value = ""
-	if (form.supplier) loadBuyingPrice(row)
+	if (form.supplier && form.lpo_type !== "Manual") {
+		try {
+			const result = await call("get_catalog_supplier_match", { item_code: item.name, supplier: form.supplier })
+			row.requires_supplier_link = Boolean(result.requires_supplier_link)
+			if (result.requires_supplier_link) {
+				itemSupplierMessage.value = `Consumable/Service item ${item.name} is not linked to ${form.supplier}. Saving queues a Link Supplier approval; submit waits until it is approved.`
+			}
+		} catch (error) {
+			toastError(error)
+		}
+		loadBuyingPrice(row)
+	} else if (form.supplier) loadBuyingPrice(row)
 	else lookupItemSuppliers(row)
 }
 
@@ -147,6 +159,7 @@ function clearItem(row, message = "") {
 	row.controlled_procurement_catalog = 0
 	row.stock_uom = ""
 	row.notes = ""
+	row.requires_supplier_link = false
 	resetRate(row)
 	eligibleSuppliers.value = []
 	supplierChoiceItem.value = ""
@@ -162,8 +175,15 @@ async function checkSelectedItemsForSupplier(supplier) {
 		try {
 			const result = await call("get_catalog_supplier_match", { item_code: code, supplier })
 			if (revision !== supplierRevision || row.item_code !== code || form.supplier !== supplier) continue
-			if (!result.eligible) clearItem(row, `The selected item is not linked to ${supplier}. Choose one of this supplier's items.`)
-			else loadBuyingPrice(row)
+			if (!result.eligible) {
+				clearItem(row, `The selected item is not linked to ${supplier}. Choose one of this supplier's items.`)
+				continue
+			}
+			row.requires_supplier_link = Boolean(result.requires_supplier_link)
+			if (result.requires_supplier_link) {
+				itemSupplierMessage.value = `Consumable/Service item ${code} is not linked to ${supplier}. Saving queues a Link Supplier approval; submit waits until it is approved.`
+			}
+			loadBuyingPrice(row)
 		} catch (error) {
 			if (revision === supplierRevision) toastError(error)
 		}
@@ -390,6 +410,7 @@ onMounted(async () => {
 									<ItemPicker v-model="row.item_code" :display-name="row.item_name" :supplier="form.lpo_type === 'Manual' ? '' : form.supplier" :disabled="form.lpo_type === 'Manual' && !form.supplier" :hide-code="true" :unique-items="true" @selected="selectItem(row, $event)" @cleared="clearItem(row)" />
 									<small v-if="row.item_code" class="cp-muted">{{ [row.item_code, row.controlled_item_type].filter(Boolean).join(" · ") }}</small>
 									<span v-if="row.controlled_procurement_catalog" class="cp-pill info" style="margin-left: 6px">Controlled</span>
+									<span v-if="row.requires_supplier_link" class="cp-pill warning" style="margin-left: 6px" title="Link Supplier approval required before submit">Needs supplier link</span>
 									<button type="button" class="cp-link sm" @click="row.use_override = !row.use_override">{{ row.use_override ? "Use order allocation" : "Different project / BOQ for this line" }}</button>
 								</td>
 								<td>{{ row.item_code ? form.supplier : "—" }}</td>

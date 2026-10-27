@@ -193,8 +193,16 @@ def _item_has_supplier(item_code: str, supplier: str) -> bool:
 	}))
 
 
+def _allows_unlinked_supplier(item_code: str) -> bool:
+	"""Consumable/Service may sit on a draft PO without Item Supplier (Link Supplier approval required to submit)."""
+	return frappe.db.get_value("Item", item_code, "controlled_item_type") in {CONSUMABLE, SERVICE}
+
+
 def _validate_order_supplier_items(data: dict, items: list[dict], existing=None) -> None:
-	"""Every Standard/Open order line must be linked to its header supplier."""
+	"""Every Standard/Open order line must be linked to its header supplier.
+
+	Consumable and Service lines may be unlinked on the draft; submit still requires a link.
+	"""
 	lpo_type = data.get("lpo_type") or "Standard"
 	if lpo_type not in {"Standard", "Open"}:
 		return
@@ -207,7 +215,7 @@ def _validate_order_supplier_items(data: dict, items: list[dict], existing=None)
 		item_code = row["item_code"]
 		if legacy_items[item_code]:
 			legacy_items[item_code] -= 1
-		elif not _item_has_supplier(item_code, supplier):
+		elif not _item_has_supplier(item_code, supplier) and not _allows_unlinked_supplier(item_code):
 			frappe.throw(_("Item {0} is not linked to supplier {1}.").format(item_code, supplier))
 
 
@@ -408,7 +416,17 @@ def _catalog_query(
 	if stock_status:
 		conditions.append("COALESCE(stock.actual_qty, 0) > 0" if stock_status == "in_stock" else "COALESCE(stock.actual_qty, 0) <= 0")
 	if supplier:
-		conditions.append("EXISTS (SELECT 1 FROM `tabItem Supplier` item_supplier WHERE item_supplier.parent = item.name AND item_supplier.parenttype = 'Item' AND item_supplier.supplier = %(supplier)s)")
+		# Consumable/Service stay visible without an Item Supplier link (submit still needs Link Supplier approval).
+		conditions.append(
+			"""(
+				EXISTS (
+					SELECT 1 FROM `tabItem Supplier` item_supplier
+					WHERE item_supplier.parent = item.name AND item_supplier.parenttype = 'Item'
+						AND item_supplier.supplier = %(supplier)s
+				)
+				OR item.controlled_item_type IN ('Consumable', 'Service')
+			)"""
+		)
 		params["supplier"] = supplier
 
 	from_clause = """FROM `tabItem` item
@@ -461,8 +479,15 @@ def _catalog_export_value(value) -> str:
 def get_catalog_supplier_match(item_code: str, supplier: str) -> dict:
 	"""Check whether an already selected catalog item belongs to a new PO supplier."""
 	_require(PURCHASE_ROLES)
-	_catalog_item(item_code)
-	return {"eligible": _item_has_supplier(item_code, supplier)}
+	item = _catalog_item(item_code)
+	linked = _item_has_supplier(item_code, supplier)
+	optional = item.controlled_item_type in {CONSUMABLE, SERVICE}
+	return {
+		"eligible": linked or optional,
+		"linked": linked,
+		"requires_supplier_link": bool(optional and not linked),
+		"controlled_item_type": item.controlled_item_type or "",
+	}
 
 
 @frappe.whitelist(methods=["GET"])
@@ -1194,6 +1219,7 @@ def create_purchase_order(data: str | dict) -> dict:
 			raise
 		frappe.local.message_log = frappe.local.message_log[:message_count]
 		return existing
+	_ensure_supplier_link_requests_for_po(doc)
 	return {"doctype": doc.doctype, "name": doc.name, "price_approval_status": frappe.db.get_value("Purchase Order", doc.name, "custom_po_price_status")}
 
 
@@ -1267,6 +1293,7 @@ def update_purchase_order(name: str, data: str | dict) -> dict:
 	doc.flags.controlled_procurement_api = True
 	doc.save()
 	po_price_approvals.stage(doc, price_changes)
+	_ensure_supplier_link_requests_for_po(doc)
 	return {"doctype": doc.doctype, "name": doc.name, "price_approval_status": frappe.db.get_value("Purchase Order", doc.name, "custom_po_price_status")}
 
 
@@ -1511,8 +1538,11 @@ def create_material_transfer(data: str | dict) -> dict:
 		"company": company, "purpose": "Material Transfer", "from_warehouse": source, "to_warehouse": target,
 		# mandatory in this ERPNext version; the standard type for the Material Transfer purpose
 		"stock_entry_type": frappe.db.get_value("Stock Entry Type", {"purpose": "Material Transfer"}, "name", order_by="is_standard desc") or "Material Transfer",
-		"posting_date": data.get("posting_date"), "controlled_procurement": 1,
+		"controlled_procurement": 1,
 	})
+	# ERPNext resets posting_date to today unless set_posting_time is on.
+	doc.set_posting_time = 1
+	doc.posting_date = getdate(data.get("posting_date") or today())
 	for row_data in items:
 		item = _catalog_item(row_data.get("item_code"))
 		if item.controlled_item_type not in STOCK_TYPES or not cint(item.is_stock_item):
@@ -1569,8 +1599,10 @@ def update_material_transfer(name: str, data: str | dict) -> dict:
 	_validate_transfer_warehouses(doc.company, source, target)
 	items = data.get("items") or []
 	_validate_line_data(items)
-	doc.update({"posting_date": data.get("posting_date"), "from_warehouse": source, "to_warehouse": target,
-		"project": None, "bill_no": None, "boq_item": None})
+	doc.update({"from_warehouse": source, "to_warehouse": target, "project": None, "bill_no": None, "boq_item": None})
+	# ERPNext resets posting_date to today unless set_posting_time is on.
+	doc.set_posting_time = 1
+	doc.posting_date = getdate(data.get("posting_date") or doc.posting_date or today())
 	doc.set("items", [])
 	for row in items:
 		item = _catalog_item(row.get("item_code"))
@@ -2140,6 +2172,8 @@ def submit_document(doctype: str, name: str) -> dict:
 		price_status = frappe.db.get_value("Purchase Order", name, "custom_po_price_status")
 		if cint(doc.get("controlled_procurement")) and price_status in {"Pending Accounts", "Pending CEO"}:
 			frappe.throw(_("This Purchase Order is pending CEO price approval and cannot be submitted."), frappe.PermissionError)
+		if cint(doc.get("controlled_procurement")):
+			_assert_po_supplier_links_ready(doc)
 	doc.flags.controlled_procurement_api = True
 	doc.submit()
 	return {"doctype": doctype, "name": doc.name, "docstatus": doc.docstatus}
@@ -2562,23 +2596,54 @@ def _catalog_request_row(data: dict, company: str, supplier_link_only: bool = Fa
 	}
 
 
-@frappe.whitelist(methods=["POST"])
-def create_catalog_supplier_link_request(data: str | dict) -> dict:
-	"""Create an approval-routed request to link one supplier to selected catalog Items."""
-	_require(CATALOG_ROLES)
-	data = _as_dict(data)
-	company = _document_company(data.get("company"))
-	supplier = str(data.get("supplier") or "").strip()
-	if not supplier or not frappe.db.exists("Supplier", {"name": supplier, "disabled": 0}):
-		frappe.throw(_("Select an active Supplier."))
+def _unlinked_consumable_service_codes(doc) -> list[str]:
+	"""Catalog Consumable/Service lines on a PO that still lack Item Supplier for the PO supplier."""
+	supplier = doc.supplier
+	codes = []
+	for row in doc.get("items") or []:
+		code = row.item_code
+		if not code or _item_has_supplier(code, supplier):
+			continue
+		item_type = row.get("controlled_item_type") or frappe.db.get_value("Item", code, "controlled_item_type")
+		if item_type in {CONSUMABLE, SERVICE}:
+			codes.append(code)
+	return list(dict.fromkeys(codes))
 
-	item_codes = _unique_catalog_item_codes(data.get("item_codes"))
-	if not item_codes:
-		frappe.throw(_("Select at least one controlled catalog item."))
+
+def _assert_po_supplier_links_ready(doc) -> None:
+	from construction_management.api.lpo_workflow import lpo_type
+
+	if lpo_type(doc) == "Manual":
+		return
+	missing = _unlinked_consumable_service_codes(doc)
+	if missing:
+		frappe.throw(
+			_(
+				"Approve Link Supplier for {0} to supplier {1} in Catalog Approvals before submitting this Purchase Order."
+			).format(", ".join(missing), doc.supplier)
+		)
+
+
+def _ensure_supplier_link_requests_for_po(doc) -> None:
+	"""Queue Link Supplier catalog approvals for unlinked Consumable/Service lines on Standard/Open POs."""
+	from construction_management.api.lpo_workflow import lpo_type
+
+	if not cint(doc.get("controlled_procurement")) or lpo_type(doc) == "Manual":
+		return
+	codes = _unlinked_consumable_service_codes(doc)
+	if not codes:
+		return
+	_queue_supplier_link_request(doc.company, doc.supplier, codes, request_origin="Purchase")
+
+
+def _queue_supplier_link_request(company: str, supplier: str, item_codes: list[str], request_origin: str = "Purchase") -> dict:
+	"""Create a Link Supplier catalog request (used by Catalog UI and PO Consumable/Service path)."""
+	item_codes = _unique_catalog_item_codes(item_codes)
+	if not item_codes or not supplier:
+		return {"name": "", "requested": 0, "already_linked": 0}
 	items = _selected_catalog_items(item_codes)
 	if len(items) != len(item_codes):
 		frappe.throw(_("Every selected item must be an active controlled catalog item."))
-
 	linked_items = set(
 		frappe.get_all(
 			"Item Supplier",
@@ -2602,16 +2667,60 @@ def create_catalog_supplier_link_request(data: str | dict) -> dict:
 		if item.name not in linked_items
 	]
 	if not request_items:
-		return {"name": "", "status": "", "requested": 0, "already_linked": len(item_codes)}
-
-	result = create_catalog_request({
+		return {"name": "", "requested": 0, "already_linked": len(item_codes)}
+	# Avoid duplicate pending Link Supplier rows for the same company/supplier/item.
+	codes = [row["item_code"] for row in request_items]
+	pending = {
+		row.item_code
+		for row in frappe.db.sql(
+			"""
+			SELECT cri.item_code
+			FROM `tabControlled Catalog Request Item` cri
+			INNER JOIN `tabControlled Catalog Request` cr ON cr.name = cri.parent
+			WHERE cr.company = %s
+				AND cr.status IN ('Pending Accounts', 'Pending CEO')
+				AND cri.action = 'Link Supplier'
+				AND cri.supplier = %s
+				AND cri.item_code IN %s
+			""",
+			(company, supplier, tuple(codes)),
+			as_dict=True,
+		)
+	}
+	request_items = [row for row in request_items if row["item_code"] not in pending]
+	if not request_items:
+		return {"name": "", "requested": 0, "already_linked": len(linked_items), "pending": len(pending)}
+	payload = {
 		"company": company,
 		"source": "Manual",
-		"request_origin": data.get("request_origin"),
 		"supplier_link_only": 1,
 		"items": request_items,
-	})
+	}
+	if request_origin:
+		payload["request_origin"] = request_origin
+	result = create_catalog_request(payload)
 	return {**result, "requested": len(request_items), "already_linked": len(linked_items)}
+
+
+@frappe.whitelist(methods=["POST"])
+def create_catalog_supplier_link_request(data: str | dict) -> dict:
+	"""Create an approval-routed request to link one supplier to selected catalog Items."""
+	_require(CATALOG_ROLES)
+	data = _as_dict(data)
+	company = _document_company(data.get("company"))
+	supplier = str(data.get("supplier") or "").strip()
+	if not supplier or not frappe.db.exists("Supplier", {"name": supplier, "disabled": 0}):
+		frappe.throw(_("Select an active Supplier."))
+
+	item_codes = _unique_catalog_item_codes(data.get("item_codes"))
+	if not item_codes:
+		frappe.throw(_("Select at least one controlled catalog item."))
+	result = _queue_supplier_link_request(
+		company, supplier, item_codes, request_origin=data.get("request_origin") or "Purchase",
+	)
+	if not result.get("requested") and not result.get("name"):
+		return {"name": "", "status": "", "requested": 0, "already_linked": len(item_codes)}
+	return {**result, "already_linked": result.get("already_linked", 0)}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -2867,8 +2976,9 @@ def create_catalog_disable_request(item_code: str, reason: str, company: str = "
 @frappe.whitelist(methods=["POST"])
 def create_catalog_request(data: str | dict) -> dict:
 	"""Create a catalog change request; only approval materializes Item records."""
-	_require(CATALOG_ROLES)
 	data = _as_dict(data)
+	# Purchase users may queue Link Supplier from a PO; other catalog edits stay Catalog-role only.
+	_require(CATALOG_ROLES | PURCHASE_ROLES if data.get("supplier_link_only") else CATALOG_ROLES)
 	company = data.get("company") or _active_company()
 	if company not in _allowed_companies():
 		frappe.throw(_("You do not have access to company {0}.").format(company), frappe.PermissionError)

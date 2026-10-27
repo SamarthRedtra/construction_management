@@ -30,7 +30,8 @@ def _rate(value):
 
 def _current(item_code, supplier, company, date):
 	api = _procurement()
-	if not api._item_has_supplier(item_code, supplier):
+	# Consumable/Service may draft without Item Supplier; Link Supplier approval is required before submit.
+	if not api._item_has_supplier(item_code, supplier) and not api._allows_unlinked_supplier(item_code):
 		frappe.throw(_("Supplier {0} must be linked to catalog item {1} before ordering it.").format(supplier, item_code))
 	return api.get_catalog_buying_price(item_code, supplier, company, str(date))
 

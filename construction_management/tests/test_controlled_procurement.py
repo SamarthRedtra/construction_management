@@ -188,6 +188,7 @@ class TestControlledProcurement(UnitTestCase):
 						"supplier": "SUP-1", "rate": 0,
 					}
 				],
+				"request_origin": "Purchase",
 			}
 		)
 
@@ -232,7 +233,7 @@ class TestControlledProcurement(UnitTestCase):
 		self.assertEqual(result, {"name": "CCR-GROUP", "status": "Pending Accounts", "requested": 1, "already_correct": 1})
 		selected_items.assert_called_once_with(["ITEM-1", "ITEM-2"])
 		create_request.assert_called_once_with({
-			"company": "MRG", "source": "Manual", "item_group_change_only": 1,
+			"company": "MRG", "source": "Manual", "request_origin": None, "item_group_change_only": 1,
 			"items": [{"item_code": "ITEM-1", "item_group": "PU COATING"}],
 		})
 
@@ -274,7 +275,7 @@ class TestControlledProcurement(UnitTestCase):
 		})
 
 		catalog_row.assert_called_once_with(
-			{"item_code": "ITEM-1"}, "MRG", supplier_link_only=True
+			{"item_code": "ITEM-1"}, "MRG", supplier_link_only=True, allow_uom_edit=False
 		)
 
 	@patch("construction_management.api.controlled_procurement.frappe.get_doc")
@@ -495,7 +496,9 @@ class TestControlledProcurement(UnitTestCase):
 		result = controlled_procurement.get_catalog(supplier="SUP-1")
 		self.assertEqual(result["total_count"], 0)
 		for query in sql.call_args_list:
-			self.assertIn("EXISTS (SELECT 1 FROM `tabItem Supplier`", query.args[0])
+			sql_text = " ".join(query.args[0].split())
+			self.assertIn("EXISTS ( SELECT 1 FROM `tabItem Supplier`", sql_text)
+			self.assertIn("OR item.controlled_item_type IN ('Consumable', 'Service')", sql_text)
 			self.assertEqual(query.args[1]["supplier"], "SUP-1")
 
 	@patch("construction_management.api.controlled_procurement._item_has_supplier", return_value=True)
@@ -506,13 +509,23 @@ class TestControlledProcurement(UnitTestCase):
 		)
 		self.assertEqual(has_supplier.call_count, 2)
 
+	@patch("construction_management.api.controlled_procurement._allows_unlinked_supplier", return_value=False)
 	@patch("construction_management.api.controlled_procurement._item_has_supplier", return_value=False)
-	def test_open_order_rejects_item_from_another_supplier(self, has_supplier):
+	def test_open_order_rejects_item_from_another_supplier(self, has_supplier, allows_unlinked):
 		with self.assertRaisesRegex(frappe.ValidationError, "not linked to supplier"):
 			controlled_procurement._validate_order_supplier_items(
 				{"lpo_type": "Open", "supplier": "SUP-1"}, [{"item_code": "ITEM-1"}],
 			)
 		has_supplier.assert_called_once_with("ITEM-1", "SUP-1")
+
+	@patch("construction_management.api.controlled_procurement._allows_unlinked_supplier", return_value=True)
+	@patch("construction_management.api.controlled_procurement._item_has_supplier", return_value=False)
+	def test_consumable_may_draft_without_supplier_link(self, has_supplier, allows_unlinked):
+		controlled_procurement._validate_order_supplier_items(
+			{"lpo_type": "Standard", "supplier": "SUP-1"}, [{"item_code": "CONS-1"}],
+		)
+		has_supplier.assert_called_once_with("CONS-1", "SUP-1")
+		allows_unlinked.assert_called_once_with("CONS-1")
 
 	@patch("construction_management.api.controlled_procurement._item_has_supplier", return_value=True)
 	def test_supplier_link_allows_standard_order(self, has_supplier):
@@ -520,8 +533,9 @@ class TestControlledProcurement(UnitTestCase):
 			{"lpo_type": "Standard", "supplier": "SUP-1"}, [{"item_code": "ITEM-1"}],
 		)
 
+	@patch("construction_management.api.controlled_procurement._allows_unlinked_supplier", return_value=False)
 	@patch("construction_management.api.controlled_procurement._item_has_supplier", return_value=False)
-	def test_existing_unlinked_line_can_be_kept_but_new_line_needs_supplier_link(self, has_supplier):
+	def test_existing_unlinked_line_can_be_kept_but_new_line_needs_supplier_link(self, has_supplier, allows_unlinked):
 		existing = SimpleNamespace(supplier="SUP-1", items=[SimpleNamespace(item_code="ITEM-1")], get=lambda key: "Standard" if key == "custom_lpo_type" else None)
 		controlled_procurement._validate_order_supplier_items(
 			{"lpo_type": "Standard", "supplier": "SUP-1"}, [{"item_code": "ITEM-1"}], existing,
@@ -552,13 +566,21 @@ class TestControlledProcurement(UnitTestCase):
 			controlled_procurement._receipt_items_by_po_line(po,
 				[{"purchase_order_item": "OTHER", "item_code": "ITEM-1", "qty": 1}], False)
 
+	@patch("construction_management.api.controlled_procurement._allows_unlinked_supplier", return_value=False)
 	@patch("construction_management.api.controlled_procurement._item_has_supplier", return_value=False)
-	def test_changing_existing_order_supplier_requires_link(self, has_supplier):
+	def test_changing_existing_order_supplier_requires_link(self, has_supplier, allows_unlinked):
 		existing = SimpleNamespace(supplier="SUP-1", items=[SimpleNamespace(item_code="ITEM-1")], get=lambda key: "Open" if key == "custom_lpo_type" else None)
 		with self.assertRaisesRegex(frappe.ValidationError, "not linked to supplier"):
 			controlled_procurement._validate_order_supplier_items(
 				{"lpo_type": "Open", "supplier": "SUP-2"}, [{"item_code": "ITEM-1"}], existing,
 			)
+
+	@patch("construction_management.api.controlled_procurement._unlinked_consumable_service_codes", return_value=["CONS-1"])
+	def test_submit_blocks_unlinked_consumable_service(self, unlinked):
+		doc = SimpleNamespace(supplier="SUP-1", name="PO-1")
+		with patch("construction_management.api.lpo_workflow.lpo_type", return_value="Standard"):
+			with self.assertRaisesRegex(frappe.ValidationError, "Catalog Approvals"):
+				controlled_procurement._assert_po_supplier_links_ready(doc)
 
 	@patch("construction_management.api.controlled_procurement.frappe.db.get_value", return_value=frappe._dict(controlled_asset_category=None, controlled_service_expense_account=None))
 	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)

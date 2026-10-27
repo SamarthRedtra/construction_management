@@ -21,13 +21,17 @@ const { balances, loading: stockLoading, error: stockError, requested, state: st
 )
 
 function addRow() {
-	form.items.push({ item_code: "", item_name: "", stock_uom: "", qty: 1, rate: 0 })
+	form.items.push({ item_code: "", item_name: "", stock_uom: "", qty: 1, rate: 0, notes: "" })
 }
 
 async function save() {
 	saving.value = true
 	try {
-		const data = { ...form, company: session.context.default_company, items: form.items.map(({ item_code, qty, rate }) => ({ item_code, qty, rate })) }
+		const data = {
+			...form,
+			company: session.context.default_company,
+			items: form.items.map(({ item_code, qty, rate, notes }) => ({ item_code, qty, rate, notes })),
+		}
 		const result = editing.value
 			? await call("update_material_transfer", { name: props.name, data })
 			: await call("create_material_transfer", { data })
@@ -51,7 +55,10 @@ onMounted(async () => {
 		Object.assign(form, { company: doc.company, posting_date: String(doc.posting_date).slice(0, 10),
 			source_warehouse: doc.from_warehouse || doc.items?.[0]?.s_warehouse || "",
 			target_warehouse: doc.to_warehouse || doc.items?.[0]?.t_warehouse || "" })
-		form.items = (doc.items || []).map((row) => ({ item_code: row.item_code, item_name: row.item_name, stock_uom: row.stock_uom, qty: row.qty, rate: row.basic_rate || row.valuation_rate || 0 }))
+		form.items = (doc.items || []).map((row) => ({
+			item_code: row.item_code, item_name: row.item_name, stock_uom: row.stock_uom,
+			qty: row.qty, rate: row.basic_rate || row.valuation_rate || 0, notes: row.description || "",
+		}))
 	} catch (error) { toastError(error) }
 })
 </script>
@@ -97,6 +104,7 @@ onMounted(async () => {
 								</td>
 								<td><button type="button" class="cp-remove" :disabled="form.items.length === 1" aria-label="Remove line" @click="form.items.splice(index, 1)">×</button></td>
 							</tr>
+							<tr class="cp-subrow"><td colspan="4"><label class="cp-field"><span>Line note</span><input v-model="row.notes" class="cp-input" placeholder="Optional note for this transfer line" /></label></td></tr>
 						</template>
 					</tbody>
 				</table>

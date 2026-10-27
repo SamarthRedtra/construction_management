@@ -84,3 +84,10 @@ export function printUrl(doctype, name, format = "Standard", pdf = false, letter
 	if (pdf) return `/api/method/frappe.utils.print_format.download_pdf?${params}`
 	return `/printview?${params}&trigger_print=1`
 }
+
+/** Same as printview but without auto-print — for in-list iframe preview. */
+export function previewUrl(doctype, name, format = "Standard", letterhead = "") {
+	const params = new URLSearchParams({ doctype, name, format, no_letterhead: letterhead ? "0" : "1" })
+	if (letterhead) params.set("letterhead", letterhead)
+	return `/printview?${params}`
+}

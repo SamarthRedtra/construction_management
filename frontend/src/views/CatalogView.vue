@@ -8,11 +8,15 @@ import CatalogOriginChoice from "@/components/CatalogOriginChoice.vue"
 import LinkSelect from "@/components/LinkSelect.vue"
 import Modal from "@/components/Modal.vue"
 import PageHeader from "@/components/PageHeader.vue"
+import PaginationBar from "@/components/PaginationBar.vue"
 import PriceHistory from "@/components/PriceHistory.vue"
+
+const PAGE_SIZE = 50
 
 const ctx = computed(() => session.context)
 const rows = ref([])
 const total = ref(0)
+const page = ref(1)
 const search = ref("")
 const typeFilter = ref("")
 const groupFilter = ref("")
@@ -104,7 +108,12 @@ async function submitDisable() {
 	finally { disabling.value = false }
 }
 
-async function load(append = false) {
+function resetToFirstPage() {
+	if (page.value !== 1) page.value = 1
+	else load()
+}
+
+async function load() {
 	const loadId = ++latestLoad
 	loading.value = true
 	try {
@@ -112,11 +121,13 @@ async function load(append = false) {
 			search: search.value, item_type: typeFilter.value, item_group: groupFilter.value,
 			source: sourceFilter.value, stock_status: stockFilter.value,
 			sort_by: sortBy.value, sort_order: sortOrder.value,
-			start: append ? rows.value.length : 0, page_length: 50,
+			start: (page.value - 1) * PAGE_SIZE, page_length: PAGE_SIZE,
 		})
 		if (loadId !== latestLoad) return
-		rows.value = append ? [...rows.value, ...result.rows] : result.rows
+		rows.value = result.rows
 		total.value = result.total_count
+		const maxPage = Math.max(1, Math.ceil((result.total_count || 0) / PAGE_SIZE) || 1)
+		if (page.value > maxPage) page.value = maxPage
 	} catch (error) {
 		if (loadId === latestLoad) toastError(error)
 	} finally {
@@ -366,8 +377,9 @@ async function runMrgOpeningStock() {
 	}
 }
 
-watch(search, debounce(() => { clearSelection(); load() }, 300))
-watch([typeFilter, groupFilter, sourceFilter, stockFilter, sortBy, sortOrder], () => { clearSelection(); load() })
+watch(search, debounce(() => { clearSelection(); resetToFirstPage() }, 300))
+watch([typeFilter, groupFilter, sourceFilter, stockFilter, sortBy, sortOrder], () => { clearSelection(); resetToFirstPage() })
+watch(page, () => { clearSelection(); load() })
 onMounted(() => { load(); loadFilterOptions() })
 </script>
 
@@ -424,10 +436,7 @@ onMounted(() => { load(); loadFilterOptions() })
 				<tr v-if="!loading && !rows.length"><td :colspan="ctx.can_manage_catalog ? 8 : 7" class="cp-empty-row">No approved items match these filters.</td></tr>
 			</tbody>
 		</table>
-		<footer v-if="rows.length" class="cp-card-foot">
-			<span>{{ rows.length }} of {{ total }} items</span>
-			<button v-if="rows.length < total" class="cp-btn sm" :disabled="loading" @click="load(true)">Load more</button>
-		</footer>
+		<PaginationBar v-model:page="page" :page-size="PAGE_SIZE" :total="total" :loading="loading" />
 	</section>
 
 	<Modal v-if="supplierLinking" :title="`Add supplier to ${selectedItemCodes.size} selected item(s)`" @close="supplierLinking = false">

@@ -122,9 +122,23 @@ def get_stock_ledger_options(field: str, search: str = "", receipt: str = "") ->
 def get_stock_ledger(receipt: str = "", project: str = "", item_code: str = "", warehouse: str = "", from_date: str = "", to_date: str = "", start: int = 0) -> dict:
 	"""GRN viewers see only that voucher; unrestricted ledger search requires ledger access."""
 	company, where, params = _ledger_scope(receipt, project, item_code, warehouse, from_date, to_date)
-	rows = _ledger_rows(where, params, 101, max(cint(start), 0))
-	return {"rows": rows[:100], "has_more": len(rows) > 100, "company": company, "receipt": receipt,
-		"resolved_warehouses": _project_warehouses(company, project)}
+	page_length = 100
+	start = max(cint(start), 0)
+	total_count = cint(frappe.db.sql(
+		f"""select count(*) from `tabStock Ledger Entry` sle
+		join `tabWarehouse` wh on wh.name = sle.warehouse where {where}""",
+		params,
+	)[0][0])
+	rows = _ledger_rows(where, params, page_length, start)
+	return {
+		"rows": rows,
+		"has_more": start + len(rows) < total_count,
+		"total_count": total_count,
+		"page_length": page_length,
+		"company": company,
+		"receipt": receipt,
+		"resolved_warehouses": _project_warehouses(company, project),
+	}
 
 
 def _project_warehouses(company: str, project: str) -> list[dict]:
