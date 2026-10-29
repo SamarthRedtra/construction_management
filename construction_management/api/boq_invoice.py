@@ -204,6 +204,9 @@ def create_invoice_from_boq_item(project: str, boq_item: str, current_qty: float
 			),
 			title=_("Over-Billing Error")
 		)
+
+	if not is_proforma:
+		_block_direct_billing_with_open_sales_orders([boq_item])
 	
 	# Calculate amount
 	current_amount = flt(current_qty) * flt(item.rate)
@@ -631,6 +634,9 @@ def create_invoice_from_selected_bills(project: str, bill_names: list,
 	
 	if not items_to_bill:
 		frappe.throw(_("No items with current quantity found in selected bills"))
+
+	if not is_proforma:
+		_block_direct_billing_with_open_sales_orders([row.boq_item for row in items_to_bill])
 	
 	# Create Sales Invoice
 	invoice = frappe.new_doc("Sales Invoice")
@@ -3311,6 +3317,11 @@ def create_invoice_from_selected_items(project: str, items: str | list,
 	apply_retention = int(apply_retention)
 	advance_deduction = flt(advance_deduction)
 	is_proforma = int(is_proforma)
+
+	if not is_proforma:
+		_block_direct_billing_with_open_sales_orders(
+			[item_data.get("boq_item") for item_data in items]
+		)
 	
 	# Get project details
 	project_doc = frappe.get_doc("Project", project)
@@ -3989,6 +4000,46 @@ def _so_has_submitted_payment_certificate(so_name: str) -> bool:
 			"Payment Certificate",
 			{"sales_order": so_name, "docstatus": 1},
 		)
+	)
+
+
+def _block_direct_billing_with_open_sales_orders(boq_items: list[str]) -> None:
+	"""Direct BOQ tax invoices cannot link a Sales Order, so refuse when one is still open."""
+	boq_items = sorted({name for name in boq_items or [] if name})
+	if not boq_items:
+		return
+	rows = frappe.db.sql(
+		"""
+		SELECT DISTINCT so.name AS sales_order, soi.boq_item
+		FROM `tabSales Order Item` soi
+		INNER JOIN `tabSales Order` so ON so.name = soi.parent
+		WHERE so.docstatus = 1
+			AND so.status NOT IN ('Closed', 'Completed', 'Cancelled')
+			AND soi.boq_item IN %(boq_items)s
+			AND soi.item_code NOT IN %(deduction_items)s
+			AND soi.amount - IFNULL(soi.billed_amt, 0) > 0
+		""",
+		{"boq_items": boq_items, "deduction_items": tuple(SO_DEDUCTION_ITEM_CODES)},
+		as_dict=True,
+	)
+	pc_cache = {}
+	open_rows = []
+	for row in rows:
+		if row.sales_order not in pc_cache:
+			pc_cache[row.sales_order] = _so_has_submitted_payment_certificate(row.sales_order)
+		if not pc_cache[row.sales_order]:
+			open_rows.append(row)
+	if not open_rows:
+		return
+	frappe.throw(
+		_(
+			"BOQ item(s) {0} already have unbilled Sales Order(s) {1}. Create the Tax Invoice from the "
+			"Sales Order (Combined Tax Invoice from SO) so it stays linked."
+		).format(
+			", ".join(sorted({row.boq_item for row in open_rows})),
+			", ".join(sorted({row.sales_order for row in open_rows})),
+		),
+		title=_("Open Sales Order exists"),
 	)
 
 

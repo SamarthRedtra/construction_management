@@ -18,6 +18,7 @@ const router = useRouter()
 const route = useRoute()
 const props = defineProps({ name: { type: String, default: "" } })
 const editing = computed(() => Boolean(props.name))
+const duplicateSource = computed(() => (editing.value ? "" : String(route.query.duplicate || "")))
 const form = reactive({ company: session.context.default_company || "", supplier: "", order_date: today(), required_by: today(), lpo_type: !editing.value && route.query.lpo_type === "Open" ? "Open" : "Standard", warehouse: "", contact_person: "", payment_terms_template: "", tc_name: "", terms: "", taxes_and_charges: null, apply_discount_on: "Net Total", additional_discount_percentage: 0, discount_amount: 0, project: "", bill_no: "", boq_item: "", items: [] })
 const saving = ref(false)
 const createdOrderName = ref("")
@@ -131,23 +132,12 @@ async function selectItem(row, item) {
 	row.controlled_procurement_catalog = item.controlled_procurement_catalog == null ? 1 : Number(item.controlled_procurement_catalog)
 	row.stock_uom = item.stock_uom
 	row.notes = item.item_name
-	row.requires_supplier_link = false
+	row.not_in_catalog = false
 	resetRate(row)
 	itemSupplierMessage.value = ""
 	eligibleSuppliers.value = []
 	supplierChoiceItem.value = ""
-	if (form.supplier && form.lpo_type !== "Manual") {
-		try {
-			const result = await call("get_catalog_supplier_match", { item_code: item.name, supplier: form.supplier })
-			row.requires_supplier_link = Boolean(result.requires_supplier_link)
-			if (result.requires_supplier_link) {
-				itemSupplierMessage.value = `Consumable/Service item ${item.name} is not linked to ${form.supplier}. Saving queues a Link Supplier approval; submit waits until it is approved.`
-			}
-		} catch (error) {
-			toastError(error)
-		}
-		loadBuyingPrice(row)
-	} else if (form.supplier) loadBuyingPrice(row)
+	if (form.supplier) loadBuyingPrice(row)
 	else lookupItemSuppliers(row)
 }
 
@@ -159,7 +149,7 @@ function clearItem(row, message = "") {
 	row.controlled_procurement_catalog = 0
 	row.stock_uom = ""
 	row.notes = ""
-	row.requires_supplier_link = false
+	row.not_in_catalog = false
 	resetRate(row)
 	eligibleSuppliers.value = []
 	supplierChoiceItem.value = ""
@@ -178,10 +168,6 @@ async function checkSelectedItemsForSupplier(supplier) {
 			if (!result.eligible) {
 				clearItem(row, `The selected item is not linked to ${supplier}. Choose one of this supplier's items.`)
 				continue
-			}
-			row.requires_supplier_link = Boolean(result.requires_supplier_link)
-			if (result.requires_supplier_link) {
-				itemSupplierMessage.value = `Consumable/Service item ${code} is not linked to ${supplier}. Saving queues a Link Supplier approval; submit waits until it is approved.`
 			}
 			loadBuyingPrice(row)
 		} catch (error) {
@@ -232,6 +218,11 @@ function normalizedAllocation(values) {
 	}))
 }
 
+function needsSubmitApproval(row) {
+	return form.lpo_type !== "Manual" && ["Consumable", "Service"].includes(row.controlled_item_type) && row.item_code
+		&& row.rate_edited && (row.fetched_rate == null || Number(row.rate) !== Number(row.fetched_rate) || Boolean(row.price_change_reason))
+}
+
 function purchaseOrderPayload() {
 	return {
 		...form,
@@ -252,6 +243,11 @@ function creationRequestId() {
 
 async function save() {
 	if (saving.value || createdOrderName.value) return
+	const nonCatalog = form.items.filter((row) => row.item_code && row.not_in_catalog)
+	if (nonCatalog.length) {
+		toast(`Replace non-catalog items before saving: ${nonCatalog.map((row) => row.item_name || row.item_code).join(", ")}`, "error")
+		return
+	}
 	saving.value = true
 	try {
 		const result = editing.value
@@ -276,8 +272,10 @@ async function submitSavedOrder() {
 	if (!editing.value || saving.value) return
 	saving.value = true
 	try {
-		await call("submit_document", { doctype: "Purchase Order", name: props.name })
-		toast(`Purchase order ${props.name} submitted`)
+		const result = await call("submit_document", { doctype: "Purchase Order", name: props.name })
+		toast(result?.docstatus === 0 && result?.price_approval_status === "Pending CEO"
+			? `Purchase order ${props.name} sent to CEO for price approval. It submits automatically once approved.`
+			: `Purchase order ${props.name} submitted`)
 		await router.replace(`/purchase-orders/${props.name}`)
 	} catch (error) {
 		toastError(error)
@@ -288,8 +286,41 @@ async function submitSavedOrder() {
 
 addRow()
 
+async function hydrateDuplicate(source) {
+	try {
+		const doc = await call("get_purchase_order_duplicate", { name: source })
+		const manual = doc.custom_lpo_type === "Manual"
+		hydrating.value = true
+		Object.assign(form, {
+			supplier: doc.supplier, lpo_type: doc.custom_lpo_type || "Standard", warehouse: doc.set_warehouse || "",
+			contact_person: doc.contact_person || "", payment_terms_template: doc.payment_terms_template || "", tc_name: doc.tc_name || "", terms: doc.terms || "",
+			taxes_and_charges: doc.taxes_and_charges || null, apply_discount_on: doc.apply_discount_on || "Net Total", additional_discount_percentage: doc.additional_discount_percentage || 0, discount_amount: doc.discount_amount || 0,
+			project: doc.project || "", bill_no: doc.bill_no || "", boq_item: doc.boq_item || "",
+			items: (doc.items || []).map((row) => ({ item_code: row.item_code, item_name: row.item_name, controlled_item_type: row.controlled_item_type || "",
+				controlled_procurement_catalog: Number(row.controlled_procurement_catalog || 0), stock_uom: row.stock_uom,
+				qty: row.qty, rate: row.rate, fetched_rate: manual ? row.rate : null, vat: row.vat, notes: row.description || "", rate_edited: manual, price_change_reason: "",
+				price_loading: false, price_missing: false, not_in_catalog: !row.in_catalog,
+				project: row.project || "", bill_no: row.bill_no || "", boq_item: row.boq_item || "",
+				use_override: ["project", "bill_no", "boq_item"].some((field) => (row[field] || "") !== (doc[field] || "")),
+			})),
+		})
+		if (!form.items.length) addRow()
+		await nextTick()
+		if (termsEditor.value) termsEditor.value.innerHTML = doc.terms || ""
+		hydrating.value = false
+		await loadContacts(doc.contact_person)
+		if (!manual) form.items.filter((row) => row.item_code && !row.not_in_catalog).forEach((row) => loadBuyingPrice(row, { keepRateIfMissing: true }))
+	} catch (error) {
+		hydrating.value = false
+		toastError(error)
+	}
+}
+
 onMounted(async () => {
-	if (!editing.value) return
+	if (!editing.value) {
+		if (duplicateSource.value) await hydrateDuplicate(duplicateSource.value)
+		return
+	}
 	try {
 		const doc = await call("get_controlled_document", { doctype: "Purchase Order", name: props.name })
 		if (doc.docstatus !== 0 || !doc.controlled_procurement || (doc.custom_lpo_type === "Manual" && ["Pending Accounts", "Pending CEO"].includes(doc.custom_po_price_status)) || ["Pending Accounts", "Pending CEO"].includes(doc.custom_lpo_approval_status)
@@ -307,7 +338,7 @@ onMounted(async () => {
 			taxes_and_charges: doc.taxes_and_charges || null, apply_discount_on: doc.apply_discount_on || "Net Total", additional_discount_percentage: doc.additional_discount_percentage || 0, discount_amount: doc.discount_amount || 0, project: doc.project || "", bill_no: doc.bill_no || "", boq_item: doc.boq_item || "",
 			items: (doc.items || []).map((row) => ({ docname: row.name, item_code: row.item_code, item_name: row.item_name, controlled_item_type: row.controlled_item_type,
 				controlled_procurement_catalog: Number(row.controlled_procurement_catalog || 0), stock_uom: row.stock_uom,
-				qty: row.qty, rate: row.rate, fetched_rate: row.rate, vat: row.vat, notes: row.description || "", rate_edited: true, price_change_reason: "",
+				qty: row.qty, rate: row.rate, fetched_rate: row.rate, vat: row.vat, notes: row.description || "", rate_edited: true, price_change_reason: row.custom_price_change_reason || "",
 				project: row.project || "", bill_no: row.bill_no || "", boq_item: row.boq_item || "",
 				use_override: ["project", "bill_no", "boq_item"].some((field) => (row[field] || "") !== (doc[field] || "")),
 			})),
@@ -327,7 +358,7 @@ onMounted(async () => {
 
 <template>
 	<form @submit.prevent="save">
-		<PageHeader :title="editing ? `Edit ${name}` : 'New Purchase Order'" :breadcrumbs="[{ label: 'Procurement', to: '/dashboard' }, { label: 'Purchase Orders', to: '/purchase-orders' }, { label: editing ? name : 'New' }]">
+		<PageHeader :title="editing ? `Edit ${name}` : duplicateSource ? `Duplicate of ${duplicateSource}` : 'New Purchase Order'" :breadcrumbs="[{ label: 'Procurement', to: '/dashboard' }, { label: 'Purchase Orders', to: '/purchase-orders' }, { label: editing ? name : 'New' }]">
 			<template #actions>
 				<RouterLink :to="editing ? `/purchase-orders/${name}` : '/purchase-orders'" class="cp-btn">Cancel</RouterLink>
 				<button type="submit" class="cp-btn primary" :disabled="saving">{{ saving ? "Saving…" : editing ? "Save changes" : "Create order" }}</button>
@@ -339,7 +370,7 @@ onMounted(async () => {
 			<h2 class="cp-section-title">Order</h2>
 			<div class="cp-grid-3">
 				<label class="cp-field"><span>Order date<i>*</i></span><input v-model="form.order_date" type="date" class="cp-input" required /></label>
-				<label class="cp-field"><span>LPO type</span><select v-model="form.lpo_type" class="cp-input"><option>Standard</option><option>Open</option><option v-if="editing">Manual</option></select></label>
+				<label class="cp-field"><span>LPO type</span><select v-model="form.lpo_type" class="cp-input"><option>Standard</option><option>Open</option><option v-if="editing || form.lpo_type === 'Manual'">Manual</option></select></label>
 			</div>
 			<p v-if="form.lpo_type === 'Manual'" class="cp-hint">Manual LPOs require Accounts approval, then CEO approval, before they are submitted.</p>
 			<p v-if="form.lpo_type === 'Open'" class="cp-hint">Open LPO: the existing provisional purchase-order behavior applies automatically.</p>
@@ -410,13 +441,14 @@ onMounted(async () => {
 									<ItemPicker v-model="row.item_code" :display-name="row.item_name" :supplier="form.lpo_type === 'Manual' ? '' : form.supplier" :disabled="form.lpo_type === 'Manual' && !form.supplier" :hide-code="true" :unique-items="true" @selected="selectItem(row, $event)" @cleared="clearItem(row)" />
 									<small v-if="row.item_code" class="cp-muted">{{ [row.item_code, row.controlled_item_type].filter(Boolean).join(" · ") }}</small>
 									<span v-if="row.controlled_procurement_catalog" class="cp-pill info" style="margin-left: 6px">Controlled</span>
-									<span v-if="row.requires_supplier_link" class="cp-pill warning" style="margin-left: 6px" title="Link Supplier approval required before submit">Needs supplier link</span>
+									<span v-if="needsSubmitApproval(row)" class="cp-pill warning" style="margin-left: 6px" title="Consumable/Service price differs from the catalog; this PO only">Needs CEO approval on submit</span>
+									<span v-if="row.not_in_catalog" class="cp-pill warning" style="margin-left: 6px" title="Copied from a PO raised outside the catalog">Not in catalog: pick a catalog item</span>
 									<button type="button" class="cp-link sm" @click="row.use_override = !row.use_override">{{ row.use_override ? "Use order allocation" : "Different project / BOQ for this line" }}</button>
 								</td>
 								<td>{{ row.item_code ? form.supplier : "—" }}</td>
 								<td><input v-model.number="row.qty" class="cp-input num" type="number" min="0.0001" step="any" required /></td>
 								<td><span class="cp-muted">{{ row.stock_uom || "—" }}</span></td>
-								<td><input v-model.number="row.rate" class="cp-input num" type="number" min="0.000001" step="any" :title="row.price_loading ? 'Loading buying price…' : ''" @input="row.rate_edited = true; row.price_missing = false" /><small v-if="row.price_loading" class="cp-hint">Loading price…</small><small v-else-if="row.price_missing" class="cp-overdue">No buying price; enter a rate</small><input v-if="row.rate_edited && (row.fetched_rate == null || Number(row.rate) !== Number(row.fetched_rate))" v-model="row.price_change_reason" class="cp-input" style="margin-top: 6px" placeholder="Reason for changed price" /></td>
+								<td><input v-model.number="row.rate" class="cp-input num" type="number" min="0.000001" step="any" :title="row.price_loading ? 'Loading buying price…' : ''" @input="row.rate_edited = true; row.price_missing = false" /><small v-if="row.price_loading" class="cp-hint">Loading price…</small><small v-else-if="row.price_missing" class="cp-overdue">No buying price; enter a rate</small><input v-if="row.rate_edited && (row.fetched_rate == null || Number(row.rate) !== Number(row.fetched_rate) || row.price_change_reason)" v-model="row.price_change_reason" class="cp-input" style="margin-top: 6px" placeholder="Reason for changed price" /></td>
 								<td><VatSelect v-model="row.vat" /><small class="cp-line-vat">{{ formatCurrency(lineTax(index)) }}</small></td>
 								<td class="num">{{ formatCurrency((row.qty || 0) * (row.rate || 0)) }}</td>
 								<td><button type="button" class="cp-remove" :disabled="form.items.length === 1" aria-label="Remove line" @click="form.items.splice(index, 1)">×</button></td>

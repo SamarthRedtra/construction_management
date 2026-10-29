@@ -55,6 +55,12 @@ class TestProcurementRevisions(UnitTestCase):
 		require.assert_called_once_with(procurement_insights.LEDGER_ROLES)
 		self.assertNotIn("Purchase User", procurement_insights.LEDGER_ROLES)
 
+	@patch("construction_management.api.procurement_insights._require")
+	@patch("construction_management.api.procurement_insights._company", return_value="MRG")
+	def test_ledger_scope_limits_to_controlled_catalog_items(self, company, require):
+		_, where, _ = procurement_insights._ledger_scope("", "", "", "", "", "")
+		self.assertIn("controlled_procurement_catalog = 1", where)
+
 	@patch("construction_management.api.controlled_procurement._require")
 	def test_document_sort_rejects_unapproved_sql_field(self, require):
 		with self.assertRaisesRegex(frappe.ValidationError, "Invalid document sort"):

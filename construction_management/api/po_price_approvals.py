@@ -30,19 +30,44 @@ def _rate(value):
 
 def _current(item_code, supplier, company, date):
 	api = _procurement()
-	# Consumable/Service may draft without Item Supplier; Link Supplier approval is required before submit.
+	# Consumable/Service can be ordered from any supplier.
 	if not api._item_has_supplier(item_code, supplier) and not api._allows_unlinked_supplier(item_code):
 		frappe.throw(_("Supplier {0} must be linked to catalog item {1} before ordering it.").format(supplier, item_code))
 	return api.get_catalog_buying_price(item_code, supplier, company, str(date))
 
 
-def prepare_rates(company, supplier, date, rows, previous=None):
-	"""Stage intentional rate changes for CEO approval; keep the proposed rate on the PO draft."""
+PO_ONLY_ITEM_TYPES = {"Consumable", "Service"}
+PO_ONLY_LPO_TYPES = {"Standard", "Open"}
+
+
+def _po_only(item_code, kind) -> bool:
+	"""Consumable/Service rates on Standard/Open LPOs are approved for the PO only, never the catalog."""
+	return kind in PO_ONLY_LPO_TYPES and frappe.db.get_value("Item", item_code, "controlled_item_type") in PO_ONLY_ITEM_TYPES
+
+
+def _kind(lpo_type=None, previous=None):
+	if lpo_type:
+		return lpo_type
+	if previous is not None:
+		from construction_management.api.lpo_workflow import lpo_type as doc_lpo_type
+		return doc_lpo_type(previous)
+	return "Standard"
+
+
+def prepare_rates(company, supplier, date, rows, previous=None, defer_po_only=False, lpo_type=None):
+	"""Stage intentional rate changes for CEO approval; keep the proposed rate on the PO draft.
+
+	With ``defer_po_only`` Consumable/Service lines are skipped; they are checked on submit instead.
+	"""
+	kind = _kind(lpo_type, previous)
 	old_rows = list(previous.items) if previous else []
 	changes = []
 	for index, row in enumerate(rows):
 		code = row.get("item_code")
 		proposed = _rate(row.get("rate"))
+		po_only = _po_only(code, kind)
+		if defer_po_only and po_only:
+			continue
 		old = None
 		if previous and previous.supplier == supplier:
 			old = next((item for item in old_rows if item.name == row.get("docname") and item.item_code == code), None)
@@ -65,11 +90,49 @@ def prepare_rates(company, supplier, date, rows, previous=None):
 			frappe.throw(_("Select an enabled buying Price List in the company currency before requesting this rate."))
 		# General fallback is read-only for this supplier: approval creates its supplier price.
 		# PO line keeps `proposed`; catalog Item Price updates only after CEO approval.
-		changes.append({"index": index, "item_code": code, "rate": proposed, "reason": reason,
+		changes.append({"index": index, "item_code": code, "rate": proposed, "reason": reason, "po_only": po_only,
 			"price_list": price_list, "old_po_rate": flt(old.rate) if old else active_rate,
 			"old_active_rate": active_rate, "old_active_supplier": active.get("supplier") or "",
 			"old_active_item_price": active.get("item_price") or ""})
 	return changes
+
+
+def _approved_lines(doc) -> set[tuple]:
+	"""(index, item_code, rate) lines approved in the latest CEO decision on this PO."""
+	history = json.loads(doc.get("custom_po_price_history") or "[]")
+	approved = next((entry for entry in reversed(history) if entry.get("action") == "Approved"), None)
+	if not approved:
+		return set()
+	return {(change.get("index"), change.get("item_code"), flt(change.get("rate"))) for change in approved.get("changes") or []}
+
+
+def pending_po_only_changes(doc) -> list[dict]:
+	"""Consumable/Service lines whose rate differs from the catalog and has not been approved yet."""
+	from construction_management.api.lpo_workflow import lpo_type
+
+	kind = lpo_type(doc)
+	if not cint(doc.get("controlled_procurement")) or kind not in PO_ONLY_LPO_TYPES:
+		return []
+	approved = _approved_lines(doc)
+	rows = []
+	for index, item in enumerate(doc.get("items") or []):
+		if not _po_only(item.item_code, kind) or (index, item.item_code, flt(item.rate)) in approved:
+			continue
+		rows.append((index, {"item_code": item.item_code, "rate": item.rate, "rate_edited": 1,
+			"price_change_reason": item.get("custom_price_change_reason") or ""}))
+	if not rows:
+		return []
+	changes = prepare_rates(doc.company, doc.supplier, doc.transaction_date, [row for _, row in rows], lpo_type=kind)
+	for change in changes:
+		change["index"] = rows[change["index"]][0]
+	return changes
+
+
+def before_print_purchase_order(doc, method=None, *args, **kwargs):
+	if not cint(doc.get("controlled_procurement")):
+		return
+	if doc.docstatus == 0 or doc.get("custom_po_price_status") in {"Pending Accounts", "Pending CEO"}:
+		frappe.throw(_("Purchase Order {0} can be printed after it is approved and submitted.").format(doc.name), frappe.PermissionError)
 
 
 def validate_purchase_order(doc, method=None):
@@ -101,6 +164,8 @@ def before_submit_purchase_order(doc, method=None):
 		frappe.throw(_("This Purchase Order is pending CEO price approval and cannot be submitted."), frappe.PermissionError)
 	if cint(doc.get("controlled_procurement")) and any(flt(row.rate) <= 0 for row in doc.items):
 		frappe.throw(_("Every controlled Purchase Order item needs a positive approved rate."))
+	if pending_po_only_changes(doc):
+		frappe.throw(_("Consumable/Service prices on this Purchase Order need CEO approval. Submit it from Procurement to send it for approval."), frappe.PermissionError)
 
 
 def validate_purchase_order_item(doc, method=None):
@@ -127,13 +192,15 @@ def validate_purchase_order_item(doc, method=None):
 		frappe.throw(_("A changed controlled buying rate requires CEO approval through Procurement."), frappe.PermissionError)
 
 
-def stage(doc, changes, submitted_items=None):
+def stage(doc, changes, submitted_items=None, submit_on_approval=False):
 	if not changes:
 		return None
 	if doc.get("custom_po_price_status") in {"Pending Accounts", "Pending CEO"}:
 		frappe.throw(_("This Purchase Order already has a pending price proposal."))
 	identities = {}
 	for change in changes:
+		if change.get("po_only"):
+			continue  # PO-only rates never become catalog price requests.
 		identity = (change["item_code"], change["price_list"])
 		if identity in identities and identities[identity]["rate"] != change["rate"]:
 			frappe.throw(_("The same item and price list cannot have two proposed rates in one order."))
@@ -160,7 +227,7 @@ def stage(doc, changes, submitted_items=None):
 		prices._save_request(request, insert=True)
 		requests.append(request.name)
 	proposal = {"requests": requests, "changes": changes, "submitted_items": submitted_items,
-		"po_modified": str(doc.modified), "requested_by": frappe.session.user, "requested_on": str(now_datetime())}
+		"submit_on_approval": bool(submit_on_approval and doc.docstatus == 0), "po_modified": str(doc.modified), "requested_by": frappe.session.user, "requested_on": str(now_datetime())}
 	status = "Pending Accounts" if doc.docstatus == 1 and doc.get("custom_lpo_type") == "Manual" else "Pending CEO"
 	frappe.db.set_value("Purchase Order", doc.name, {
 		"custom_po_price_status": status, "custom_po_price_proposal": json.dumps(proposal),
@@ -265,6 +332,8 @@ def _restore_draft_po_rates(doc, proposal: dict) -> None:
 	po = frappe.get_doc("Purchase Order", doc.name)
 	changed = False
 	for change in changes:
+		if change.get("po_only"):
+			continue  # Leave the requester's rate on the draft so it can be adjusted and resubmitted.
 		index = change.get("index")
 		if index is None or index >= len(po.items):
 			continue
@@ -334,6 +403,12 @@ def approve_po_price(name: str, comment: str = "") -> dict:
 			"custom_po_price_status": "Approved", "custom_po_price_proposal": None,
 			"custom_po_price_history": _history(doc, "Approved", comment),
 		}, update_modified=False)
+		if proposal.get("submit_on_approval"):
+			doc.reload()
+			if doc.docstatus == 0:
+				doc.flags.controlled_procurement_api = True
+				doc.flags.ignore_permissions = True
+				doc.submit()
 	except Exception as exc:
 		frappe.db.rollback(save_point="po_price_approval")
 		doc.reload()

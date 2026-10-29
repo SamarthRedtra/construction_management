@@ -9,7 +9,7 @@ import PaginationBar from "@/components/PaginationBar.vue"
 import PrintDialog from "@/components/PrintDialog.vue"
 import StatusPill from "@/components/StatusPill.vue"
 import LinkSelect from "@/components/LinkSelect.vue"
-import { companyFilters } from "@/utils"
+import { canPrintOrder, companyFilters, session } from "@/utils"
 
 const PAGE_SIZE = 25
 
@@ -284,7 +284,7 @@ onMounted(async () => {
 						<td><StatusPill :status="rowStatus(row)" /></td>
 						<td class="num">{{ formatCurrency(kind === 'transfers' ? row.total_outgoing_value : row.grand_total) }}</td>
 						<td v-if="kind === 'invoices'" class="num"><strong v-if="row.docstatus === 1">{{ formatCurrency(row.outstanding_amount) }}</strong><span v-else class="cp-muted">—</span></td>
-						<td class="num"><button class="cp-icon-button sm" title="Print / PDF" aria-label="Print" @click.stop="printing = row.name"><svg viewBox="0 0 24 24"><path d="M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z" /></svg></button></td>
+						<td class="num"><button v-if="kind !== 'orders' || canPrintOrder(row)" class="cp-icon-button sm" title="Print / PDF" aria-label="Print" @click.stop="printing = row.name"><svg viewBox="0 0 24 24"><path d="M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z" /></svg></button></td>
 					</tr>
 					<tr v-if="!loading && !rows.length"><td :colspan="kind === 'orders' || kind === 'invoices' || kind === 'receipts' ? 7 : 6" class="cp-empty-row">No {{ config.title.toLowerCase() }} found.</td></tr>
 				</tbody>
@@ -304,7 +304,8 @@ onMounted(async () => {
 			<template v-else-if="previewDoc">
 				<div class="cp-preview-actions">
 					<button type="button" class="cp-btn sm brand" @click="openDetail(previewDoc.name)">Open</button>
-					<button type="button" class="cp-btn sm" @click="printing = previewDoc.name">Print / PDF</button>
+					<RouterLink v-if="kind === 'orders' && session.context.can_purchase" :to="{ path: '/purchase-orders/new', query: { duplicate: previewDoc.name } }" class="cp-btn sm">Duplicate</RouterLink>
+					<button v-if="kind !== 'orders' || canPrintOrder(previewDoc)" type="button" class="cp-btn sm" @click="printing = previewDoc.name">Print / PDF</button>
 					<button v-if="canPreviewCancel" type="button" class="cp-btn sm" :disabled="previewBusy" @click="previewAction('cancel')">Cancel</button>
 					<button v-if="canPreviewAmend" type="button" class="cp-btn sm" :disabled="previewBusy" @click="previewAction('amend')">Amend</button>
 					<button v-if="canPreviewDelete" type="button" class="cp-btn sm" :disabled="previewBusy" @click="previewAction('delete')">Delete</button>

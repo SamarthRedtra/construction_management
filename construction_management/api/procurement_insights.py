@@ -25,6 +25,10 @@ QTY_CHANGE_SQL = """(case when sle.voucher_type = 'Stock Reconciliation'
 		order by prev.posting_datetime desc, prev.creation desc limit 1), 0)
 	else sle.actual_qty end)"""
 
+# Procurement stock screens cover only controlled catalog items (disabled ones keep their history).
+CATALOG_ITEM_SQL = """exists (select 1 from `tabItem` catalog_item
+	where catalog_item.name = sle.item_code and catalog_item.controlled_procurement_catalog = 1)"""
+
 
 def _company() -> str:
 	company = _active_company()
@@ -53,7 +57,7 @@ def _ledger_scope(receipt: str, project: str, item_code: str, warehouse: str, fr
 		frappe.throw(_("Project does not belong to the active company."), frappe.PermissionError)
 	if warehouse and frappe.db.get_value("Warehouse", warehouse, "company") != company:
 		frappe.throw(_("Warehouse does not belong to the active company."), frappe.PermissionError)
-	conditions = ["sle.company = %(company)s", "sle.is_cancelled = 0"]
+	conditions = ["sle.company = %(company)s", "sle.is_cancelled = 0", CATALOG_ITEM_SQL]
 	params = {"company": company, "selected_project": project or ""}
 	if project:
 		project_warehouses = [row["value"] for row in _project_warehouses(company, project)]

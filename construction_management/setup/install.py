@@ -211,6 +211,11 @@ def create_controlled_procurement_fields():
 		"in_list_view": 1,
 		"description": "Item is in the controlled procurement catalogue",
 	})
+	fields_to_create.append({
+		"dt": "Purchase Order Item", "fieldname": "custom_price_change_reason",
+		"label": "Price Change Reason", "fieldtype": "Small Text",
+		"insert_after": "rate", "read_only": 1, "no_copy": 1,
+	})
 	fields_to_create.extend([
 		{
 			"dt": "Post Dated Cheques", "fieldname": "custom_purchase_order",

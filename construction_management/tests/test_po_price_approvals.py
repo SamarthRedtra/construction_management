@@ -39,10 +39,11 @@ class TestPOPriceApprovals(UnitTestCase):
 		self.assertEqual(approvals.prepare_rates("MRG", "SUP-1", "2026-10-02", rows), [])
 		self.assertEqual(current.call_count, 2)
 
+	@patch.object(approvals, "_po_only", return_value=False)
 	@patch.object(approvals.frappe, "get_cached_value", return_value="AED")
 	@patch.object(approvals.frappe.db, "get_value", return_value=frappe._dict(buying=1, enabled=1, currency="AED"))
 	@patch.object(approvals, "_current", return_value={"rate": 10, "price_list": "Standard Buying"})
-	def test_new_order_changed_rate_stays_on_po_row(self, current, get_value, currency):
+	def test_new_order_changed_rate_stays_on_po_row(self, current, get_value, currency, po_only):
 		rows = [{"item_code": "ITEM-1", "rate": 12, "rate_edited": True, "price_change_reason": "Supplier revision"}]
 		changes = approvals.prepare_rates("MRG", "SUP-1", "2026-10-02", rows)
 		self.assertEqual(rows[0]["rate"], 12)
@@ -58,7 +59,7 @@ class TestPOPriceApprovals(UnitTestCase):
 
 	@patch.object(approvals, "_current")
 	def test_unchanged_historical_rate_does_not_reprice(self, current):
-		previous = SimpleNamespace(supplier="SUP-1", docstatus=0,
+		previous = SimpleNamespace(supplier="SUP-1", docstatus=0, get=lambda key, default=None: None,
 			items=[SimpleNamespace(name="ROW-1", item_code="ITEM-1", rate=7)])
 		rows = [{"docname": "ROW-1", "item_code": "ITEM-1", "rate": 7}]
 		self.assertEqual(approvals.prepare_rates("MRG", "SUP-1", "2026-10-02", rows, previous), [])
@@ -140,3 +141,87 @@ class TestPOPriceApprovals(UnitTestCase):
 		)
 		self.assertEqual(row.rate, 10)
 		po.save.assert_called_once_with(ignore_permissions=True)
+
+	@patch.object(approvals, "_po_only", return_value=True)
+	@patch.object(approvals, "_current")
+	def test_draft_save_defers_consumable_service_rates(self, current, po_only):
+		rows = [{"item_code": "CONS-1", "rate": 99, "rate_edited": True}]
+		self.assertEqual(approvals.prepare_rates("MRG", "SUP-1", "2026-10-02", rows, defer_po_only=True), [])
+		current.assert_not_called()
+
+	@patch.object(approvals, "_enqueue_notice")
+	@patch.object(approvals.prices, "has_explicit_ceo_role", return_value=False)
+	@patch.object(approvals.prices, "_save_request")
+	@patch.object(approvals.frappe.db, "set_value")
+	def test_po_only_change_creates_no_catalog_request(self, set_value, save_request, explicit, notice):
+		import json
+
+		doc = frappe._dict(name="PO-1", docstatus=0, modified="m1", supplier="SUP-1", custom_lpo_type="Standard")
+		change = {"index": 0, "item_code": "CONS-1", "rate": 99, "reason": "Quote", "po_only": True, "price_list": "Standard Buying"}
+		approvals.stage(doc, [change], submit_on_approval=True)
+		save_request.assert_not_called()
+		values = set_value.call_args.args[2]
+		proposal = json.loads(values["custom_po_price_proposal"])
+		self.assertEqual(values["custom_po_price_status"], "Pending CEO")
+		self.assertEqual(proposal["requests"], [])
+		self.assertTrue(proposal["submit_on_approval"])
+
+	@patch.object(approvals, "_history", return_value="[]")
+	@patch.object(approvals.frappe.db, "set_value")
+	@patch.object(approvals.frappe.db, "savepoint")
+	@patch.object(approvals.frappe.db, "sql")
+	@patch.object(approvals.prices, "_require_company")
+	@patch.object(approvals.prices, "has_explicit_ceo_role", return_value=True)
+	@patch.object(approvals.frappe, "get_doc")
+	def test_approval_submits_po_when_requested(self, get_doc, explicit, company, sql, savepoint, set_value, history):
+		doc = MagicMock()
+		doc.name, doc.company, doc.modified, doc.docstatus = "PO-1", "MRG", "m1", 0
+		doc.custom_po_price_status = "Pending CEO"
+		doc.custom_po_price_proposal = ('{"po_modified":"m1","requests":[],"submit_on_approval":true,'
+			'"changes":[{"index":0,"item_code":"CONS-1","rate":99,"po_only":true}]}')
+		doc.get = MagicMock(side_effect=lambda key, default=None: {"custom_lpo_type": "Standard"}.get(key, default))
+		doc.items = [SimpleNamespace(item_code="CONS-1", rate=99)]
+		doc.flags = SimpleNamespace()
+		get_doc.return_value = doc
+		self.assertEqual(approvals.approve_po_price("PO-1")["status"], "Approved")
+		doc.submit.assert_called_once()
+
+	@patch.object(approvals.frappe, "get_doc")
+	def test_rejected_po_only_rate_stays_on_draft(self, get_doc):
+		row = SimpleNamespace(item_code="CONS-1", rate=99)
+		po = MagicMock()
+		po.items = [row]
+		get_doc.return_value = po
+		approvals._restore_draft_po_rates(
+			frappe._dict(name="PO-1", docstatus=0),
+			{"changes": [{"index": 0, "item_code": "CONS-1", "rate": 99, "old_po_rate": 10, "po_only": True}]},
+		)
+		self.assertEqual(row.rate, 99)
+		po.save.assert_not_called()
+
+	@patch.object(approvals, "prepare_rates")
+	@patch.object(approvals, "_po_only", return_value=True)
+	def test_approved_po_only_line_is_not_reapproved(self, po_only, prepare):
+		doc = frappe._dict(controlled_procurement=1, custom_lpo_type="Standard", company="MRG", supplier="SUP-1",
+			transaction_date="2026-10-02", items=[frappe._dict(item_code="CONS-1", rate=99)],
+			custom_po_price_history='[{"action":"Approved","changes":[{"index":0,"item_code":"CONS-1","rate":99}]}]')
+		self.assertEqual(approvals.pending_po_only_changes(doc), [])
+		prepare.assert_not_called()
+
+	@patch.object(approvals, "_po_only", return_value=True)
+	@patch.object(approvals, "prepare_rates", return_value=[{"index": 0, "item_code": "CONS-1", "rate": 99, "po_only": True}])
+	def test_unapproved_po_only_line_maps_back_to_po_row(self, prepare, po_only):
+		doc = frappe._dict(controlled_procurement=1, custom_lpo_type="Standard", company="MRG", supplier="SUP-1",
+			transaction_date="2026-10-02", custom_po_price_history="[]",
+			items=[frappe._dict(item_code="ITEM-1", rate=10), frappe._dict(item_code="CONS-1", rate=99, custom_price_change_reason="Quote")])
+		po_only.side_effect = lambda code, kind: code == "CONS-1"
+		changes = approvals.pending_po_only_changes(doc)
+		self.assertEqual(changes[0]["index"], 1)
+		self.assertEqual(prepare.call_args.args[3][0]["price_change_reason"], "Quote")
+
+	def test_print_blocked_until_approved_and_submitted(self):
+		for docstatus, status in ((0, None), (1, "Pending CEO"), (1, "Pending Accounts")):
+			with self.assertRaises(frappe.PermissionError):
+				approvals.before_print_purchase_order(frappe._dict(name="PO-1", controlled_procurement=1, docstatus=docstatus, custom_po_price_status=status))
+		approvals.before_print_purchase_order(frappe._dict(name="PO-1", controlled_procurement=1, docstatus=1, custom_po_price_status="Approved"))
+		approvals.before_print_purchase_order(frappe._dict(name="PO-1", controlled_procurement=0, docstatus=0))

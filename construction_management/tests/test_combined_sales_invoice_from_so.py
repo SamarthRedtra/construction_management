@@ -336,6 +336,38 @@ class TestCombinedSalesInvoiceFromSO(unittest.TestCase):
 		doc["docstatus"] = 1
 		validate_combined_source_sales_orders(doc)
 
+	def test_direct_billing_blocked_when_boq_item_has_open_sales_order(self):
+		from construction_management.api.boq_invoice import _block_direct_billing_with_open_sales_orders
+
+		open_line = [frappe._dict(sales_order="SO-OPEN", boq_item="BOQI-1")]
+		with patch(
+			"construction_management.api.boq_invoice.frappe.db.sql", return_value=open_line
+		), patch(
+			"construction_management.api.boq_invoice._so_has_submitted_payment_certificate",
+			return_value=False,
+		):
+			with self.assertRaises(frappe.ValidationError):
+				_block_direct_billing_with_open_sales_orders(["BOQI-1"])
+
+	def test_direct_billing_allowed_without_open_sales_order_or_with_pc(self):
+		from construction_management.api.boq_invoice import _block_direct_billing_with_open_sales_orders
+
+		with patch("construction_management.api.boq_invoice.frappe.db.sql", return_value=[]):
+			_block_direct_billing_with_open_sales_orders(["BOQI-1"])
+
+		open_line = [frappe._dict(sales_order="SO-PC", boq_item="BOQI-1")]
+		with patch(
+			"construction_management.api.boq_invoice.frappe.db.sql", return_value=open_line
+		), patch(
+			"construction_management.api.boq_invoice._so_has_submitted_payment_certificate",
+			return_value=True,
+		):
+			_block_direct_billing_with_open_sales_orders(["BOQI-1"])
+
+		with patch("construction_management.api.boq_invoice.frappe.db.sql") as sql:
+			_block_direct_billing_with_open_sales_orders([None, ""])
+			sql.assert_not_called()
+
 	def test_saving_combined_invoice_without_a_source_order_line_fails(self):
 		if not self.customer:
 			self.skipTest("No customer available")

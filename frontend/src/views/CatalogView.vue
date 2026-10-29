@@ -93,6 +93,7 @@ async function onCreateDescriptionBlur() {
 	}
 }
 
+function itemDeskUrl(itemCode) { return `/app/item/${encodeURIComponent(itemCode)}` }
 function openDisable(item) { disableItem.value = item; disableReason.value = "" }
 
 async function submitDisable() {
@@ -431,7 +432,7 @@ onMounted(() => { load(); loadFilterOptions() })
 					<td class="num"><button v-if="['Stockable', 'Consumable'].includes(item.controlled_item_type)" class="cp-link" @click="showStock(item)">{{ item.actual_qty }}</button><span v-else>—</span></td>
 					<td><span class="cp-muted">{{ item.controlled_catalog_source || "—" }}</span></td>
 					<td>{{ item.stock_uom }}</td>
-					<td><button v-if="ctx.can_manage_catalog" class="cp-btn sm" @click="openItemEdit(item)">Edit request</button><button v-if="ctx.can_request_price_change" class="cp-btn sm" @click="openPriceRequest(item)">Request price change</button><button v-if="ctx.can_disable_catalog" class="cp-btn sm" @click="openDisable(item)">Disable</button></td>
+					<td><a class="cp-btn sm" :href="itemDeskUrl(item.name)" target="_blank" rel="noopener">Open in Desk ↗</a><button v-if="ctx.can_manage_catalog" class="cp-btn sm" @click="openItemEdit(item)">Edit request</button><button v-if="ctx.can_request_price_change" class="cp-btn sm" @click="openPriceRequest(item)">Request price change</button><button v-if="ctx.can_disable_catalog" class="cp-btn sm" @click="openDisable(item)">Disable</button></td>
 				</tr>
 				<tr v-if="!loading && !rows.length"><td :colspan="ctx.can_manage_catalog ? 8 : 7" class="cp-empty-row">No approved items match these filters.</td></tr>
 			</tbody>

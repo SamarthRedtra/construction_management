@@ -575,12 +575,12 @@ class TestControlledProcurement(UnitTestCase):
 				{"lpo_type": "Open", "supplier": "SUP-2"}, [{"item_code": "ITEM-1"}], existing,
 			)
 
-	@patch("construction_management.api.controlled_procurement._unlinked_consumable_service_codes", return_value=["CONS-1"])
-	def test_submit_blocks_unlinked_consumable_service(self, unlinked):
-		doc = SimpleNamespace(supplier="SUP-1", name="PO-1")
-		with patch("construction_management.api.lpo_workflow.lpo_type", return_value="Standard"):
-			with self.assertRaisesRegex(frappe.ValidationError, "Catalog Approvals"):
-				controlled_procurement._assert_po_supplier_links_ready(doc)
+	@patch("construction_management.api.controlled_procurement._allows_unlinked_supplier", return_value=True)
+	@patch("construction_management.api.controlled_procurement._item_has_supplier", return_value=False)
+	def test_consumable_service_order_accepts_any_supplier(self, has_supplier, allows_unlinked):
+		controlled_procurement._validate_order_supplier_items(
+			{"lpo_type": "Standard", "supplier": "SUP-2"}, [{"item_code": "CONS-1"}],
+		)
 
 	@patch("construction_management.api.controlled_procurement.frappe.db.get_value", return_value=frappe._dict(controlled_asset_category=None, controlled_service_expense_account=None))
 	@patch("construction_management.api.controlled_procurement.frappe.db.exists", return_value=True)
@@ -1014,3 +1014,21 @@ class TestControlledProcurement(UnitTestCase):
 		self.assertEqual(supplier.update.call_args.args[0]["custom_po_box_no"], "PO 789")
 		upsert_contact.assert_called_once_with("SUP-0001", data)
 		upsert_address.assert_called_once_with("SUP-0001", data)
+
+	def _insert_item_price_calls(self, price_list_buying, item_controlled):
+		import construction_management as app
+
+		def get_value(doctype, name, field, cache=False):
+			return price_list_buying if doctype == "Price List" else item_controlled
+
+		ctx = frappe._dict(item_code="CP-ITEM", price_list="Standard Buying", rate=10)
+		with patch.object(app, "_original_insert_item_price") as original, patch.object(app.frappe.db, "get_value", side_effect=get_value):
+			app._patched_insert_item_price(ctx)
+		return original.call_count
+
+	def test_insert_item_price_skips_controlled_buying_price(self):
+		self.assertEqual(self._insert_item_price_calls(price_list_buying=1, item_controlled=1), 0)
+
+	def test_insert_item_price_keeps_erpnext_behavior_elsewhere(self):
+		self.assertEqual(self._insert_item_price_calls(price_list_buying=1, item_controlled=0), 1)
+		self.assertEqual(self._insert_item_price_calls(price_list_buying=0, item_controlled=1), 1)

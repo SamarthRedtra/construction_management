@@ -167,6 +167,8 @@ def _append_item(doc, row_data: dict, defaults: dict, warehouses: bool = False) 
 		row.t_warehouse = row_data.get("target_warehouse")
 	elif doc.doctype == "Purchase Order":
 		row.warehouse = row_data.get("warehouse") or doc.set_warehouse
+		if row.meta.has_field("custom_price_change_reason"):
+			row.custom_price_change_reason = (row_data.get("price_change_reason") or "").strip() or None
 	if doc.doctype != "Stock Entry":
 		_apply_allocation(row, row_data, defaults, doc.company)
 	_set_row_type(row, item)
@@ -194,14 +196,14 @@ def _item_has_supplier(item_code: str, supplier: str) -> bool:
 
 
 def _allows_unlinked_supplier(item_code: str) -> bool:
-	"""Consumable/Service may sit on a draft PO without Item Supplier (Link Supplier approval required to submit)."""
+	"""Consumable/Service can be ordered from any supplier without an Item Supplier link."""
 	return frappe.db.get_value("Item", item_code, "controlled_item_type") in {CONSUMABLE, SERVICE}
 
 
 def _validate_order_supplier_items(data: dict, items: list[dict], existing=None) -> None:
 	"""Every Standard/Open order line must be linked to its header supplier.
 
-	Consumable and Service lines may be unlinked on the draft; submit still requires a link.
+	Consumable and Service lines may use any supplier.
 	"""
 	lpo_type = data.get("lpo_type") or "Standard"
 	if lpo_type not in {"Standard", "Open"}:
@@ -416,7 +418,7 @@ def _catalog_query(
 	if stock_status:
 		conditions.append("COALESCE(stock.actual_qty, 0) > 0" if stock_status == "in_stock" else "COALESCE(stock.actual_qty, 0) <= 0")
 	if supplier:
-		# Consumable/Service stay visible without an Item Supplier link (submit still needs Link Supplier approval).
+		# Consumable/Service can be bought from any supplier.
 		conditions.append(
 			"""(
 				EXISTS (
@@ -485,7 +487,7 @@ def get_catalog_supplier_match(item_code: str, supplier: str) -> dict:
 	return {
 		"eligible": linked or optional,
 		"linked": linked,
-		"requires_supplier_link": bool(optional and not linked),
+		"requires_supplier_link": False,
 		"controlled_item_type": item.controlled_item_type or "",
 	}
 
@@ -806,6 +808,64 @@ def get_controlled_document(doctype: str, name: str) -> dict:
 	)
 	result["owner_name"] = frappe.utils.get_fullname(doc.owner)
 	return result
+
+
+@frappe.whitelist(methods=["GET"])
+def get_purchase_order_duplicate(name: str) -> dict:
+	"""Prefill for a new PO copied from an existing one; dates, approvals and row names are not carried."""
+	_require(PURCHASE_ROLES)
+	doc = _controlled_doc("Purchase Order", name)
+	from construction_management.api.lpo_workflow import lpo_type
+
+	item_codes = list({row.item_code for row in doc.items if row.item_code})
+	items = {
+		row.name: row
+		for row in frappe.get_all(
+			"Item",
+			filters={"name": ["in", item_codes]},
+			fields=["name", "item_name", "stock_uom", "controlled_item_type", "controlled_procurement_catalog", "disabled"],
+			limit_page_length=0,
+		)
+	} if item_codes else {}
+
+	rows = []
+	for row in doc.items:
+		item = items.get(row.item_code) or frappe._dict()
+		rows.append({
+			"item_code": row.item_code,
+			"item_name": item.item_name or row.item_name,
+			"stock_uom": item.stock_uom or row.stock_uom,
+			"controlled_item_type": item.controlled_item_type,
+			"controlled_procurement_catalog": cint(item.controlled_procurement_catalog),
+			"in_catalog": bool(cint(item.controlled_procurement_catalog) and not cint(item.disabled)),
+			"qty": flt(row.qty),
+			"rate": flt(row.rate),
+			"vat": _vat_choice(row.get("item_tax_template"), doc.company),
+			"description": row.description or "",
+			"project": row.get("project") or "",
+			"bill_no": row.get("bill_no") or "",
+			"boq_item": row.get("boq_item") or "",
+		})
+
+	return {
+		"source": doc.name,
+		"company": doc.company,
+		"supplier": doc.supplier,
+		"custom_lpo_type": lpo_type(doc),
+		"set_warehouse": doc.set_warehouse or "",
+		"contact_person": doc.contact_person or "",
+		"payment_terms_template": doc.payment_terms_template or "",
+		"tc_name": doc.tc_name or "",
+		"terms": doc.terms or "",
+		"taxes_and_charges": doc.taxes_and_charges or None,
+		"apply_discount_on": doc.apply_discount_on or "Net Total",
+		"additional_discount_percentage": flt(doc.additional_discount_percentage),
+		"discount_amount": flt(doc.discount_amount),
+		"project": doc.get("project") or "",
+		"bill_no": doc.get("bill_no") or "",
+		"boq_item": doc.get("boq_item") or "",
+		"items": rows,
+	}
 
 
 TAX_MASTER = "Purchase Taxes and Charges Template"
@@ -1179,7 +1239,8 @@ def create_purchase_order(data: str | dict) -> dict:
 	_validate_line_data(items)
 	_validate_order_supplier_items(data, items)
 	from construction_management.api import po_price_approvals
-	price_changes = po_price_approvals.prepare_rates(company, data.get("supplier"), data.get("order_date") or today(), items)
+	price_changes = po_price_approvals.prepare_rates(company, data.get("supplier"), data.get("order_date") or today(), items,
+		defer_po_only=True, lpo_type=data.get("lpo_type") or "Standard")
 	defaults = _allocation_defaults(data, company)
 	_validate_company_links(company, project=data.get("project"), warehouse=data.get("warehouse"))
 	for row in items:
@@ -1219,7 +1280,6 @@ def create_purchase_order(data: str | dict) -> dict:
 			raise
 		frappe.local.message_log = frappe.local.message_log[:message_count]
 		return existing
-	_ensure_supplier_link_requests_for_po(doc)
 	return {"doctype": doc.doctype, "name": doc.name, "price_approval_status": frappe.db.get_value("Purchase Order", doc.name, "custom_po_price_status")}
 
 
@@ -1266,7 +1326,8 @@ def update_purchase_order(name: str, data: str | dict) -> dict:
 	if doc.get("custom_po_price_status") in {"Pending Accounts", "Pending CEO"}:
 		po_price_approvals.supersede(doc, "Superseded by a newer Purchase Order edit.")
 		doc.reload()
-	price_changes = po_price_approvals.prepare_rates(doc.company, data.get("supplier"), data.get("order_date") or doc.transaction_date, items, doc)
+	price_changes = po_price_approvals.prepare_rates(doc.company, data.get("supplier"), data.get("order_date") or doc.transaction_date, items, doc,
+		defer_po_only=True, lpo_type=data.get("lpo_type") or "Standard")
 	defaults = _allocation_defaults(data, doc.company)
 	_validate_company_links(doc.company, project=data.get("project"), warehouse=data.get("warehouse"))
 	for row in items:
@@ -1293,7 +1354,6 @@ def update_purchase_order(name: str, data: str | dict) -> dict:
 	doc.flags.controlled_procurement_api = True
 	doc.save()
 	po_price_approvals.stage(doc, price_changes)
-	_ensure_supplier_link_requests_for_po(doc)
 	return {"doctype": doc.doctype, "name": doc.name, "price_approval_status": frappe.db.get_value("Purchase Order", doc.name, "custom_po_price_status")}
 
 
@@ -2173,7 +2233,12 @@ def submit_document(doctype: str, name: str) -> dict:
 		if cint(doc.get("controlled_procurement")) and price_status in {"Pending Accounts", "Pending CEO"}:
 			frappe.throw(_("This Purchase Order is pending CEO price approval and cannot be submitted."), frappe.PermissionError)
 		if cint(doc.get("controlled_procurement")):
-			_assert_po_supplier_links_ready(doc)
+			from construction_management.api import po_price_approvals
+			changes = po_price_approvals.pending_po_only_changes(doc)
+			if changes:
+				po_price_approvals.stage(doc, changes, submit_on_approval=True)
+				return {"doctype": doctype, "name": doc.name, "docstatus": frappe.db.get_value(doctype, name, "docstatus"),
+					"price_approval_status": frappe.db.get_value(doctype, name, "custom_po_price_status")}
 	doc.flags.controlled_procurement_api = True
 	doc.submit()
 	return {"doctype": doctype, "name": doc.name, "docstatus": doc.docstatus}
@@ -2594,46 +2659,6 @@ def _catalog_request_row(data: dict, company: str, supplier_link_only: bool = Fa
 		"action": "Link Supplier" if supplier_link_only and existing else "Update" if existing else "Create",
 		"result_item": existing or "",
 	}
-
-
-def _unlinked_consumable_service_codes(doc) -> list[str]:
-	"""Catalog Consumable/Service lines on a PO that still lack Item Supplier for the PO supplier."""
-	supplier = doc.supplier
-	codes = []
-	for row in doc.get("items") or []:
-		code = row.item_code
-		if not code or _item_has_supplier(code, supplier):
-			continue
-		item_type = row.get("controlled_item_type") or frappe.db.get_value("Item", code, "controlled_item_type")
-		if item_type in {CONSUMABLE, SERVICE}:
-			codes.append(code)
-	return list(dict.fromkeys(codes))
-
-
-def _assert_po_supplier_links_ready(doc) -> None:
-	from construction_management.api.lpo_workflow import lpo_type
-
-	if lpo_type(doc) == "Manual":
-		return
-	missing = _unlinked_consumable_service_codes(doc)
-	if missing:
-		frappe.throw(
-			_(
-				"Approve Link Supplier for {0} to supplier {1} in Catalog Approvals before submitting this Purchase Order."
-			).format(", ".join(missing), doc.supplier)
-		)
-
-
-def _ensure_supplier_link_requests_for_po(doc) -> None:
-	"""Queue Link Supplier catalog approvals for unlinked Consumable/Service lines on Standard/Open POs."""
-	from construction_management.api.lpo_workflow import lpo_type
-
-	if not cint(doc.get("controlled_procurement")) or lpo_type(doc) == "Manual":
-		return
-	codes = _unlinked_consumable_service_codes(doc)
-	if not codes:
-		return
-	_queue_supplier_link_request(doc.company, doc.supplier, codes, request_origin="Purchase")
 
 
 def _queue_supplier_link_request(company: str, supplier: str, item_codes: list[str], request_origin: str = "Purchase") -> dict:
@@ -3672,7 +3697,7 @@ def _validate_receipt_allocations(doc) -> None:
 def _document_list_fields(doctype: str) -> list[str]:
 	fields = ["name", "project", "bill_no", "boq_item", "grand_total", "status", "docstatus", "modified"]
 	if doctype == "Purchase Order":
-		return fields + ["supplier", "supplier_name", "transaction_date", "schedule_date", "per_received", "per_billed", "controlled_procurement", "custom_lpo_type", "custom_is_provisional_po", "custom_lpo_reference", "custom_lpo_approval_status"]
+		return fields + ["supplier", "supplier_name", "transaction_date", "schedule_date", "per_received", "per_billed", "controlled_procurement", "custom_lpo_type", "custom_is_provisional_po", "custom_lpo_reference", "custom_lpo_approval_status", "custom_po_price_status"]
 	if doctype == "Purchase Receipt":
 		return fields + ["supplier", "supplier_name", "posting_date", "supplier_delivery_note", "controlled_procurement"]
 	if doctype == "Purchase Invoice":
@@ -3810,7 +3835,7 @@ def get_open_lpos(search: str = "", supplier: str = "", project: str = "", start
 		f"""
 		select po.name, po.supplier, po.supplier_name, po.project, po.transaction_date, po.schedule_date, po.custom_lpo_reference,
 			po.grand_total, po.per_received, po.per_billed, po.status, po.currency, po.controlled_procurement,
-			{provisional} as is_open_po,
+			po.custom_po_price_status, {provisional} as is_open_po,
 			sum(greatest(poi.qty - poi.received_qty, 0)) as pending_qty,
 			sum(greatest(poi.qty - poi.received_qty, 0) * poi.rate) as pending_value,
 			count(poi.name) as line_count,

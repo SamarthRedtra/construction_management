@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import { call } from "@/api"
 import { toast, toastError } from "@/toast"
-import { DOCTYPES, VAT_LABELS, docStatusLabel, formatCurrency, formatDate, formatNumber, isOverdue, session } from "@/utils"
+import { DOCTYPES, VAT_LABELS, canPrintOrder, docStatusLabel, formatCurrency, formatDate, formatNumber, isOverdue, session } from "@/utils"
 import ActivityPanel from "@/components/ActivityPanel.vue"
 import ConnectionsPanel from "@/components/ConnectionsPanel.vue"
 import EmailDialog from "@/components/EmailDialog.vue"
@@ -66,7 +66,9 @@ const canInvoice = computed(() => ["orders", "receipts"].includes(props.kind) &&
 	&& (doc.value.per_billed || 0) < 100 && !doc.value.is_return && !["Closed", "On Hold"].includes(doc.value.status))
 const canPay = computed(() => props.kind === "invoices" && doc.value?.docstatus === 1 && Number(doc.value.outstanding_amount) > 0 && ctx.value.can_purchase)
 const canCreatePoPdc = computed(() => props.kind === "orders" && doc.value?.docstatus === 1 && !["Closed", "On Hold"].includes(doc.value?.status) && ctx.value.can_purchase && ctx.value.can_create_pdc)
-const canEmail = computed(() => props.kind !== "transfers" && doc.value?.docstatus !== 2 && doc.value?.can_email && ctx.value.can_purchase)
+const canDuplicate = computed(() => props.kind === "orders" && ctx.value.can_purchase && doc.value?.docstatus !== undefined)
+const canPrint = computed(() => props.kind !== "orders" || canPrintOrder(doc.value))
+const canEmail = computed(() => props.kind !== "transfers" && doc.value?.docstatus !== 2 && doc.value?.can_email && ctx.value.can_purchase && canPrint.value)
 const partyName = computed(() => doc.value?.supplier_name || doc.value?.supplier || "")
 
 const summary = computed(() => {
@@ -169,8 +171,10 @@ async function submit() {
 	busy.value = true
 	try {
 		if (props.kind === "transfers") await refreshTransferStock()
-		await call("submit_document", { doctype: config.value.doctype, name: props.docname })
-		toast(`${props.docname} submitted`)
+		const result = await call("submit_document", { doctype: config.value.doctype, name: props.docname })
+		toast(result?.docstatus === 0 && result?.price_approval_status === "Pending CEO"
+			? `${props.docname} sent to CEO for price approval. It submits automatically once approved.`
+			: `${props.docname} submitted`)
 		await load()
 		activity.value?.load()
 		connections.value?.load()
@@ -266,7 +270,8 @@ onMounted(load)
 				<button v-if="canCancelDocument" class="cp-btn" :disabled="busy" @click="documentAction('cancel')">Cancel</button>
 				<button v-if="canAmendDocument" class="cp-btn" :disabled="busy" @click="documentAction('amend')">Amend</button>
 				<RouterLink v-if="kind === 'receipts' && doc.docstatus === 1" :to="{ path: '/stock-ledger', query: { receipt: doc.name } }" class="cp-btn">View stock ledger</RouterLink>
-				<button class="cp-btn" @click="printOpen = true">
+				<RouterLink v-if="canDuplicate" :to="{ path: '/purchase-orders/new', query: { duplicate: doc.name } }" class="cp-btn">Duplicate</RouterLink>
+				<button v-if="canPrint" class="cp-btn" @click="printOpen = true">
 					<svg viewBox="0 0 24 24"><path d="M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z" /></svg>Print / PDF
 				</button>
 				<button v-if="canEmail" class="cp-btn" @click="emailOpen = true">

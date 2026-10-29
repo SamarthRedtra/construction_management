@@ -50,6 +50,12 @@ export function debounce(fn, wait = 300) {
 	}
 }
 
+// Mirrors the server before_print guard on controlled Purchase Orders.
+export function canPrintOrder(doc) {
+	if (!doc || !doc.controlled_procurement) return true
+	return doc.docstatus !== 0 && !["Pending Accounts", "Pending CEO"].includes(doc.custom_po_price_status)
+}
+
 export function docStatusLabel(doc) {
 	if (doc.docstatus === 0) return "Draft"
 	if (doc.docstatus === 2) return "Cancelled"

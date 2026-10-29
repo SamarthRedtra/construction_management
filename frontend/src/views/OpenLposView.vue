@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue"
 import { call } from "@/api"
 import { toastError } from "@/toast"
-import { debounce, formatCurrency, formatDate, formatNumber, companyFilters } from "@/utils"
+import { canPrintOrder, debounce, formatCurrency, formatDate, formatNumber, companyFilters } from "@/utils"
 import LinkSelect from "@/components/LinkSelect.vue"
 import PageHeader from "@/components/PageHeader.vue"
 import PaginationBar from "@/components/PaginationBar.vue"
@@ -101,7 +101,7 @@ onMounted(() => load())
 					<td class="num"><strong>{{ formatCurrency(row.pending_value, row.currency) }}</strong></td>
 					<td class="num">
 						<span class="cp-row-actions">
-						<button class="cp-icon-button sm" title="Print / PDF" aria-label="Print" @click.stop="printing = row.name"><svg viewBox="0 0 24 24"><path d="M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z" /></svg></button>
+						<button v-if="canPrintOrder({ ...row, docstatus: 1 })" class="cp-icon-button sm" title="Print / PDF" aria-label="Print" @click.stop="printing = row.name"><svg viewBox="0 0 24 24"><path d="M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z" /></svg></button>
 						<RouterLink :to="{ path: '/receipts/new', query: { po: row.name } }" class="cp-btn sm" @click.stop>Receive</RouterLink>
 						</span>
 					</td>

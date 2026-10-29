@@ -214,6 +214,7 @@ doc_events = {
 			"construction_management.api.lpo_workflow.before_submit_purchase_order",
 			"construction_management.api.po_price_approvals.before_submit_purchase_order",
 		],
+		"before_print": "construction_management.api.po_price_approvals.before_print_purchase_order",
 	},
 	"Purchase Order Item": {
 		"validate": "construction_management.api.po_price_approvals.validate_purchase_order_item",
