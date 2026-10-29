@@ -15,6 +15,16 @@ from construction_management.api.controlled_procurement import (
 INSIGHT_ROLES = CATALOG_ROLES
 LEDGER_ROLES = ACCOUNT_ROLES | ADMIN_ROLES
 
+# Stock Reconciliation rows store actual_qty = 0; their movement is the jump in qty_after_transaction.
+QTY_CHANGE_SQL = """(case when sle.voucher_type = 'Stock Reconciliation'
+	then sle.qty_after_transaction - coalesce((
+		select prev.qty_after_transaction from `tabStock Ledger Entry` prev
+		where prev.item_code = sle.item_code and prev.warehouse = sle.warehouse and prev.is_cancelled = 0
+		and (prev.posting_datetime < sle.posting_datetime
+			or (prev.posting_datetime = sle.posting_datetime and prev.creation < sle.creation))
+		order by prev.posting_datetime desc, prev.creation desc limit 1), 0)
+	else sle.actual_qty end)"""
+
 
 def _company() -> str:
 	company = _active_company()
@@ -68,16 +78,19 @@ def _ledger_scope(receipt: str, project: str, item_code: str, warehouse: str, fr
 
 
 def _ledger_rows(where: str, params: dict, limit: int, start: int = 0) -> list[dict]:
-	return frappe.db.sql(f"""select sle.name, sle.posting_date, sle.posting_time, sle.item_code,
+	rows = frappe.db.sql(f"""select sle.name, sle.posting_date, sle.posting_time, sle.item_code,
 		sle.warehouse, coalesce(nullif(%(selected_project)s, ''), nullif(sle.project, ''), nullif(wh.custom_project, '')) as project,
-		sle.actual_qty, sle.qty_after_transaction,
-		case when sle.actual_qty > 0 then sle.actual_qty else 0 end as in_qty,
-		case when sle.actual_qty < 0 then -sle.actual_qty else 0 end as out_qty,
+		{QTY_CHANGE_SQL} as actual_qty, sle.qty_after_transaction,
 		sle.stock_value_difference as movement_value, sle.stock_value as valuation_balance,
 		sle.voucher_type, sle.voucher_no
 		from `tabStock Ledger Entry` sle join `tabWarehouse` wh on wh.name = sle.warehouse where {where}
 		order by sle.posting_date desc, sle.posting_time desc, sle.creation desc
 		limit %(limit)s offset %(start)s""", {**params, "limit": limit, "start": start}, as_dict=True)
+	for row in rows:
+		qty = flt(row.actual_qty)
+		row.in_qty = qty if qty > 0 else 0
+		row.out_qty = -qty if qty < 0 else 0
+	return rows
 
 
 LEDGER_OPTION_FIELDS = {
@@ -171,20 +184,24 @@ def get_stock_balance(project: str = "", item_code: str = "", warehouse: str = "
 	movement_where = "sle.posting_date >= %(from_date)s" if from_date else "1 = 1"
 	if to_date:
 		movement_where += " and sle.posting_date <= %(to_date)s"
-	rows = frappe.db.sql(f"""select sle.item_code, max(item.item_name) as item_name, max(item.stock_uom) as stock_uom,
-		sum(case when {opening_where} then sle.actual_qty else 0 end) as opening_qty,
-		sum(case when {opening_where} then sle.stock_value_difference else 0 end) as opening_value,
-		sum(case when {movement_where} and sle.actual_qty > 0 then sle.actual_qty else 0 end) as in_qty,
-		sum(case when {movement_where} and sle.actual_qty < 0 then -sle.actual_qty else 0 end) as out_qty,
-		sum(case when {movement_where} and sle.actual_qty > 0 then sle.stock_value_difference else 0 end) as in_value,
-		sum(case when {movement_where} and sle.actual_qty < 0 then sle.stock_value_difference else 0 end) as out_value,
-		sum(case when {period_where} then sle.actual_qty else 0 end) as balance_qty,
-		sum(case when {period_where} then sle.stock_value_difference else 0 end) as balance_value
-		from `tabStock Ledger Entry` sle
-		join `tabWarehouse` wh on wh.name = sle.warehouse
-		left join `tabItem` item on item.name = sle.item_code
-		where {where}
-		group by sle.item_code order by sle.item_code asc""", {**params, "from_date": from_date, "to_date": to_date}, as_dict=True)
+	rows = frappe.db.sql(f"""select m.item_code, max(item.item_name) as item_name, max(item.stock_uom) as stock_uom,
+		sum(case when m.is_opening then m.qty else 0 end) as opening_qty,
+		sum(case when m.is_opening then m.value else 0 end) as opening_value,
+		sum(case when m.is_movement and m.qty > 0 then m.qty else 0 end) as in_qty,
+		sum(case when m.is_movement and m.qty < 0 then -m.qty else 0 end) as out_qty,
+		sum(case when m.is_movement and m.qty > 0 then m.value else 0 end) as in_value,
+		sum(case when m.is_movement and m.qty < 0 then m.value else 0 end) as out_value,
+		sum(case when m.in_period then m.qty else 0 end) as balance_qty,
+		sum(case when m.in_period then m.value else 0 end) as balance_value
+		from (
+			select sle.item_code, {QTY_CHANGE_SQL} as qty, sle.stock_value_difference as value,
+				({opening_where}) as is_opening, ({movement_where}) as is_movement, ({period_where}) as in_period
+			from `tabStock Ledger Entry` sle
+			join `tabWarehouse` wh on wh.name = sle.warehouse
+			where {where}
+		) m
+		left join `tabItem` item on item.name = m.item_code
+		group by m.item_code order by m.item_code asc""", {**params, "from_date": from_date, "to_date": to_date}, as_dict=True)
 	return {"company": company, "project": project, "rows": rows,
 		"resolved_warehouses": _project_warehouses(company, project)}
 
@@ -241,9 +258,9 @@ def get_procurement_insights(project: str) -> dict:
 		where po.company = %(company)s and po.docstatus = 1
 		and coalesce(nullif(poi.project, ''), po.project) = %(project)s
 		group by poi.item_code""", {"company": company, "project": project}, as_dict=True)
-	movements = frappe.db.sql("""select sle.item_code, sle.voucher_type, se.purpose,
-		sum(case when sle.actual_qty > 0 then sle.actual_qty else 0 end) as inbound,
-		sum(case when sle.actual_qty < 0 then sle.actual_qty else 0 end) as outbound
+	movements = frappe.db.sql(f"""select sle.item_code, sle.voucher_type, se.purpose,
+		sum(greatest({QTY_CHANGE_SQL}, 0)) as inbound,
+		sum(least({QTY_CHANGE_SQL}, 0)) as outbound
 		from `tabStock Ledger Entry` sle
 		join `tabWarehouse` wh on wh.name = sle.warehouse
 		left join `tabStock Entry` se on se.name = sle.voucher_no and sle.voucher_type = 'Stock Entry'

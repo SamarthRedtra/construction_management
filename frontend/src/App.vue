@@ -32,7 +32,7 @@ onMounted(async () => {
 		<a href="/desk">Back to Desk</a>
 	</div>
 	<AppShell v-else>
-		<RouterView :key="`${$route.fullPath}:${session.version}`" />
+		<RouterView :key="`${$route.path}:${session.version}`" />
 	</AppShell>
 	<Toasts />
 </template>

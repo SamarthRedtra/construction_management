@@ -1469,6 +1469,7 @@ def get_deduction_details(
 	sales_order_name: str | None = None,
 	sales_order_names: str | list | None = None,
 	after_discount: int | str | None = None,
+	advance_after_discount: int | str | None = None,
 	discount_amount=None,
 	apply_discount_on: str | None = None,
 	tax_rate=None,
@@ -1483,6 +1484,7 @@ def get_deduction_details(
 		sales_order_name: Draft SO name — advance lines on this order are added back to the pool for recalculation (optional)
 		sales_order_names: List of SO names — same add-back for combined SO invoicing (optional)
 		after_discount: When truthy, retention % uses gross work minus additional discount
+		advance_after_discount: When truthy, advance % uses net work minus additional discount
 		discount_amount: Optional override for additional discount (company currency preferred)
 		
 	Returns:
@@ -1535,7 +1537,12 @@ def get_deduction_details(
 		total_net_amount_for_advance = total_net_amount
 	
 	# Retention is usually on Gross Amount; optionally gross − header discount.
-	if cint(after_discount) and invoice_name and discount_amount in (None, ""):
+	# Advance optionally uses the same header discount against net work.
+	if (
+		(cint(after_discount) or cint(advance_after_discount))
+		and invoice_name
+		and discount_amount in (None, "")
+	):
 		si_meta = frappe.db.get_value(
 			"Sales Invoice",
 			invoice_name,
@@ -1585,9 +1592,13 @@ def get_deduction_details(
 		)
 		available_advance += flt(so_adv[0].total) if so_adv else 0
 	
-	# Suggested advance based on percentage cap
-	# Calculate suggested advance deduction based on NET Amount (Gross - Variance)
-	suggested_advance_deduction = flt(total_net_amount_for_advance * advance_percentage / 100, 2)
+	# Suggested advance based on percentage cap (net work; optionally net − header discount)
+	advance_base = get_retention_base_amount(
+		total_net_amount_for_advance,
+		after_discount=cint(advance_after_discount),
+		discount_amount=discount_amount,
+	)
+	suggested_advance_deduction = flt(advance_base * advance_percentage / 100, 2)
 	
 	suggested_advance = min(available_advance, suggested_advance_deduction)
 	
@@ -1607,6 +1618,8 @@ def get_deduction_details(
 		"total_billable_amount": total_gross_amount,
 		"retention_base_amount": retention_base,
 		"retention_after_discount": cint(after_discount),
+		"advance_base_amount": advance_base,
+		"advance_after_discount": cint(advance_after_discount),
 		"available_boq_balance": flt(available_boq_balance),
 		"enable_progressive_boq": enable_progressive_boq,
 		"skip_advance_boq_items": skip_advance_boq_items,
@@ -2024,12 +2037,15 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 		advance_base_items = []
 
 	if items_for_deductions:
+		header_discount = get_retention_discount_amount(doc)
+		advance_after_discount = cint(doc.get("custom_advance_after_discount"))
 		deduction_details = get_deduction_details(
 			doc.project,
 			items_for_deductions,
 			invoice_name=doc.name,
 			after_discount=cint(doc.get("custom_retention_after_discount")),
-			discount_amount=get_retention_discount_amount(doc),
+			advance_after_discount=advance_after_discount,
+			discount_amount=header_discount,
 		)
 		advance_pct = flt(deduction_details.get("advance_percentage", 0))
 		available_advance = flt(deduction_details.get("available_advance", 0))
@@ -2042,16 +2058,27 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 			and advance_base_items
 		):
 			advance_item_code = get_or_create_advance_item()
+			advance_by_boq = {}
+			if advance_after_discount and advance_pct > 0:
+				advance_boq_amounts = {
+					entry["boq_item"]: flt(entry["amount"])
+					for entry in advance_base_items
+					if entry.get("boq_item")
+				}
+				advance_by_boq = allocate_retention_after_discount(
+					advance_boq_amounts, advance_pct, header_discount
+				)
 			desired_advances = []
 			for entry in advance_base_items:
 				source_ratio = source_advance_ratios.get(
 					(entry.get("sales_order"), entry["boq_item"])
 				)
-				desired = (
-					flt(entry["amount"] * source_ratio, 2)
-					if source_ratio is not None
-					else flt(entry["amount"] * advance_pct / 100, 2)
-				)
+				if source_ratio is not None:
+					desired = flt(entry["amount"] * source_ratio, 2)
+				elif advance_after_discount:
+					desired = flt(advance_by_boq.get(entry["boq_item"]), 2)
+				else:
+					desired = flt(entry["amount"] * advance_pct / 100, 2)
 				if desired > 0:
 					desired_advances.append((entry, desired, source_ratio))
 
@@ -4193,6 +4220,29 @@ def get_billable_sales_orders_for_invoice(project: str) -> list:
 		)
 
 	return billable
+
+
+def validate_combined_source_sales_orders(doc) -> None:
+	"""Block saving a draft combined invoice whose revenue lines no longer cover every source SO."""
+	if doc.docstatus != 0 or not doc.get("custom_source_sales_orders"):
+		return
+	source_orders = [
+		name.strip() for name in doc.custom_source_sales_orders.split(",") if name.strip()
+	]
+	linked_orders = {
+		item.sales_order
+		for item in doc.get("items") or []
+		if item.get("sales_order") and item.get("item_code") not in SO_DEDUCTION_ITEM_CODES
+	}
+	missing = [name for name in source_orders if name not in linked_orders]
+	if missing:
+		frappe.throw(
+			_(
+				"Sales Order(s) {0} are listed as sources of this combined invoice but have no lines. "
+				"Restore their lines or recreate the invoice from Combined SO billing."
+			).format(", ".join(missing)),
+			title=_("Missing Source Sales Order Lines"),
+		)
 
 
 def _validate_combined_sales_orders(project: str, sales_orders: list[str]) -> list:

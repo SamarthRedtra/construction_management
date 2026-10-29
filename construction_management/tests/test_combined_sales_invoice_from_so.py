@@ -315,6 +315,41 @@ class TestCombinedSalesInvoiceFromSO(unittest.TestCase):
 			)[0][0]
 			self.assertGreater(flt(billed), 0)
 
+	def test_draft_combined_invoice_must_keep_every_source_sales_order(self):
+		from construction_management.api.boq_invoice import validate_combined_source_sales_orders
+
+		doc = frappe._dict(
+			docstatus=0,
+			custom_source_sales_orders="SO-SEP, SO-JUN",
+			items=[
+				frappe._dict(item_code="WORK", sales_order="SO-SEP"),
+				frappe._dict(item_code="RETENTION-DEDUCTION", sales_order="SO-JUN"),
+			],
+		)
+		with self.assertRaises(frappe.ValidationError):
+			validate_combined_source_sales_orders(doc)
+
+		doc["items"].append(frappe._dict(item_code="WORK", sales_order="SO-JUN"))
+		validate_combined_source_sales_orders(doc)
+
+		doc["items"] = doc["items"][:1]
+		doc["docstatus"] = 1
+		validate_combined_source_sales_orders(doc)
+
+	def test_saving_combined_invoice_without_a_source_order_line_fails(self):
+		if not self.customer:
+			self.skipTest("No customer available")
+		if not frappe.db.has_column("Sales Invoice", "custom_source_sales_orders"):
+			self.skipTest("custom_source_sales_orders not installed")
+		so1 = self._create_sales_order("COMBINED-BOQ-1", 1000)
+		so2 = self._create_sales_order("COMBINED-BOQ-2", 2000)
+		result = make_combined_sales_invoice_from_sales_orders(self.project, [so1, so2])
+		si = frappe.get_doc("Sales Invoice", result["sales_invoice"])
+
+		si.set("items", [row for row in si.items if row.sales_order != so1])
+		with self.assertRaises(frappe.ValidationError):
+			si.save()
+
 	def test_rejects_sales_order_without_pending_lines(self):
 		if not self.customer:
 			self.skipTest("No customer available")

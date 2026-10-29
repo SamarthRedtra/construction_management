@@ -838,6 +838,16 @@ class BulkDPREntry {
 						.pagination-controls { padding: 16px 24px; background: #f8fafc; border-top: 1px solid #f1f5f9; }
 						.boq-select-wrapper { position: relative; }
 						.boq-select-wrapper select { appearance: none; padding-right: 30px; }
+						.boq-item-trigger { cursor: pointer; padding-right: 30px; height: 32px; display: flex; align-items: center; overflow: hidden; }
+						.boq-item-trigger.bg-light { cursor: default; }
+						.boq-item-trigger-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+						.boq-item-panel { z-index: 1050; overflow-y: auto; border-radius: 8px; }
+						.boq-item-search { position: sticky; top: 0; z-index: 1; }
+						.boq-item-option { padding: 8px 12px; cursor: pointer; }
+						.boq-item-option:hover { background: #f1f5f9; }
+						.boq-item-option.is-selected { background: #eef2ff; }
+						.boq-item-option-label { white-space: normal; word-break: break-word; font-size: 13px; color: #1e293b; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+						.boq-item-option-meta { font-size: 11px; color: #64748b; margin-top: 2px; }
 						.boq-select-wrapper::after { content: '\u25BC'; position: absolute; right: 10px; top: 12px; font-size: 10px; color: #94a3b8; pointer-events: none; }
 						.site-area-scroll { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
 						.site-area-scroll .form-control { min-width: 140px; }
@@ -928,12 +938,7 @@ class BulkDPREntry {
 									<td>
 										<div class="boq-select-wrapper mb-2">
 											<label class="small text-muted mb-1">BOQ Item <span class="text-danger font-weight-bold">*</span></label>
-                                        	<select class="form-control" v-model="row.boq_item" :disabled="row.docstatus > 0" :class="{'border-danger': !row.boq_item && row.docstatus === 0}">
-                                            	<option value="">Select BOQ Item</option>
-                                            	<option v-for="item in masterData.boq_items" :key="item.name" :value="item.name">
-                                                	{{ item.item_code }} - {{ item.description }}
-                                            	</option>
-                                        	</select>
+											<BoqItemSelect v-model="row.boq_item" :options="masterData.boq_items" :disabled="row.docstatus > 0" />
 										</div>
                                         <div class="text-muted small px-1" v-if="row.boq_item">
                                             <i class="fa fa-info-circle mr-1"></i>
@@ -1089,6 +1094,116 @@ class BulkDPREntry {
 								</button>
 							</div>
 						</div>
+					</div>
+				</div>
+			`
+		};
+
+		// Panel is fixed-positioned: .dpr-table-container scrolls (overflow-x) and would clip it.
+		const BoqItemSelect = {
+			props: ['options', 'modelValue', 'disabled'],
+			emits: ['update:modelValue'],
+			setup(props, { emit }) {
+				const PANEL_MAX_HEIGHT = 320;
+				const PANEL_MIN_WIDTH = 420;
+				const isOpen = ref(false);
+				const searchQuery = ref('');
+				const searchInput = ref(null);
+				const rootEl = ref(null);
+				const triggerEl = ref(null);
+				const panelStyle = ref({});
+
+				const labelOf = (opt) => opt.display_label || opt.description || opt.item_code || opt.name;
+
+				const selected = computed(() => (props.options || []).find(o => o.name === props.modelValue));
+				const selectedLabel = computed(() => (selected.value ? labelOf(selected.value) : props.modelValue || ''));
+
+				const filteredOptions = computed(() => {
+					const q = searchQuery.value.trim().toLowerCase();
+					if (!q) return props.options || [];
+					return (props.options || []).filter(opt =>
+						labelOf(opt).toLowerCase().includes(q) || (opt.name || '').toLowerCase().includes(q)
+					);
+				});
+
+				const positionPanel = () => {
+					if (!triggerEl.value) return;
+					const rect = triggerEl.value.getBoundingClientRect();
+					const width = Math.min(Math.max(rect.width, PANEL_MIN_WIDTH), window.innerWidth - 16);
+					const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+					const spaceBelow = window.innerHeight - rect.bottom;
+					const openUp = spaceBelow < PANEL_MAX_HEIGHT && rect.top > spaceBelow;
+					panelStyle.value = {
+						position: 'fixed',
+						left: `${left}px`,
+						width: `${width}px`,
+						maxHeight: `${Math.min(PANEL_MAX_HEIGHT, (openUp ? rect.top : spaceBelow) - 8)}px`,
+						...(openUp
+							? { bottom: `${window.innerHeight - rect.top + 2}px` }
+							: { top: `${rect.bottom + 2}px` }),
+					};
+				};
+
+				const close = () => { isOpen.value = false; };
+
+				const toggle = () => {
+					if (props.disabled) return;
+					isOpen.value = !isOpen.value;
+					if (isOpen.value) {
+						searchQuery.value = '';
+						positionPanel();
+						setTimeout(() => searchInput.value && searchInput.value.focus(), 50);
+					}
+				};
+
+				const select = (opt) => {
+					emit('update:modelValue', opt ? opt.name : '');
+					close();
+				};
+
+				const closeIfClickedOutside = (event) => {
+					if (isOpen.value && rootEl.value && !rootEl.value.contains(event.target)) close();
+				};
+				const closeOnOuterScroll = (event) => {
+					if (isOpen.value && rootEl.value && !rootEl.value.contains(event.target)) close();
+				};
+
+				onMounted(() => {
+					document.addEventListener('click', closeIfClickedOutside);
+					window.addEventListener('scroll', closeOnOuterScroll, true);
+					window.addEventListener('resize', close);
+				});
+				onUnmounted(() => {
+					document.removeEventListener('click', closeIfClickedOutside);
+					window.removeEventListener('scroll', closeOnOuterScroll, true);
+					window.removeEventListener('resize', close);
+				});
+
+				return {
+					isOpen, searchQuery, searchInput, rootEl, triggerEl, panelStyle,
+					selected, selectedLabel, filteredOptions, labelOf, toggle, select,
+				};
+			},
+			template: `
+				<div class="boq-item-select" ref="rootEl">
+					<div ref="triggerEl" class="form-control boq-item-trigger" :class="{'bg-light': disabled, 'border-danger': !modelValue && !disabled}"
+						:title="selectedLabel" @click="toggle">
+						<span v-if="modelValue" class="boq-item-trigger-label">{{ selectedLabel }}</span>
+						<span v-else class="text-muted">Select BOQ Item</span>
+					</div>
+					<div v-if="isOpen" class="boq-item-panel bg-white border shadow-sm" :style="panelStyle">
+						<div class="p-2 border-bottom bg-white boq-item-search">
+							<input type="text" class="form-control input-sm" v-model="searchQuery" placeholder="Search BOQ item or ID..." ref="searchInput" @click.stop>
+						</div>
+						<div v-for="opt in filteredOptions" :key="opt.name" class="boq-item-option border-bottom"
+							:class="{'is-selected': opt.name === modelValue}" :title="labelOf(opt)" @click="select(opt)">
+							<div class="boq-item-option-label">{{ labelOf(opt) }}</div>
+							<div class="boq-item-option-meta">
+								{{ opt.name }}<span v-if="opt.unit"> · {{ opt.unit }}</span>
+								<span v-if="opt.balance !== undefined"> · Balance {{ Number(opt.balance || 0).toFixed(2) }}</span>
+							</div>
+						</div>
+						<div v-if="filteredOptions.length === 0" class="p-2 text-muted text-center small">No matches found</div>
 					</div>
 				</div>
 			`
@@ -1278,6 +1393,7 @@ class BulkDPREntry {
 
 		const app = createApp(App);
 		app.component('SimpleMultiselect', SimpleMultiselect);
+		app.component('BoqItemSelect', BoqItemSelect);
 		app.mount(this.wrapper.find('#bulk-dpr-app')[0]);
 	}
 }

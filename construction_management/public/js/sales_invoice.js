@@ -81,15 +81,34 @@ frappe.ui.form.on('Sales Invoice', {
 		recalculate_deductions(frm);
 	},
 
+	custom_advance_after_discount: function (frm) {
+		if (frm.doc.docstatus !== 0 || !frm.doc.project) {
+			return;
+		}
+		recalculate_deductions(frm);
+	},
+
 	discount_amount: function (frm) {
-		if (frm.doc.docstatus !== 0 || !cint(frm.doc.custom_retention_after_discount)) {
+		if (
+			frm.doc.docstatus !== 0
+			|| !(
+				cint(frm.doc.custom_retention_after_discount)
+				|| cint(frm.doc.custom_advance_after_discount)
+			)
+		) {
 			return;
 		}
 		recalculate_deductions(frm);
 	},
 
 	additional_discount_percentage: function (frm) {
-		if (frm.doc.docstatus !== 0 || !cint(frm.doc.custom_retention_after_discount)) {
+		if (
+			frm.doc.docstatus !== 0
+			|| !(
+				cint(frm.doc.custom_retention_after_discount)
+				|| cint(frm.doc.custom_advance_after_discount)
+			)
+		) {
 			return;
 		}
 		recalculate_deductions(frm);
@@ -767,6 +786,7 @@ function recalculate_deductions(frm) {
 			items: frm.doc.items,
 			invoice_name: frm.doc.name,
 			after_discount: cint(frm.doc.custom_retention_after_discount),
+			advance_after_discount: cint(frm.doc.custom_advance_after_discount),
 			discount_amount: headerDiscount,
 		},
 		callback: function (r) {
@@ -782,6 +802,7 @@ function recalculate_deductions(frm) {
 				i => _DEDUCTION_ITEMS.includes(i.item_code) && i.boq_item
 			);
 			const afterDiscount = cint(frm.doc.custom_retention_after_discount);
+			const advanceAfterDiscount = cint(frm.doc.custom_advance_after_discount);
 			const discountAmount = headerDiscount;
 
 			// Build a map of boq_item -> BOQ item amount (non-deduction items)
@@ -793,6 +814,15 @@ function recalculate_deductions(frm) {
 			});
 			const retentionByBoq = afterDiscount && retention_pct > 0
 				? allocate_retention_after_discount_client(boq_amounts, retention_pct, discountAmount)
+				: {};
+			const advanceEligibleAmounts = {};
+			Object.keys(boq_amounts).forEach((key) => {
+				if (!skipAdvanceSet.has(key)) {
+					advanceEligibleAmounts[key] = boq_amounts[key];
+				}
+			});
+			const advanceByBoq = advanceAfterDiscount && advance_pct > 0
+				? allocate_retention_after_discount_client(advanceEligibleAmounts, advance_pct, discountAmount)
 				: {};
 
 			// Recalculate each per-item deduction row
@@ -829,7 +859,9 @@ function recalculate_deductions(frm) {
 						}
 						return;
 					}
-					const new_advance = flt(parent_amount * advance_pct / 100, precision('rate', item));
+					const new_advance = advanceAfterDiscount
+						? flt(advanceByBoq[item.boq_item] || 0, precision('rate', item))
+						: flt(parent_amount * advance_pct / 100, precision('rate', item));
 					if (flt(item.rate) !== -new_advance) {
 						frappe.model.set_value(item.doctype, item.name, {
 							'rate': -new_advance,
@@ -935,7 +967,14 @@ function sync_additional_service_deductions(frm, details) {
 		}
 		return total;
 	}, 0);
-	if (cint(frm.doc.custom_retention_after_discount) && serviceTotal > 0) {
+	let advanceServiceBase = serviceTotal;
+	if (
+		serviceTotal > 0
+		&& (
+			cint(frm.doc.custom_retention_after_discount)
+			|| cint(frm.doc.custom_advance_after_discount)
+		)
+	) {
 		const workAmounts = { __services__: serviceTotal };
 		(frm.doc.items || []).forEach((item) => {
 			if (item.boq_item && !_DEDUCTION_ITEMS.includes(item.item_code) && !cint(item.custom_service_deduction)) {
@@ -946,15 +985,28 @@ function sync_additional_service_deductions(frm, details) {
 			workAmounts,
 			flt(frm.doc.base_discount_amount) || flt(frm.doc.discount_amount)
 		);
-		serviceTotal = Math.max(0, serviceTotal - flt(shares.__services__ || 0));
+		const serviceShare = flt(shares.__services__ || 0);
+		if (cint(frm.doc.custom_retention_after_discount)) {
+			serviceTotal = Math.max(0, serviceTotal - serviceShare);
+		}
+		if (cint(frm.doc.custom_advance_after_discount)) {
+			advanceServiceBase = Math.max(0, advanceServiceBase - serviceShare);
+		}
 	}
 	const retention = Math.max(0, flt(serviceTotal) * flt(details.retention_percentage) / 100);
 	const boqAdvance = (frm.doc.items || []).reduce((total, item) =>
 		total + (item.item_code === 'ADVANCE-DEDUCTION' && item.boq_item && !item.custom_service_deduction
 			? Math.abs(flt(item.amount)) : 0), 0);
-	const advance = cint(frm.doc.custom_skip_advance_deduction)
-		? 0
-		: Math.max(0, flt(details.suggested_advance) - boqAdvance);
+	let advance = 0;
+	if (!cint(frm.doc.custom_skip_advance_deduction)) {
+		const remainingPool = Math.max(0, flt(details.suggested_advance) - boqAdvance);
+		if (cint(frm.doc.custom_advance_after_discount)) {
+			const desired = Math.max(0, flt(advanceServiceBase) * flt(details.advance_percentage) / 100);
+			advance = Math.min(desired, remainingPool);
+		} else {
+			advance = remainingPool;
+		}
+	}
 	sync_deduction_row(frm, 'RETENTION-DEDUCTION', retention,
 		__('Retention deduction ({0}%) for additional services', [details.retention_percentage]), true);
 	sync_deduction_row(frm, 'ADVANCE-DEDUCTION', advance,

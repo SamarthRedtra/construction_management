@@ -127,28 +127,41 @@ def _consolidate_project_collection_rows(
 	for row in proforma_rows.values():
 		_prepare_proforma_collection_row(row)
 
-	unlinked_rows = []
-	for invoice_row in tax_invoice_rows:
-		linked_to_visible_proforma = False
-		for sales_order, allocation in allocations.get(invoice_row.get("reference_name"), {}).items():
-			proforma_row = proforma_rows.get(sales_order)
-			if not proforma_row:
-				continue
-			_merge_tax_invoice_into_proforma(proforma_row, invoice_row, allocation)
-			linked_to_visible_proforma = True
+	# SOs with any linked TI are treated as converted and hidden from the register.
+	converted_orders = {
+		sales_order
+		for invoice_allocations in allocations.values()
+		for sales_order in invoice_allocations
+		if sales_order in proforma_rows
+	}
 
-		if not allocations.get(invoice_row.get("reference_name")) and _date_matches_filters(
-			invoice_row.get("ti_date"), filters
-		):
-			unlinked_rows.append(_as_unlinked_tax_invoice_row(invoice_row))
-		elif not linked_to_visible_proforma:
-			# The invoice is linked, but its submitted Sales Order is outside the
-			# selected period. It belongs to that Proforma month, not the TI month.
+	standalone_invoice_rows = []
+	for invoice_row in tax_invoice_rows:
+		invoice_name = invoice_row.get("reference_name")
+		invoice_allocations = allocations.get(invoice_name) or {}
+		linked_converted = [
+			sales_order for sales_order in invoice_allocations if sales_order in converted_orders
+		]
+		if linked_converted:
+			# Show the tax invoice on its posting-date period instead of the proforma shell.
+			if _date_matches_filters(invoice_row.get("ti_date"), filters):
+				standalone_invoice_rows.append(
+					_as_converted_tax_invoice_row(invoice_row, linked_converted)
+				)
 			continue
 
-	for row in proforma_rows.values():
+		if not invoice_allocations and _date_matches_filters(invoice_row.get("ti_date"), filters):
+			standalone_invoice_rows.append(_as_unlinked_tax_invoice_row(invoice_row))
+		# Linked to an SO outside the selected period (not in proforma_rows): omit —
+		# it belongs to that Proforma month, not the TI month.
+
+	unconverted = []
+	for sales_order, row in proforma_rows.items():
+		if sales_order in converted_orders:
+			continue
 		_set_conversion_status(row)
-	return [*proforma_rows.values(), *unlinked_rows]
+		unconverted.append(row)
+	return [*unconverted, *standalone_invoice_rows]
 
 
 def _prepare_proforma_collection_row(row: dict) -> None:
@@ -160,73 +173,6 @@ def _prepare_proforma_collection_row(row: dict) -> None:
 	row["proforma_net_amount"] = flt(row.get("proforma_net_amount") or row.get("pi_amount"))
 	row["ti_amt"] = 0.0
 	row["ti_date"] = None
-
-
-def _merge_tax_invoice_into_proforma(
-	proforma_row: dict, invoice_row: dict, allocation: dict
-) -> None:
-	invoice_name = invoice_row.get("reference_name")
-	allocated_amount = flt(allocation.get("allocated_grand_total"))
-	proforma_row["tax_invoices"].append(
-		{
-			"name": invoice_name,
-			"posting_date": invoice_row.get("ti_date"),
-			"allocated_amount": allocated_amount,
-		}
-	)
-	proforma_row["tax_invoice_no"] = ", ".join(
-		invoice["name"] for invoice in proforma_row["tax_invoices"]
-	)
-	proforma_row["ti_amt"] = flt(proforma_row.get("ti_amt")) + allocated_amount
-	proforma_row["invoiced_net_amount"] = flt(proforma_row.get("invoiced_net_amount")) + flt(
-		allocation.get("linked_net_amount")
-	)
-	proforma_row["ti_date"] = _latest_date(
-		proforma_row.get("ti_date"), invoice_row.get("ti_date")
-	)
-	if not proforma_row.get("collection_due_date"):
-		proforma_row["due_date"] = _latest_date(
-			proforma_row.get("due_date"), invoice_row.get("due_date")
-		)
-
-	_merge_payment_display(proforma_row, invoice_row)
-	_copy_invoice_pc_fallback(proforma_row, invoice_row)
-	proforma_row["is_advance"] = cint(proforma_row.get("is_advance")) or cint(
-		invoice_row.get("is_advance")
-	)
-	proforma_row["is_retention_release"] = cint(proforma_row.get("is_retention_release")) or cint(
-		invoice_row.get("is_retention_release")
-	)
-
-
-def _merge_payment_display(proforma_row: dict, invoice_row: dict) -> None:
-	proforma_row["payment_date"] = _latest_date(
-		proforma_row.get("payment_date"), invoice_row.get("payment_date")
-	)
-	for fieldname in ("payment_mode", "cheque_no"):
-		values = []
-		for value in (proforma_row.get(fieldname), invoice_row.get(fieldname)):
-			for part in str(value or "").split(","):
-				part = part.strip()
-				if part and part not in values:
-					values.append(part)
-		proforma_row[fieldname] = ", ".join(values)
-
-
-def _copy_invoice_pc_fallback(proforma_row: dict, invoice_row: dict) -> None:
-	for fieldname in (
-		"payment_certificate",
-		"pc_date",
-		"pc_amt",
-		"pc_attachment",
-		"follow_up_name",
-		"follow_up_status",
-		"follow_up_attachment",
-	):
-		if not proforma_row.get(fieldname) and invoice_row.get(fieldname):
-			proforma_row[fieldname] = invoice_row[fieldname]
-	if not proforma_row.get("remarks") and invoice_row.get("remarks"):
-		proforma_row["remarks"] = invoice_row["remarks"]
 
 
 def _set_conversion_status(row: dict) -> None:
@@ -258,6 +204,28 @@ def _as_unlinked_tax_invoice_row(row: dict) -> dict:
 	return row
 
 
+def _as_converted_tax_invoice_row(row: dict, linked_orders: list[str]) -> dict:
+	"""Standalone TI row when its proforma is hidden after any conversion."""
+	row = dict(row)
+	invoice_name = row.get("reference_name") or row.get("invoice_no")
+	row["row_group"] = "converted_tax_invoice"
+	row["conversion_status"] = "Converted"
+	row["tax_invoice_no"] = invoice_name
+	row["tax_invoices"] = [
+		{
+			"name": invoice_name,
+			"posting_date": row.get("ti_date"),
+			"allocated_amount": flt(row.get("ti_amt")),
+		}
+	]
+	row["document_type"] = "Tax Invoice"
+	row["linked_proformas"] = list(linked_orders)
+	# Clear proforma shell amounts so the register does not imply a leftover PI balance.
+	row["pi_amount"] = 0.0
+	row["pi_date"] = None
+	return row
+
+
 def _get_invoice_sales_order_allocations(
 	invoice_names: list[str],
 ) -> dict[str, dict[str, dict]]:
@@ -265,12 +233,16 @@ def _get_invoice_sales_order_allocations(
 	if not invoice_names:
 		return {}
 
+	has_source_orders = _has_source_sales_orders_column()
+	invoice_fields = ["name", "grand_total", "net_total", "custom_sales_order"]
+	if has_source_orders:
+		invoice_fields.append("custom_source_sales_orders")
 	invoices = {
 		row.name: row
 		for row in frappe.get_all(
 			"Sales Invoice",
 			filters={"name": ("in", invoice_names), "docstatus": 1},
-			fields=["name", "grand_total", "net_total", "custom_sales_order"],
+			fields=invoice_fields,
 		)
 	}
 	weights: dict[str, dict[str, float]] = {}
@@ -288,6 +260,14 @@ def _get_invoice_sales_order_allocations(
 			item.net_amount
 		)
 
+	source_orders = {
+		name: _parse_source_sales_orders(invoice.get("custom_source_sales_orders"))
+		for name, invoice in invoices.items()
+	}
+	source_order_totals = _sales_order_net_totals(
+		{order for orders in source_orders.values() for order in orders}
+	)
+
 	result = {}
 	for invoice_name, invoice in invoices.items():
 		invoice_weights = {
@@ -295,6 +275,13 @@ def _get_invoice_sales_order_allocations(
 			for sales_order, amount in weights.get(invoice_name, {}).items()
 			if amount > 0
 		}
+		# A combined invoice edited after creation can lose item links to some source orders.
+		if any(order not in invoice_weights for order in source_orders[invoice_name]):
+			invoice_weights = {
+				order: source_order_totals[order]
+				for order in source_orders[invoice_name]
+				if source_order_totals.get(order, 0) > 0
+			} or invoice_weights
 		if not invoice_weights and invoice.custom_sales_order:
 			invoice_weights[invoice.custom_sales_order] = flt(invoice.net_total) or flt(
 				invoice.grand_total
@@ -311,6 +298,28 @@ def _get_invoice_sales_order_allocations(
 			for sales_order, linked_net in invoice_weights.items()
 		}
 	return result
+
+
+def _has_source_sales_orders_column() -> bool:
+	return frappe.db.has_column("Sales Invoice", "custom_source_sales_orders")
+
+
+def _parse_source_sales_orders(value: str | None) -> list[str]:
+	return [name.strip() for name in (value or "").split(",") if name.strip()]
+
+
+def _sales_order_net_totals(order_names: set[str]) -> dict[str, float]:
+	if not order_names:
+		return {}
+	return {
+		row.name: flt(row.net_total)
+		for row in frappe.get_all(
+			"Sales Order",
+			filters={"name": ("in", list(order_names)), "docstatus": 1},
+			fields=["name", "net_total"],
+			limit_page_length=0,
+		)
+	}
 
 
 def _allocate_invoice_total(
@@ -334,14 +343,6 @@ def _allocate_invoice_total(
 			allocated += amount
 		allocations[key] = flt(amount, 3)
 	return allocations
-
-
-def _latest_date(first, second):
-	if not first:
-		return second
-	if not second:
-		return first
-	return max(getdate(first), getdate(second))
 
 
 def _get_unlinked_tax_invoices_without_project(company: str, filters: dict) -> list[dict]:
@@ -521,11 +522,12 @@ def _expected_proforma_entries(company: str, customer: str | None) -> list:
 	names = [order.name for order in orders]
 	linked_invoices = _linked_invoice_names_for_orders(company, names)
 	allocations = _get_invoice_sales_order_allocations(linked_invoices)
-	billed = {name: 0.0 for name in names}
-	for invoice_allocations in allocations.values():
-		for order_name, allocation in invoice_allocations.items():
-			if order_name in billed:
-				billed[order_name] += flt(allocation["allocated_grand_total"])
+	# Any linked tax invoice (even partial) removes the proforma from Expected Payments.
+	orders_with_ti = {
+		order_name
+		for invoice_allocations in allocations.values()
+		for order_name in invoice_allocations
+	}
 	project_names = list({order.project for order in orders if order.project})
 	project_fields = ["name", "project_name"]
 	if frappe.db.has_column("Project", "custom_collection_overdue_days"):
@@ -537,8 +539,10 @@ def _expected_proforma_entries(company: str, customer: str | None) -> list:
 	follow_ups = _expected_order_follow_ups(names)
 	result = []
 	for order in orders:
+		if order.name in orders_with_ti:
+			continue
 		# ERPNext's advance_paid is the balance still attached to this order, after invoice allocations.
-		remaining = max(0, flt(order.grand_total) - billed[order.name] - flt(order.advance_paid))
+		remaining = max(0, flt(order.grand_total) - flt(order.advance_paid))
 		if not remaining:
 			continue
 		project = projects.get(order.project)
@@ -558,6 +562,15 @@ def _linked_invoice_names_for_orders(company: str, order_names: list[str]) -> li
 		filters={"company": company, "docstatus": 1, "custom_sales_order": ["in", order_names]},
 		fields=["name"], limit_page_length=0)
 	invoice_names = {row.parent for row in item_links} | {row.name for row in header_links}
+	if _has_source_sales_orders_column():
+		wanted = set(order_names)
+		invoice_names |= {
+			row.name
+			for row in frappe.get_all("Sales Invoice",
+				filters={"company": company, "docstatus": 1, "custom_source_sales_orders": ["is", "set"]},
+				fields=["name", "custom_source_sales_orders"], limit_page_length=0)
+			if wanted.intersection(_parse_source_sales_orders(row.custom_source_sales_orders))
+		}
 	if not invoice_names:
 		return []
 	invoice_filters = {"name": ["in", list(invoice_names)], "company": company, "docstatus": 1}

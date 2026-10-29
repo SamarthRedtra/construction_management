@@ -339,6 +339,9 @@ class SalesInvoiceOverride(SalesInvoice):
 		# Must run before ERPNext validate_with_previous_doc compares UOM to Sales Order Item.
 		self._normalize_deduction_uoms()
 		super().validate()
+		from construction_management.api.boq_invoice import validate_combined_source_sales_orders
+
+		validate_combined_source_sales_orders(self)
 		if self.get("custom_is_advance_release"):
 			self.allocate_advances_automatically = 0
 			self.set("taxes", [])
@@ -635,13 +638,15 @@ class SalesInvoiceOverride(SalesInvoice):
 			strip_advance_deduction_rows(self)
 
 		after_discount = cint(self.get("custom_retention_after_discount"))
-		# Raw header discount (gross work − discount_amount × retention%).
+		advance_after_discount = cint(self.get("custom_advance_after_discount"))
+		# Raw header discount (gross/net work − discount_amount × retention/advance %).
 		discount_amount = get_retention_discount_amount(self)
 		details = get_deduction_details(
 			self.project,
 			self.items,
 			invoice_name=self.name,
 			after_discount=after_discount,
+			advance_after_discount=advance_after_discount,
 			discount_amount=discount_amount,
 		)
 
@@ -699,6 +704,24 @@ class SalesInvoiceOverride(SalesInvoice):
 				else {key: 0.0 for key in boq_amounts}
 			)
 
+			advance_eligible_amounts = {
+				key: amt
+				for key, amt in boq_amounts.items()
+				if key not in skip_advance_set
+			}
+			advance_by_boq = (
+				allocate_retention_after_discount(
+					advance_eligible_amounts, advance_pct, discount_amount
+				)
+				if advance_after_discount and advance_pct > 0
+				else {
+					key: flt(flt(amt) * advance_pct / 100, 2)
+					for key, amt in advance_eligible_amounts.items()
+				}
+				if advance_pct > 0
+				else {key: 0.0 for key in advance_eligible_amounts}
+			)
+
 			self._reassign_duplicate_boq_deductions(boq_amounts)
 
 			for item in self.items:
@@ -721,11 +744,12 @@ class SalesInvoiceOverride(SalesInvoice):
 					)
 					if source_ratio is None and advance_pct <= 0:
 						continue
-					new_advance = (
-						flt(parent_amount * source_ratio, 2)
-						if source_ratio is not None
-						else flt(parent_amount * advance_pct / 100, 2)
-					)
+					if source_ratio is not None:
+						new_advance = flt(parent_amount * source_ratio, 2)
+					elif advance_after_discount:
+						new_advance = flt(advance_by_boq.get(item.boq_item))
+					else:
+						new_advance = flt(parent_amount * advance_pct / 100, 2)
 					item.rate = -new_advance
 					item.amount = -new_advance
 					item.qty = 1
@@ -771,7 +795,7 @@ class SalesInvoiceOverride(SalesInvoice):
 				):
 					self._append_boq_deduction_row(
 						"ADVANCE-DEDUCTION",
-						flt(parent_amount * advance_pct / 100, 2),
+						flt(advance_by_boq.get(boq_item) if advance_after_discount else parent_amount * advance_pct / 100, 2),
 						f"Advance deduction ({advance_pct}%)",
 						parent,
 					)
@@ -959,10 +983,13 @@ class SalesInvoiceOverride(SalesInvoice):
 			and item.item_code not in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION")
 		)
 		service_total = max(0.0, service_total)
-
-		# Retention is per additional-service value. When after-discount is on, reduce
-		# the service base by its share of document additional discount vs all work lines.
-		if cint(self.get("custom_retention_after_discount")) and service_total > 0:
+		advance_service_base = service_total
+		header_discount = get_retention_discount_amount(self)
+		work_amounts = None
+		if service_total > 0 and (
+			cint(self.get("custom_retention_after_discount"))
+			or cint(self.get("custom_advance_after_discount"))
+		):
 			work_amounts = {"__services__": service_total}
 			for item in self.items:
 				if (
@@ -972,10 +999,14 @@ class SalesInvoiceOverride(SalesInvoice):
 				):
 					key = item.boq_item
 					work_amounts[key] = flt(work_amounts.get(key)) + flt(item.amount)
-			shares = allocate_discount_by_share(
-				work_amounts, get_retention_discount_amount(self)
-			)
-			service_total = max(0.0, service_total - flt(shares.get("__services__")))
+			shares = allocate_discount_by_share(work_amounts, header_discount)
+			service_share = flt(shares.get("__services__"))
+			# Retention is per additional-service value. When after-discount is on, reduce
+			# the service base by its share of document additional discount vs all work lines.
+			if cint(self.get("custom_retention_after_discount")):
+				service_total = max(0.0, service_total - service_share)
+			if cint(self.get("custom_advance_after_discount")):
+				advance_service_base = max(0.0, advance_service_base - service_share)
 
 		# Advance is capped by the remaining project advance pool after BOQ-specific
 		# advance rows are recalculated.
@@ -989,7 +1020,13 @@ class SalesInvoiceOverride(SalesInvoice):
 		)
 		advance_amount = 0.0
 		if not skip_advance:
-			advance_amount = max(0.0, flt(details.get("suggested_advance")) - boq_advance_amount)
+			remaining_pool = max(0.0, flt(details.get("suggested_advance")) - boq_advance_amount)
+			if cint(self.get("custom_advance_after_discount")):
+				advance_pct = flt(details.get("advance_percentage"))
+				desired = flt(advance_service_base * advance_pct / 100, 2)
+				advance_amount = min(desired, remaining_pool)
+			else:
+				advance_amount = remaining_pool
 			advance_amount = flt(advance_amount, 2)
 
 		default_income_account = frappe.db.get_value("Company", self.company, "default_income_account")

@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from construction_management.api.project_collection_data import (
 	_expected_payment_date,
@@ -24,7 +24,7 @@ def invoice(name, due_date, amount, **extra):
 	})
 
 
-class TestCollectionExpectedPayments(FrappeTestCase):
+class TestCollectionExpectedPayments(UnitTestCase):
 	def setUp(self):
 		# frappe.db.sql is stubbed per test, so answer column checks directly
 		patcher = patch("construction_management.api.project_collection_data.frappe.db.has_column", return_value=True)
@@ -49,7 +49,7 @@ class TestCollectionExpectedPayments(FrappeTestCase):
 	@patch("construction_management.api.project_collection_data._get_invoice_sales_order_allocations")
 	@patch("construction_management.api.project_collection_data._linked_invoice_names_for_orders", return_value=["SINV-1"])
 	@patch("construction_management.api.project_collection_data.frappe.get_all")
-	def test_proforma_remainder_subtracts_billed_and_unallocated_advance(
+	def test_partial_tax_invoice_hides_proforma_from_forecast(
 		self, get_all, _linked, allocations, _names, _follow_ups,
 	):
 		get_all.side_effect = [
@@ -61,8 +61,27 @@ class TestCollectionExpectedPayments(FrappeTestCase):
 
 		rows = _expected_proforma_entries("Test Company", "CUST-001")
 
-		self.assertEqual(rows[0].unbilled_amount, 500)
+		self.assertEqual(rows, [])
 		self.assertEqual(get_all.call_args_list[0].kwargs["filters"]["customer"], "CUST-001")
+
+	@patch("construction_management.api.project_collection_data._expected_order_follow_ups", return_value={})
+	@patch("construction_management.api.project_collection_data._customer_name_map", return_value={"CUST-001": "Customer One"})
+	@patch("construction_management.api.project_collection_data._get_invoice_sales_order_allocations", return_value={})
+	@patch("construction_management.api.project_collection_data._linked_invoice_names_for_orders", return_value=[])
+	@patch("construction_management.api.project_collection_data.frappe.get_all")
+	def test_unconverted_proforma_uses_grand_total_minus_advance(
+		self, get_all, _linked, _allocations, _names, _follow_ups,
+	):
+		get_all.side_effect = [
+			[frappe._dict(name="SO-1", customer="CUST-001", project="PROJ-001",
+				transaction_date="2026-10-01", grand_total=1000, advance_paid=100, status="To Bill")],
+			[frappe._dict(name="PROJ-001", project_name="Project One", custom_collection_overdue_days=30)],
+		]
+
+		rows = _expected_proforma_entries("Test Company", "CUST-001")
+
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0].unbilled_amount, 900)
 
 	@patch("construction_management.api.project_collection_data._expected_order_follow_ups", return_value={})
 	@patch("construction_management.api.project_collection_data._customer_name_map", return_value={})

@@ -9,6 +9,8 @@ from frappe.tests import UnitTestCase
 from construction_management.api.project_collection_data import (
 	_allocate_invoice_total,
 	_collection_filter_date,
+	_consolidate_project_collection_rows,
+	_get_invoice_sales_order_allocations,
 	_get_standard_sales_order_links,
 	_set_conversion_status,
 )
@@ -135,6 +137,58 @@ class TestProjectReportingFixes(UnitTestCase):
 		self.assertEqual(allocations["SO-2"], 124478.147)
 		self.assertEqual(allocations["SO-3"], 85007.978)
 
+	def _mock_allocation_queries(self, get_all, source_orders, item_links):
+		def fake_get_all(doctype, **kwargs):
+			if doctype == "Sales Invoice":
+				return [
+					frappe._dict(
+						name="TINV-1",
+						grand_total=1000,
+						net_total=1000,
+						custom_sales_order=None,
+						custom_source_sales_orders=source_orders,
+					)
+				]
+			if doctype == "Sales Invoice Item":
+				return [
+					frappe._dict(parent="TINV-1", sales_order=so, net_amount=amount)
+					for so, amount in item_links.items()
+				]
+			if doctype == "Sales Order":
+				return [
+					frappe._dict(name="SO-1", net_total=100),
+					frappe._dict(name="SO-2", net_total=100),
+					frappe._dict(name="SO-3", net_total=100),
+					frappe._dict(name="SO-4", net_total=200),
+				]
+			return []
+
+		get_all.side_effect = fake_get_all
+
+	@patch("construction_management.api.project_collection_data.frappe.db.has_column", return_value=True)
+	@patch("construction_management.api.project_collection_data.frappe.get_all")
+	def test_combined_invoice_allocates_to_source_orders_without_item_links(self, get_all, _has_column):
+		self._mock_allocation_queries(get_all, "SO-4, SO-3, SO-2, SO-1", {"SO-4": 1000})
+
+		allocations = _get_invoice_sales_order_allocations(["TINV-1"])["TINV-1"]
+
+		self.assertEqual(set(allocations), {"SO-1", "SO-2", "SO-3", "SO-4"})
+		self.assertEqual(allocations["SO-4"]["allocated_grand_total"], 400)
+		self.assertEqual(allocations["SO-1"]["allocated_grand_total"], 200)
+		self.assertAlmostEqual(
+			sum(row["allocated_grand_total"] for row in allocations.values()), 1000
+		)
+
+	@patch("construction_management.api.project_collection_data.frappe.db.has_column", return_value=True)
+	@patch("construction_management.api.project_collection_data.frappe.get_all")
+	def test_combined_invoice_keeps_item_weights_when_all_sources_linked(self, get_all, _has_column):
+		self._mock_allocation_queries(get_all, "SO-1, SO-2", {"SO-1": 900, "SO-2": 100})
+
+		allocations = _get_invoice_sales_order_allocations(["TINV-1"])["TINV-1"]
+
+		self.assertEqual(allocations["SO-1"]["allocated_grand_total"], 900)
+		self.assertEqual(allocations["SO-2"]["allocated_grand_total"], 100)
+
 	def test_proforma_conversion_status_uses_linked_net_value(self):
 		row = {
 			"proforma_net_amount": 1000,
@@ -151,6 +205,56 @@ class TestProjectReportingFixes(UnitTestCase):
 		row["tax_invoices"] = []
 		_set_conversion_status(row)
 		self.assertEqual(row["conversion_status"], "Not Converted")
+
+	def test_consolidate_hides_proforma_when_any_tax_invoice_linked(self):
+		rows = [
+			{
+				"reference_doctype": "Sales Order",
+				"reference_name": "SO-1",
+				"invoice_no": "SO-1",
+				"pi_amount": 100,
+				"pi_date": "2026-01-10",
+				"proforma_net_amount": 100,
+			},
+			{
+				"reference_doctype": "Sales Invoice",
+				"reference_name": "SINV-1",
+				"invoice_no": "SINV-1",
+				"ti_amt": 50,
+				"ti_date": "2026-02-15",
+				"due_date": "2026-03-01",
+			},
+		]
+		allocations = {
+			"SINV-1": {"SO-1": {"allocated_grand_total": 50, "linked_net_amount": 50}}
+		}
+
+		result = _consolidate_project_collection_rows(rows, {}, allocations)
+
+		self.assertEqual(len(result), 1)
+		self.assertEqual(result[0]["reference_doctype"], "Sales Invoice")
+		self.assertEqual(result[0]["reference_name"], "SINV-1")
+		self.assertEqual(result[0]["conversion_status"], "Converted")
+		self.assertEqual(result[0]["pi_amount"], 0.0)
+		self.assertNotIn("SO-1", {row.get("reference_name") for row in result})
+
+	def test_consolidate_keeps_unconverted_proforma(self):
+		rows = [
+			{
+				"reference_doctype": "Sales Order",
+				"reference_name": "SO-1",
+				"invoice_no": "SO-1",
+				"pi_amount": 100,
+				"pi_date": "2026-01-10",
+				"proforma_net_amount": 100,
+			},
+		]
+
+		result = _consolidate_project_collection_rows(rows, {}, {})
+
+		self.assertEqual(len(result), 1)
+		self.assertEqual(result[0]["reference_name"], "SO-1")
+		self.assertEqual(result[0]["conversion_status"], "Not Converted")
 
 	@patch("construction_management.api.project_collection_data.frappe.get_all")
 	def test_standard_sales_order_link_is_used(self, get_all):

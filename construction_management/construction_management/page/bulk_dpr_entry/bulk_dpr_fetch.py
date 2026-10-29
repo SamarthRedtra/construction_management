@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.utils import flt, today
+from frappe.utils import flt, strip_html, today
 
 from construction_management.api.dpr_utils import get_employees_with_rates
 
@@ -79,7 +79,22 @@ def get_boq_items_with_balance(project: str) -> list:
 	to_date = {row.boq_item: flt(row.accumulated_qty) for row in ledgers}
 	for item in items:
 		item["balance"] = flt(item.total_qty) - to_date.get(item.name, 0)
+		item["display_label"] = boq_display_label(item.item_code, item.description) or item.name
 	return items
+
+
+def _clean_boq_text(value: str | None) -> str:
+	return " ".join(strip_html(value or "").replace("\\", " ").split())
+
+
+def boq_display_label(item_code: str | None, description: str | None) -> str:
+	code = _clean_boq_text(item_code)
+	text = _clean_boq_text(description)
+	if not code or code in text:
+		return text
+	if not text or text in code:
+		return code
+	return f"{code} - {text}"
 
 
 def get_project_sites(project: str) -> list:
