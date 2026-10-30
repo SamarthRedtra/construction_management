@@ -841,7 +841,7 @@ class BulkDPREntry {
 						.boq-item-trigger { cursor: pointer; padding-right: 30px; height: 32px; display: flex; align-items: center; overflow: hidden; }
 						.boq-item-trigger.bg-light { cursor: default; }
 						.boq-item-trigger-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-						.boq-item-panel { z-index: 1050; overflow-y: auto; border-radius: 8px; }
+						.boq-item-panel { z-index: 1060; overflow-y: auto; border-radius: 8px; font-size: 13px; text-align: left; }
 						.boq-item-search { position: sticky; top: 0; z-index: 1; }
 						.boq-item-option { padding: 8px 12px; cursor: pointer; }
 						.boq-item-option:hover { background: #f1f5f9; }
@@ -1111,6 +1111,7 @@ class BulkDPREntry {
 				const searchInput = ref(null);
 				const rootEl = ref(null);
 				const triggerEl = ref(null);
+				const panelEl = ref(null);
 				const panelStyle = ref({});
 
 				const labelOf = (opt) => opt.display_label || opt.description || opt.item_code || opt.name;
@@ -1161,11 +1162,13 @@ class BulkDPREntry {
 					close();
 				};
 
+				// The panel is teleported to <body>, so it is not inside rootEl.
+				const isInside = (target) => (rootEl.value && rootEl.value.contains(target)) || (panelEl.value && panelEl.value.contains(target));
 				const closeIfClickedOutside = (event) => {
-					if (isOpen.value && rootEl.value && !rootEl.value.contains(event.target)) close();
+					if (isOpen.value && !isInside(event.target)) close();
 				};
 				const closeOnOuterScroll = (event) => {
-					if (isOpen.value && rootEl.value && !rootEl.value.contains(event.target)) close();
+					if (isOpen.value && !isInside(event.target)) close();
 				};
 
 				onMounted(() => {
@@ -1180,7 +1183,7 @@ class BulkDPREntry {
 				});
 
 				return {
-					isOpen, searchQuery, searchInput, rootEl, triggerEl, panelStyle,
+					isOpen, searchQuery, searchInput, rootEl, triggerEl, panelEl, panelStyle,
 					selected, selectedLabel, filteredOptions, labelOf, toggle, select,
 				};
 			},
@@ -1191,20 +1194,22 @@ class BulkDPREntry {
 						<span v-if="modelValue" class="boq-item-trigger-label">{{ selectedLabel }}</span>
 						<span v-else class="text-muted">Select BOQ Item</span>
 					</div>
-					<div v-if="isOpen" class="boq-item-panel bg-white border shadow-sm" :style="panelStyle">
-						<div class="p-2 border-bottom bg-white boq-item-search">
-							<input type="text" class="form-control input-sm" v-model="searchQuery" placeholder="Search BOQ item or ID..." ref="searchInput" @click.stop>
-						</div>
-						<div v-for="opt in filteredOptions" :key="opt.name" class="boq-item-option border-bottom"
-							:class="{'is-selected': opt.name === modelValue}" :title="labelOf(opt)" @click="select(opt)">
-							<div class="boq-item-option-label">{{ labelOf(opt) }}</div>
-							<div class="boq-item-option-meta">
-								{{ opt.name }}<span v-if="opt.unit"> · {{ opt.unit }}</span>
-								<span v-if="opt.balance !== undefined"> · Balance {{ Number(opt.balance || 0).toFixed(2) }}</span>
+					<Teleport to="body">
+						<div v-if="isOpen" ref="panelEl" class="boq-item-panel bulk-dpr-boq-panel bg-white border shadow-sm" :style="panelStyle" @click.stop>
+							<div class="p-2 border-bottom bg-white boq-item-search">
+								<input type="text" class="form-control input-sm" v-model="searchQuery" placeholder="Search BOQ item or ID..." ref="searchInput">
 							</div>
+							<div v-for="opt in filteredOptions" :key="opt.name" class="boq-item-option border-bottom"
+								:class="{'is-selected': opt.name === modelValue}" :title="labelOf(opt)" @click="select(opt)">
+								<div class="boq-item-option-label">{{ labelOf(opt) }}</div>
+								<div class="boq-item-option-meta">
+									{{ opt.name }}<span v-if="opt.unit"> · {{ opt.unit }}</span>
+									<span v-if="opt.balance !== undefined"> · Balance {{ Number(opt.balance || 0).toFixed(2) }}</span>
+								</div>
+							</div>
+							<div v-if="filteredOptions.length === 0" class="p-2 text-muted text-center small">No matches found</div>
 						</div>
-						<div v-if="filteredOptions.length === 0" class="p-2 text-muted text-center small">No matches found</div>
-					</div>
+					</Teleport>
 				</div>
 			`
 		};
