@@ -204,6 +204,7 @@ doc_events = {
 		"on_cancel": "construction_management.overrides.purchase_invoice.on_cancel"
 	},
 	"Purchase Order": {
+		"before_insert": "construction_management.overrides.purchase_order.set_company_naming_series",
 		"validate": [
 			"construction_management.overrides.purchase_order.validate",
 			"construction_management.api.controlled_procurement.validate_transaction",

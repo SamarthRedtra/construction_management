@@ -71,6 +71,18 @@ class TestPOPriceApprovals(UnitTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			approvals.prepare_rates("MRG", "SUP-1", "2026-10-02", rows)
 
+	@patch.object(approvals, "_po_only", return_value=True)
+	@patch.object(approvals.frappe, "get_cached_value", return_value="AED")
+	@patch.object(approvals.frappe.db, "get_value",
+		side_effect=lambda doctype, *args, **kwargs: "Standard Buying" if doctype == "Supplier" else frappe._dict(buying=1, enabled=1, currency="AED"))
+	@patch.object(approvals, "_current", return_value={"rate": None, "price_list": ""})
+	def test_supplier_without_catalog_price_gets_automatic_reason(self, *_):
+		rows = [{"item_code": "CP-DIESEL", "rate": 18, "rate_edited": 1, "price_change_reason": ""}]
+		changes = approvals.prepare_rates("SKADA", "AL HANEN FUELS", "2026-09-28", rows, lpo_type="Open")
+		self.assertEqual(len(changes), 1)
+		self.assertEqual(changes[0]["reason"], "No catalog price for supplier AL HANEN FUELS")
+		self.assertIsNone(changes[0]["old_active_rate"])
+
 	def test_zero_rate_is_rejected(self):
 		with self.assertRaises(frappe.ValidationError):
 			approvals.prepare_rates("MRG", "SUP-1", "2026-10-02", [{"item_code": "ITEM-1", "rate": 0}])

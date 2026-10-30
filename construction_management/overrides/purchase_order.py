@@ -17,3 +17,19 @@ def validate(doc, method):
             row.site = "Transit"
         if not row.get("rejected_site") and frappe.get_meta(row.doctype).has_field("rejected_site"):
             row.rejected_site = "Transit"
+
+
+DEFAULT_SERIES = {"", "PUR-ORD-.YYYY.-"}
+
+
+def set_company_naming_series(doc, method=None):
+    """Name new POs in the company's LPO series unless another series was chosen explicitly."""
+    from construction_management.api.controlled_procurement import _is_mrg_company
+    from construction_management.api.project_numbering import is_skada_company
+
+    if doc.get("amended_from") or (doc.get("naming_series") or "") not in DEFAULT_SERIES:
+        return
+    if is_skada_company(doc.company):
+        doc.naming_series = "SKD-LPO-"
+    elif _is_mrg_company(doc.company):
+        doc.naming_series = "MRG-LPO-"

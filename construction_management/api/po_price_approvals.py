@@ -82,6 +82,8 @@ def prepare_rates(company, supplier, date, rows, previous=None, defer_po_only=Fa
 		if old and not cint(row.get("rate_edited")) and proposed != active_rate:
 			frappe.throw(_("The buying price for {0} changed while editing. Refresh the item price before saving.").format(code))
 		reason = (row.get("price_change_reason") or "").strip()
+		if not reason and active_rate is None:
+			reason = _("No catalog price for supplier {0}").format(supplier)
 		if not reason:
 			frappe.throw(_("Enter a reason for the changed buying rate of {0}.").format(code))
 		price_list = active.get("price_list") or frappe.db.get_value("Supplier", supplier, "default_price_list") or "Standard Buying"
