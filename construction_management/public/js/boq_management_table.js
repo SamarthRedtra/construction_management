@@ -284,19 +284,20 @@ function render_item_row(item, frm, srNo) {
 	}
 
 	const skipAdvance = cint(item.skip_advance_deduction);
+	const itemLabel = frappe.utils.escape_html(strip_html(item.description || item.name || ''));
 	const isLumpSum = item.pricing_entry_mode === 'Lump Sum Total';
 	const lumpSumTotal = flt(item.lump_sum_total || ledgerAmount.total || 0);
 
 	return `
 		<tr class="item-row ${isFullyBilled ? 'fully-billed' : ''} ${rowStatusClass} ${skipAdvance ? 'skip-advance-row' : ''}" data-item="${item.name}" role="row">
 			<td class="col-expand sticky-col">
-				<button class="expand-btn" onclick="toggleTransactionHistory('${item.name}'); event.stopPropagation();" title="View Transactions" aria-label="Expand transaction history for ${item.description || item.name}" aria-expanded="false" tabindex="0">
+				<button class="expand-btn" onclick="toggleTransactionHistory('${item.name}'); event.stopPropagation();" title="View Transactions" aria-label="Expand transaction history for ${itemLabel}" aria-expanded="false" tabindex="0">
 					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
 						<polyline points="6 9 12 15 18 9"></polyline>
 					</svg>
 				</button>
 			</td>
-			<td class="col-checkbox sticky-col"><input type="checkbox" class="item-checkbox" data-item="${item.name}" aria-label="Select item ${item.description || item.name}" tabindex="0"></td>
+			<td class="col-checkbox sticky-col"><input type="checkbox" class="item-checkbox" data-item="${item.name}" aria-label="Select item ${itemLabel}" tabindex="0"></td>
 			<td class="col-srno sticky-col">${srNo || ''}</td>
 			<td class="col-desc sticky-col">
 				<div class="item-desc-wrapper">
@@ -308,7 +309,7 @@ function render_item_row(item, frm, srNo) {
 				<label class="skip-advance-toggle" title="${__('When checked, advance is not deducted on Sales Order / Sales Invoice for this item')}">
 					<input type="checkbox" class="skip-advance-input" data-item="${item.name}"
 						${skipAdvance ? 'checked' : ''}
-						aria-label="${__('Skip advance deduction for')} ${item.description || item.name}" tabindex="0">
+						aria-label="${__('Skip advance deduction for')} ${itemLabel}" tabindex="0">
 					<span>${__('Skip Advance')}</span>
 				</label>
 				<!-- Profit/Loss Indicator - Requirements: 8.1, 8.2, 8.3, 8.4 -->
