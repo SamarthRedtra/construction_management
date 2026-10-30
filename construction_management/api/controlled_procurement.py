@@ -1319,8 +1319,9 @@ def update_purchase_order(name: str, data: str | dict) -> dict:
 	kept_names = [row.get("docname") for row in items if row.get("docname")]
 	if len(kept_names) != len(set(kept_names)) or any(name not in existing_rows for name in kept_names):
 		frappe.throw(_("Invalid or repeated Purchase Order item row."))
-	if any(row.get("docname") and existing_rows[row["docname"]].item_code != row.get("item_code") for row in items):
-		frappe.throw(_("A Purchase Order item row cannot be reassigned to another catalog item."))
+	for row in items:
+		if row.get("docname") and existing_rows[row["docname"]].item_code != row.get("item_code"):
+			row["docname"] = None
 	_validate_order_supplier_items(data, items, doc)
 	from construction_management.api import po_price_approvals
 	if doc.get("custom_po_price_status") in {"Pending Accounts", "Pending CEO"}:

@@ -18,11 +18,11 @@ class TestProcurementExtensions(UnitTestCase):
 		dpr.db_set.assert_not_called()
 		self.assertFalse(dpr._je_created)
 
-	@patch("construction_management.api.consumable_receipt.frappe.new_doc")
-	@patch("construction_management.api.consumable_receipt.frappe.db.get_single_value", return_value=0)
-	def test_consumable_receipt_setting_is_off_by_default(self, _setting, new_doc):
-		consumable_receipt.on_submit(SimpleNamespace(is_return=0))
-		new_doc.assert_not_called()
+	@patch("construction_management.api.consumable_receipt._create_source_issue")
+	@patch("construction_management.api.consumable_receipt.frappe.db.get_value", return_value=0)
+	def test_consumable_receipt_setting_is_off_by_default(self, _setting, create_issue):
+		consumable_receipt.on_submit(SimpleNamespace(is_return=0, company="SKADA CONSTRUCTION L.L.C"))
+		create_issue.assert_not_called()
 
 	@patch("construction_management.api.dpr_labour_cleanup.frappe.db.get_value")
 	@patch("construction_management.api.dpr_labour_cleanup.frappe.get_all")

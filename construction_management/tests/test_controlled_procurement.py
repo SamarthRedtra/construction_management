@@ -1032,3 +1032,33 @@ class TestControlledProcurement(UnitTestCase):
 	def test_insert_item_price_keeps_erpnext_behavior_elsewhere(self):
 		self.assertEqual(self._insert_item_price_calls(price_list_buying=1, item_controlled=0), 1)
 		self.assertEqual(self._insert_item_price_calls(price_list_buying=0, item_controlled=1), 1)
+
+	def test_update_purchase_order_replaces_row_whose_item_changed(self):
+		doc = MagicMock(doctype="Purchase Order", docstatus=0, controlled_procurement=1, company="MRG",
+			transaction_date="2026-10-27", payment_terms_template=None)
+		doc.name = "PO-1"
+		doc.get.return_value = None
+		doc.items = [SimpleNamespace(name="ROW-A", item_code="ITEM-A"), SimpleNamespace(name="ROW-C", item_code="ITEM-C")]
+		doc.set.side_effect = lambda field, value: setattr(doc, field, value)
+		append = lambda target, row, defaults: target.items.append(SimpleNamespace(name=None, item_code=row["item_code"]))
+		items = [{"docname": "ROW-A", "item_code": "ITEM-B", "qty": 1}, {"docname": "ROW-C", "item_code": "ITEM-C", "qty": 2}]
+		module = "construction_management.api.controlled_procurement"
+		with patch(f"{module}._controlled_doc", return_value=doc), \
+			patch(f"{module}._order_discount", return_value={}), \
+			patch(f"{module}._normalized_allocation", return_value={}), \
+			patch(f"{module}._validate_line_data"), \
+			patch(f"{module}._validate_order_supplier_items") as validate_suppliers, \
+			patch(f"{module}._allocation_defaults", return_value={"project": None, "bill_no": None, "boq_item": None}), \
+			patch(f"{module}._validate_company_links"), \
+			patch(f"{module}._append_item", side_effect=append), \
+			patch(f"{module}._apply_taxes"), \
+			patch(f"{module}._payment_terms_template", return_value=None), \
+			patch(f"{module}.frappe.db.get_value", return_value=None), \
+			patch("construction_management.api.po_price_approvals.prepare_rates", return_value=[]) as prepare_rates, \
+			patch("construction_management.api.po_price_approvals.stage"):
+			controlled_procurement.update_purchase_order("PO-1", {"supplier": "SUP", "items": items})
+
+		self.assertEqual([row["docname"] for row in validate_suppliers.call_args.args[1]], [None, "ROW-C"])
+		self.assertEqual([row["docname"] for row in prepare_rates.call_args.args[3]], [None, "ROW-C"])
+		self.assertEqual([(row.name, row.item_code) for row in doc.items], [(None, "ITEM-B"), ("ROW-C", "ITEM-C")])
+		doc.save.assert_called_once()

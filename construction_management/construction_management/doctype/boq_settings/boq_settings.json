@@ -52,7 +52,8 @@
   "section_break_bulk_material_issue",
   "bulk_material_issue_posting_date_rule",
   "column_break_bulk_material_issue",
-  "bulk_material_issue_default_stock_entry_type"
+  "bulk_material_issue_default_stock_entry_type",
+  "auto_consume_consumables_at_site"
  ],
  "fields": [
   {
@@ -345,11 +346,18 @@
    "fieldtype": "Link",
    "label": "Default Stock Entry Type",
    "options": "Stock Entry Type"
+  },
+  {
+   "default": "0",
+   "description": "Issue controlled Consumables to the site project as soon as they are transferred to, or received at, a site warehouse. Leave off when site consumption is recorded through DPR.",
+   "fieldname": "auto_consume_consumables_at_site",
+   "fieldtype": "Check",
+   "label": "Auto-consume Consumables at Site"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-30 11:31:24.943090",
+ "modified": "2026-10-30 13:40:00.000000",
  "modified_by": "Administrator",
  "module": "Construction Management",
  "name": "BOQ Settings",

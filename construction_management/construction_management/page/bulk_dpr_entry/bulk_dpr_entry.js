@@ -55,11 +55,11 @@ const BULK_DPR_CSS = `
 	.bulk-dpr-app .page-total-row { color: #64748b; font-size: 12px; }
 	.boq-item-panel { z-index: 1060; overflow-y: auto; border-radius: 8px; font-size: 13px; text-align: left; }
 	.boq-item-search { position: sticky; top: 0; z-index: 1; }
-	.boq-item-option { display: flex; align-items: center; gap: 10px; padding: 6px 12px; cursor: pointer; }
+	.boq-item-option { display: flex; align-items: flex-start; gap: 16px; padding: 8px 14px; cursor: pointer; }
 	.boq-item-option:hover { background: #f1f5f9; }
 	.boq-item-option.is-selected { background: #eef2ff; }
-	.boq-item-option-label { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; color: #1e293b; line-height: 1.5; }
-	.boq-item-option-meta { flex: 0 0 auto; white-space: nowrap; font-size: 11px; color: #64748b; }
+	.boq-item-option-label { flex: 1 1 auto; min-width: 0; white-space: normal; word-break: break-word; line-height: 1.45; font-size: 13px; color: #1e293b; }
+	.boq-item-option-meta { flex: 0 0 auto; white-space: nowrap; font-size: 11px; color: #64748b; padding-top: 2px; text-align: right; }
 	@media (max-width: 992px) {
 		.bulk-dpr-app .filters-card .row { gap: 8px; }
 		.bulk-dpr-app .filters-card .col-md-2,
@@ -1118,7 +1118,7 @@ class BulkDPREntry {
 			emits: ['update:modelValue'],
 			setup(props, { emit }) {
 				const PANEL_MAX_HEIGHT = 600;
-				const PANEL_MIN_WIDTH = 560;
+				const PANEL_WIDTH = 1000;
 				const isOpen = ref(false);
 				const searchQuery = ref('');
 				const searchInput = ref(null);
@@ -1143,7 +1143,7 @@ class BulkDPREntry {
 				const positionPanel = () => {
 					if (!triggerEl.value) return;
 					const rect = triggerEl.value.getBoundingClientRect();
-					const width = Math.min(Math.max(rect.width, PANEL_MIN_WIDTH), window.innerWidth - 16);
+					const width = Math.min(PANEL_WIDTH, window.innerWidth - 32);
 					const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
 					const spaceBelow = window.innerHeight - rect.bottom;
 					const openUp = spaceBelow < PANEL_MAX_HEIGHT && rect.top > spaceBelow;

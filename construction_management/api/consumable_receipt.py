@@ -5,6 +5,7 @@ from frappe import _
 from frappe.utils import cint, flt
 
 from construction_management.api import bulk_material_issue
+from construction_management.api.purchase_receipt_utils import get_warehouse_project
 
 
 SOURCE_PURCHASE_RECEIPT = "Purchase Receipt"
@@ -15,15 +16,19 @@ TRANSFER_LINK = "custom_source_material_transfer"
 
 
 def on_submit(doc, method=None):
-	"""Consume eligible controlled Consumables received through a Purchase Receipt."""
-	if cint(getattr(doc, "is_return", 0)) or not _auto_consumption_enabled():
+	"""Consume eligible controlled Consumables received directly at a site."""
+	if cint(getattr(doc, "is_return", 0)) or not _auto_consumption_enabled(doc.company):
 		return
 	_create_source_issue(doc, SOURCE_PURCHASE_RECEIPT, PURCHASE_RECEIPT_LINK, "warehouse", "stock_qty")
 
 
 def on_transfer_submit(doc, method=None):
-	"""Consume eligible controlled Consumables after they arrive at a transfer destination."""
-	if doc.stock_entry_type != MATERIAL_TRANSFER or cint(getattr(doc, "is_return", 0)) or not _auto_consumption_enabled():
+	"""Consume eligible controlled Consumables after they arrive at a site."""
+	if (
+		doc.stock_entry_type != MATERIAL_TRANSFER
+		or cint(getattr(doc, "is_return", 0))
+		or not _auto_consumption_enabled(doc.company)
+	):
 		return
 	_create_source_issue(doc, SOURCE_STOCK_ENTRY, TRANSFER_LINK, "t_warehouse", "qty")
 
@@ -39,10 +44,10 @@ def cancel_linked_transfer_issue(transfer, method=None):
 		_cancel_source_issue(transfer, TRANSFER_LINK)
 
 
-def _auto_consumption_enabled() -> bool:
-	return bool(cint(frappe.db.get_single_value(
-		"Redtra Custom Setting", "auto_consume_controlled_consumables_on_receipt"
-	)))
+def _auto_consumption_enabled(company: str | None) -> bool:
+	if not company or not frappe.db.has_column("BOQ Settings", "auto_consume_consumables_at_site"):
+		return False
+	return bool(cint(frappe.db.get_value("BOQ Settings", company, "auto_consume_consumables_at_site")))
 
 
 def _create_source_issue(doc, source_doctype: str, link_field: str, warehouse_field: str, quantity_field: str):
@@ -75,6 +80,7 @@ def _eligible_rows(doc, source_doctype: str, warehouse_field: str, quantity_fiel
 			frappe.throw(_("Consumable row {0} has no receiving warehouse.").format(row.idx))
 		if warehouse in skip_warehouses:
 			continue
+		project = _site_project(warehouse, doc.company)
 		rows.append({
 			"source_doctype": source_doctype,
 			"source_name": doc.name,
@@ -84,11 +90,20 @@ def _eligible_rows(doc, source_doctype: str, warehouse_field: str, quantity_fiel
 			"item_code": row.item_code,
 			"warehouse": warehouse,
 			"qty": quantity,
-			"project": row.get("project") or doc.get("project"),
+			"project": project,
 			"boq_item": row.get("boq_item"),
 			"bill_no": row.get("bill_no"),
 		})
 	return rows
+
+
+def _site_project(warehouse: str, company: str) -> str:
+	project = get_warehouse_project(warehouse, company=company)
+	if not project:
+		frappe.throw(_(
+			"Link warehouse {0} to a project (or mark it Skip Auto-consumption) before moving Consumables there."
+		).format(warehouse))
+	return project
 
 
 def _controlled_item_types(item_codes: set[str]) -> dict[str, str]:

@@ -126,6 +126,7 @@ async function lookupItemSuppliers(row) {
 }
 
 async function selectItem(row, item) {
+	if (row.item_code !== item.name) row.docname = null
 	row.item_code = item.name
 	row.item_name = item.item_name
 	row.controlled_item_type = item.controlled_item_type
@@ -143,6 +144,7 @@ async function selectItem(row, item) {
 
 function clearItem(row, message = "") {
 	row.supplier_lookup_id = (row.supplier_lookup_id || 0) + 1
+	row.docname = null
 	row.item_code = ""
 	row.item_name = ""
 	row.controlled_item_type = ""
