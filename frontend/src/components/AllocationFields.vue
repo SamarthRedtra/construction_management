@@ -1,6 +1,25 @@
+<script>
+import { call } from "@/api"
+
+const OPTIONS_TTL_MS = 60000
+const optionsCache = new Map()
+
+// Module scope: the header and every line share one request per project and bill.
+function boqOptions(project, billNo) {
+	const key = `${project}|${billNo}`
+	const cached = optionsCache.get(key)
+	if (cached && Date.now() - cached.at < OPTIONS_TTL_MS) return cached.promise
+	const promise = call("get_boq_options", { project, bill_no: billNo }).catch((error) => {
+		optionsCache.delete(key)
+		throw error
+	})
+	optionsCache.set(key, { at: Date.now(), promise })
+	return promise
+}
+</script>
+
 <script setup>
 import { computed, onMounted, ref, watch } from "vue"
-import { call } from "@/api"
 import ProjectSelect from "@/components/ProjectSelect.vue"
 
 // Project is always required; boqOptional makes Bill No / BOQ Item optional (MRG, and receiving Desk POs).
@@ -15,25 +34,28 @@ function update(field, value) {
 }
 
 async function loadOptions() {
-	if (!props.modelValue.project) {
-		bills.value = []
-		items.value = []
-		return
-	}
-	const result = await call("get_boq_options", { project: props.modelValue.project, bill_no: props.modelValue.bill_no || "" })
+	const { project, bill_no: billNo = "" } = props.modelValue
+	const result = project ? await boqOptions(project, billNo || "") : { bills: [], items: [] }
+	// a newer project or bill was picked while this request was in flight
+	if (project !== props.modelValue.project || (billNo || "") !== (props.modelValue.bill_no || "")) return false
 	bills.value = result.bills
 	items.value = result.items
+	return true
 }
 
-watch(() => props.modelValue.project, async (project, previous) => {
-	if (project !== previous) emit("update:modelValue", { project, bill_no: "", boq_item: "" })
-	await loadOptions()
-})
-watch(() => props.modelValue.bill_no, async () => {
-	await loadOptions()
-	if (props.modelValue.boq_item && !items.value.some((item) => item.name === props.modelValue.boq_item)) update("boq_item", "")
-})
-onMounted(loadOptions)
+// Keep saved values that belong to the loaded project; clear only the ones that no longer apply.
+async function syncSelection() {
+	if (!(await loadOptions())) return
+	const { bill_no: billNo, boq_item: boqItem } = props.modelValue
+	if (billNo && !bills.value.some((bill) => bill.name === billNo)) {
+		emit("update:modelValue", { ...props.modelValue, bill_no: "", boq_item: "" })
+	} else if (boqItem && !items.value.some((item) => item.name === boqItem)) {
+		update("boq_item", "")
+	}
+}
+
+watch(() => [props.modelValue.project, props.modelValue.bill_no], syncSelection)
+onMounted(syncSelection)
 </script>
 
 <template>

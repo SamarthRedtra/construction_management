@@ -239,7 +239,8 @@ def _allocation_defaults(data: dict, company: str | None = None) -> dict:
 
 def _apply_allocation(row, row_data: dict, defaults: dict, company: str = "") -> None:
 	row_allocation = _normalized_allocation(row_data)
-	allocation = {field: row_allocation[field] or defaults[field] for field in defaults}
+	# A line with its own project keeps its whole set; mixing in the order's bill/BOQ would cross projects.
+	allocation = {field: row_allocation[field] for field in defaults} if row_allocation["project"] else dict(defaults)
 	_validate_allocation(allocation, company)
 	for field, value in allocation.items():
 		setattr(row, field, value)
@@ -4275,8 +4276,25 @@ def get_catalog_buying_price(item_code: str, supplier: str = "", company: str = 
 		frappe.has_permission("Supplier", "read", doc=supplier, throw=True)
 	price_list = frappe.db.get_value("Supplier", supplier, "default_price_list") if supplier else None
 	price_lists = list(dict.fromkeys([price_list, "Standard Buying"])) if price_list else ["Standard Buying"]
-	rows = frappe.db.sql(
-		"""select ip.name, ip.price_list_rate, ip.price_list, ip.supplier
+	params = {
+		"item_code": item_code, "supplier": supplier or "", "price_lists": price_lists,
+		"uom": frappe.db.get_value("Item", item_code, "stock_uom"),
+		"currency": frappe.get_cached_value("Company", company, "default_currency"),
+		"order_date": str(getdate(order_date or today())), "preferred_list": price_list or "Standard Buying",
+	}
+	# A new item's first price is dated the day it was approved; back-dated orders use that first price.
+	rows = _catalog_buying_price_rows(params, as_of_order_date=True) or _catalog_buying_price_rows(params, as_of_order_date=False)
+	if not rows:
+		return {"rate": None, "price_list": "", "item_price": "", "supplier": ""}
+	return {"rate": flt(rows[0].price_list_rate), "price_list": rows[0].price_list,
+		"item_price": rows[0].name, "supplier": rows[0].supplier or ""}
+
+
+def _catalog_buying_price_rows(params: dict, as_of_order_date: bool) -> list:
+	date_filter = "and (ip.valid_from is null or ip.valid_from <= %(order_date)s)" if as_of_order_date else ""
+	date_order = "ip.valid_from desc, ip.creation desc" if as_of_order_date else "ip.valid_from asc, ip.creation asc"
+	return frappe.db.sql(
+		f"""select ip.name, ip.price_list_rate, ip.price_list, ip.supplier
 		from `tabItem Price` ip
 		join `tabPrice List` pl on pl.name = ip.price_list
 		where ip.item_code = %(item_code)s and ip.buying = 1
@@ -4284,22 +4302,13 @@ def get_catalog_buying_price(item_code: str, supplier: str = "", company: str = 
 		and pl.currency = %(currency)s
 		and (ifnull(ip.supplier, '') = '' or ip.supplier = %(supplier)s)
 		and (ifnull(ip.uom, '') = '' or ip.uom = %(uom)s)
-		and (ip.valid_from is null or ip.valid_from <= %(order_date)s)
+		{date_filter}
 		and (ip.valid_upto is null or ip.valid_upto >= %(order_date)s)
 		order by (ip.supplier = %(supplier)s and %(supplier)s != '') desc,
-		(ip.price_list = %(preferred_list)s) desc, ip.valid_from desc, ip.creation desc
+		(ip.price_list = %(preferred_list)s) desc, {date_order}
 		limit 1""",
-		{
-			"item_code": item_code, "supplier": supplier or "", "price_lists": price_lists,
-			"uom": frappe.db.get_value("Item", item_code, "stock_uom"),
-			"currency": frappe.get_cached_value("Company", company, "default_currency"),
-			"order_date": str(getdate(order_date or today())), "preferred_list": price_list or "Standard Buying",
-		}, as_dict=True,
+		params, as_dict=True,
 	)
-	if not rows:
-		return {"rate": None, "price_list": "", "item_price": "", "supplier": ""}
-	return {"rate": flt(rows[0].price_list_rate), "price_list": rows[0].price_list,
-		"item_price": rows[0].name, "supplier": rows[0].supplier or ""}
 
 
 # Keep the Procurement API prefix stable for the Vue workspace.

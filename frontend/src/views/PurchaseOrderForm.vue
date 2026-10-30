@@ -220,6 +220,16 @@ function normalizedAllocation(values) {
 	}))
 }
 
+const orderAllocationLabel = computed(() => {
+	const { project, bill_no, boq_item } = normalizedAllocation(form)
+	return project ? `${[project, bill_no, boq_item].filter(Boolean).join(" · ")} (from order)` : "Uses order allocation"
+})
+
+function toggleLineAllocation(row) {
+	if (!row.use_override) Object.assign(row, normalizedAllocation(form))
+	row.use_override = !row.use_override
+}
+
 function needsSubmitApproval(row) {
 	return form.lpo_type !== "Manual" && ["Consumable", "Service"].includes(row.controlled_item_type) && row.item_code
 		&& row.rate_edited && (row.fetched_rate == null || Number(row.rate) !== Number(row.fetched_rate) || Boolean(row.price_change_reason))
@@ -230,7 +240,8 @@ function purchaseOrderPayload() {
 		...form,
 		company: session.context.default_company || form.company,
 		...normalizedAllocation(form),
-		items: form.items.map((row) => ({ ...row, ...normalizedAllocation(row) })),
+		// without an override the line takes the order's allocation
+		items: form.items.map((row) => ({ ...row, ...(row.use_override ? normalizedAllocation(row) : { project: "", bill_no: "", boq_item: "" }) })),
 		terms: termsEditor.value?.innerHTML || form.terms,
 	}
 }
@@ -445,7 +456,8 @@ onMounted(async () => {
 									<span v-if="row.controlled_procurement_catalog" class="cp-pill info" style="margin-left: 6px">Controlled</span>
 									<span v-if="needsSubmitApproval(row)" class="cp-pill warning" style="margin-left: 6px" title="Consumable/Service price differs from the catalog; this PO only">Needs CEO approval on submit</span>
 									<span v-if="row.not_in_catalog" class="cp-pill warning" style="margin-left: 6px" title="Copied from a PO raised outside the catalog">Not in catalog: pick a catalog item</span>
-									<button type="button" class="cp-link sm" @click="row.use_override = !row.use_override">{{ row.use_override ? "Use order allocation" : "Different project / BOQ for this line" }}</button>
+									<small v-if="!row.use_override" class="cp-muted" style="display: block">{{ orderAllocationLabel }}</small>
+									<button type="button" class="cp-link sm" @click="toggleLineAllocation(row)">{{ row.use_override ? "Use order allocation" : "Different project / BOQ for this line" }}</button>
 								</td>
 								<td>{{ row.item_code ? form.supplier : "—" }}</td>
 								<td><input v-model.number="row.qty" class="cp-input num" type="number" min="0.0001" step="any" required /></td>

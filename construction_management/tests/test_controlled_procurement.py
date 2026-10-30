@@ -1033,6 +1033,58 @@ class TestControlledProcurement(UnitTestCase):
 		self.assertEqual(self._insert_item_price_calls(price_list_buying=1, item_controlled=0), 1)
 		self.assertEqual(self._insert_item_price_calls(price_list_buying=0, item_controlled=1), 1)
 
+	@patch("construction_management.api.controlled_procurement._validate_allocation")
+	def test_line_allocation_inherits_order_or_keeps_its_own_set(self, _validate):
+		order = {"project": "P-ORDER", "bill_no": "BILL-ORDER", "boq_item": "BOQ-ORDER"}
+		cases = [
+			({"project": "", "bill_no": "", "boq_item": ""}, order),
+			({"project": "P-LINE", "bill_no": "", "boq_item": ""}, {"project": "P-LINE", "bill_no": "", "boq_item": ""}),
+			({"project": "P-LINE", "bill_no": "BILL-LINE", "boq_item": "BOQ-LINE"}, {"project": "P-LINE", "bill_no": "BILL-LINE", "boq_item": "BOQ-LINE"}),
+		]
+		for line, expected in cases:
+			row = SimpleNamespace()
+			controlled_procurement._apply_allocation(row, line, order, "MRG")
+			self.assertEqual({field: getattr(row, field) for field in order}, expected)
+
+	def _catalog_price(self, as_of_rows, first_rows):
+		module = "construction_management.api.controlled_procurement"
+		lookup = MagicMock(side_effect=lambda params, as_of_order_date: as_of_rows if as_of_order_date else first_rows)
+		with patch(f"{module}._require"), patch(f"{module}._document_company", return_value="MRG"), \
+			patch(f"{module}._catalog_item"), \
+			patch(f"{module}.frappe.db.get_value", side_effect=lambda doctype, name, field: 0 if field == "disabled" else 1), \
+			patch(f"{module}.frappe.db.exists", return_value=True), patch(f"{module}.frappe.has_permission"), \
+			patch(f"{module}.frappe.get_cached_value", return_value="AED"), \
+			patch(f"{module}._catalog_buying_price_rows", lookup):
+			result = controlled_procurement.get_catalog_buying_price("ITEM", "SUP", "MRG", "2026-01-20")
+		return result, [call.kwargs["as_of_order_date"] for call in lookup.call_args_list]
+
+	def test_backdated_order_uses_new_items_first_price(self):
+		first = frappe._dict(name="IP-NEW", price_list_rate=0.2, price_list="Standard Buying", supplier="SUP")
+		result, lookups = self._catalog_price([], [first])
+		self.assertEqual((result["rate"], result["item_price"]), (0.2, "IP-NEW"))
+		self.assertEqual(lookups, [True, False])
+
+	def test_price_valid_on_order_date_wins_over_first_price(self):
+		old = frappe._dict(name="IP-OLD", price_list_rate=10, price_list="Standard Buying", supplier="SUP")
+		first = frappe._dict(name="IP-FIRST", price_list_rate=5, price_list="Standard Buying", supplier="SUP")
+		result, lookups = self._catalog_price([old], [first])
+		self.assertEqual((result["rate"], result["item_price"]), (10, "IP-OLD"))
+		self.assertEqual(lookups, [True])
+
+	def test_item_without_any_price_has_no_rate(self):
+		result, _ = self._catalog_price([], [])
+		self.assertIsNone(result["rate"])
+
+	def test_first_price_lookup_drops_only_the_valid_from_filter(self):
+		with patch("construction_management.api.controlled_procurement.frappe.db.sql", return_value=[]) as sql:
+			controlled_procurement._catalog_buying_price_rows({}, as_of_order_date=True)
+			controlled_procurement._catalog_buying_price_rows({}, as_of_order_date=False)
+		as_of_query, first_query = (call.args[0] for call in sql.call_args_list)
+		self.assertIn("ip.valid_from <= %(order_date)s", as_of_query)
+		self.assertNotIn("ip.valid_from <= %(order_date)s", first_query)
+		self.assertIn("ip.valid_upto >= %(order_date)s", first_query)
+		self.assertIn("ip.valid_from asc", first_query)
+
 	def test_update_purchase_order_replaces_row_whose_item_changed(self):
 		doc = MagicMock(doctype="Purchase Order", docstatus=0, controlled_procurement=1, company="MRG",
 			transaction_date="2026-10-27", payment_terms_template=None)
