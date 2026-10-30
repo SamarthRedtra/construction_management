@@ -11,6 +11,79 @@ frappe.pages['bulk-dpr-entry'].on_page_load = function (wrapper) {
 	});
 }
 
+// Vue drops <style> tags inside component templates, so page styles live in one <head> stylesheet.
+// Page rules are scoped to .bulk-dpr-app; the BOQ panel rules stay global because the panel is teleported to <body>.
+const BULK_DPR_STYLE_ID = 'bulk-dpr-entry-styles';
+const BULK_DPR_CSS = `
+	.bulk-dpr-app { background: #f8fafc; padding: 20px; border-radius: 12px; }
+	.bulk-dpr-app .filters-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); margin-bottom: 24px; }
+	.bulk-dpr-app .dpr-table-container { background: white; border-radius: 12px; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); overflow-x: auto; }
+	.bulk-dpr-app .table { min-width: 980px; }
+	.bulk-dpr-app .table th { background: #f1f5f9; color: #475569; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; padding: 12px 16px; border: none; }
+	.bulk-dpr-app .table td { padding: 16px; vertical-align: top; border-color: #f1f5f9; }
+	.bulk-dpr-app .form-control { border-radius: 6px; border: 1px solid #e2e8f0; transition: all 0.2s; }
+	.bulk-dpr-app .form-control:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1); }
+	.bulk-dpr-app .compact-link .control-label { display: none !important; }
+	.bulk-dpr-app .compact-link .control-input input { height: 32px; padding: 4px 8px; }
+	.bulk-dpr-app .compact-link .control-input { min-height: 32px; }
+	.bulk-dpr-app .compact-date { height: 32px; padding: 4px 8px; }
+	.bulk-dpr-app .btn-primary-modern { background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; border: none; box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.4); }
+	.bulk-dpr-app .btn-secondary-modern { background: white; color: #475569; border: 1px solid #e2e8f0; }
+	.bulk-dpr-app .badge-primary { background: #e0e7ff; color: #4338ca; border-radius: 4px; padding: 4px 8px; font-weight: 500; }
+	.bulk-dpr-app .cost-card { background: #f8fafc; border-radius: 8px; padding: 10px; font-size: 12px; line-height: 1.6; }
+	.bulk-dpr-app .cost-label { color: #64748b; margin-right: 4px; }
+	.bulk-dpr-app .cost-value { color: #1e293b; font-weight: 500; }
+	.bulk-dpr-app .cost-total { border-top: 1px solid #e2e8f0; margin-top: 6px; padding-top: 6px; font-weight: 600; color: #4f46e5; }
+	.bulk-dpr-app .table-success td { background-color: #f0fdf4 !important; }
+	.bulk-dpr-app .table-secondary td { background-color: #f8fafc !important; }
+	.bulk-dpr-app .pagination-controls { padding: 16px 24px; background: #f8fafc; border-top: 1px solid #f1f5f9; }
+	.bulk-dpr-app .boq-select-wrapper { position: relative; }
+	.bulk-dpr-app .boq-select-wrapper select { appearance: none; padding-right: 30px; }
+	.bulk-dpr-app .boq-select-wrapper::after { content: '\\25BC'; position: absolute; right: 10px; top: 34px; font-size: 10px; color: #94a3b8; pointer-events: none; }
+	.bulk-dpr-app .boq-col { width: 280px; min-width: 280px; max-width: 280px; }
+	.bulk-dpr-app .boq-item-select { width: 100%; max-width: 248px; min-width: 0; }
+	.bulk-dpr-app .boq-item-trigger { cursor: pointer; padding-right: 30px; height: 32px; display: flex; align-items: center; overflow: hidden; }
+	.bulk-dpr-app .boq-item-trigger.bg-light { cursor: default; }
+	.bulk-dpr-app .boq-item-trigger-label { display: block; flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+	.bulk-dpr-app .site-area-scroll { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+	.bulk-dpr-app .site-area-scroll .form-control { min-width: 140px; }
+	.bulk-dpr-app .site-area-scroll .area-input { min-width: 90px; max-width: 120px; }
+	.bulk-dpr-app .cost-remarks-stack { display: flex; flex-direction: column; gap: 8px; }
+	.bulk-dpr-app .footer-totals { background: #f8fafc; }
+	.bulk-dpr-app .footer-totals tr:first-child td { border-top: 2px solid #e2e8f0; }
+	.bulk-dpr-app .day-total-row { color: #4f46e5; font-size: 14px; }
+	.bulk-dpr-app .page-total-row { color: #64748b; font-size: 12px; }
+	.boq-item-panel { z-index: 1060; overflow-y: auto; border-radius: 8px; font-size: 13px; text-align: left; }
+	.boq-item-search { position: sticky; top: 0; z-index: 1; }
+	.boq-item-option { padding: 8px 12px; cursor: pointer; }
+	.boq-item-option:hover { background: #f1f5f9; }
+	.boq-item-option.is-selected { background: #eef2ff; }
+	.boq-item-option-label { white-space: normal; word-break: break-word; font-size: 13px; color: #1e293b; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+	.boq-item-option-meta { font-size: 11px; color: #64748b; margin-top: 2px; }
+	@media (max-width: 992px) {
+		.bulk-dpr-app .filters-card .row { gap: 8px; }
+		.bulk-dpr-app .filters-card .col-md-2,
+		.bulk-dpr-app .filters-card .col-md-3,
+		.bulk-dpr-app .filters-card .col-md-5 { flex: 0 0 100%; max-width: 100%; }
+		.bulk-dpr-app .filters-card .text-right { justify-content: flex-start; flex-wrap: wrap; }
+		.bulk-dpr-app .pagination-controls { flex-wrap: wrap; gap: 8px; }
+		.bulk-dpr-app .pagination-controls .d-flex { flex-wrap: wrap; gap: 8px; }
+	}
+	@media (max-width: 768px) {
+		.bulk-dpr-app .table { min-width: 880px; }
+		.bulk-dpr-app .cost-card { padding: 8px; }
+		.bulk-dpr-app .site-area-scroll .form-control { min-width: 120px; }
+	}
+`;
+
+function ensureBulkDprStyles() {
+	if (document.getElementById(BULK_DPR_STYLE_ID)) return;
+	const style = document.createElement('style');
+	style.id = BULK_DPR_STYLE_ID;
+	style.textContent = BULK_DPR_CSS;
+	document.head.appendChild(style);
+}
+
 class BulkDPREntry {
 	constructor(wrapper, page) {
 		this.wrapper = $(wrapper);
@@ -27,6 +100,7 @@ class BulkDPREntry {
 
 	setup_app() {
 		const me = this;
+		ensureBulkDprStyles();
 
 		// Ensure mount point exists
 		this.wrapper.html(`
@@ -814,67 +888,6 @@ class BulkDPREntry {
 			},
 			template: `
 				<div class="bulk-dpr-app">
-					<style>
-						.bulk-dpr-app { background: #f8fafc; padding: 20px; border-radius: 12px; }
-						.filters-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); margin-bottom: 24px; }
-						.dpr-table-container { background: white; border-radius: 12px; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); overflow: hidden; }
-						.table th { background: #f1f5f9; color: #475569; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; padding: 12px 16px; border: none; }
-						.table td { padding: 16px; vertical-align: top; border-color: #f1f5f9; }
-						.form-control { border-radius: 6px; border: 1px solid #e2e8f0; transition: all 0.2s; }
-						.compact-link .control-label { display: none !important; }
-						.compact-link .control-input input { height: 32px; padding: 4px 8px; }
-						.compact-link .control-input { min-height: 32px; }
-						.compact-date { height: 32px; padding: 4px 8px; }
-						.form-control:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1); }
-						.btn-primary-modern { background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; border: none; box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.4); }
-						.btn-secondary-modern { background: white; color: #475569; border: 1px solid #e2e8f0; }
-						.badge-primary { background: #e0e7ff; color: #4338ca; border-radius: 4px; padding: 4px 8px; font-weight: 500; }
-						.cost-card { background: #f8fafc; border-radius: 8px; padding: 10px; font-size: 12px; line-height: 1.6; }
-						.cost-label { color: #64748b; margin-right: 4px; }
-						.cost-value { color: #1e293b; font-weight: 500; }
-						.cost-total { border-top: 1px solid #e2e8f0; margin-top: 6px; padding-top: 6px; font-weight: 600; color: #4f46e5; }
-						.table-success td { background-color: #f0fdf4 !important; }
-						.table-secondary td { background-color: #f8fafc !important; }
-						.pagination-controls { padding: 16px 24px; background: #f8fafc; border-top: 1px solid #f1f5f9; }
-						.boq-select-wrapper { position: relative; }
-						.boq-select-wrapper select { appearance: none; padding-right: 30px; }
-						.boq-item-trigger { cursor: pointer; padding-right: 30px; height: 32px; display: flex; align-items: center; overflow: hidden; }
-						.boq-item-trigger.bg-light { cursor: default; }
-						.boq-item-trigger-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-						.boq-item-panel { z-index: 1060; overflow-y: auto; border-radius: 8px; font-size: 13px; text-align: left; }
-						.boq-item-search { position: sticky; top: 0; z-index: 1; }
-						.boq-item-option { padding: 8px 12px; cursor: pointer; }
-						.boq-item-option:hover { background: #f1f5f9; }
-						.boq-item-option.is-selected { background: #eef2ff; }
-						.boq-item-option-label { white-space: normal; word-break: break-word; font-size: 13px; color: #1e293b; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-						.boq-item-option-meta { font-size: 11px; color: #64748b; margin-top: 2px; }
-						.boq-select-wrapper::after { content: '\u25BC'; position: absolute; right: 10px; top: 12px; font-size: 10px; color: #94a3b8; pointer-events: none; }
-						.site-area-scroll { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
-						.site-area-scroll .form-control { min-width: 140px; }
-						.site-area-scroll .area-input { min-width: 90px; max-width: 120px; }
-						.cost-remarks-stack { display: flex; flex-direction: column; gap: 8px; }
-						.footer-totals { background: #f8fafc; }
-						.footer-totals tr:first-child td { border-top: 2px solid #e2e8f0; }
-						.day-total-row { color: #4f46e5; font-size: 14px; }
-						.page-total-row { color: #64748b; font-size: 12px; }
-						.dpr-table-container { overflow-x: auto; }
-						.table { min-width: 980px; }
-						@media (max-width: 992px) {
-							.filters-card .row { gap: 8px; }
-							.filters-card .col-md-2,
-							.filters-card .col-md-3,
-							.filters-card .col-md-5 { flex: 0 0 100%; max-width: 100%; }
-							.filters-card .text-right { justify-content: flex-start; flex-wrap: wrap; }
-							.pagination-controls { flex-wrap: wrap; gap: 8px; }
-							.pagination-controls .d-flex { flex-wrap: wrap; gap: 8px; }
-						}
-						@media (max-width: 768px) {
-							.table { min-width: 880px; }
-							.cost-card { padding: 8px; }
-							.site-area-scroll .form-control { min-width: 120px; }
-						}
-					</style>
-
 					<div class="filters-card">
 							<div class="row align-items-end">
 								<div class="col-md-2 compact-link">
@@ -923,7 +936,7 @@ class BulkDPREntry {
                                     <th style="width: 40px" class="text-center p-3">
                                         <input type="checkbox" v-model="allSelected">
                                     </th>
-									<th class="p-3 text-muted small text-uppercase" style="width: 15%;">BOQ Item</th>
+									<th class="p-3 text-muted small text-uppercase boq-col">BOQ Item</th>
 									<th class="p-3 text-muted small text-uppercase" style="width: 16%;">Site & Area</th>
 									<th class="p-3 text-muted small text-uppercase" style="width: 32%;">Labour, Materials & Overheads</th>
 									<th class="p-3 text-muted small text-uppercase" style="width: 22%;">Costs & Remarks</th>
@@ -935,7 +948,7 @@ class BulkDPREntry {
                                     <td class="text-center">
                                         <input type="checkbox" v-model="row.selected">
                                     </td>
-									<td>
+									<td class="boq-col">
 										<div class="boq-select-wrapper mb-2">
 											<label class="small text-muted mb-1">BOQ Item <span class="text-danger font-weight-bold">*</span></label>
 											<BoqItemSelect v-model="row.boq_item" :options="masterData.boq_items" :disabled="row.docstatus > 0" />
