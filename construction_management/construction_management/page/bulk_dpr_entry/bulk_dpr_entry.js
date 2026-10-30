@@ -39,12 +39,12 @@ const BULK_DPR_CSS = `
 	.bulk-dpr-app .pagination-controls { padding: 16px 24px; background: #f8fafc; border-top: 1px solid #f1f5f9; }
 	.bulk-dpr-app .boq-select-wrapper { position: relative; }
 	.bulk-dpr-app .boq-select-wrapper select { appearance: none; padding-right: 30px; }
-	.bulk-dpr-app .boq-select-wrapper::after { content: '\\25BC'; position: absolute; right: 10px; top: 34px; font-size: 10px; color: #94a3b8; pointer-events: none; }
+	.bulk-dpr-app .boq-select-wrapper::after { content: '\\25BC'; position: absolute; right: 10px; top: 32px; font-size: 10px; color: #94a3b8; pointer-events: none; }
 	.bulk-dpr-app .boq-col { width: 280px; min-width: 280px; max-width: 280px; }
 	.bulk-dpr-app .boq-item-select { width: 100%; max-width: 248px; min-width: 0; }
-	.bulk-dpr-app .boq-item-trigger { cursor: pointer; padding-right: 30px; height: 32px; display: flex; align-items: center; overflow: hidden; }
+	.bulk-dpr-app .boq-item-trigger { cursor: pointer; padding: 6px 30px 6px 10px; min-height: 32px; height: auto; display: flex; align-items: center; }
 	.bulk-dpr-app .boq-item-trigger.bg-light { cursor: default; }
-	.bulk-dpr-app .boq-item-trigger-label { display: block; flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+	.bulk-dpr-app .boq-item-trigger-label { display: block; flex: 1 1 auto; min-width: 0; white-space: normal; word-break: break-word; line-height: 1.35; font-size: 13px; }
 	.bulk-dpr-app .site-area-scroll { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
 	.bulk-dpr-app .site-area-scroll .form-control { min-width: 140px; }
 	.bulk-dpr-app .site-area-scroll .area-input { min-width: 90px; max-width: 120px; }
@@ -55,11 +55,11 @@ const BULK_DPR_CSS = `
 	.bulk-dpr-app .page-total-row { color: #64748b; font-size: 12px; }
 	.boq-item-panel { z-index: 1060; overflow-y: auto; border-radius: 8px; font-size: 13px; text-align: left; }
 	.boq-item-search { position: sticky; top: 0; z-index: 1; }
-	.boq-item-option { padding: 8px 12px; cursor: pointer; }
+	.boq-item-option { display: flex; align-items: center; gap: 10px; padding: 6px 12px; cursor: pointer; }
 	.boq-item-option:hover { background: #f1f5f9; }
 	.boq-item-option.is-selected { background: #eef2ff; }
-	.boq-item-option-label { white-space: normal; word-break: break-word; font-size: 13px; color: #1e293b; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-	.boq-item-option-meta { font-size: 11px; color: #64748b; margin-top: 2px; }
+	.boq-item-option-label { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; color: #1e293b; line-height: 1.5; }
+	.boq-item-option-meta { flex: 0 0 auto; white-space: nowrap; font-size: 11px; color: #64748b; }
 	@media (max-width: 992px) {
 		.bulk-dpr-app .filters-card .row { gap: 8px; }
 		.bulk-dpr-app .filters-card .col-md-2,
@@ -1117,8 +1117,8 @@ class BulkDPREntry {
 			props: ['options', 'modelValue', 'disabled'],
 			emits: ['update:modelValue'],
 			setup(props, { emit }) {
-				const PANEL_MAX_HEIGHT = 320;
-				const PANEL_MIN_WIDTH = 420;
+				const PANEL_MAX_HEIGHT = 600;
+				const PANEL_MIN_WIDTH = 560;
 				const isOpen = ref(false);
 				const searchQuery = ref('');
 				const searchInput = ref(null);
@@ -1217,7 +1217,7 @@ class BulkDPREntry {
 								<div class="boq-item-option-label">{{ labelOf(opt) }}</div>
 								<div class="boq-item-option-meta">
 									{{ opt.name }}<span v-if="opt.unit"> · {{ opt.unit }}</span>
-									<span v-if="opt.balance !== undefined"> · Balance {{ Number(opt.balance || 0).toFixed(2) }}</span>
+									<span v-if="opt.balance !== undefined"> · {{ Number(opt.balance || 0).toFixed(2) }}</span>
 								</div>
 							</div>
 							<div v-if="filteredOptions.length === 0" class="p-2 text-muted text-center small">No matches found</div>
