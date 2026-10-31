@@ -8,6 +8,7 @@ defineProps({
 	totals: { type: Object, default: null },
 	loading: { type: Boolean, default: false },
 	subtotal: { type: Number, default: 0 },
+	discountPercentage: { type: Number, default: 0 },
 })
 defineEmits(["update:modelValue"])
 </script>
@@ -23,6 +24,10 @@ defineEmits(["update:modelValue"])
 			<small class="cp-hint">Applies to every line; switch a line to Zero or Exempt in its VAT column.</small>
 		</label>
 		<dl class="cp-totals cp-card" :class="{ 'is-loading': loading }">
+			<template v-if="totals?.discount_amount > 0">
+				<div><dt>Total</dt><dd>{{ formatCurrency(totals.total) }}</dd></div>
+				<div><dt>Discount<template v-if="discountPercentage"> ({{ discountPercentage }}%)</template></dt><dd>- {{ formatCurrency(totals.discount_amount) }}</dd></div>
+			</template>
 			<div><dt>Net total</dt><dd>{{ formatCurrency(totals ? totals.net_total : subtotal) }}</dd></div>
 			<div v-for="tax in totals?.taxes || []" :key="tax.description"><dt>{{ tax.description }}<template v-if="tax.rate"> ({{ tax.rate }}%)</template></dt><dd>{{ formatCurrency(tax.amount) }}</dd></div>
 			<div class="grand"><dt>Grand total</dt><dd>{{ formatCurrency(totals ? totals.grand_total : subtotal) }}</dd></div>

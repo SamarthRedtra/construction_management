@@ -39,7 +39,8 @@ export function useTaxes(doctype, form, { lines = () => form.items, defaultTempl
 		try {
 			totals.value = await call("preview_totals", {
 				doctype,
-				data: { company: session.context.default_company, supplier: form.supplier, taxes_and_charges: form.taxes_and_charges, items },
+				data: { company: session.context.default_company, supplier: form.supplier, taxes_and_charges: form.taxes_and_charges, items,
+					apply_discount_on: form.apply_discount_on, additional_discount_percentage: form.additional_discount_percentage, discount_amount: form.discount_amount },
 			})
 		} catch {
 			totals.value = null
@@ -48,7 +49,8 @@ export function useTaxes(doctype, form, { lines = () => form.items, defaultTempl
 		}
 	}, 350)
 
-	watch(() => [form.taxes_and_charges, lines().map((row) => [row.item_code, row.qty, row.rate, row.vat])], refresh, { deep: true, immediate: true })
+	watch(() => [form.taxes_and_charges, form.apply_discount_on, form.additional_discount_percentage, form.discount_amount,
+		lines().map((row) => [row.item_code, row.qty, row.rate, row.vat])], refresh, { deep: true, immediate: true })
 
 	// VAT on one line, as returned by the last preview (same order as `lines()`)
 	function lineTax(index) {

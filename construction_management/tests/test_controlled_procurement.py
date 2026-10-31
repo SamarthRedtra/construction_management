@@ -1114,3 +1114,40 @@ class TestControlledProcurement(UnitTestCase):
 		self.assertEqual([row["docname"] for row in prepare_rates.call_args.args[3]], [None, "ROW-C"])
 		self.assertEqual([(row.name, row.item_code) for row in doc.items], [(None, "ITEM-B"), ("ROW-C", "ITEM-C")])
 		doc.save.assert_called_once()
+
+	def test_preview_totals_applies_order_discount(self):
+		doc = SimpleNamespace(items=[], taxes=[])
+		doc.append = lambda field, row: getattr(doc, field).append(SimpleNamespace(**row))
+		doc.update = lambda values: doc.__dict__.update(values)
+		doc.get = lambda field: getattr(doc, field, None)
+
+		def calculate(target):
+			target.total = sum(row.qty * row.rate for row in target.items)
+			target.net_total = target.total - target.discount_amount
+			target.total_taxes_and_charges = target.net_total * 0.05
+			target.grand_total = target.net_total + target.total_taxes_and_charges
+
+		module = "construction_management.api.controlled_procurement"
+		with patch(f"{module}._require"), \
+			patch(f"{module}.frappe.new_doc", return_value=doc), \
+			patch(f"{module}.frappe.get_cached_value", return_value="AED"), \
+			patch(f"{module}._apply_taxes"), \
+			patch("erpnext.controllers.taxes_and_totals.calculate_taxes_and_totals", side_effect=calculate):
+			totals = controlled_procurement.preview_totals("Purchase Order", {
+				"company": "MRG", "items": [{"item_code": "ITEM-A", "qty": 1, "rate": 650, "uom": "Nos"}],
+				"apply_discount_on": "Net Total", "discount_amount": 170,
+			})
+
+		self.assertEqual(doc.apply_discount_on, "Net Total")
+		self.assertEqual((totals["total"], totals["discount_amount"], totals["net_total"], totals["grand_total"]), (650, 170, 480, 504))
+
+	def test_preview_totals_rejects_percentage_and_amount_together(self):
+		module = "construction_management.api.controlled_procurement"
+		with patch(f"{module}._require"), \
+			patch(f"{module}.frappe.new_doc", return_value=MagicMock(items=[], taxes=[])), \
+			patch(f"{module}.frappe.get_cached_value", return_value="AED"), \
+			patch(f"{module}._apply_taxes"), \
+			self.assertRaises(frappe.ValidationError):
+			controlled_procurement.preview_totals("Purchase Order", {
+				"company": "MRG", "items": [], "additional_discount_percentage": 10, "discount_amount": 170,
+			})

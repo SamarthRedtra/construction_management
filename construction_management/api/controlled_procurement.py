@@ -957,6 +957,8 @@ def _totals_payload(doc) -> dict:
 		if i is not None:
 			line_tax[i] += flt(detail.amount)
 	return {
+		"total": flt(doc.total),
+		"discount_amount": flt(doc.get("discount_amount")),
 		"net_total": flt(doc.net_total),
 		"total_taxes_and_charges": flt(doc.total_taxes_and_charges),
 		"grand_total": flt(doc.grand_total),
@@ -985,6 +987,7 @@ def preview_totals(doctype: str, data: str | dict) -> dict:
 		doc.append("items", {"idx": i, "name": f"row-{i}", "item_code": row.get("item_code"), "qty": qty, "rate": rate,
 			"price_list_rate": rate, "conversion_factor": 1, "uom": uom})
 	_apply_taxes(doc, data.get("taxes_and_charges"), [row.get("vat") for row in lines])
+	doc.update(_order_discount(data))
 	from erpnext.controllers.taxes_and_totals import calculate_taxes_and_totals
 
 	calculate_taxes_and_totals(doc)

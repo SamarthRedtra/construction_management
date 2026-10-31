@@ -307,7 +307,7 @@ async function hydrateDuplicate(source) {
 		Object.assign(form, {
 			supplier: doc.supplier, lpo_type: doc.custom_lpo_type || "Standard", warehouse: doc.set_warehouse || "",
 			contact_person: doc.contact_person || "", payment_terms_template: doc.payment_terms_template || "", tc_name: doc.tc_name || "", terms: doc.terms || "",
-			taxes_and_charges: doc.taxes_and_charges || null, apply_discount_on: doc.apply_discount_on || "Net Total", additional_discount_percentage: doc.additional_discount_percentage || 0, discount_amount: doc.discount_amount || 0,
+			taxes_and_charges: doc.taxes_and_charges || null, apply_discount_on: doc.apply_discount_on || "Net Total", additional_discount_percentage: doc.additional_discount_percentage || 0, discount_amount: doc.additional_discount_percentage ? 0 : doc.discount_amount || 0,
 			project: doc.project || "", bill_no: doc.bill_no || "", boq_item: doc.boq_item || "",
 			items: (doc.items || []).map((row) => ({ item_code: row.item_code, item_name: row.item_name, controlled_item_type: row.controlled_item_type || "",
 				controlled_procurement_catalog: Number(row.controlled_procurement_catalog || 0), stock_uom: row.stock_uom,
@@ -348,7 +348,7 @@ onMounted(async () => {
 			required_by: doc.schedule_date, lpo_type: doc.custom_lpo_type || (doc.custom_is_provisional_po ? "Open" : "Standard"),
 			warehouse: doc.set_warehouse || "",
 			contact_person: doc.contact_person || "", payment_terms_template: doc.payment_terms_template || "", tc_name: doc.tc_name || "", terms: doc.terms || "",
-			taxes_and_charges: doc.taxes_and_charges || null, apply_discount_on: doc.apply_discount_on || "Net Total", additional_discount_percentage: doc.additional_discount_percentage || 0, discount_amount: doc.discount_amount || 0, project: doc.project || "", bill_no: doc.bill_no || "", boq_item: doc.boq_item || "",
+			taxes_and_charges: doc.taxes_and_charges || null, apply_discount_on: doc.apply_discount_on || "Net Total", additional_discount_percentage: doc.additional_discount_percentage || 0, discount_amount: doc.additional_discount_percentage ? 0 : doc.discount_amount || 0, project: doc.project || "", bill_no: doc.bill_no || "", boq_item: doc.boq_item || "",
 			items: (doc.items || []).map((row) => ({ docname: row.name, item_code: row.item_code, item_name: row.item_name, controlled_item_type: row.controlled_item_type,
 				controlled_procurement_catalog: Number(row.controlled_procurement_catalog || 0), stock_uom: row.stock_uom,
 				qty: row.qty, rate: row.rate, fetched_rate: row.rate, vat: row.vat, notes: row.description || "", rate_edited: true, price_change_reason: row.custom_price_change_reason || "",
@@ -477,7 +477,7 @@ onMounted(async () => {
 				</table>
 			</div>
 			<p class="cp-hint">Choose a supplier first to see its items, or choose an item first to find its linked suppliers. Only approved catalog items can be ordered.</p>
-			<TaxSection v-model="form.taxes_and_charges" :templates="taxTemplates" :totals="totals" :loading="taxLoading" :subtotal="total" />
+			<TaxSection v-model="form.taxes_and_charges" :templates="taxTemplates" :totals="totals" :loading="taxLoading" :subtotal="total" :discount-percentage="Number(form.additional_discount_percentage) || 0" />
 			<div class="cp-grid-3" style="margin-top: 16px">
 				<label class="cp-field"><span>Order discount %</span><input v-model.number="form.additional_discount_percentage" class="cp-input" type="number" min="0" max="100" step="any" @input="form.discount_amount = 0" /></label>
 				<label class="cp-field"><span>Order discount amount</span><input v-model.number="form.discount_amount" class="cp-input" type="number" min="0" step="any" @input="form.additional_discount_percentage = 0" /></label>
