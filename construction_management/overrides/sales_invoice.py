@@ -337,6 +337,8 @@ class SalesInvoiceOverride(SalesInvoice):
 
 			validate_advance_release(self)
 		# Must run before ERPNext validate_with_previous_doc compares UOM to Sales Order Item.
+		if self.docstatus == 0:
+			link_deduction_rows(self.items)
 		self._normalize_deduction_uoms()
 		super().validate()
 		from construction_management.api.boq_invoice import validate_combined_source_sales_orders
@@ -885,6 +887,7 @@ class SalesInvoiceOverride(SalesInvoice):
 			# by a prior BOQ invoice layout so they are never counted twice.
 			self._remove_additional_service_deduction_rows()
 
+		link_deduction_rows(self.items)
 		self._normalize_deduction_uoms()
 
 		# Recalculate totals to handle the updated items
@@ -1496,6 +1499,44 @@ class SalesInvoiceOverride(SalesInvoice):
 		new_entries = _normalize_signed_gl_amounts(new_entries)
 		return self._settle_additional_discount_to_sales(new_entries, income_accounts)
 
+
+DEDUCTION_ITEM_CODES = ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION")
+
+
+def link_deduction_rows(items) -> list:
+	"""Link unlinked retention/advance rows to their Sales Order's matching deduction line.
+
+	A per-BOQ row follows the order of its BOQ work line; a row without a BOQ item follows the
+	invoice's only order. Returns the rows that were linked.
+	"""
+	work = [row for row in items if row.get("sales_order") and row.item_code not in DEDUCTION_ITEM_CODES]
+	so_by_boq = {row.boq_item: row.sales_order for row in work if row.get("boq_item")}
+	orders = {row.sales_order for row in work}
+	targets = []
+	for row in items:
+		if row.item_code not in DEDUCTION_ITEM_CODES or row.get("sales_order") or cint(row.get("custom_service_deduction")):
+			continue
+		sales_order = so_by_boq.get(row.get("boq_item")) or (next(iter(orders)) if len(orders) == 1 else None)
+		if sales_order:
+			targets.append((row, sales_order))
+	if not targets:
+		return []
+	so_lines = {}
+	for line in frappe.get_all(
+		"Sales Order Item",
+		filters={"parent": ["in", list({so for _row, so in targets})], "item_code": ["in", DEDUCTION_ITEM_CODES]},
+		fields=["name", "parent", "item_code", "boq_item"],
+		order_by="idx asc",
+	):
+		so_lines.setdefault((line.parent, line.item_code, line.boq_item or ""), line.name)
+	linked = []
+	for row, sales_order in targets:
+		so_detail = so_lines.get((sales_order, row.item_code, row.get("boq_item") or ""))
+		if so_detail:
+			row.sales_order = sales_order
+			row.so_detail = so_detail
+			linked.append(row)
+	return linked
 
 
 def _has_legacy_lump_boq_advance(si_name: str) -> bool:

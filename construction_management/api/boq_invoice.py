@@ -110,7 +110,7 @@ def has_boq_read_permission() -> bool:
 
 
 @frappe.whitelist()
-def get_project_boq_service_details(project: str, boq_item: str) -> dict:
+def get_project_boq_service_details(project: str, boq_item: str, sales_order: str | None = None) -> dict:
 	"""Return a project BOQ service that can be appended to a draft Sales Invoice."""
 	if not project or not boq_item:
 		frappe.throw(_("Project and BOQ service are required"))
@@ -135,8 +135,11 @@ def get_project_boq_service_details(project: str, boq_item: str) -> dict:
 			frappe.db.get_value("Project BOQ", item.project_boq, "allow_overbilling") or 0
 		)
 		boq_locked = bool(is_boq_locked(item.project_boq))
+	so_line = _open_sales_order_line(item.name, item.linked_item, item.unit or "Nos", sales_order) or {}
 
 	return {
+		"sales_order": so_line.get("sales_order"),
+		"so_detail": so_line.get("so_detail"),
 		"boq_item": item.name,
 		"item_code": item.linked_item,
 		"description": item.description or item.label or item.name,
@@ -4003,14 +4006,14 @@ def _so_has_submitted_payment_certificate(so_name: str) -> bool:
 	)
 
 
-def _block_direct_billing_with_open_sales_orders(boq_items: list[str]) -> None:
-	"""Direct BOQ tax invoices cannot link a Sales Order, so refuse when one is still open."""
+def _open_sales_order_lines(boq_items: list[str]) -> list[dict]:
+	"""Unbilled work lines of open Sales Orders (without a submitted Payment Certificate), oldest first."""
 	boq_items = sorted({name for name in boq_items or [] if name})
 	if not boq_items:
-		return
+		return []
 	rows = frappe.db.sql(
 		"""
-		SELECT DISTINCT so.name AS sales_order, soi.boq_item
+		SELECT so.name AS sales_order, soi.name AS so_detail, soi.boq_item, soi.item_code, soi.uom
 		FROM `tabSales Order Item` soi
 		INNER JOIN `tabSales Order` so ON so.name = soi.parent
 		WHERE so.docstatus = 1
@@ -4018,6 +4021,7 @@ def _block_direct_billing_with_open_sales_orders(boq_items: list[str]) -> None:
 			AND soi.boq_item IN %(boq_items)s
 			AND soi.item_code NOT IN %(deduction_items)s
 			AND soi.amount - IFNULL(soi.billed_amt, 0) > 0
+		ORDER BY so.transaction_date, so.creation, soi.idx
 		""",
 		{"boq_items": boq_items, "deduction_items": tuple(SO_DEDUCTION_ITEM_CODES)},
 		as_dict=True,
@@ -4029,6 +4033,21 @@ def _block_direct_billing_with_open_sales_orders(boq_items: list[str]) -> None:
 			pc_cache[row.sales_order] = _so_has_submitted_payment_certificate(row.sales_order)
 		if not pc_cache[row.sales_order]:
 			open_rows.append(row)
+	return open_rows
+
+
+def _open_sales_order_line(boq_item: str, item_code: str, uom: str, preferred_so: str | None = None) -> dict | None:
+	"""The open Sales Order line to bill a BOQ item against: the preferred order first, else the oldest.
+
+	ERPNext rejects an invoice line whose item or UOM differs from its Sales Order line, so only those match.
+	"""
+	rows = [row for row in _open_sales_order_lines([boq_item]) if row.item_code == item_code and row.uom == uom]
+	return next((row for row in rows if row.sales_order == preferred_so), None) or (rows[0] if rows else None)
+
+
+def _block_direct_billing_with_open_sales_orders(boq_items: list[str]) -> None:
+	"""Direct BOQ tax invoices cannot link a Sales Order, so refuse when one is still open."""
+	open_rows = _open_sales_order_lines(boq_items)
 	if not open_rows:
 		return
 	frappe.throw(

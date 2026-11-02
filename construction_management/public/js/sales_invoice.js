@@ -342,7 +342,7 @@ function open_boq_service_picker(frm) {
 function _load_boq_service_details(frm, d, boqItem) {
 	return frappe.call({
 		method: 'construction_management.api.boq_invoice.get_project_boq_service_details',
-		args: { project: frm.doc.project, boq_item: boqItem },
+		args: { project: frm.doc.project, boq_item: boqItem, sales_order: frm.doc.custom_sales_order || null },
 	}).then((r) => {
 		const details = r.message;
 		if (!details) return null;
@@ -483,6 +483,8 @@ function _add_boq_service_from_dialog(frm, d, values) {
 				project: frm.doc.project,
 				boq_item: final_details.boq_item,
 				bill_no: final_details.bill_no,
+				sales_order: final_details.sales_order || null,
+				so_detail: final_details.so_detail || null,
 			});
 			frm.refresh_field('items');
 			_si_deduction_debounce(frm);
