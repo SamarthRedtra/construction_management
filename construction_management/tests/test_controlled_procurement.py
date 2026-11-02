@@ -1115,6 +1115,35 @@ class TestControlledProcurement(UnitTestCase):
 		self.assertEqual([(row.name, row.item_code) for row in doc.items], [(None, "ITEM-B"), ("ROW-C", "ITEM-C")])
 		doc.save.assert_called_once()
 
+	def test_update_purchase_receipt_resets_received_qty_to_edited_qty(self):
+		original = MagicMock(purchase_order="PO-1", purchase_order_item="POI-1", received_qty=4, rejected_qty=0)
+		original.name = "PRI-1"
+		original.as_dict.return_value = {"name": "PRI-1", "qty": 4, "received_qty": 4, "rejected_qty": 0}
+		doc = MagicMock(docstatus=0, controlled_procurement=1, company="MRG", items=[original])
+		doc.set.side_effect = lambda field, value: setattr(doc, field, value)
+		doc.append.side_effect = lambda field, row: doc.items.append(SimpleNamespace(**row)) or doc.items[-1]
+		po_row = SimpleNamespace(name="POI-1", item_code="CP-EXTRA_CHARGES___PRINTER", uom="Nos", stock_uom="Nos", conversion_factor=1, rate=10)
+		po = MagicMock(company="MRG", items=[po_row])
+		po.name = "PO-1"
+		po.get.return_value = None
+		module = "construction_management.api.controlled_procurement"
+		with patch(f"{module}._controlled_doc", side_effect=lambda doctype, *_: doc if doctype == "Purchase Receipt" else po), \
+			patch(f"{module}._is_open_lpo", return_value=True), \
+			patch(f"{module}._validate_receivable_po"), \
+			patch(f"{module}._receipt_items_by_po_line"), \
+			patch(f"{module}._validate_allocation"), \
+			patch(f"{module}._validate_company_links"), \
+			patch(f"{module}.get_warehouse_project", return_value="PROJ-1"), \
+			patch(f"{module}._apply_allocation"), \
+			patch(f"{module}._catalog_item"), \
+			patch(f"{module}._set_row_type"), \
+			patch(f"{module}._apply_taxes"):
+			controlled_procurement.update_purchase_receipt("PR-1", {"purchase_order": "PO-1", "warehouse": "Stores - MRG",
+				"items": [{"name": "PRI-1", "purchase_order_item": "POI-1", "qty": 2}]})
+
+		self.assertEqual([(row.qty, row.received_qty, row.rejected_qty) for row in doc.items], [(2, 2, 0)])
+		doc.save.assert_called_once()
+
 	def test_preview_totals_applies_order_discount(self):
 		doc = SimpleNamespace(items=[], taxes=[])
 		doc.append = lambda field, row: getattr(doc, field).append(SimpleNamespace(**row))

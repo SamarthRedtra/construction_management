@@ -1736,8 +1736,9 @@ def update_purchase_receipt(name: str, data: str | dict) -> dict:
 		base_data = base_row.as_dict() if base_row else {}
 		if not original:
 			base_data.pop("name", None)
+		qty = flt(data_row.get("qty"))
 		row = doc.append("items", {**base_data,
-			"item_code": po_row.item_code, "qty": flt(data_row.get("qty")),
+			"item_code": po_row.item_code, "qty": qty, "received_qty": qty, "rejected_qty": 0,
 			"uom": po_row.uom, "stock_uom": po_row.stock_uom, "conversion_factor": po_row.conversion_factor,
 			"rate": po_row.rate, "purchase_order": po.name, "purchase_order_item": po_row.name,
 			"warehouse": warehouse, "project": project})
