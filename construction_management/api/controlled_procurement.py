@@ -298,11 +298,12 @@ CATALOG_SORT_FIELDS = {
 	"name": "item.name",
 	"item_group": "item.item_group",
 	"controlled_item_type": "item.controlled_item_type",
+	"is_stock_item": "item.is_stock_item",
 	"controlled_catalog_source": "item.controlled_catalog_source",
 	"actual_qty": "COALESCE(stock.actual_qty, 0)",
 }
 CATALOG_EXPORT_HEADERS = (
-	"Item Code", "Description", "Item Group", "Type", "UOM", "Available Stock", "Source",
+	"Item Code", "Description", "Item Group", "Type", "Maintain Stock", "UOM", "Available Stock", "Source",
 )
 
 
@@ -310,13 +311,14 @@ CATALOG_EXPORT_HEADERS = (
 def get_catalog(
 	company: str = "", search: str = "", start: int = 0, page_length: int = 50,
 	item_type: str = "", item_group: str = "", source: str = "", stock_status: str = "",
-	sort_by: str = "item_name", sort_order: str = "asc", supplier: str = "", stock_only: int = 0,
-	unique_items: int = 0,
+	maintain_stock: str = "", sort_by: str = "item_name", sort_order: str = "asc",
+	supplier: str = "", stock_only: int = 0, unique_items: int = 0,
 ) -> dict:
 	"""Filter and sort the full approved catalog before pagination."""
 	_require(CATALOG_ROLES)
 	from_clause, where_clause, params, order_clause = _catalog_query(
-		company, search, item_type, item_group, source, stock_status, sort_by, sort_order, supplier, stock_only,
+		company, search, item_type, item_group, source, stock_status, sort_by, sort_order,
+		supplier, stock_only, maintain_stock,
 	)
 	start = max(cint(start), 0)
 	page_length = min(max(cint(page_length) or 50, 1), 100)
@@ -338,7 +340,7 @@ def _catalog_rows(
 	limit = " LIMIT %(page_length)s OFFSET %(start)s" if paginated else ""
 	return frappe.db.sql(
 		f"""SELECT item.name, item.item_name, item.item_group, item.stock_uom,
-		item.controlled_item_type, item.controlled_catalog_source,
+		item.controlled_item_type, item.is_stock_item, item.controlled_catalog_source,
 		COALESCE(stock.actual_qty, 0) AS actual_qty
 		{from_clause} WHERE {where_clause}
 		ORDER BY {order_clause}{limit}""",
@@ -368,8 +370,8 @@ def _catalog_item_preference(row: dict) -> tuple[bool, str]:
 @frappe.whitelist(methods=["POST"])
 def download_catalog_export(
 	file_format: str = "csv", company: str = "", search: str = "", item_type: str = "",
-	item_group: str = "", source: str = "", stock_status: str = "", sort_by: str = "item_name",
-	sort_order: str = "asc", supplier: str = "", stock_only: int = 0,
+	item_group: str = "", source: str = "", stock_status: str = "", maintain_stock: str = "",
+	sort_by: str = "item_name", sort_order: str = "asc", supplier: str = "", stock_only: int = 0,
 ) -> dict:
 	"""Create a private CSV or XLSX export using the active catalog filters."""
 	_require(CATALOG_ROLES)
@@ -377,11 +379,12 @@ def download_catalog_export(
 	if file_format not in {"csv", "xlsx"}:
 		frappe.throw(_("Select CSV or XLSX export format."))
 	from_clause, where_clause, params, order_clause = _catalog_query(
-		company, search, item_type, item_group, source, stock_status, sort_by, sort_order, supplier, stock_only,
+		company, search, item_type, item_group, source, stock_status, sort_by, sort_order,
+		supplier, stock_only, maintain_stock,
 	)
 	rows = frappe.db.sql(
 		f"""SELECT item.name, item.item_name, item.item_group, item.stock_uom,
-		item.controlled_item_type, item.controlled_catalog_source,
+		item.controlled_item_type, item.is_stock_item, item.controlled_catalog_source,
 		COALESCE(stock.actual_qty, 0) AS actual_qty
 		{from_clause} WHERE {where_clause} ORDER BY {order_clause}""",
 		params,
@@ -395,13 +398,15 @@ def download_catalog_export(
 
 def _catalog_query(
 	company: str, search: str, item_type: str, item_group: str, source: str, stock_status: str,
-	sort_by: str, sort_order: str, supplier: str, stock_only: int,
+	sort_by: str, sort_order: str, supplier: str, stock_only: int, maintain_stock: str = "",
 ) -> tuple[str, str, dict, str]:
 	company = _document_company(company)
 	if sort_by not in CATALOG_SORT_FIELDS or sort_order.lower() not in {"asc", "desc"}:
 		frappe.throw(_("Invalid catalog sort option."))
 	if stock_status not in {"", "in_stock", "out_of_stock"}:
 		frappe.throw(_("Invalid stock filter."))
+	if maintain_stock not in {"", "yes", "no"}:
+		frappe.throw(_("Invalid maintain stock filter."))
 	if item_type and item_type not in STOCK_TYPES | {ASSET, SERVICE}:
 		frappe.throw(_("Invalid catalog item type."))
 
@@ -414,6 +419,9 @@ def _catalog_query(
 		if value:
 			conditions.append(f"item.{column} = %({key})s")
 			params[key] = value
+	if maintain_stock:
+		conditions.append("item.is_stock_item = %(is_stock_item)s")
+		params["is_stock_item"] = 1 if maintain_stock == "yes" else 0
 	if stock_status or cint(stock_only):
 		conditions.append("item.controlled_item_type IN ('Stockable', 'Consumable')")
 	if stock_status:
@@ -468,7 +476,9 @@ def _catalog_export_content(rows: list[dict], file_format: str) -> bytes:
 def _catalog_export_row(row: dict) -> tuple:
 	return (
 		_catalog_export_value(row.name), _catalog_export_value(row.item_name), _catalog_export_value(row.item_group),
-		_catalog_export_value(row.controlled_item_type), _catalog_export_value(row.stock_uom), flt(row.actual_qty),
+		_catalog_export_value(row.controlled_item_type),
+		"Yes" if cint(row.get("is_stock_item")) else "No",
+		_catalog_export_value(row.stock_uom), flt(row.actual_qty),
 		_catalog_export_value(row.controlled_catalog_source),
 	)
 

@@ -398,6 +398,15 @@ class TestControlledProcurement(UnitTestCase):
 		self.assertIn("item.controlled_item_type IN ('Stockable', 'Consumable')", sql.call_args_list[0].args[0])
 		self.assertEqual(sql.call_args_list[0].args[1]["item_type"], "Consumable")
 
+	@patch("construction_management.api.controlled_procurement.frappe.db.sql", side_effect=[[], [[0]]])
+	@patch("construction_management.api.controlled_procurement._document_company", return_value="MRG")
+	@patch("construction_management.api.controlled_procurement._require")
+	def test_catalog_maintain_stock_filter(self, _require, _company, sql):
+		controlled_procurement.get_catalog(maintain_stock="no")
+		self.assertIn("item.is_stock_item = %(is_stock_item)s", sql.call_args_list[0].args[0])
+		self.assertEqual(sql.call_args_list[0].args[1]["is_stock_item"], 0)
+		self.assertIn("item.is_stock_item", sql.call_args_list[0].args[0])
+
 	@patch("construction_management.api.controlled_procurement._item_code", return_value="CP-CONSUMABLE")
 	@patch("construction_management.api.controlled_procurement.frappe.new_doc")
 	def test_approved_consumable_is_created_as_stock_item(self, new_doc, _item_code):

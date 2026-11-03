@@ -22,6 +22,7 @@ const typeFilter = ref("")
 const groupFilter = ref("")
 const sourceFilter = ref("")
 const stockFilter = ref("")
+const maintainStockFilter = ref("")
 const sortBy = ref("item_name")
 const sortOrder = ref("asc")
 const filterOptions = ref({ item_groups: [], sources: [] })
@@ -121,6 +122,7 @@ async function load() {
 		const result = await call("get_catalog", {
 			search: search.value, item_type: typeFilter.value, item_group: groupFilter.value,
 			source: sourceFilter.value, stock_status: stockFilter.value,
+			maintain_stock: maintainStockFilter.value,
 			sort_by: sortBy.value, sort_order: sortOrder.value,
 			start: (page.value - 1) * PAGE_SIZE, page_length: PAGE_SIZE,
 		})
@@ -146,6 +148,7 @@ function clearFilters() {
 	groupFilter.value = ""
 	sourceFilter.value = ""
 	stockFilter.value = ""
+	maintainStockFilter.value = ""
 	sortBy.value = "item_name"
 	sortOrder.value = "asc"
 }
@@ -311,6 +314,7 @@ async function exportCatalog(fileFormat) {
 			item_group: groupFilter.value,
 			source: sourceFilter.value,
 			stock_status: stockFilter.value,
+			maintain_stock: maintainStockFilter.value,
 			sort_by: sortBy.value,
 			sort_order: sortOrder.value,
 		})
@@ -379,7 +383,7 @@ async function runMrgOpeningStock() {
 }
 
 watch(search, debounce(() => { clearSelection(); resetToFirstPage() }, 300))
-watch([typeFilter, groupFilter, sourceFilter, stockFilter, sortBy, sortOrder], () => { clearSelection(); resetToFirstPage() })
+watch([typeFilter, groupFilter, sourceFilter, stockFilter, maintainStockFilter, sortBy, sortOrder], () => { clearSelection(); resetToFirstPage() })
 watch(page, () => { clearSelection(); load() })
 onMounted(() => { load(); loadFilterOptions() })
 </script>
@@ -415,26 +419,28 @@ onMounted(() => { load(); loadFilterOptions() })
 		<label class="cp-field"><span>Item group</span><select v-model="groupFilter" class="cp-input"><option value="">All groups</option><option v-for="group in filterOptions.item_groups" :key="group" :value="group">{{ group }}</option></select></label>
 		<label class="cp-field"><span>Source</span><select v-model="sourceFilter" class="cp-input"><option value="">All sources</option><option v-for="source in filterOptions.sources" :key="source" :value="source">{{ source }}</option></select></label>
 		<label class="cp-field"><span>Stock</span><select v-model="stockFilter" class="cp-input"><option value="">Any stock</option><option value="in_stock">In stock</option><option value="out_of_stock">Out of stock</option></select></label>
-		<label class="cp-field"><span>Sort by</span><select v-model="sortBy" class="cp-input"><option value="item_name">Description</option><option value="name">Item code</option><option value="item_group">Group</option><option value="controlled_item_type">Type</option><option value="actual_qty">Available stock</option><option value="controlled_catalog_source">Source</option></select></label>
+		<label class="cp-field"><span>Maintain stock</span><select v-model="maintainStockFilter" class="cp-input"><option value="">Any</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+		<label class="cp-field"><span>Sort by</span><select v-model="sortBy" class="cp-input"><option value="item_name">Description</option><option value="name">Item code</option><option value="item_group">Group</option><option value="controlled_item_type">Type</option><option value="is_stock_item">Maintain stock</option><option value="actual_qty">Available stock</option><option value="controlled_catalog_source">Source</option></select></label>
 		<label class="cp-field"><span>Direction</span><select v-model="sortOrder" class="cp-input"><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
 		<button type="button" class="cp-btn cp-clear-filters" @click="clearFilters">Clear filters</button>
 	</div>
 
 	<section class="cp-card">
 		<table class="cp-table">
-			<thead><tr><th v-if="ctx.can_manage_catalog"><input type="checkbox" :checked="allDisplayedSelected" aria-label="Select displayed catalog items" @change="toggleDisplayedSelection" /></th><th>Description</th><th>Group</th><th>Type</th><th class="num">Available stock</th><th>Source</th><th>UOM</th><th /></tr></thead>
+			<thead><tr><th v-if="ctx.can_manage_catalog"><input type="checkbox" :checked="allDisplayedSelected" aria-label="Select displayed catalog items" @change="toggleDisplayedSelection" /></th><th>Description</th><th>Group</th><th>Type</th><th>Maintain stock</th><th class="num">Available stock</th><th>Source</th><th>UOM</th><th /></tr></thead>
 			<tbody>
 				<tr v-for="item in rows" :key="item.name">
 					<td v-if="ctx.can_manage_catalog"><input type="checkbox" :checked="selectedItemCodes.has(item.name)" :aria-label="`Select ${item.item_name}`" @change="toggleItemSelection(item.name)" /></td>
 					<td><strong>{{ item.item_name }}</strong><small>{{ item.name }}</small></td>
 					<td>{{ item.item_group }}</td>
 					<td><span class="cp-pill info">{{ item.controlled_item_type }}</span></td>
+					<td><span :class="['cp-pill', item.is_stock_item ? 'success' : 'warning']">{{ item.is_stock_item ? "Yes" : "No" }}</span></td>
 					<td class="num"><button v-if="['Stockable', 'Consumable'].includes(item.controlled_item_type)" class="cp-link" @click="showStock(item)">{{ item.actual_qty }}</button><span v-else>—</span></td>
 					<td><span class="cp-muted">{{ item.controlled_catalog_source || "—" }}</span></td>
 					<td>{{ item.stock_uom }}</td>
 					<td><a class="cp-btn sm" :href="itemDeskUrl(item.name)" target="_blank" rel="noopener">Open in Desk ↗</a><button v-if="ctx.can_manage_catalog" class="cp-btn sm" @click="openItemEdit(item)">Edit request</button><button v-if="ctx.can_request_price_change" class="cp-btn sm" @click="openPriceRequest(item)">Request price change</button><button v-if="ctx.can_disable_catalog" class="cp-btn sm" @click="openDisable(item)">Disable</button></td>
 				</tr>
-				<tr v-if="!loading && !rows.length"><td :colspan="ctx.can_manage_catalog ? 8 : 7" class="cp-empty-row">No approved items match these filters.</td></tr>
+				<tr v-if="!loading && !rows.length"><td :colspan="ctx.can_manage_catalog ? 9 : 8" class="cp-empty-row">No approved items match these filters.</td></tr>
 			</tbody>
 		</table>
 		<PaginationBar v-model:page="page" :page-size="PAGE_SIZE" :total="total" :loading="loading" />

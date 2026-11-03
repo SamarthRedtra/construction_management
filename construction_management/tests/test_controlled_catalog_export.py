@@ -17,6 +17,7 @@ class TestControlledCatalogExport(UnitTestCase):
 			"item_name": "Injection Packer",
 			"item_group": "Injection Items",
 			"controlled_item_type": "Stockable",
+			"is_stock_item": 1,
 			"stock_uom": "Nos",
 			"actual_qty": 50,
 			"controlled_catalog_source": "Workbook Import",
@@ -29,14 +30,14 @@ class TestControlledCatalogExport(UnitTestCase):
 		rows = list(csv.reader(StringIO(content.decode("utf-8-sig"))))
 
 		self.assertEqual(rows[0], list(catalog.CATALOG_EXPORT_HEADERS))
-		self.assertEqual(rows[1], ["CP-001", "'=formula", "Injection Items", "Stockable", "Nos", "50.0", "Workbook Import"])
+		self.assertEqual(rows[1], ["CP-001", "'=formula", "Injection Items", "Stockable", "Yes", "Nos", "50.0", "Workbook Import"])
 
 	def test_xlsx_export_has_required_columns_and_rows(self):
 		content = catalog._catalog_export_content([self._row()], "xlsx")
 		sheet = load_workbook(BytesIO(content), data_only=True).active
 
 		self.assertEqual([cell.value for cell in sheet[1]], list(catalog.CATALOG_EXPORT_HEADERS))
-		self.assertEqual([cell.value for cell in sheet[2]], ["CP-001", "Injection Packer", "Injection Items", "Stockable", "Nos", 50, "Workbook Import"])
+		self.assertEqual([cell.value for cell in sheet[2]], ["CP-001", "Injection Packer", "Injection Items", "Stockable", "Yes", "Nos", 50, "Workbook Import"])
 
 	@patch.object(catalog, "save_file", return_value=SimpleNamespace(file_url="/private/files/catalog.csv"))
 	@patch.object(catalog.frappe.db, "sql")
