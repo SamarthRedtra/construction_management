@@ -126,10 +126,11 @@ class TestCollectionExpectedPayments(UnitTestCase):
 		self.assertEqual(str(date), "2026-11-12")
 		self.assertEqual(basis, "Follow-up")
 
+	@patch("construction_management.api.project_collection_data._expected_proforma_entries", return_value=[])
 	@patch(LOOKUPS, return_value=NO_LOOKUPS)
 	@patch("construction_management.api.project_collection_data.frappe.db.sql")
 	@patch("construction_management.api.project_collection_data.today", return_value="2026-09-26")
-	def test_overdue_invoices_roll_into_forecast_start_month(self, _today, mock_sql, _lookups):
+	def test_overdue_invoices_roll_into_forecast_start_month(self, _today, mock_sql, _lookups, _proformas):
 		mock_sql.return_value = [
 			frappe._dict({
 				"customer": "CUST-001",
@@ -170,10 +171,11 @@ class TestCollectionExpectedPayments(UnitTestCase):
 		self.assertTrue(row["details"]["2026-09-01"][0]["carried_forward"])
 		self.assertFalse(row["details"]["2026-09-01"][1]["carried_forward"])
 
+	@patch("construction_management.api.project_collection_data._expected_proforma_entries", return_value=[])
 	@patch(LOOKUPS, return_value=NO_LOOKUPS)
 	@patch("construction_management.api.project_collection_data.frappe.db.sql")
 	@patch("construction_management.api.project_collection_data.today", return_value="2026-09-26")
-	def test_customer_filter_is_passed_to_invoice_query(self, _today, mock_sql, _lookups):
+	def test_customer_filter_is_passed_to_invoice_query(self, _today, mock_sql, _lookups, _proformas):
 		mock_sql.return_value = []
 
 		get_collection_expected_payments("Test Company", {"customer": "CUST-001"})
@@ -182,9 +184,10 @@ class TestCollectionExpectedPayments(UnitTestCase):
 		self.assertIn("si.customer = %(customer)s", query)
 		self.assertEqual(values["customer"], "CUST-001")
 
+	@patch("construction_management.api.project_collection_data._expected_proforma_entries", return_value=[])
 	@patch("construction_management.api.project_collection_data.frappe.db.sql")
 	@patch("construction_management.api.project_collection_data.today", return_value="2026-09-26")
-	def test_same_display_name_combines_customer_records_without_losing_invoice_identity(self, _today, mock_sql):
+	def test_same_display_name_combines_customer_records_without_losing_invoice_identity(self, _today, mock_sql, _proformas):
 		mock_sql.return_value = [
 			invoice("SINV-1", "2026-10-05", 100, customer="CUST-A", customer_name="Same Name"),
 			invoice("SINV-2", "2026-10-06", 200, customer="CUST-B", customer_name="Same Name"),
@@ -204,19 +207,39 @@ class TestCollectionExpectedPayments(UnitTestCase):
 		self.assertEqual(details["SINV-2"]["customer"], "CUST-B")
 		self.assertEqual(details["SINV-2"]["sales_orders"], [])
 
+	@patch("construction_management.api.project_collection_data._expected_proforma_entries", return_value=[])
 	@patch("construction_management.api.project_collection_data.frappe.db.sql")
 	@patch("construction_management.api.project_collection_data.today", return_value="2026-09-26")
-	def test_expected_date_prefers_cheque_then_follow_up_then_project_terms(self, _today, mock_sql):
+	def test_active_pdc_invoice_is_excluded_from_expected_payments(self, _today, mock_sql, _proformas):
 		mock_sql.return_value = [
-			# all four are overdue by invoice due date; the other sources move them forward
-			invoice("SINV-PDC", "2026-08-10", 100),
+			invoice("SINV-PDC", "2026-10-10", 100),
+			invoice("SINV-OPEN", "2026-10-10", 250),
+		]
+		lookups = {
+			**NO_LOOKUPS,
+			"cheque_dates": {"SINV-PDC": "2026-10-15"},
+		}
+		with patch(LOOKUPS, return_value=lookups):
+			result = get_collection_expected_payments("Test Company", {})
+
+		row = result["rows"][0]
+		self.assertEqual(row["amounts"], {"2026-10-01": 250})
+		details = {d["invoice"]: d for month in row["details"].values() for d in month}
+		self.assertNotIn("SINV-PDC", details)
+		self.assertIn("SINV-OPEN", details)
+
+	@patch("construction_management.api.project_collection_data._expected_proforma_entries", return_value=[])
+	@patch("construction_management.api.project_collection_data.frappe.db.sql")
+	@patch("construction_management.api.project_collection_data.today", return_value="2026-09-26")
+	def test_expected_date_prefers_follow_up_then_project_terms(self, _today, mock_sql, _proformas):
+		mock_sql.return_value = [
 			invoice("SINV-FU", "2026-08-10", 200),
 			invoice("SINV-TERMS", "2026-08-10", 300, overdue_days=90),
 			invoice("SINV-PLAIN", "2026-08-10", 400),
 			invoice("SINV-LATER", "2027-02-01", 500),  # beyond the three-month window
 		]
 		lookups = {
-			"cheque_dates": {"SINV-PDC": "2026-10-15"},
+			"cheque_dates": {},
 			"follow_up_dates": {"SO-FU": "2026-11-05"},
 			"invoice_sales_orders": {"SINV-FU": ["SO-FU"]},
 			"sales_order_dates": {},
@@ -225,18 +248,18 @@ class TestCollectionExpectedPayments(UnitTestCase):
 			result = get_collection_expected_payments("Test Company", {})
 
 		row = result["rows"][0]
-		self.assertEqual(row["amounts"], {"2026-09-01": 400, "2026-10-01": 100, "2026-11-01": 500})
+		self.assertEqual(row["amounts"], {"2026-09-01": 400, "2026-11-01": 500})
 		details = {d["invoice"]: d for month in row["details"].values() for d in month}
-		self.assertEqual(details["SINV-PDC"]["basis"], "Cheque")
 		self.assertEqual(details["SINV-FU"]["basis"], "Follow-up")
 		self.assertEqual(details["SINV-TERMS"]["basis"], "Project terms")
 		self.assertEqual(str(details["SINV-TERMS"]["expected_date"]), "2026-11-08")
 		self.assertTrue(details["SINV-PLAIN"]["carried_forward"])
 		self.assertNotIn("SINV-LATER", details)
 
+	@patch("construction_management.api.project_collection_data._expected_proforma_entries", return_value=[])
 	@patch("construction_management.api.project_collection_data.frappe.db.sql")
 	@patch("construction_management.api.project_collection_data.today", return_value="2026-09-26")
-	def test_proforma_basis_counts_days_from_sales_order_date(self, _today, mock_sql):
+	def test_proforma_basis_counts_days_from_sales_order_date(self, _today, mock_sql, _proformas):
 		mock_sql.return_value = [invoice("SINV-PF", "2026-08-01", 250, overdue_basis="Proforma Invoice", overdue_days=60)]
 		lookups = {"cheque_dates": {}, "follow_up_dates": {}, "invoice_sales_orders": {"SINV-PF": ["SO-1"]}, "sales_order_dates": {"SO-1": "2026-09-01"}}
 		with patch(LOOKUPS, return_value=lookups):

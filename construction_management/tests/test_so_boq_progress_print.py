@@ -27,6 +27,7 @@ class TestSOBOQProgressPrint(FrappeTestCase):
 			boq_item="BOQ-ITEM-1",
 		)
 		defaults = {
+			"doctype": "Sales Order",
 			"name": "SO-TEST-BOQ-PROGRESS-PRINT",
 			"customer": "CUST-1",
 			"customer_name": "M1 Construction LLC SOC",
@@ -45,20 +46,20 @@ class TestSOBOQProgressPrint(FrappeTestCase):
 		defaults.update(kwargs)
 		return frappe._dict(defaults)
 
-	def _ledger(self):
-		return [
-			frappe._dict(
-				boq_item="BOQ-ITEM-1",
-				prev_amount=0,
-				current_amount=165775.35,
-				accumulated_amount=165775.35,
-				retention_amount=16577.535,
-				advance_deduction=0,
-				prev_qty=0,
-				percentage=0,
-				tax_invoice_amount=0,
-			)
-		]
+	def _ledger(self, **kwargs):
+		row = frappe._dict(
+			boq_item="BOQ-ITEM-1",
+			prev_amount=0,
+			current_amount=165775.35,
+			accumulated_amount=165775.35,
+			retention_amount=16577.535,
+			advance_deduction=0,
+			prev_qty=0,
+			percentage=0,
+			tax_invoice_amount=0,
+		)
+		row.update(kwargs)
+		return [row]
 
 	def test_net_c_matches_print_formula_and_words_use_net_not_grand_total(self):
 		doc = self._doc()
@@ -128,9 +129,12 @@ class TestSOBOQProgressPrint(FrappeTestCase):
 
 	def test_sales_invoice_excel_export_uses_tax_invoice_heading(self):
 		doc = self._doc(
+			doctype="Sales Invoice",
 			name="SINV-TEST-BOQ-PROGRESS-PRINT",
 			transaction_date=None,
 			posting_date=today(),
+			grand_total=157486.583,
+			in_words=money_in_words(157486.583, "AED"),
 		)
 		with patch(
 			"construction_management.so_boq_progress_print_context.frappe.get_all",
@@ -168,3 +172,148 @@ class TestSOBOQProgressPrint(FrappeTestCase):
 		self.assertEqual(workbook.active["A1"].value, "TAX INVOICE")
 		self.assertIn("Sales Invoice BOQ Progress", file_doc.file_name)
 		self.assertTrue(url.endswith(".xlsx"))
+
+	def test_sales_invoice_linked_ledger_via_tax_invoice(self):
+		doc = self._doc(
+			doctype="Sales Invoice",
+			name="TINV/LINKED/1",
+			transaction_date=None,
+			posting_date=today(),
+			grand_total=150000,
+			in_words=money_in_words(150000, "AED"),
+		)
+		ledger = self._ledger(
+			prev_amount=50000,
+			prev_qty=10,
+			percentage=25,
+			retention_amount=8000,
+			advance_deduction=2000,
+			tax_invoice_amount=165775.35,
+		)
+		captured = []
+
+		def fake_get_all(doctype, filters=None, fields=None, **kwargs):
+			captured.append(filters or {})
+			if filters and filters.get("tax_invoice") == doc.name:
+				return ledger
+			return []
+
+		with patch(
+			"construction_management.so_boq_progress_print_context.frappe.get_all",
+			side_effect=fake_get_all,
+		), patch(
+			"construction_management.so_boq_progress_print_context.frappe.db.has_column",
+			return_value=False,
+		), patch(
+			"construction_management.so_boq_progress_print_context.frappe.db.get_value",
+			return_value=None,
+		):
+			ctx = build(doc)
+
+		self.assertEqual(captured[0].get("tax_invoice"), doc.name)
+		self.assertAlmostEqual(ctx["rows"][0]["prev_amount"], 50000, places=2)
+		self.assertAlmostEqual(ctx["rows"][0]["prev_qty"], 10, places=2)
+		self.assertAlmostEqual(ctx["totals"]["ret_c"], 8000, places=2)
+		self.assertAlmostEqual(ctx["totals"]["adv_c"], 2000, places=2)
+		self.assertAlmostEqual(ctx["totals"]["net_c"], 150000, places=2)
+		self.assertEqual(ctx["totals"]["prev_paid"], 0)
+		self.assertEqual(ctx["amount_in_words"], doc.in_words)
+
+	def test_sales_invoice_orphan_ledger_fallback(self):
+		doc = self._doc(
+			doctype="Sales Invoice",
+			name="TINV/ORPHAN/1",
+			transaction_date=None,
+			posting_date=today(),
+			grand_total=140000,
+			in_words=money_in_words(140000, "AED"),
+		)
+		ledger = self._ledger(prev_amount=12000, retention_amount=5000)
+
+		def fake_get_all(doctype, filters=None, fields=None, **kwargs):
+			if filters and filters.get("tax_invoice"):
+				return []
+			if (
+				filters
+				and filters.get("reference_doctype") == "Sales Invoice"
+				and filters.get("reference_name") == doc.name
+			):
+				return ledger
+			return []
+
+		with patch(
+			"construction_management.so_boq_progress_print_context.frappe.get_all",
+			side_effect=fake_get_all,
+		), patch(
+			"construction_management.so_boq_progress_print_context.frappe.db.has_column",
+			return_value=False,
+		), patch(
+			"construction_management.so_boq_progress_print_context.frappe.db.get_value",
+			return_value=None,
+		):
+			ctx = build(doc)
+
+		self.assertAlmostEqual(ctx["rows"][0]["prev_amount"], 12000, places=2)
+		self.assertAlmostEqual(ctx["totals"]["ret_c"], 5000, places=2)
+		self.assertAlmostEqual(ctx["totals"]["net_c"], doc.grand_total, places=2)
+
+	def test_sales_invoice_deduction_lines_drive_retention_and_advance(self):
+		work = frappe._dict(
+			item_code="WATERPROOFING",
+			item_name="Waterproofing",
+			description="Work",
+			uom="M2",
+			qty=1,
+			rate=100000,
+			amount=100000,
+			boq_item="BOQ-ITEM-1",
+		)
+		ret = frappe._dict(
+			item_code="RETENTION-DEDUCTION",
+			item_name="Retention",
+			description="Retention",
+			uom="Nos",
+			qty=1,
+			rate=-10000,
+			amount=-10000,
+			boq_item=None,
+		)
+		adv = frappe._dict(
+			item_code="ADVANCE-DEDUCTION",
+			item_name="Advance",
+			description="Advance",
+			uom="Nos",
+			qty=1,
+			rate=-5000,
+			amount=-5000,
+			boq_item=None,
+		)
+		doc = self._doc(
+			doctype="Sales Invoice",
+			name="TINV/DED/1",
+			transaction_date=None,
+			posting_date=today(),
+			items=[work, ret, adv],
+			grand_total=89750,
+			total_taxes_and_charges=4750,
+			in_words=money_in_words(89750, "AED"),
+		)
+
+		with patch(
+			"construction_management.so_boq_progress_print_context.frappe.get_all",
+			return_value=self._ledger(retention_amount=999, advance_deduction=999),
+		), patch(
+			"construction_management.so_boq_progress_print_context.frappe.db.has_column",
+			return_value=False,
+		), patch(
+			"construction_management.so_boq_progress_print_context.frappe.db.get_value",
+			return_value=None,
+		):
+			ctx = build(doc)
+
+		self.assertEqual(len(ctx["rows"]), 1)
+		self.assertEqual(ctx["rows"][0]["description"], "Work")
+		self.assertAlmostEqual(ctx["totals"]["ret_c"], 10000, places=2)
+		self.assertAlmostEqual(ctx["totals"]["adv_c"], 5000, places=2)
+		self.assertAlmostEqual(ctx["totals"]["net_c"], 89750, places=2)
+		self.assertEqual(ctx["amount_in_words"], doc.in_words)

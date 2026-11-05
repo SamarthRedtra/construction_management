@@ -206,7 +206,7 @@ class TestProjectReportingFixes(UnitTestCase):
 		_set_conversion_status(row)
 		self.assertEqual(row["conversion_status"], "Not Converted")
 
-	def test_consolidate_hides_proforma_when_any_tax_invoice_linked(self):
+	def test_consolidate_keeps_proforma_and_merges_linked_tax_invoice(self):
 		rows = [
 			{
 				"reference_doctype": "Sales Order",
@@ -232,11 +232,14 @@ class TestProjectReportingFixes(UnitTestCase):
 		result = _consolidate_project_collection_rows(rows, {}, allocations)
 
 		self.assertEqual(len(result), 1)
-		self.assertEqual(result[0]["reference_doctype"], "Sales Invoice")
-		self.assertEqual(result[0]["reference_name"], "SINV-1")
-		self.assertEqual(result[0]["conversion_status"], "Converted")
-		self.assertEqual(result[0]["pi_amount"], 0.0)
-		self.assertNotIn("SO-1", {row.get("reference_name") for row in result})
+		self.assertEqual(result[0]["reference_doctype"], "Sales Order")
+		self.assertEqual(result[0]["reference_name"], "SO-1")
+		self.assertEqual(result[0]["conversion_status"], "Partially Converted")
+		self.assertEqual(result[0]["ti_amt"], 50)
+		self.assertEqual(result[0]["tax_invoice_no"], "SINV-1")
+		self.assertEqual(result[0]["tax_invoices"][0]["name"], "SINV-1")
+		self.assertEqual(result[0]["pi_amount"], 100)
+		self.assertNotIn("SINV-1", {row.get("reference_name") for row in result})
 
 	def test_consolidate_keeps_unconverted_proforma(self):
 		rows = [

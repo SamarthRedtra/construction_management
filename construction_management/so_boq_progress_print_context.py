@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Construction Management
 # License: MIT
 
-"""Print context for Sales Order BOQ Progress (proforma) format."""
+"""Print context for Sales Order / Sales Invoice BOQ Progress formats."""
 
 from __future__ import annotations
 
@@ -10,6 +10,18 @@ from frappe.utils import flt, formatdate, money_in_words
 
 DEDUCTION_ITEM_CODES = ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION")
 DEFAULT_VAT_RATE = 5.0
+
+LEDGER_FIELDS = [
+	"boq_item",
+	"prev_amount",
+	"current_amount",
+	"accumulated_amount",
+	"retention_amount",
+	"advance_deduction",
+	"prev_qty",
+	"percentage",
+	"tax_invoice_amount",
+]
 
 
 def get_so_boq_progress_print_context(doc) -> dict:
@@ -20,7 +32,8 @@ def build(doc) -> dict:
 	"""Totals and line rows matching the BOQ Progress print layout."""
 	ret_percent = _retention_percent(doc)
 	vat_rate = _vat_rate(doc)
-	ledger_map = _ledger_map(doc.name)
+	ledger_map = _ledger_map(doc)
+	is_sales_invoice = _doctype(doc) == "Sales Invoice"
 
 	items = []
 	gross_p = gross_c = gross_t = 0.0
@@ -28,8 +41,11 @@ def build(doc) -> dict:
 	prev_paid = 0.0
 	idx = 0
 
-	for entry in ledger_map.values():
-		prev_paid += flt(entry.get("tax_invoice_amount"))
+	if not is_sales_invoice:
+		for entry in ledger_map.values():
+			prev_paid += flt(entry.get("tax_invoice_amount"))
+
+	deduction_ret, deduction_adv = _deduction_amounts(doc)
 
 	for item in doc.get("items") or []:
 		if flt(item.amount) <= 0:
@@ -66,21 +82,31 @@ def build(doc) -> dict:
 		gross_p += prev_amount
 		gross_c += current_amount
 		gross_t += total_amount
-		if ledger:
-			ret_c += flt(ledger.get("retention_amount"))
-			adv_c += flt(ledger.get("advance_deduction"))
-		else:
-			ret_c += current_amount * ret_percent / 100.0
+		if deduction_ret is None and deduction_adv is None:
+			if ledger:
+				ret_c += flt(ledger.get("retention_amount"))
+				adv_c += flt(ledger.get("advance_deduction"))
+			else:
+				ret_c += current_amount * ret_percent / 100.0
+
+	if deduction_ret is not None:
+		ret_c = deduction_ret
+	if deduction_adv is not None:
+		adv_c = deduction_adv
 
 	adv_p = 0.0
 	tax_c = flt(doc.get("total_taxes_and_charges"))
 	disc_c = abs(flt(doc.get("discount_amount")))
 	ret_p = gross_p * ret_percent / 100.0
 	tax_p = gross_p * vat_rate / 100.0
-	net_c = gross_c - ret_c - adv_c + tax_c - disc_c
 
 	currency = doc.currency or "AED"
-	words = money_in_words(flt(net_c), currency) or ""
+	if is_sales_invoice:
+		net_c = flt(doc.get("grand_total"))
+		words = (doc.get("in_words") or "").strip() or money_in_words(flt(net_c), currency) or ""
+	else:
+		net_c = gross_c - ret_c - adv_c + tax_c - disc_c
+		words = money_in_words(flt(net_c), currency) or ""
 
 	return {
 		"header": _header(doc),
@@ -110,6 +136,28 @@ def build(doc) -> dict:
 		"company": doc.company,
 		"customer_name": doc.customer_name or "",
 	}
+
+
+def _doctype(doc) -> str:
+	return getattr(doc, "doctype", None) or doc.get("doctype") or ""
+
+
+def _deduction_amounts(doc) -> tuple[float | None, float | None]:
+	"""Return retention/advance from deduction lines when present."""
+	ret_total = 0.0
+	adv_total = 0.0
+	has_ret = False
+	has_adv = False
+	for item in doc.get("items") or []:
+		code = item.item_code
+		amount = abs(flt(item.amount))
+		if code == "RETENTION-DEDUCTION":
+			has_ret = True
+			ret_total += amount
+		elif code == "ADVANCE-DEDUCTION":
+			has_adv = True
+			adv_total += amount
+	return (ret_total if has_ret else None, adv_total if has_adv else None)
 
 
 def _header(doc) -> dict:
@@ -151,6 +199,8 @@ def _header(doc) -> dict:
 		"project_name": project_name,
 		"company_trn": company_trn,
 		"company_trn_label": company_trn_label,
+		"address_display": doc.get("address_display") or "",
+		"due_date": formatdate(doc.get("due_date")) if doc.get("due_date") else "",
 	}
 
 
@@ -168,22 +218,35 @@ def _vat_rate(doc) -> float:
 	return DEFAULT_VAT_RATE
 
 
-def _ledger_map(reference_name: str) -> dict:
-	if not reference_name:
+def _ledger_map(doc) -> dict:
+	name = doc.name if hasattr(doc, "name") else doc.get("name")
+	if not name:
 		return {}
-	entries = frappe.get_all(
-		"BOQ Progress Ledger",
-		filters={"reference_name": reference_name},
-		fields=[
-			"boq_item",
-			"prev_amount",
-			"current_amount",
-			"accumulated_amount",
-			"retention_amount",
-			"advance_deduction",
-			"prev_qty",
-			"percentage",
-			"tax_invoice_amount",
-		],
-	)
+
+	doctype = _doctype(doc)
+	if doctype == "Sales Invoice":
+		entries = frappe.get_all(
+			"BOQ Progress Ledger",
+			filters={"tax_invoice": name},
+			fields=LEDGER_FIELDS,
+		)
+		if not entries:
+			entries = frappe.get_all(
+				"BOQ Progress Ledger",
+				filters={
+					"reference_doctype": "Sales Invoice",
+					"reference_name": name,
+				},
+				fields=LEDGER_FIELDS,
+			)
+	else:
+		entries = frappe.get_all(
+			"BOQ Progress Ledger",
+			filters={
+				"reference_doctype": "Sales Order",
+				"reference_name": name,
+			},
+			fields=LEDGER_FIELDS,
+		)
+
 	return {row.boq_item: row for row in entries if row.boq_item}

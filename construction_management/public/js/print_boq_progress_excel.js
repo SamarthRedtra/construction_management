@@ -1,5 +1,6 @@
 (() => {
-	const FORMAT = "Sales Order BOQ Progress";
+	const SO_FORMAT = "Sales Order BOQ Progress";
+	const SI_FORMAT = "Sales Invoice";
 
 	function selectedFormat(view) {
 		return view.selected_format ? view.selected_format() : "";
@@ -8,33 +9,53 @@
 	function exportExcel(view) {
 		const doctype = view.frm && view.frm.doctype;
 		const name = view.frm && (view.frm.docname || (view.frm.doc && view.frm.doc.name));
-		if (doctype !== "Sales Order" || !name) {
-			frappe.msgprint(__("Excel export is only available for Sales Order"));
+		if (!name) {
 			return;
 		}
-		frappe.call({
-			method:
-				"construction_management.api.so_boq_progress_excel.export_sales_order_boq_progress_excel",
-			args: { sales_order: name },
-			freeze: true,
-			freeze_message: __("Exporting Excel..."),
-			callback(r) {
-				if (r.message) {
-					window.open(r.message);
-					frappe.show_alert({ message: __("Excel exported"), indicator: "green" });
-				}
-			},
-		});
+		if (doctype === "Sales Order") {
+			frappe.call({
+				method:
+					"construction_management.api.so_boq_progress_excel.export_sales_order_boq_progress_excel",
+				args: { sales_order: name },
+				freeze: true,
+				freeze_message: __("Exporting Excel..."),
+				callback(r) {
+					if (r.message) {
+						window.open(r.message);
+						frappe.show_alert({ message: __("Excel exported"), indicator: "green" });
+					}
+				},
+			});
+			return;
+		}
+		if (doctype === "Sales Invoice") {
+			frappe.call({
+				method:
+					"construction_management.api.so_boq_progress_excel.export_sales_invoice_boq_progress_excel",
+				args: { sales_invoice: name },
+				freeze: true,
+				freeze_message: __("Exporting Excel..."),
+				callback(r) {
+					if (r.message) {
+						window.open(r.message);
+						frappe.show_alert({ message: __("Excel exported"), indicator: "green" });
+					}
+				},
+			});
+			return;
+		}
+		frappe.msgprint(__("Excel export is only available for Sales Order and Sales Invoice"));
 	}
 
 	function toggleExcelButton(view) {
 		if (!view._boq_progress_excel_btn) {
 			return;
 		}
+		const format = selectedFormat(view);
 		const show =
 			view.frm &&
-			view.frm.doctype === "Sales Order" &&
-			selectedFormat(view) === FORMAT;
+			((view.frm.doctype === "Sales Order" && format === SO_FORMAT) ||
+				(view.frm.doctype === "Sales Invoice" && format === SI_FORMAT));
 		view._boq_progress_excel_btn.toggle(show);
 	}
 

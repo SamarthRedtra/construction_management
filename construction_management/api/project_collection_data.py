@@ -111,6 +111,10 @@ def _date_matches_filters(document_date, filters: dict) -> bool:
 def _consolidate_project_collection_rows(
 	rows: list[dict], filters: dict, allocations: dict | None = None
 ) -> list[dict]:
+	"""Keep proforma SO rows and merge linked Tax Invoices into them (Register).
+
+	Hiding converted proformas belongs only in Expected Payments.
+	"""
 	proforma_rows = {
 		row.get("reference_name"): row
 		for row in rows
@@ -127,41 +131,27 @@ def _consolidate_project_collection_rows(
 	for row in proforma_rows.values():
 		_prepare_proforma_collection_row(row)
 
-	# SOs with any linked TI are treated as converted and hidden from the register.
-	converted_orders = {
-		sales_order
-		for invoice_allocations in allocations.values()
-		for sales_order in invoice_allocations
-		if sales_order in proforma_rows
-	}
-
-	standalone_invoice_rows = []
+	unlinked_rows = []
 	for invoice_row in tax_invoice_rows:
-		invoice_name = invoice_row.get("reference_name")
-		invoice_allocations = allocations.get(invoice_name) or {}
-		linked_converted = [
-			sales_order for sales_order in invoice_allocations if sales_order in converted_orders
-		]
-		if linked_converted:
-			# Show the tax invoice on its posting-date period instead of the proforma shell.
-			if _date_matches_filters(invoice_row.get("ti_date"), filters):
-				standalone_invoice_rows.append(
-					_as_converted_tax_invoice_row(invoice_row, linked_converted)
-				)
+		linked_to_visible_proforma = False
+		for sales_order, allocation in allocations.get(invoice_row.get("reference_name"), {}).items():
+			proforma_row = proforma_rows.get(sales_order)
+			if not proforma_row:
+				continue
+			_merge_tax_invoice_into_proforma(proforma_row, invoice_row, allocation)
+			linked_to_visible_proforma = True
+
+		if not allocations.get(invoice_row.get("reference_name")) and _date_matches_filters(
+			invoice_row.get("ti_date"), filters
+		):
+			unlinked_rows.append(_as_unlinked_tax_invoice_row(invoice_row))
+		elif not linked_to_visible_proforma:
+			# Linked to an SO outside the selected period: belongs to that Proforma month.
 			continue
 
-		if not invoice_allocations and _date_matches_filters(invoice_row.get("ti_date"), filters):
-			standalone_invoice_rows.append(_as_unlinked_tax_invoice_row(invoice_row))
-		# Linked to an SO outside the selected period (not in proforma_rows): omit —
-		# it belongs to that Proforma month, not the TI month.
-
-	unconverted = []
-	for sales_order, row in proforma_rows.items():
-		if sales_order in converted_orders:
-			continue
+	for row in proforma_rows.values():
 		_set_conversion_status(row)
-		unconverted.append(row)
-	return [*unconverted, *standalone_invoice_rows]
+	return [*proforma_rows.values(), *unlinked_rows]
 
 
 def _prepare_proforma_collection_row(row: dict) -> None:
@@ -173,6 +163,81 @@ def _prepare_proforma_collection_row(row: dict) -> None:
 	row["proforma_net_amount"] = flt(row.get("proforma_net_amount") or row.get("pi_amount"))
 	row["ti_amt"] = 0.0
 	row["ti_date"] = None
+
+
+def _merge_tax_invoice_into_proforma(
+	proforma_row: dict, invoice_row: dict, allocation: dict
+) -> None:
+	invoice_name = invoice_row.get("reference_name")
+	allocated_amount = flt(allocation.get("allocated_grand_total"))
+	proforma_row["tax_invoices"].append(
+		{
+			"name": invoice_name,
+			"posting_date": invoice_row.get("ti_date"),
+			"allocated_amount": allocated_amount,
+		}
+	)
+	proforma_row["tax_invoice_no"] = ", ".join(
+		invoice["name"] for invoice in proforma_row["tax_invoices"]
+	)
+	proforma_row["ti_amt"] = flt(proforma_row.get("ti_amt")) + allocated_amount
+	proforma_row["invoiced_net_amount"] = flt(proforma_row.get("invoiced_net_amount")) + flt(
+		allocation.get("linked_net_amount")
+	)
+	proforma_row["ti_date"] = _latest_date(
+		proforma_row.get("ti_date"), invoice_row.get("ti_date")
+	)
+	if not proforma_row.get("collection_due_date"):
+		proforma_row["due_date"] = _latest_date(
+			proforma_row.get("due_date"), invoice_row.get("due_date")
+		)
+
+	_merge_payment_display(proforma_row, invoice_row)
+	_copy_invoice_pc_fallback(proforma_row, invoice_row)
+	proforma_row["is_advance"] = cint(proforma_row.get("is_advance")) or cint(
+		invoice_row.get("is_advance")
+	)
+	proforma_row["is_retention_release"] = cint(proforma_row.get("is_retention_release")) or cint(
+		invoice_row.get("is_retention_release")
+	)
+
+
+def _merge_payment_display(proforma_row: dict, invoice_row: dict) -> None:
+	proforma_row["payment_date"] = _latest_date(
+		proforma_row.get("payment_date"), invoice_row.get("payment_date")
+	)
+	for fieldname in ("payment_mode", "cheque_no"):
+		values = []
+		for value in (proforma_row.get(fieldname), invoice_row.get(fieldname)):
+			for part in str(value or "").split(","):
+				part = part.strip()
+				if part and part not in values:
+					values.append(part)
+		proforma_row[fieldname] = ", ".join(values)
+
+
+def _copy_invoice_pc_fallback(proforma_row: dict, invoice_row: dict) -> None:
+	for fieldname in (
+		"payment_certificate",
+		"pc_date",
+		"pc_amt",
+		"pc_attachment",
+		"follow_up_name",
+		"follow_up_status",
+		"follow_up_attachment",
+	):
+		if not proforma_row.get(fieldname) and invoice_row.get(fieldname):
+			proforma_row[fieldname] = invoice_row[fieldname]
+	if not proforma_row.get("remarks") and invoice_row.get("remarks"):
+		proforma_row["remarks"] = invoice_row["remarks"]
+
+
+def _latest_date(first, second):
+	if not first:
+		return second
+	if not second:
+		return first
+	return max(getdate(first), getdate(second))
 
 
 def _set_conversion_status(row: dict) -> None:
@@ -201,28 +266,6 @@ def _as_unlinked_tax_invoice_row(row: dict) -> dict:
 		}
 	]
 	row["document_type"] = "Unlinked Tax Invoice"
-	return row
-
-
-def _as_converted_tax_invoice_row(row: dict, linked_orders: list[str]) -> dict:
-	"""Standalone TI row when its proforma is hidden after any conversion."""
-	row = dict(row)
-	invoice_name = row.get("reference_name") or row.get("invoice_no")
-	row["row_group"] = "converted_tax_invoice"
-	row["conversion_status"] = "Converted"
-	row["tax_invoice_no"] = invoice_name
-	row["tax_invoices"] = [
-		{
-			"name": invoice_name,
-			"posting_date": row.get("ti_date"),
-			"allocated_amount": flt(row.get("ti_amt")),
-		}
-	]
-	row["document_type"] = "Tax Invoice"
-	row["linked_proformas"] = list(linked_orders)
-	# Clear proforma shell amounts so the register does not imply a leftover PI balance.
-	row["pi_amount"] = 0.0
-	row["pi_date"] = None
 	return row
 
 
@@ -461,6 +504,9 @@ def get_collection_expected_payments(company: str, filters: dict | None = None) 
 	lookups = _expected_payment_lookups([entry.invoice for entry in entries], company)
 	by_customer = {}
 	for entry in entries:
+		# Active PDC already secures collection; keep it out of the pending forecast.
+		if lookups["cheque_dates"].get(entry.invoice):
+			continue
 		expected_date, basis = _expected_payment_date(entry, lookups)
 		_add_expected_payment(by_customer, entry, anchor, end_date, expected_date, {
 			"doctype": "Sales Invoice",
