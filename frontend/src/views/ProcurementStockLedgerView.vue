@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import { request } from "@/api"
 import { toastError } from "@/toast"
-import { formatDate, formatNumber, today } from "@/utils"
+import { deskUrl, formatDate, formatNumber, today } from "@/utils"
 import LedgerFilterSelect from "@/components/LedgerFilterSelect.vue"
 import PageHeader from "@/components/PageHeader.vue"
 import PaginationBar from "@/components/PaginationBar.vue"
@@ -86,7 +86,28 @@ onMounted(() => load())
 	<div class="cp-card"><table class="cp-table">
 		<thead><tr><th>Date</th><th>Item</th><th>Warehouse</th><th>Project</th><th>Voucher</th><th class="num">In</th><th class="num">Out</th><th class="num">Movement value</th><th class="num">Balance qty</th><th class="num">Balance value</th></tr></thead>
 		<tbody>
-			<tr v-for="row in rows" :key="row.name"><td>{{ formatDate(row.posting_date) }}</td><td>{{ row.item_code }}</td><td>{{ row.warehouse }}</td><td>{{ row.project || '—' }}</td><td>{{ row.voucher_type }} · {{ row.voucher_no }}</td><td class="num">{{ formatNumber(row.in_qty) }}</td><td class="num">{{ formatNumber(row.out_qty) }}</td><td class="num">{{ formatNumber(row.movement_value) }}</td><td class="num">{{ formatNumber(row.qty_after_transaction) }}</td><td class="num">{{ formatNumber(row.valuation_balance) }}</td></tr>
+			<tr v-for="row in rows" :key="row.name">
+				<td>{{ formatDate(row.posting_date) }}</td>
+				<td>{{ row.item_code }}</td>
+				<td>{{ row.warehouse }}</td>
+				<td>{{ row.project || '—' }}</td>
+				<td>
+					<a
+						v-if="row.voucher_type && row.voucher_no"
+						class="cp-link"
+						:href="deskUrl(row.voucher_type, row.voucher_no)"
+						target="_blank"
+						rel="noopener"
+						:title="`Open ${row.voucher_type} ${row.voucher_no} in Desk`"
+					>{{ row.voucher_type }} · {{ row.voucher_no }} ↗</a>
+					<span v-else>—</span>
+				</td>
+				<td class="num">{{ formatNumber(row.in_qty) }}</td>
+				<td class="num">{{ formatNumber(row.out_qty) }}</td>
+				<td class="num">{{ formatNumber(row.movement_value) }}</td>
+				<td class="num">{{ formatNumber(row.qty_after_transaction) }}</td>
+				<td class="num">{{ formatNumber(row.valuation_balance) }}</td>
+			</tr>
 			<tr v-if="!loading && !rows.length"><td colspan="10" class="cp-muted">No stock-ledger entries match these filters.</td></tr>
 		</tbody>
 	</table>

@@ -78,10 +78,14 @@ export async function uploadFile(file) {
 	return payload.message
 }
 
-export function printUrl(doctype, name, format = "Standard", pdf = false, letterhead = "") {
+export function printUrl(doctype, name, format = "Standard", pdf = false, letterhead = "", pdfGenerator = "chrome") {
 	const params = new URLSearchParams({ doctype, name, format, no_letterhead: letterhead ? "0" : "1" })
 	if (letterhead) params.set("letterhead", letterhead)
-	if (pdf) return `/api/method/frappe.utils.print_format.download_pdf?${params}`
+	if (pdf) {
+		// download_pdf defaults to wkhtmltopdf when omitted; many hosts (incl. some Cloud) lack it.
+		params.set("pdf_generator", pdfGenerator || "chrome")
+		return `/api/method/frappe.utils.print_format.download_pdf?${params}`
+	}
 	return `/printview?${params}&trigger_print=1`
 }
 

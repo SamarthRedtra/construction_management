@@ -85,3 +85,9 @@ export const DOCTYPES = {
 export function kindFor(doctype) {
 	return Object.keys(DOCTYPES).find((kind) => DOCTYPES[kind].doctype === doctype)
 }
+
+/** Open a document in Desk (`/app/stock-entry/...`). */
+export function deskUrl(doctype, name) {
+	if (!doctype || !name) return "#"
+	return `/app/${String(doctype).toLowerCase().replace(/ /g, "-")}/${encodeURIComponent(name)}`
+}

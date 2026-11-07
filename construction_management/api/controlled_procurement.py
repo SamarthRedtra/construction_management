@@ -4466,7 +4466,20 @@ def get_print_options(doctype: str, name: str) -> dict:
 		"default_letterhead": doc.get("letter_head")
 		or frappe.db.get_value("Company", doc.company, "default_letter_head")
 		or frappe.db.get_value("Letter Head", {"is_default": 1, "disabled": 0}, "name"),
+		# Desk Print falls back to Print Settings; download_pdf does not — pass explicitly.
+		"pdf_generator": _pdf_generator_for_format(default if default in formats else "Standard"),
 	}
+
+
+def _pdf_generator_for_format(print_format: str | None) -> str:
+	"""Prefer Print Format override, then Print Settings, then chrome (wkhtmltopdf often missing)."""
+	generator = None
+	if print_format and print_format != "Standard" and frappe.db.exists("Print Format", print_format):
+		if frappe.get_meta("Print Format").has_field("pdf_generator"):
+			generator = frappe.db.get_value("Print Format", print_format, "pdf_generator")
+	if not generator and frappe.get_meta("Print Settings").has_field("pdf_generator"):
+		generator = frappe.db.get_single_value("Print Settings", "pdf_generator")
+	return generator if generator in ("chrome", "wkhtmltopdf") else "chrome"
 
 
 @frappe.whitelist(methods=["GET"])

@@ -1,5 +1,6 @@
 {
  "actions": [],
+ "allow_bulk_edit": 1,
  "autoname": "naming_series:",
  "creation": "2026-02-13 18:00:00",
  "doctype": "DocType",
@@ -41,6 +42,7 @@
   "total_boq_value",
   "total_revenue",
   "column_break_4",
+  "actual_revenue_value",
   "gross_profit",
   "gross_profit_percent",
   "section_advance_retention",
@@ -266,7 +268,7 @@
   {
    "fieldname": "total_revenue",
    "fieldtype": "Currency",
-   "label": "Total Revenue (Billed)",
+   "label": "Total Profit (Billed)",
    "read_only": 1
   },
   {
@@ -363,12 +365,19 @@
   {
    "fieldname": "column_break_udab",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "actual_revenue_value",
+   "fieldtype": "Currency",
+   "label": "Actual Revenue Value",
+   "read_only": 1,
+   "description": "All-time balance of the company Sales ledger for this project. Uses Sales Account when Sales is not defined."
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-03-03 15:14:56.022233",
+ "modified": "2026-11-06 10:02:33.382817",
  "modified_by": "Administrator",
  "module": "Construction Management",
  "name": "Project Closure",

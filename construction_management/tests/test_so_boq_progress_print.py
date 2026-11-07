@@ -317,3 +317,49 @@ class TestSOBOQProgressPrint(FrappeTestCase):
 		self.assertAlmostEqual(ctx["totals"]["adv_c"], 5000, places=2)
 		self.assertAlmostEqual(ctx["totals"]["net_c"], 89750, places=2)
 		self.assertEqual(ctx["amount_in_words"], doc.in_words)
+
+	def test_sales_invoice_retention_release_is_not_retained_again(self):
+		release = frappe._dict(
+			item_code="RETENTION-RELEASE",
+			item_name="Retention Release",
+			description="Retention release",
+			uom="Nos",
+			qty=1,
+			rate=68755.05,
+			amount=68755.05,
+			boq_item=None,
+		)
+		doc = self._doc(
+			doctype="Sales Invoice",
+			name="TINV/1053/2026-NOV/2",
+			transaction_date=None,
+			posting_date=today(),
+			items=[release],
+			taxes=[],
+			total_taxes_and_charges=0,
+			discount_amount=0,
+			grand_total=68755.05,
+			in_words=money_in_words(68755.05, "AED"),
+		)
+
+		with patch(
+			"construction_management.so_boq_progress_print_context.frappe.get_all",
+			return_value=[],
+		), patch(
+			"construction_management.so_boq_progress_print_context.frappe.db.has_column",
+			return_value=False,
+		), patch(
+			"construction_management.so_boq_progress_print_context.frappe.db.get_value",
+			return_value=None,
+		):
+			ctx = build(doc)
+
+		t = ctx["totals"]
+		self.assertEqual(len(ctx["rows"]), 1)
+		self.assertAlmostEqual(t["gross_c"], 68755.05, places=2)
+		self.assertAlmostEqual(t["ret_c"], 0, places=2)
+		self.assertAlmostEqual(t["adv_c"], 0, places=2)
+		self.assertEqual(t["vat_rate"], 0)
+		self.assertAlmostEqual(t["tax_c"], 0, places=2)
+		self.assertAlmostEqual(t["net_c"], doc.grand_total, places=2)
+		self.assertEqual(t["prev_paid"], 0)

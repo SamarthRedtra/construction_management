@@ -1,0 +1,48 @@
+{
+ "actions": [],
+ "creation": "2026-11-06 12:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "days_before",
+  "notify_on_due_date"
+ ],
+ "fields": [
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled"
+  },
+  {
+   "default": "7",
+   "fieldname": "days_before",
+   "fieldtype": "Int",
+   "label": "Days Before",
+   "non_negative": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "notify_on_due_date",
+   "fieldtype": "Check",
+   "label": "Notify On Due Date"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-11-06 12:00:00",
+ "module": "Construction Management",
+ "name": "Retention Reminder Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

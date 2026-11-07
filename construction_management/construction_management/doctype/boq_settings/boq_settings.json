@@ -133,8 +133,7 @@
    "fieldname": "retention_account",
    "fieldtype": "Link",
    "label": "Retention Account Debit",
-   "options": "Account",
-   "reqd": 0
+   "options": "Account"
   },
   {
    "fieldname": "column_break_12",
@@ -181,8 +180,7 @@
    "fieldname": "advance_deduction_item",
    "fieldtype": "Link",
    "label": "Advance Deduction Item",
-   "options": "Item",
-   "reqd": 0
+   "options": "Item"
   },
   {
    "fieldname": "section_break_cost",
@@ -243,15 +241,13 @@
    "fieldname": "default_advance_item",
    "fieldtype": "Link",
    "label": "Default Advance Item",
-   "options": "Item",
-   "reqd": 0
+   "options": "Item"
   },
   {
    "fieldname": "advance_account",
    "fieldtype": "Link",
    "label": "Advance Account",
-   "options": "Account",
-   "reqd": 0
+   "options": "Account"
   },
   {
    "fieldname": "section_break_so_unearned",
@@ -278,7 +274,6 @@
    "fieldtype": "Column Break"
   },
   {
-   "depends_on": "eval:doc.enable_so_unearned_revenue_jv",
    "description": "Credit account for Sales Order unearned revenue JV",
    "fieldname": "so_unearned_revenue_credit_account",
    "fieldtype": "Link",
@@ -312,16 +307,14 @@
    "fieldname": "varience_account_debit",
    "fieldtype": "Link",
    "label": "Varience Account Debit",
-   "options": "Account",
-   "reqd": 0
+   "options": "Account"
   },
   {
    "description": "Item used for varience deductions in invoices",
    "fieldname": "varience_item",
    "fieldtype": "Link",
    "label": "Varience Deduction Item",
-   "options": "Item",
-   "reqd": 0
+   "options": "Item"
   },
   {
    "fieldname": "section_break_bulk_material_issue",
@@ -357,7 +350,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-30 13:40:00.000000",
+ "modified": "2026-11-06 11:32:09.265431",
  "modified_by": "Administrator",
  "module": "Construction Management",
  "name": "BOQ Settings",

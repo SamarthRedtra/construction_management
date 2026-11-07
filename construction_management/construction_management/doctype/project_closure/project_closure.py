@@ -6,12 +6,23 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
 
-from construction_management.api.project_revenue import get_project_billed_revenue
+from construction_management.api.project_revenue import (
+	get_project_billed_revenue,
+	get_project_sales_gl_balance,
+)
 
 
 class ProjectClosure(Document):
 	def validate(self):
+		self.set_actual_revenue()
 		self.calculate_totals()
+
+	def set_actual_revenue(self):
+		if not self.project:
+			return
+		balance = get_project_sales_gl_balance(self.project)
+		if balance is not None:
+			self.actual_revenue_value = balance
 
 	def before_submit(self):
 		self.status = "Submitted"
@@ -215,6 +226,7 @@ def fetch_project_data(project):
 		"actual_expense_cost": total_act_expense,
 		"total_actual_cost": total_act,
 		"total_revenue": flt(total_revenue),
+		"actual_revenue_value": get_project_sales_gl_balance(project),
 		"retention_pending": flt(retention_summary.get("retention_balance", 0)),
 		"advance_balance": flt(advance_summary.get("balance", 0)),
 	}

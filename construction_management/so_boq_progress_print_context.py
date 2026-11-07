@@ -9,6 +9,7 @@ import frappe
 from frappe.utils import flt, formatdate, money_in_words
 
 DEDUCTION_ITEM_CODES = ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION")
+RELEASE_ITEM_CODES = ("RETENTION-RELEASE", "ADVANCE-RELEASE")
 DEFAULT_VAT_RATE = 5.0
 
 LEDGER_FIELDS = [
@@ -82,6 +83,9 @@ def build(doc) -> dict:
 		gross_p += prev_amount
 		gross_c += current_amount
 		gross_t += total_amount
+		# A release is the withheld amount being paid back, not new work to retain.
+		if item.item_code in RELEASE_ITEM_CODES:
+			continue
 		if deduction_ret is None and deduction_adv is None:
 			if ledger:
 				ret_c += flt(ledger.get("retention_amount"))
@@ -215,6 +219,9 @@ def _vat_rate(doc) -> float:
 	for tax in doc.get("taxes") or []:
 		if flt(tax.rate):
 			return flt(tax.rate)
+	# A tax invoice with no tax row is zero-rated; do not label a default 5%.
+	if _doctype(doc) == "Sales Invoice":
+		return 0.0
 	return DEFAULT_VAT_RATE
 
 

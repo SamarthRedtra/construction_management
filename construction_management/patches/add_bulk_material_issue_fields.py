@@ -11,6 +11,7 @@ def execute():
 					"label": "Material Issued Qty",
 					"fieldtype": "Float",
 					"read_only": 1,
+					"no_copy": 1,
 					"insert_after": "received_qty",
 				},
 				{
@@ -18,6 +19,7 @@ def execute():
 					"label": "Material Issue Stock Entries",
 					"fieldtype": "Small Text",
 					"read_only": 1,
+					"no_copy": 1,
 					"insert_after": "custom_material_issued_qty",
 				},
 			],
@@ -27,6 +29,7 @@ def execute():
 					"label": "Material Issued Qty",
 					"fieldtype": "Float",
 					"read_only": 1,
+					"no_copy": 1,
 					"insert_after": "qty",
 				},
 				{
@@ -34,6 +37,7 @@ def execute():
 					"label": "Bulk Issue Source Line",
 					"fieldtype": "Data",
 					"hidden": 1,
+					"no_copy": 1,
 					"insert_after": "custom_material_issued_qty",
 				},
 			],
@@ -44,6 +48,7 @@ def execute():
 					"fieldtype": "Link",
 					"options": "DocType",
 					"read_only": 1,
+					"no_copy": 1,
 					"insert_after": "stock_entry_type",
 				},
 				{
@@ -52,6 +57,7 @@ def execute():
 					"fieldtype": "Dynamic Link",
 					"options": "custom_bulk_issue_source_doctype",
 					"read_only": 1,
+					"no_copy": 1,
 					"insert_after": "custom_bulk_issue_source_doctype",
 				},
 			],

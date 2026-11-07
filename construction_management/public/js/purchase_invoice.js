@@ -173,6 +173,25 @@ frappe.ui.form.on('Purchase Invoice', {
 	},
 
 	refresh: function (frm) {
+		if (frm.doc.docstatus === 1 && !cint(frm.doc.is_return) &&
+			flt(frm.doc.outstanding_amount) > 0 && flt(frm.doc.outstanding_amount) <= 0.30) {
+			frm.add_custom_button(__('Write off small balance'), () => {
+				frappe.confirm(
+					__('Write off the remaining {0} on {1} by creating and submitting a Journal Entry?', [
+						format_currency(frm.doc.outstanding_amount, frm.doc.currency), frm.doc.name,
+					]),
+					() => frappe.call({
+						method: 'construction_management.api.sales_invoice_write_off.create_small_balance_purchase_write_off',
+						args: { invoice: frm.doc.name }, freeze: true,
+						callback(r) {
+							if (!r.message) return;
+							frappe.show_alert({ message: __('Write-off Journal Entry {0} created', [r.message.journal_entry]), indicator: 'green' });
+							frm.reload_doc();
+						},
+					}),
+				);
+			}, __('Create'));
+		}
 		ensure_additional_discount_fields(frm);
 		setup_po_line_progress_columns(frm);
 		apply_item_liability_account_all_rows(frm);

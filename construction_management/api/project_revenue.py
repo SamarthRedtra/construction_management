@@ -6,7 +6,47 @@
 from __future__ import annotations
 
 import frappe
+from frappe import _
 from frappe.utils import flt
+
+
+def _sales_account_for_company(company: str) -> str | None:
+	"""Use the company's Sales ledger. Fall back to Sales Account only when Sales is absent."""
+	for account_name in ("Sales", "Sales Account"):
+		account = frappe.db.get_value(
+			"Account",
+			{"account_name": account_name, "company": company, "is_group": 0},
+			"name",
+		)
+		if account:
+			return account
+	return None
+
+
+def get_project_sales_gl_balance(project: str) -> float | None:
+	"""All-time Sales account balance for the project's company. None if no sales ledger exists."""
+	if not project:
+		return None
+	company = frappe.db.get_value("Project", project, "company")
+	if not company:
+		return None
+	account = _sales_account_for_company(company)
+	if not account:
+		frappe.msgprint(
+			_(
+				"Neither Sales nor Sales Account was found for {0}. Actual Revenue Value was left unchanged."
+			).format(company)
+		)
+		return None
+	result = frappe.db.sql(
+		"""
+		SELECT COALESCE(SUM(credit), 0) - COALESCE(SUM(debit), 0)
+		FROM `tabGL Entry`
+		WHERE project = %s AND account = %s AND is_cancelled = 0
+		""",
+		(project, account),
+	)
+	return flt(result[0][0]) if result else 0.0
 
 
 def get_project_billed_revenue(project: str) -> float:

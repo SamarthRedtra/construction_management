@@ -22,6 +22,7 @@ def on_update(doc, method=None):
 	channel_id = ensure_project_channel(doc)
 	if channel_id:
 		sync_project_channel_members(doc, channel_id)
+		_sync_completed_flag(doc, channel_id)
 
 
 def on_trash(doc, method=None):
@@ -528,6 +529,21 @@ def _resolve_workspace(doc) -> str | None:
 		limit=1,
 	)
 	return workspaces[0] if workspaces else None
+
+
+def _sync_completed_flag(doc, channel_id: str) -> None:
+	if not frappe.db.has_column("Raven Channel", "custom_project_completed"):
+		return
+	completed = 1 if doc.status == "Completed" else 0
+	current = cint(frappe.db.get_value("Raven Channel", channel_id, "custom_project_completed"))
+	if current != completed:
+		frappe.db.set_value(
+			"Raven Channel",
+			channel_id,
+			"custom_project_completed",
+			completed,
+			update_modified=False,
+		)
 
 
 def _sync_channel_meta(doc, channel_id: str) -> None:

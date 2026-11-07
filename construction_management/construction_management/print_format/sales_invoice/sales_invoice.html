@@ -149,40 +149,43 @@
             {% endfor %}
 
             <tr class="text-bold">
-                <td colspan="8" style="text-align:right;">TOTAL WORK DONE (GROSS)</td>
+                <td colspan="8" style="text-align:right;">TOTAL WORK DONE</td>
                 <td class="col-amt">{{ cur(p.totals.gross_p) }}</td>
                 <td class="col-amt">{{ cur(p.totals.gross_c) }}</td>
                 <td class="col-amt">{{ cur(p.totals.gross_t) }}</td>
             </tr>
-
             <tr>
-                <td colspan="9" style="text-align:right;">Less: Retention Amount ({{ p.totals.ret_percent }}%)</td>
+                <td colspan="8" style="text-align:right;">Retention ({{ p.totals.ret_percent }}%)</td>
+                <td class="col-amt">({{ cur(p.totals.ret_p) }})</td>
                 <td class="col-amt">({{ cur(p.totals.ret_c) }})</td>
-                <td></td>
+                <td class="col-amt">({{ cur(p.totals.ret_t) }})</td>
             </tr>
-
             <tr>
-                <td colspan="9" style="text-align:right;">Less: Advance Deduction</td>
+                <td colspan="8" style="text-align:right;">Advance Deduction</td>
+                <td class="col-amt">({{ cur(p.totals.adv_p) }})</td>
                 <td class="col-amt">({{ cur(p.totals.adv_c) }})</td>
-                <td></td>
+                <td class="col-amt">({{ cur(p.totals.adv_t) }})</td>
             </tr>
-
             <tr>
-                <td colspan="9" style="text-align:right;">Add: VAT ({{ p.totals.vat_rate }}%)</td>
+                <td colspan="8" style="text-align:right;">VAT ({{ p.totals.vat_rate }}%)</td>
+                <td class="col-amt">{{ cur(p.totals.tax_p) }}</td>
                 <td class="col-amt">{{ cur(p.totals.tax_c) }}</td>
-                <td></td>
+                <td class="col-amt">{{ cur(p.totals.tax_t) }}</td>
             </tr>
-
-            {% if p.totals.disc_c > 0 %}
             <tr>
-                <td colspan="9" style="text-align:right;">Discount</td>
+                <td colspan="8" style="text-align:right;">Additional Deduction / Discount</td>
+                <td class="col-amt">0.00</td>
                 <td class="col-amt">({{ cur(p.totals.disc_c) }})</td>
-                <td></td>
+                <td class="col-amt">({{ cur(p.totals.disc_c) }})</td>
             </tr>
-            {% endif %}
-
+            <tr>
+                <td colspan="8" style="text-align:right;">Previous Payment (Invoiced)</td>
+                <td class="col-amt">({{ cur(p.totals.prev_paid) }})</td>
+                <td class="col-amt">0.00</td>
+                <td class="col-amt">({{ cur(p.totals.prev_paid) }})</td>
+            </tr>
             <tr class="text-bold" style="background-color:#e6e6e6;">
-                <td colspan="9" style="text-align:right; font-size: 9pt;">NET PAYABLE AMOUNT</td>
+                <td colspan="9" style="text-align:right; font-size: 9pt;">NET AMOUNT DUE</td>
                 <td colspan="2" class="col-amt" style="font-size: 10pt;">
                     {{ cur(p.totals.net_c) }}
                 </td>

@@ -54,6 +54,9 @@ frappe.ui.form.on('Project Closure', {
 
                 // Set revenue fields
                 frm.set_value('total_revenue', data.total_revenue);
+                if (data.actual_revenue_value != null) {
+                    frm.set_value('actual_revenue_value', data.actual_revenue_value);
+                }
 
                 // Set advance & retention
                 frm.set_value('retention_pending', data.retention_pending || 0);

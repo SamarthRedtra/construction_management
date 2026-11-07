@@ -225,12 +225,12 @@ def create_controlled_procurement_fields():
 		{
 			"dt": "Stock Entry", "fieldname": "custom_source_purchase_receipt",
 			"label": "Source Purchase Receipt", "fieldtype": "Link", "options": "Purchase Receipt",
-			"insert_after": "controlled_procurement", "read_only": 1, "unique": 1,
+			"insert_after": "controlled_procurement", "read_only": 1, "unique": 1, "no_copy": 1,
 		},
 		{
 			"dt": "Stock Entry", "fieldname": "custom_source_material_transfer",
 			"label": "Source Material Transfer", "fieldtype": "Link", "options": "Stock Entry",
-			"insert_after": "custom_source_purchase_receipt", "read_only": 1, "unique": 1,
+			"insert_after": "custom_source_purchase_receipt", "read_only": 1, "unique": 1, "no_copy": 1,
 		},
 		{
 			"dt": "Company", "fieldname": "controlled_service_expense_account",

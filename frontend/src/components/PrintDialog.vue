@@ -6,12 +6,21 @@ import Modal from "@/components/Modal.vue"
 
 const props = defineProps({ doctype: { type: String, required: true }, docname: { type: String, required: true } })
 const emit = defineEmits(["close"])
-const options = ref({ print_formats: ["Standard"], letterheads: [] })
+const options = ref({ print_formats: ["Standard"], letterheads: [], pdf_generator: "chrome" })
 const form = reactive({ print_format: "Standard", letterhead: "" })
 const loading = ref(true)
 
 const printLink = computed(() => printUrl(props.doctype, props.docname, form.print_format, false, form.letterhead))
-const pdfLink = computed(() => printUrl(props.doctype, props.docname, form.print_format, true, form.letterhead))
+const pdfLink = computed(() =>
+	printUrl(
+		props.doctype,
+		props.docname,
+		form.print_format,
+		true,
+		form.letterhead,
+		options.value.pdf_generator || "chrome",
+	),
+)
 
 onMounted(async () => {
 	try {
