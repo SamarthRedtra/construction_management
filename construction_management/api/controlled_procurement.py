@@ -108,6 +108,30 @@ def _normalized_allocation(values: dict) -> dict:
 	return allocation
 
 
+def _warehouse_projects_for_receipt_rows(items) -> set[str]:
+	"""Distinct site projects for receive lines that have a warehouse."""
+	projects = set()
+	for row in items or []:
+		qty = flt(row.get("qty") if hasattr(row, "get") else getattr(row, "qty", 0))
+		if qty <= 0:
+			continue
+		warehouse = row.get("warehouse") if hasattr(row, "get") else getattr(row, "warehouse", None)
+		if not warehouse:
+			continue
+		from construction_management.api.purchase_receipt_utils import get_warehouse_project as resolve
+
+		company = frappe.db.get_value("Warehouse", warehouse, "company")
+		project = resolve(warehouse, company=company) or ""
+		if project:
+			projects.add(project)
+	return projects
+
+
+def _is_multi_site_receipt(items) -> bool:
+	"""True when qty lines land in warehouses for two or more projects."""
+	return len(_warehouse_projects_for_receipt_rows(items)) >= 2
+
+
 def _catalog_item(item_code: str) -> dict:
 	item = frappe.db.get_value(
 		"Item", item_code,
@@ -237,13 +261,13 @@ def _allocation_defaults(data: dict, company: str | None = None) -> dict:
 	return defaults
 
 
-def _apply_allocation(row, row_data: dict, defaults: dict, company: str = "") -> None:
+def _apply_allocation(row, row_data: dict, defaults: dict, company: str = "", allow_blank: bool = False) -> None:
 	row_allocation = _normalized_allocation(row_data)
 	# A line with its own project keeps its whole set; mixing in the order's bill/BOQ would cross projects.
 	allocation = {field: row_allocation[field] for field in defaults} if row_allocation["project"] else dict(defaults)
-	_validate_allocation(allocation, company)
+	_validate_allocation(allocation, company, allow_blank=allow_blank)
 	for field, value in allocation.items():
-		setattr(row, field, value)
+		setattr(row, field, value or None)
 
 
 def _is_mrg_company(company: str | None) -> bool:
@@ -268,12 +292,19 @@ def _boq_allocation_mode(company: str | None) -> str:
 	return "required"
 
 
-def _validate_allocation(allocation: dict, company: str | None = None, mode: str | None = None) -> None:
+def _validate_allocation(
+	allocation: dict,
+	company: str | None = None,
+	mode: str | None = None,
+	allow_blank: bool = False,
+) -> None:
 	"""Check Project / Bill No / BOQ Item against the company's rule (or an explicit `mode`)."""
 	allocation = _normalized_allocation(allocation)
 	project = allocation.get("project")
 	bill_no = allocation.get("bill_no")
 	boq_item = allocation.get("boq_item")
+	if allow_blank and not project and not bill_no and not boq_item:
+		return
 	if not project:
 		frappe.throw(_("Project is required for controlled procurement."))
 	if (mode or _boq_allocation_mode(company)) == "required" and (not bill_no or not boq_item):
@@ -1572,14 +1603,21 @@ def create_purchase_receipt(data: str | dict) -> dict:
 	_validate_line_data(items)
 	_receipt_items_by_po_line(po, items, open_lpo)
 	po_rows = {row.name: row for row in po.items}
-	# receipt-level allocation defaults to the PO's but can be changed on the receipt
-	defaults = {field: data.get(field) or po.get(field) for field in ("project", "bill_no", "boq_item")}
-	_validate_allocation(defaults, po.company)
-	_validate_company_links(po.company, project=defaults["project"])
+	multi_site = _is_multi_site_receipt(items)
+	# receipt-level allocation defaults to the PO's but can be blank on multi-site receives
+	defaults = _normalized_allocation({field: data.get(field) for field in ALLOCATION_FIELDS})
+	if not multi_site:
+		for field in ALLOCATION_FIELDS:
+			defaults[field] = defaults[field] or (po.get(field) or "")
+	_validate_allocation(defaults, po.company, allow_blank=multi_site)
+	if defaults.get("project"):
+		_validate_company_links(po.company, project=defaults["project"])
 	doc = frappe.new_doc("Purchase Receipt")
 	doc.update({
-		"company": po.company, "supplier": po.supplier, "project": defaults["project"],
-		"bill_no": defaults["bill_no"], "boq_item": defaults["boq_item"],
+		"company": po.company, "supplier": po.supplier,
+		"project": defaults["project"] or None,
+		"bill_no": defaults["bill_no"] or None,
+		"boq_item": defaults["boq_item"] or None,
 		"posting_date": data.get("received_on"),
 		"set_posting_time": 1 if data.get("received_on") else 0,
 		"custom_purchase_order": po.name,
@@ -1590,9 +1628,10 @@ def create_purchase_receipt(data: str | dict) -> dict:
 		po_row = po_rows.get(data_row.get("purchase_order_item"))
 		item = _catalog_item(po_row.item_code)
 		_validate_company_links(po.company, warehouse=data_row.get("warehouse"))
-		line_project = (data_row if data_row.get("use_override") else defaults).get("project")
+		line_alloc = data_row if data_row.get("use_override") else defaults
+		line_project = _normalized_allocation(line_alloc).get("project")
 		warehouse_project = get_warehouse_project(data_row.get("warehouse")) if data_row.get("warehouse") else ""
-		if warehouse_project and warehouse_project != line_project:
+		if line_project and warehouse_project and warehouse_project != line_project:
 			frappe.throw(_("Warehouse {0} belongs to project {1}, so goods received there are booked to {1}. Select project {1} (and its Bill / BOQ Item) or a different warehouse.").format(
 				data_row.get("warehouse"), warehouse_project))
 		row = doc.append("items", {
@@ -1600,7 +1639,13 @@ def create_purchase_receipt(data: str | dict) -> dict:
 			"conversion_factor": 1, "rate": po_row.rate, "purchase_order": po.name,
 			"purchase_order_item": po_row.name, "warehouse": data_row.get("warehouse"),
 		})
-		_apply_allocation(row, data_row if data_row.get("use_override") else {}, defaults, po.company)
+		_apply_allocation(
+			row,
+			data_row if data_row.get("use_override") else {},
+			defaults,
+			po.company,
+			allow_blank=multi_site,
+		)
 		_set_row_type(row, item)
 	# VAT follows the order unless the receiver changes it
 	taxes_and_charges = data.get("taxes_and_charges") if "taxes_and_charges" in data else po.taxes_and_charges
@@ -1804,13 +1849,23 @@ def update_purchase_receipt(name: str, data: str | dict) -> dict:
 	used_names = [row.get("name") for row in items if row.get("name")]
 	if len(used_names) != len(set(used_names)) or any(name not in original_rows for name in used_names):
 		frappe.throw(_("Invalid or repeated Receive Note item row."))
-	defaults = {field: data.get(field) or po.get(field) for field in ALLOCATION_FIELDS}
+	multi_site = _is_multi_site_receipt(items)
+	defaults = _normalized_allocation({field: data.get(field) for field in ALLOCATION_FIELDS})
 	if cint(doc.controlled_procurement):
-		_validate_allocation(defaults, doc.company)
+		if not multi_site:
+			for field in ALLOCATION_FIELDS:
+				defaults[field] = defaults[field] or (po.get(field) or "")
+		_validate_allocation(defaults, doc.company, allow_blank=multi_site)
 	elif defaults.get("project"):
 		_validate_allocation(defaults, doc.company, mode="project_only")
-	doc.update({"posting_date": data.get("received_on"), "set_posting_time": 1,
-		"supplier_delivery_note": (data.get("supplier_delivery_note") or "").strip(), **defaults})
+	doc.update({
+		"posting_date": data.get("received_on"),
+		"set_posting_time": 1,
+		"supplier_delivery_note": (data.get("supplier_delivery_note") or "").strip(),
+		"project": defaults.get("project") or None,
+		"bill_no": defaults.get("bill_no") or None,
+		"boq_item": defaults.get("boq_item") or None,
+	})
 	doc.set("items", [])
 	for data_row in items:
 		po_row = po_rows.get(data_row.get("purchase_order_item"))
@@ -1818,12 +1873,12 @@ def update_purchase_receipt(name: str, data: str | dict) -> dict:
 		_validate_company_links(doc.company, warehouse=warehouse)
 		if not warehouse:
 			frappe.throw(_("Select a receiving warehouse for every item."))
-		allocation = data_row if data_row.get("use_override") else defaults
-		project = allocation.get("project") or get_warehouse_project(warehouse)
+		allocation = _normalized_allocation(data_row if data_row.get("use_override") else defaults)
 		warehouse_project = get_warehouse_project(warehouse)
-		if warehouse_project and project != warehouse_project:
+		project = allocation.get("project") or ("" if multi_site and cint(doc.controlled_procurement) else warehouse_project)
+		if allocation.get("project") and warehouse_project and allocation["project"] != warehouse_project:
 			frappe.throw(_("Warehouse {0} belongs to project {1}.").format(warehouse, warehouse_project))
-		if not project:
+		if not project and not (multi_site and cint(doc.controlled_procurement)):
 			frappe.throw(_("Select a Project for this Receive Note."))
 		original = original_rows.get(data_row.get("name"))
 		if original and original.purchase_order_item != po_row.name:
@@ -1837,10 +1892,16 @@ def update_purchase_receipt(name: str, data: str | dict) -> dict:
 			"item_code": po_row.item_code, "qty": qty, "received_qty": qty, "rejected_qty": 0,
 			"uom": po_row.uom, "stock_uom": po_row.stock_uom, "conversion_factor": po_row.conversion_factor,
 			"rate": po_row.rate, "purchase_order": po.name, "purchase_order_item": po_row.name,
-			"warehouse": warehouse, "project": project})
+			"warehouse": warehouse, "project": project or None})
 		if cint(doc.controlled_procurement):
-			_apply_allocation(row, data_row if data_row.get("use_override") else {}, defaults, doc.company)
-			if warehouse_project and row.project != warehouse_project:
+			_apply_allocation(
+				row,
+				data_row if data_row.get("use_override") else {},
+				defaults,
+				doc.company,
+				allow_blank=multi_site,
+			)
+			if row.project and warehouse_project and row.project != warehouse_project:
 				frappe.throw(_("Warehouse {0} belongs to project {1}.").format(warehouse, warehouse_project))
 			_set_row_type(row, _catalog_item(po_row.item_code))
 		else:
@@ -3762,10 +3823,15 @@ def validate_transaction(doc, method=None) -> None:
 	if not getattr(doc.flags, "controlled_procurement_api", False) and not _roles().intersection(ADMIN_ROLES):
 		frappe.throw(_("Edit or submit this document from the Controlled Procurement workspace."), frappe.PermissionError)
 	transfer = doc.doctype == "Stock Entry" and doc.purpose == "Material Transfer"
+	multi_site_receipt = doc.doctype == "Purchase Receipt" and _is_multi_site_receipt(doc.get("items") or [])
 	if transfer:
 		_validate_transfer_warehouses(doc.company, doc.from_warehouse, doc.to_warehouse)
 	else:
-		_validate_allocation({field: doc.get(field) for field in ALLOCATION_FIELDS}, doc.company)
+		_validate_allocation(
+			{field: doc.get(field) for field in ALLOCATION_FIELDS},
+			doc.company,
+			allow_blank=multi_site_receipt,
+		)
 	for row in doc.get("items") or []:
 		item = _catalog_item(row.item_code)
 		if row.uom != item.stock_uom or row.stock_uom != item.stock_uom:
@@ -3779,7 +3845,11 @@ def validate_transaction(doc, method=None) -> None:
 			if row.s_warehouse != doc.from_warehouse or row.t_warehouse != doc.to_warehouse:
 				frappe.throw(_("Every transfer item must use the header From and To warehouses."))
 		else:
-			_validate_allocation({field: row.get(field) for field in ALLOCATION_FIELDS}, doc.company)
+			_validate_allocation(
+				{field: row.get(field) for field in ALLOCATION_FIELDS},
+				doc.company,
+				allow_blank=multi_site_receipt,
+			)
 	if doc.doctype == "Purchase Receipt":
 		_validate_receipt_allocations(doc)
 

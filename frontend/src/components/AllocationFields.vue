@@ -22,12 +22,17 @@ function boqOptions(project, billNo) {
 import { computed, onMounted, ref, watch } from "vue"
 import ProjectSelect from "@/components/ProjectSelect.vue"
 
-// Project is always required; boqOptional makes Bill No / BOQ Item optional (MRG, and receiving Desk POs).
-const props = defineProps({ modelValue: { type: Object, required: true }, boqOptional: { type: Boolean, default: false } })
+// Project is required unless allowBlank (multi-site receive); boqOptional makes Bill/BOQ optional (MRG, Desk POs).
+const props = defineProps({
+	modelValue: { type: Object, required: true },
+	boqOptional: { type: Boolean, default: false },
+	allowBlank: { type: Boolean, default: false },
+})
 const emit = defineEmits(["update:modelValue"])
 const bills = ref([])
 const items = ref([])
-const optional = computed(() => props.boqOptional)
+const optional = computed(() => props.boqOptional || props.allowBlank)
+const projectRequired = computed(() => !props.allowBlank)
 
 function update(field, value) {
 	emit("update:modelValue", { ...props.modelValue, [field]: value })
@@ -60,11 +65,11 @@ onMounted(syncSelection)
 
 <template>
 	<div class="cp-grid-3">
-		<ProjectSelect :model-value="modelValue.project" :required="true" @update:model-value="update('project', $event)" />
+		<ProjectSelect :model-value="modelValue.project" :required="projectRequired" @update:model-value="update('project', $event)" />
 		<label class="cp-field">
 			<span>Bill No<i v-if="!optional">*</i></span>
 			<select class="cp-input" :value="modelValue.bill_no" :disabled="!modelValue.project" :required="!optional" @change="update('bill_no', $event.target.value)">
-				<option value="">{{ !modelValue.project ? "Select a project first" : optional ? "Optional" : "Select Bill No" }}</option>
+				<option value="">{{ !modelValue.project ? (props.allowBlank ? "Optional — select a project first" : "Select a project first") : optional ? "Optional" : "Select Bill No" }}</option>
 				<option v-for="bill in bills" :key="bill.name" :value="bill.name">{{ bill.bill_no || bill.name }}</option>
 			</select>
 		</label>

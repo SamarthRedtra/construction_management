@@ -30,6 +30,19 @@ const isControlledOrder = computed(() => form.items.length ? Boolean(form.items[
 const selectedOrder = computed(() => openOrders.value.find((row) => row.name === form.purchase_order))
 const isOpenLpo = computed(() => Boolean(selectedOrder.value?.is_open_po || availableLines.value[0]?.is_open_lpo))
 const total = computed(() => form.items.reduce((sum, row) => sum + (Number(row.qty) || 0) * (Number(row.rate) || 0), 0))
+// warehouse → project cache so multi-site detection stays reactive after projectFor resolves
+const warehouseProjects = reactive({})
+const multiSite = computed(() => {
+	const projects = new Set()
+	for (const row of form.items) {
+		if (!(Number(row.qty) > 0)) continue
+		const warehouse = row.warehouse || form.warehouse
+		const project = warehouse && warehouseProjects[warehouse]
+		if (project) projects.add(project)
+	}
+	return projects.size >= 2
+})
+const allocationBoqOptional = computed(() => !isControlledOrder.value || session.context.boq_allocation_mode === "project_only")
 // no company default here: the tax template follows the chosen purchase order
 const { templates: taxTemplates, totals, loading: taxLoading, lineTax } = useTaxes("Purchase Receipt", form, { defaultTemplate: false })
 
@@ -142,25 +155,62 @@ async function submitReceiveNote() {
 	}
 }
 
-// receipts are always booked to the receiving warehouse's project (site rule), so keep the form in step
+// Single-site receipts stay booked to the warehouse project; multi-site may leave dims blank.
 const warehouseNote = ref("")
 async function projectFor(warehouse) {
-	return warehouse ? call("get_warehouse_project", { warehouse }) : ""
+	if (!warehouse) return ""
+	if (Object.prototype.hasOwnProperty.call(warehouseProjects, warehouse)) return warehouseProjects[warehouse]
+	const project = (await call("get_warehouse_project", { warehouse })) || ""
+	warehouseProjects[warehouse] = project
+	return project
+}
+
+function distinctWarehouseProjects() {
+	const projects = new Set()
+	for (const row of form.items) {
+		if (!(Number(row.qty) > 0)) continue
+		const warehouse = row.warehouse || form.warehouse
+		const project = warehouse && warehouseProjects[warehouse]
+		if (project) projects.add(project)
+	}
+	return projects
 }
 
 watch(() => form.warehouse, async (warehouse) => {
 	if (hydrating.value) return
 	warehouseNote.value = ""
 	const project = await projectFor(warehouse)
+	// Multi-site: do not force a single header project from the header warehouse.
+	if (distinctWarehouseProjects().size >= 2) return
 	if (project && project !== form.project) {
 		Object.assign(form, { project, bill_no: "", boq_item: "" })
 		warehouseNote.value = `Project set to ${project} because ${warehouse} is that project's warehouse. Pick its Bill No and BOQ Item.`
 	}
 })
 
+watch(multiSite, (value) => {
+	if (value) warehouseNote.value = ""
+})
+
+watch(
+	() => [form.warehouse, form.items.map((row) => `${row.warehouse || ""}:${row.qty || 0}`).join("|")],
+	async () => {
+		const warehouses = new Set()
+		if (form.warehouse) warehouses.add(form.warehouse)
+		for (const row of form.items) {
+			if (!(Number(row.qty) > 0)) continue
+			const warehouse = row.warehouse || form.warehouse
+			if (warehouse) warehouses.add(warehouse)
+		}
+		await Promise.all([...warehouses].map((warehouse) => projectFor(warehouse)))
+	},
+)
+
 async function setLineWarehouse(row, warehouse) {
 	row.warehouse = warehouse
 	const project = await projectFor(warehouse)
+	// Multi-site receives may leave Project / Bill / BOQ blank; do not auto-fill from warehouse.
+	if (distinctWarehouseProjects().size >= 2) return
 	const current = row.use_override ? row.project : form.project
 	if (project && project !== current) {
 		Object.assign(row, { use_override: true, project, bill_no: "", boq_item: "" })
@@ -232,11 +282,12 @@ onMounted(async () => {
 
 		<section v-if="form.purchase_order && !loadingLines" class="cp-section">
 			<h2 class="cp-section-title">Allocation</h2>
-			<AllocationFields :key="form.purchase_order" :boq-optional="!isControlledOrder || session.context.boq_allocation_mode === 'project_only'" :model-value="{ project: form.project, bill_no: form.bill_no, boq_item: form.boq_item }" @update:model-value="Object.assign(form, $event)" />
-			<p v-if="session.context.boq_allocation_mode === 'project_only'" class="cp-hint">For {{ session.context.default_company }}, Project is required; Bill No and BOQ Item are optional.</p>
+			<AllocationFields :key="form.purchase_order" :allow-blank="multiSite" :boq-optional="allocationBoqOptional" :model-value="{ project: form.project, bill_no: form.bill_no, boq_item: form.boq_item }" @update:model-value="Object.assign(form, $event)" />
+			<p v-if="multiSite" class="cp-hint">Multi-site receive — header Project / Bill No / BOQ Item can stay blank; set them per line only if needed.</p>
+			<p v-else-if="session.context.boq_allocation_mode === 'project_only'" class="cp-hint">For {{ session.context.default_company }}, Project is required; Bill No and BOQ Item are optional.</p>
 			<p v-if="warehouseNote" class="cp-hint cp-warn">{{ warehouseNote }}</p>
-			<p class="cp-hint">Pre-filled from the purchase order. Change it to book this receive note against a different project / bill / BOQ item. The project must match the receiving warehouse's project.</p>
-			<p v-if="!isControlledOrder" class="cp-hint">This PO was raised in Desk: a Project is required, Bill No and BOQ Item are optional.</p>
+			<p v-if="!multiSite" class="cp-hint">Pre-filled from the purchase order. Change it to book this receive note against a different project / bill / BOQ item. The project must match the receiving warehouse's project.</p>
+			<p v-if="!isControlledOrder && !multiSite" class="cp-hint">This PO was raised in Desk: a Project is required, Bill No and BOQ Item are optional.</p>
 		</section>
 
 		<section v-if="form.purchase_order" class="cp-section">
@@ -261,7 +312,7 @@ onMounted(async () => {
 							<td><button type="button" class="cp-link sm" @click="splitLine(row)">Split</button><button type="button" class="cp-remove" aria-label="Remove line" @click="form.items.splice(index, 1)">×</button></td>
 						</tr>
 						<tr v-if="row.use_override" class="cp-subrow">
-							<td colspan="8"><AllocationFields :model-value="row" :boq-optional="!isControlledOrder || session.context.boq_allocation_mode === 'project_only'" @update:model-value="Object.assign(row, $event)" /></td>
+							<td colspan="8"><AllocationFields :model-value="row" :allow-blank="multiSite" :boq-optional="allocationBoqOptional" @update:model-value="Object.assign(row, $event)" /></td>
 						</tr>
 						</template>
 						<tr v-if="loadingLines"><td colspan="8" class="cp-empty-row">Loading remaining quantities…</td></tr>

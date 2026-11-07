@@ -430,9 +430,18 @@ def ensure_item_projects(doc, make_mandatory=False):
 	Ensure each item has project set by pulling from the row or linked warehouses.
 	This safeguards against client-side values being cleared during save/submit.
 	"""
+	from construction_management.api.controlled_procurement import _is_multi_site_receipt
+	from frappe.utils import cint
+
+	# Multi-site controlled receives may leave Project / Bill / BOQ blank on purpose.
+	multi_site_blank = cint(doc.get("controlled_procurement")) and _is_multi_site_receipt(doc.get("items") or [])
+
 	for row in doc.get("items", []):
 		# Skip deduction items for project requirement
 		if row.item_code in DEDUCTION_ITEM_CODES:
+			continue
+
+		if multi_site_blank and not row.get("project"):
 			continue
 
 		project = _resolve_purchase_receipt_item_project(doc, row)
@@ -449,7 +458,7 @@ def ensure_item_projects(doc, make_mandatory=False):
 				)
 
 			row.project = project
-		elif make_mandatory:
+		elif make_mandatory and not multi_site_blank:
 			frappe.throw(
 				_("Row {0}: Please set a Project for warehouse {1}").format(
 					row.idx or row.name, row.warehouse or row.rejected_warehouse
