@@ -4,12 +4,15 @@ import { useRoute, useRouter } from "vue-router"
 import { call, previewUrl } from "@/api"
 import { DOCTYPES, debounce, docStatusLabel, formatCurrency, formatDate, formatNumber, isOverdue } from "@/utils"
 import { toast, toastError } from "@/toast"
+import ConnectionsPanel from "@/components/ConnectionsPanel.vue"
 import PageHeader from "@/components/PageHeader.vue"
 import PaginationBar from "@/components/PaginationBar.vue"
 import PrintDialog from "@/components/PrintDialog.vue"
 import StatusPill from "@/components/StatusPill.vue"
 import LinkSelect from "@/components/LinkSelect.vue"
 import { canPrintOrder, companyFilters, session } from "@/utils"
+
+const PREVIEW_CONNECTION_KINDS = new Set(["orders", "receipts", "invoices"])
 
 const PAGE_SIZE = 25
 
@@ -169,8 +172,14 @@ async function previewAction(action) {
 		const done = { cancel: "cancelled", amend: `amended → ${result.name}`, delete: "deleted" }[action] || action
 		toast(`${previewDoc.value.name} ${done}`)
 		if (action === "delete") closePreview()
-		else if (action === "amend" && result.name) await selectPreview(result.name)
-		else await selectPreview(previewDoc.value.name)
+		else if (action === "amend" && result.name) {
+			const editKinds = ["orders", "receipts", "transfers"]
+			if (editKinds.includes(props.kind)) {
+				await router.push(`${config.value.path}/${encodeURIComponent(result.name)}/edit`)
+				return
+			}
+			await selectPreview(result.name)
+		} else await selectPreview(previewDoc.value.name)
 		await load()
 	} catch (error) {
 		toastError(error)
@@ -312,7 +321,7 @@ onMounted(async () => {
 					<button type="button" class="cp-btn sm" :class="{ primary: showPrintLayout }" @click="showPrintLayout = !showPrintLayout">{{ showPrintLayout ? "Summary" : "Print layout" }}</button>
 				</div>
 
-				<template v-if="!showPrintLayout">
+				<div v-if="!showPrintLayout" class="cp-preview-body">
 					<div class="cp-preview-summary">
 						<div v-if="kind !== 'transfers'"><small>Supplier</small><strong :title="previewDoc.supplier_name || previewDoc.supplier || ''">{{ previewDoc.supplier_name || previewDoc.supplier || "—" }}</strong></div>
 						<div v-if="kind === 'transfers'"><small>From warehouse</small><strong>{{ previewDoc.from_warehouse || "—" }}</strong></div>
@@ -353,7 +362,15 @@ onMounted(async () => {
 						<p v-else class="cp-preview-empty">No item lines on this document.</p>
 						<p v-if="previewItemsMore" class="cp-hint cp-preview-more">+ {{ previewItemsMore }} more · Open for full detail</p>
 					</div>
-				</template>
+
+					<ConnectionsPanel
+						v-if="PREVIEW_CONNECTION_KINDS.has(kind)"
+						:key="previewDoc.name"
+						class="cp-preview-connections"
+						:doctype="config.doctype"
+						:docname="previewDoc.name"
+					/>
+				</div>
 				<iframe v-else class="cp-preview-frame" :src="previewFrameUrl" title="Document print layout" />
 			</template>
 		</aside>

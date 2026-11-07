@@ -191,7 +191,9 @@ async function orderAction(method, args = {}) {
 		const result = await call(method, { name: props.docname, ...args })
 		toast(`${props.docname}: ${method.replaceAll("_", " ")}`)
 		if (method.startsWith("amend_")) {
-			window.location.href = `/procurement${config.value.path}/${encodeURIComponent(result.name)}`
+			const editKinds = ["orders", "receipts", "transfers"]
+			const suffix = editKinds.includes(props.kind) ? "/edit" : ""
+			window.location.href = `/procurement${config.value.path}/${encodeURIComponent(result.name)}${suffix}`
 			return
 		}
 		await load()

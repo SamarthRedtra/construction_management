@@ -254,20 +254,26 @@ function creationRequestId() {
 	return id
 }
 
-async function save() {
-	if (saving.value || createdOrderName.value) return
+async function persistDraft() {
 	const nonCatalog = form.items.filter((row) => row.item_code && row.not_in_catalog)
 	if (nonCatalog.length) {
 		toast(`Replace non-catalog items before saving: ${nonCatalog.map((row) => row.item_name || row.item_code).join(", ")}`, "error")
-		return
+		return null
 	}
+	const result = editing.value
+		? await call("update_purchase_order", { name: props.name, data: purchaseOrderPayload() })
+		: await call("create_purchase_order", { data: { ...purchaseOrderPayload(), creation_request_id: creationRequestId() } })
+	if (!editing.value) createdOrderName.value = result.name
+	priceApprovalStatus.value = result.price_approval_status || ""
+	return result
+}
+
+async function save() {
+	if (saving.value || createdOrderName.value) return
 	saving.value = true
 	try {
-		const result = editing.value
-			? await call("update_purchase_order", { name: props.name, data: purchaseOrderPayload() })
-			: await call("create_purchase_order", { data: { ...purchaseOrderPayload(), creation_request_id: creationRequestId() } })
-		if (!editing.value) createdOrderName.value = result.name
-		priceApprovalStatus.value = result.price_approval_status || ""
+		const result = await persistDraft()
+		if (!result) return
 		toast(`Purchase order ${result.name} ${result.price_approval_status?.startsWith("Pending") ? `is ${result.price_approval_status.toLowerCase()} price approval` : editing.value ? "updated" : "created as draft"}`)
 		if (!editing.value) {
 			await router.replace(`/purchase-orders/${result.name}/edit`)
@@ -285,6 +291,8 @@ async function submitSavedOrder() {
 	if (!editing.value || saving.value) return
 	saving.value = true
 	try {
+		const saved = await persistDraft()
+		if (!saved) return
 		const result = await call("submit_document", { doctype: "Purchase Order", name: props.name })
 		toast(result?.docstatus === 0 && result?.price_approval_status === "Pending CEO"
 			? `Purchase order ${props.name} sent to CEO for price approval. It submits automatically once approved.`

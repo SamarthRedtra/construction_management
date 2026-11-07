@@ -96,22 +96,45 @@ async function chooseOrder(order) {
 }
 function closeOrderSearch() { setTimeout(() => { poOpen.value = false; if (!form.purchase_order) poQuery.value = "" }, 180) }
 
+function receiptPayload() {
+	const items = form.items
+		.filter((row) => Number(row.qty) > 0)
+		.map((row) => ({
+			...row,
+			warehouse: row.warehouse || form.warehouse,
+			// without an override the line takes the receipt's allocation
+			...(row.use_override ? {} : { project: "", bill_no: "", boq_item: "" }),
+		}))
+	return { ...form, items }
+}
+
+async function persistDraft() {
+	return editing.value
+		? await call("update_purchase_receipt", { name: props.name, data: receiptPayload() })
+		: await call("create_purchase_receipt", { data: receiptPayload() })
+}
+
 async function save() {
 	saving.value = true
 	try {
-		const items = form.items
-			.filter((row) => Number(row.qty) > 0)
-			.map((row) => ({
-				...row,
-				warehouse: row.warehouse || form.warehouse,
-				// without an override the line takes the receipt's allocation
-				...(row.use_override ? {} : { project: "", bill_no: "", boq_item: "" }),
-			}))
-		const result = editing.value
-			? await call("update_purchase_receipt", { name: props.name, data: { ...form, items } })
-			: await call("create_purchase_receipt", { data: { ...form, items } })
+		const result = await persistDraft()
 		toast(`Receive note ${result.name} ${editing.value ? "updated" : "created as draft"}`)
 		router.push(`/receipts/${result.name}`)
+	} catch (error) {
+		toastError(error)
+	} finally {
+		saving.value = false
+	}
+}
+
+async function submitReceiveNote() {
+	if (!editing.value || saving.value) return
+	saving.value = true
+	try {
+		await persistDraft()
+		await call("submit_document", { doctype: "Purchase Receipt", name: props.name })
+		toast(`Receive note ${props.name} submitted`)
+		await router.replace(`/receipts/${props.name}`)
 	} catch (error) {
 		toastError(error)
 	} finally {
@@ -180,6 +203,7 @@ onMounted(async () => {
 			<template #actions>
 				<RouterLink :to="editing ? `/receipts/${name}` : '/receipts'" class="cp-btn">Cancel</RouterLink>
 				<button type="submit" class="cp-btn primary" :disabled="saving || !form.items.length">{{ saving ? "Saving…" : editing ? "Save changes" : "Save receive note" }}</button>
+				<button v-if="editing" type="button" class="cp-btn brand" :disabled="saving || !form.items.length" @click="submitReceiveNote">Submit</button>
 			</template>
 		</PageHeader>
 

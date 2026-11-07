@@ -109,6 +109,27 @@ def has_boq_read_permission() -> bool:
 	return any(role in user_roles for role in allowed_roles)
 
 
+_BOQ_RATE_SKIP_ITEM_CODES = frozenset(
+	{"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION", "PURCHASE-ADVANCE"}
+)
+
+
+def apply_boq_service_rates(doc) -> None:
+	"""Force revenue lines with a BOQ service to use that service's project rate.
+
+	Shared linked Items can carry a different Item Price across projects. When the
+	line points at a BOQ Item, that BOQ rate wins over the catalog price.
+	"""
+	for row in doc.get("items") or []:
+		if not row.get("boq_item") or row.item_code in _BOQ_RATE_SKIP_ITEM_CODES:
+			continue
+		boq_rate = flt(frappe.db.get_value("BOQ Item", row.boq_item, "rate"))
+		row.rate = boq_rate
+		if row.meta.has_field("price_list_rate"):
+			row.price_list_rate = boq_rate
+		row.amount = flt(row.qty) * boq_rate
+
+
 @frappe.whitelist()
 def get_project_boq_service_details(project: str, boq_item: str, sales_order: str | None = None) -> dict:
 	"""Return a project BOQ service that can be appended to a draft Sales Invoice."""

@@ -332,6 +332,11 @@ class SalesInvoiceOverride(SalesInvoice):
 		redtra_calculate_commission(self)
 
 	def validate(self):
+		from construction_management.api.boq_invoice import (
+			apply_boq_service_rates,
+			validate_combined_source_sales_orders,
+		)
+
 		if self.get("custom_is_advance_release"):
 			from construction_management.api.advance_release import validate_advance_release
 
@@ -340,9 +345,12 @@ class SalesInvoiceOverride(SalesInvoice):
 		if self.docstatus == 0:
 			link_deduction_rows(self.items)
 		self._normalize_deduction_uoms()
+		# Before ERPNext fills missing rates from Item Price.
+		apply_boq_service_rates(self)
 		super().validate()
-		from construction_management.api.boq_invoice import validate_combined_source_sales_orders
-
+		# After pricing rules so a shared Item Price cannot stick.
+		apply_boq_service_rates(self)
+		self.calculate_taxes_and_totals()
 		validate_combined_source_sales_orders(self)
 		if self.get("custom_is_advance_release"):
 			self.allocate_advances_automatically = 0

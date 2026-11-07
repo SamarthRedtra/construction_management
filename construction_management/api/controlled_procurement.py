@@ -1014,18 +1014,21 @@ CONNECTION_AMOUNT_FIELDS = ("grand_total", "paid_amount", "total_debit", "amount
 
 def _connection_names(doctype: str, name: str, target: str, found: dict, links: dict) -> list[str]:
 	"""Names of `target` documents linked to this one, following Desk's Connections rules."""
-	from frappe.desk.notifications import get_child_doctypes_with_field, get_external_link_fieldname
-
 	if found.get("names"):
 		return list(found["names"])
-	fieldname = get_external_link_fieldname(target, links)
+	fieldname = (links.get("non_standard_fieldnames") or {}).get(target) or links.get("fieldname")
 	if not fieldname:
 		return []
-	child_doctypes = get_child_doctypes_with_field(target, fieldname)
-	if child_doctypes:
-		or_filters = [[child, fieldname, "=", name] for child in child_doctypes]
-		return frappe.get_list(target, or_filters=or_filters, pluck="name", distinct=True, limit_page_length=50, order_by="creation desc")
-	return frappe.get_list(target, filters={fieldname: name}, pluck="name", limit_page_length=50, order_by="creation desc")
+	try:
+		return frappe.get_list(
+			target,
+			filters={fieldname: name},
+			pluck="name",
+			limit_page_length=50,
+			order_by="creation desc",
+		)
+	except Exception:
+		return []
 
 
 def _connection_rows(doctype: str, names: list[str], company: str = "") -> list[dict]:
@@ -1055,6 +1058,67 @@ def _connection_rows(doctype: str, names: list[str], company: str = "") -> list[
 	return rows
 
 
+def _order_direct_connections(doc) -> list[tuple[str, str, list[str]]]:
+	"""PO → receipts, invoices, and amendment chain when dashboard name lookup is thin."""
+	receipt_names = frappe.get_all(
+		"Purchase Receipt Item",
+		filters={"purchase_order": doc.name},
+		pluck="parent",
+		distinct=True,
+		limit_page_length=50,
+	)
+	invoice_names = frappe.get_all(
+		"Purchase Invoice Item",
+		filters={"purchase_order": doc.name},
+		pluck="parent",
+		distinct=True,
+		limit_page_length=50,
+	)
+	# Parent-level purchase_order also exists on some invoices.
+	invoice_names = list(dict.fromkeys(
+		invoice_names
+		+ frappe.get_all(
+			"Purchase Invoice",
+			filters={"purchase_order": doc.name},
+			pluck="name",
+			limit_page_length=50,
+		)
+	))
+	revision_names = []
+	if doc.get("amended_from"):
+		revision_names.append(doc.amended_from)
+	revision_names.extend(
+		frappe.get_all(
+			"Purchase Order",
+			filters={"amended_from": doc.name},
+			pluck="name",
+			limit_page_length=20,
+		)
+	)
+	return [
+		(_("Related"), "Purchase Receipt", receipt_names),
+		(_("Related"), "Purchase Invoice", invoice_names),
+		(_("Reference"), "Purchase Order", revision_names),
+	]
+
+
+def _invoice_direct_connections(doc) -> list[tuple[str, str, list[str]]]:
+	"""PI → source PO / receipt from item rows."""
+	po_names = {row.purchase_order for row in doc.items if row.purchase_order}
+	receipt_names = {row.purchase_receipt for row in doc.items if row.purchase_receipt}
+	return_names = frappe.get_all(
+		"Purchase Invoice",
+		filters={"return_against": doc.name, "company": doc.company},
+		pluck="name",
+		limit_page_length=50,
+	)
+	return [
+		(_("Reference"), "Purchase Order", sorted(po_names)),
+		(_("Reference"), "Purchase Receipt", sorted(receipt_names)),
+		(_("Returns"), "Purchase Invoice", return_names),
+	]
+
+
 def _receipt_direct_connections(doc) -> list[tuple[str, str, list[str]]]:
 	"""Find source and downstream documents even when Desk's dashboard omits them."""
 	po_names = {row.purchase_order for row in doc.items if row.purchase_order}
@@ -1073,6 +1137,35 @@ def _receipt_direct_connections(doc) -> list[tuple[str, str, list[str]]]:
 	]
 
 
+def _append_direct_connection_groups(doc, doctype: str, groups: list, seen: dict) -> None:
+	direct = {
+		"Purchase Order": _order_direct_connections,
+		"Purchase Invoice": _invoice_direct_connections,
+		"Purchase Receipt": _receipt_direct_connections,
+	}.get(doctype)
+	if not direct:
+		return
+	for label, target, names in direct(doc):
+		if not names or not frappe.has_permission(target, "read"):
+			continue
+		names = [n for n in names if n and n not in seen[target]]
+		rows = _connection_rows(target, names, doc.company)
+		if not rows:
+			continue
+		item = {"doctype": target, "count": len(rows), "documents": rows}
+		existing_group = next((entry for entry in groups if entry["label"] == label), None)
+		if existing_group:
+			existing = next((row for row in existing_group["items"] if row["doctype"] == target), None)
+			if existing:
+				existing["documents"].extend(rows)
+				existing["count"] = len(existing["documents"])
+			else:
+				existing_group["items"].append(item)
+		else:
+			groups.append({"label": label, "items": [item]})
+		seen[target].update(row.name for row in rows)
+
+
 @frappe.whitelist(methods=["GET"])
 def get_document_connections(doctype: str, name: str) -> list[dict]:
 	"""Desk's Connections tab for a workspace document: groups of linked doctypes with their documents."""
@@ -1088,14 +1181,7 @@ def get_document_connections(doctype: str, name: str) -> list[dict]:
 	}
 	groups = []
 	seen = defaultdict(set)
-	if doctype == "Purchase Receipt":
-		for label, target, names in _receipt_direct_connections(doc):
-			if not names or not frappe.has_permission(target, "read"):
-				continue
-			rows = _connection_rows(target, names, doc.company)
-			if rows:
-				groups.append({"label": label, "items": [{"doctype": target, "count": len(rows), "documents": rows}]})
-				seen[target].update(row.name for row in rows)
+	_append_direct_connection_groups(doc, doctype, groups, seen)
 	for group in links.transactions:
 		items = []
 		for target in group.get("items") or []:

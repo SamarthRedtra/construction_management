@@ -478,6 +478,7 @@ function _add_boq_service_from_dialog(frm, d, values) {
 				description: final_details.description,
 				qty: invoice_qty,
 				rate: rate,
+				price_list_rate: rate,
 				amount: invoice_qty * rate,
 				uom: final_details.uom,
 				project: frm.doc.project,
@@ -485,9 +486,16 @@ function _add_boq_service_from_dialog(frm, d, values) {
 				bill_no: final_details.bill_no,
 				sales_order: final_details.sales_order || null,
 				so_detail: final_details.so_detail || null,
+			}).then(() => {
+				// Item Price fetch from item_code can lag; lock the BOQ service rate again.
+				frappe.model.set_value(row.doctype, row.name, {
+					rate: rate,
+					price_list_rate: rate,
+					amount: invoice_qty * rate,
+				});
+				frm.refresh_field('items');
+				_si_deduction_debounce(frm);
 			});
-			frm.refresh_field('items');
-			_si_deduction_debounce(frm);
 		});
 		d.hide();
 	};
