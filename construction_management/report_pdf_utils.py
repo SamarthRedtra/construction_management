@@ -8,22 +8,39 @@ from urllib.parse import parse_qs, urlparse
 from bs4 import BeautifulSoup
 
 import frappe
+from frappe import _
 from frappe.core.doctype.file.utils import find_file_by_url
-from frappe.utils import get_url
 
 
 def get_report_pdf_options(orientation="Landscape"):
-	"""PDF options used by Frappe report_to_pdf for reliable wkhtmltopdf rendering."""
+	"""Options for Chromium Page.printToPDF (orientation + margins)."""
 	return {
 		"orientation": orientation,
-		"proxy": "http://0.0.0.0:0",
-		"bypass-proxy-for": urlparse(get_url(allow_header_override=False)).hostname,
-		"load-error-handling": "ignore",
+		"margin-top": "10mm",
+		"margin-bottom": "10mm",
+		"margin-left": "8mm",
+		"margin-right": "8mm",
 	}
 
 
+def get_report_pdf(html, orientation="Landscape"):
+	"""Render report HTML to PDF via Chrome — avoids wkhtmltopdf on email/SOA paths."""
+	from frappe.utils.pdf import get_chrome_pdf
+
+	pdf = get_chrome_pdf(
+		print_format=None,
+		html=inline_file_images(html),
+		options=get_report_pdf_options(orientation=orientation),
+		output=None,
+		pdf_generator="chrome",
+	)
+	if not pdf:
+		frappe.throw(_("PDF generation failed (Chrome)."))
+	return pdf
+
+
 def inline_file_images(html):
-	"""Embed file-backed images as base64 so wkhtmltopdf does not fetch them over HTTP."""
+	"""Embed file-backed images as base64 so the PDF engine does not fetch them over HTTP."""
 	if not html:
 		return html
 
