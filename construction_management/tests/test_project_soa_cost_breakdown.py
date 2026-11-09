@@ -112,18 +112,60 @@ class TestProjectSOACostBreakdown(FrappeTestCase):
 		project = create_test_project("TEST-SOA-COST-KEYS")
 		expenses = _build_expenses(project)
 		non_total = [row for row in expenses if not row.get("is_total")]
-		self.assertEqual(len(non_total), 5)
+		self.assertEqual(len(non_total), 7)
 		for row in non_total:
 			self.assertIn("category_key", row)
 			self.assertIn("expandable", row)
-			self.assertIn(row["category_key"], ("material", "labor", "subcontractor", "commission", "other"))
+			self.assertIn(
+				row["category_key"],
+				("material", "labor", "subcontractor", "commission", "fixed_assets", "stock_value", "other"),
+			)
+		total_row = expenses[-1]
+		self.assertTrue(total_row.get("is_total"))
+		self.assertIn("formula", total_row)
+		stock_row = next(row for row in non_total if row["category_key"] == "stock_value")
+		self.assertTrue(stock_row.get("is_credit"))
 
 	def test_summarize_matches_get_project_cost_breakdown(self):
 		project = create_test_project("TEST-SOA-COST-SUM")
 		summary = summarize_project_cost_breakdown(project)
 		breakdown = get_project_cost_breakdown(project)
-		for key in ("material", "labor", "subcontractor", "commission", "other", "unallocated", "total"):
+		for key in (
+			"material",
+			"labor",
+			"subcontractor",
+			"commission",
+			"other",
+			"unallocated",
+			"fixed_assets",
+			"stock_value",
+			"total",
+		):
 			self.assertEqual(flt(summary.get(key)), flt(breakdown.get(key)), key)
+
+	def test_total_formula_subtracts_stock_value(self):
+		project = create_test_project("TEST-SOA-COST-FORMULA")
+		with patch(
+			"construction_management.api.project_soa_cost_detail._fetch_gl_expense_entries",
+			return_value=[],
+		), patch(
+			"construction_management.api.project_soa_cost_detail._fetch_non_expense_pi_atoms",
+			return_value=[],
+		), patch(
+			"construction_management.api.project_soa_cost_detail._get_commission_total",
+			return_value=100.0,
+		), patch(
+			"construction_management.api.project_soa_cost_detail._project_fixed_asset_value",
+			return_value=50.0,
+		), patch(
+			"construction_management.api.project_soa_cost_detail._project_stock_value",
+			return_value=30.0,
+		):
+			summary = summarize_project_cost_breakdown(project)
+		self.assertEqual(flt(summary["commission"]), 100)
+		self.assertEqual(flt(summary["fixed_assets"]), 50)
+		self.assertEqual(flt(summary["stock_value"]), 30)
+		self.assertEqual(flt(summary["total"]), 120)  # 100 + 50 - 30
 
 	def test_get_soa_expense_breakdown_empty_category(self):
 		project = create_test_project("TEST-SOA-COST-EMPTY")
@@ -201,12 +243,16 @@ class TestProjectSOACostBreakdown(FrappeTestCase):
 				"commission": 0,
 				"other": 0,
 				"unallocated": 3700,
+				"fixed_assets": 0,
+				"stock_value": 0,
 				"total": 3700,
+				"cost_formula": "Material + Labour + Subcontractor + Commission + Fixed Assets + Other − Stock Value",
 			},
 		):
 			expenses = _build_expenses(project)
 		total_row = expenses[-1]
 		self.assertEqual(flt(total_row["cost"]), 3700)
+		self.assertIn("formula", total_row)
 
 	@patch("construction_management.api.project_soa_cost_detail._get_dpr_linked_stock_entries", return_value={"SE-DPR-001"})
 	@patch("construction_management.api.project_soa_cost_detail.frappe.db.sql")

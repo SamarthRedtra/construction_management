@@ -311,6 +311,7 @@ scheduler_events = {
 		"construction_management.tasks.check_overdue_tasks",
 		"construction_management.api.employee_rate_cache.daily_refresh_employee_rates",
 		"construction_management.raven_integrations.retention_reminders.send_retention_reminders",
+		"construction_management.api.material_lifecycle_tracker.send_overdue_grn_reminders",
 	],
 	"weekly": [
 		"construction_management.tasks.send_weekly_report"

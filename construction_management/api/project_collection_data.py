@@ -313,22 +313,30 @@ def _get_invoice_sales_order_allocations(
 
 	result = {}
 	for invoice_name, invoice in invoices.items():
-		invoice_weights = {
-			sales_order: amount
-			for sales_order, amount in weights.get(invoice_name, {}).items()
-			if amount > 0
-		}
-		# A combined invoice edited after creation can lose item links to some source orders.
-		if any(order not in invoice_weights for order in source_orders[invoice_name]):
+		listed_sources = source_orders[invoice_name]
+		# Single-SO TI: put the full grand_total on custom_sales_order even if stray
+		# item.sales_order links point at other orders (not a formal combined TI).
+		if not listed_sources and invoice.custom_sales_order:
 			invoice_weights = {
-				order: source_order_totals[order]
-				for order in source_orders[invoice_name]
-				if source_order_totals.get(order, 0) > 0
-			} or invoice_weights
-		if not invoice_weights and invoice.custom_sales_order:
-			invoice_weights[invoice.custom_sales_order] = flt(invoice.net_total) or flt(
-				invoice.grand_total
-			)
+				invoice.custom_sales_order: flt(invoice.net_total) or flt(invoice.grand_total)
+			}
+		else:
+			invoice_weights = {
+				sales_order: amount
+				for sales_order, amount in weights.get(invoice_name, {}).items()
+				if amount > 0
+			}
+			# A combined invoice edited after creation can lose item links to some source orders.
+			if any(order not in invoice_weights for order in listed_sources):
+				invoice_weights = {
+					order: source_order_totals[order]
+					for order in listed_sources
+					if source_order_totals.get(order, 0) > 0
+				} or invoice_weights
+			if not invoice_weights and invoice.custom_sales_order:
+				invoice_weights[invoice.custom_sales_order] = flt(invoice.net_total) or flt(
+					invoice.grand_total
+				)
 		if not invoice_weights:
 			continue
 

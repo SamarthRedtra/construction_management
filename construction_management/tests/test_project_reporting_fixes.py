@@ -189,6 +189,42 @@ class TestProjectReportingFixes(UnitTestCase):
 		self.assertEqual(allocations["SO-1"]["allocated_grand_total"], 900)
 		self.assertEqual(allocations["SO-2"]["allocated_grand_total"], 100)
 
+	@patch("construction_management.api.project_collection_data.frappe.db.has_column", return_value=True)
+	@patch("construction_management.api.project_collection_data.frappe.get_all")
+	def test_single_so_invoice_ignores_stray_item_sales_order_links(self, get_all, _has_column):
+		"""custom_sales_order alone must get 100% TI even when items also link another SO."""
+
+		def fake_get_all(doctype, **kwargs):
+			if doctype == "Sales Invoice":
+				return [
+					frappe._dict(
+						name="TINV-1",
+						grand_total=1000,
+						net_total=950,
+						custom_sales_order="SO-1",
+						custom_source_sales_orders=None,
+					)
+				]
+			if doctype == "Sales Invoice Item":
+				return [
+					frappe._dict(parent="TINV-1", sales_order="SO-1", net_amount=700),
+					frappe._dict(parent="TINV-1", sales_order="SO-2", net_amount=250),
+				]
+			if doctype == "Sales Order":
+				return [
+					frappe._dict(name="SO-1", net_total=100),
+					frappe._dict(name="SO-2", net_total=100),
+				]
+			return []
+
+		get_all.side_effect = fake_get_all
+
+		allocations = _get_invoice_sales_order_allocations(["TINV-1"])["TINV-1"]
+
+		self.assertEqual(set(allocations), {"SO-1"})
+		self.assertEqual(allocations["SO-1"]["allocated_grand_total"], 1000)
+		self.assertEqual(allocations["SO-1"]["linked_net_amount"], 950)
+
 	def test_proforma_conversion_status_uses_linked_net_value(self):
 		row = {
 			"proforma_net_amount": 1000,

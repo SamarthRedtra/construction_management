@@ -381,6 +381,22 @@
 	background-color: #edf2f7;
 }
 
+.expense-formula {
+	font-size: 11px;
+	font-weight: 400;
+	margin-top: 2px;
+}
+
+.expenses-credit-row td {
+	color: #856404;
+}
+
+.expense-tracker-link {
+	margin-left: 6px;
+	font-size: 11px;
+	font-weight: 500;
+}
+
 .expenses-total-row {
 	background-color: #fff5f5;
 }

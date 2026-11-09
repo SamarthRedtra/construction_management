@@ -9,7 +9,9 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-VALID_CATEGORIES = frozenset({"material", "labor", "subcontractor", "commission", "other"})
+VALID_CATEGORIES = frozenset(
+	{"material", "labor", "subcontractor", "commission", "other", "fixed_assets", "stock_value"}
+)
 
 _ROUTE_MAP = {
 	"Daily Progress Record": "daily-progress-record",
@@ -19,6 +21,7 @@ _ROUTE_MAP = {
 	"Purchase Receipt": "purchase-receipt",
 	"Sales Invoice": "sales-invoice",
 	"Proforma Invoice": "proforma-invoice",
+	"Asset": "asset",
 }
 
 
@@ -801,6 +804,10 @@ def get_soa_expense_breakdown(project: str, category: str) -> dict:
 
 	if category == "commission":
 		atoms = _build_commission_atoms(project)
+	elif category == "fixed_assets":
+		atoms = _build_fixed_asset_atoms(project)
+	elif category == "stock_value":
+		atoms = _build_stock_value_atoms(project)
 	else:
 		all_atoms = _collect_gl_atoms(project)
 		gl_atoms = [a for a in all_atoms if a["category"] == category]
@@ -814,7 +821,7 @@ def get_soa_expense_breakdown(project: str, category: str) -> dict:
 			atoms = _build_other_breakdown_atoms(project, all_atoms)
 
 	groups = _build_tree_from_atoms(atoms)
-	return {"category": category, "total": total, "groups": groups}
+	return {"category": category, "total": total, "groups": groups, "project": project}
 
 
 def summarize_project_cost_breakdown(project: str) -> dict:
@@ -833,6 +840,8 @@ def summarize_project_cost_breakdown(project: str) -> dict:
 		"commission": commission_total,
 		"other": 0.0,
 		"unallocated": 0.0,
+		"fixed_assets": 0.0,
+		"stock_value": 0.0,
 		"total": 0.0,
 	}
 
@@ -855,11 +864,175 @@ def summarize_project_cost_breakdown(project: str) -> dict:
 			breakdown["unallocated"] += amount
 		breakdown[category] += amount
 
+	breakdown["fixed_assets"] = _project_fixed_asset_value(project)
+	breakdown["stock_value"] = _project_stock_value(project)
+	# PDF: Material + Labour + Subcontractor + Commission + Fixed Assets + Other − Stock Value
 	breakdown["total"] = (
 		breakdown["subcontractor"]
 		+ breakdown["labor"]
 		+ breakdown["material"]
 		+ breakdown["commission"]
 		+ breakdown["other"]
+		+ breakdown["fixed_assets"]
+		- breakdown["stock_value"]
+	)
+	breakdown["cost_formula"] = (
+		"Material + Labour + Subcontractor + Commission + Fixed Assets + Other − Stock Value"
 	)
 	return breakdown
+
+
+def _project_warehouse_names(project: str) -> list[str]:
+	company = frappe.db.get_value("Project", project, "company")
+	site_location = frappe.db.get_value("Project", project, "site_location") or ""
+	filters = {"company": company, "is_group": 0, "disabled": 0} if company else {"is_group": 0, "disabled": 0}
+	or_filters = [["custom_project", "=", project]]
+	if site_location:
+		or_filters.append(["name", "=", site_location])
+	if not frappe.db.has_column("Warehouse", "custom_project"):
+		return [site_location] if site_location else []
+	return frappe.get_all("Warehouse", filters=filters, or_filters=or_filters, pluck="name") or []
+
+
+def _project_stock_value(project: str) -> float:
+	"""Balance stock value at project site warehouses (credit against project cost)."""
+	warehouses = _project_warehouse_names(project)
+	if not warehouses:
+		return 0.0
+	return flt(
+		frappe.db.sql(
+			"""
+			SELECT SUM(b.stock_value)
+			FROM `tabBin` b
+			INNER JOIN `tabItem` i ON i.name = b.item_code
+			WHERE b.warehouse IN %s AND IFNULL(i.is_fixed_asset, 0) = 0 AND IFNULL(i.is_stock_item, 0) = 1
+			""",
+			(warehouses,),
+		)[0][0]
+	)
+
+
+def _project_fixed_asset_value(project: str) -> float:
+	"""Depreciating / purchase value of assets tied to the project or its warehouses."""
+	if not frappe.db.has_table("Asset"):
+		return 0.0
+	warehouses = _project_warehouse_names(project)
+	conditions = ["docstatus = 1", "status != 'Sold'"]
+	params: list = []
+	parts = []
+	if frappe.db.has_column("Asset", "project"):
+		parts.append("project = %s")
+		params.append(project)
+	if warehouses and frappe.db.has_column("Asset", "location"):
+		parts.append("location IN %s")
+		params.append(warehouses)
+	if not parts:
+		return 0.0
+	value_col = (
+		"value_after_depreciation"
+		if frappe.db.has_column("Asset", "value_after_depreciation")
+		else "gross_purchase_amount"
+	)
+	return flt(
+		frappe.db.sql(
+			f"""
+			SELECT SUM({value_col}) FROM `tabAsset`
+			WHERE {" AND ".join(conditions)} AND ({" OR ".join(parts)})
+			""",
+			tuple(params),
+		)[0][0]
+	)
+
+
+def _build_fixed_asset_atoms(project: str) -> list[dict]:
+	if not frappe.db.has_table("Asset"):
+		return []
+	warehouses = _project_warehouse_names(project)
+	conditions = ["a.docstatus = 1", "a.status != 'Sold'"]
+	params: list = []
+	parts = []
+	if frappe.db.has_column("Asset", "project"):
+		parts.append("a.project = %s")
+		params.append(project)
+	if warehouses and frappe.db.has_column("Asset", "location"):
+		parts.append("a.location IN %s")
+		params.append(warehouses)
+	if not parts:
+		return []
+	value_col = (
+		"a.value_after_depreciation"
+		if frappe.db.has_column("Asset", "value_after_depreciation")
+		else "a.gross_purchase_amount"
+	)
+	rows = frappe.db.sql(
+		f"""
+		SELECT a.name, a.asset_name, a.item_code, a.location, {value_col} AS amount,
+			IFNULL(ig.name, 'Fixed Assets') AS item_group
+		FROM `tabAsset` a
+		LEFT JOIN `tabItem` i ON i.name = a.item_code
+		LEFT JOIN `tabItem Group` ig ON ig.name = i.item_group
+		WHERE {" AND ".join(conditions)} AND ({" OR ".join(parts)})
+		""",
+		tuple(params),
+		as_dict=True,
+	)
+	atoms = []
+	for row in rows:
+		atoms.append(
+			{
+				"group_key": row.item_group or "Fixed Assets",
+				"group_label": row.item_group or "Fixed Assets",
+				"line_key": row.item_code or row.name,
+				"line_label": row.asset_name or row.item_code or row.name,
+				"qty": 1,
+				"uom": "Nos",
+				"rate": flt(row.amount),
+				"amount": flt(row.amount),
+				"source_doctype": "Asset",
+				"source_document": row.name,
+				"date": None,
+				"remarks": row.location or "",
+				"link": f"/app/asset/{row.name}",
+			}
+		)
+	return atoms
+
+
+def _build_stock_value_atoms(project: str) -> list[dict]:
+	warehouses = _project_warehouse_names(project)
+	if not warehouses:
+		return []
+	rows = frappe.db.sql(
+		"""
+		SELECT b.item_code, i.item_name, i.item_group, b.warehouse, b.actual_qty, b.stock_value, i.stock_uom
+		FROM `tabBin` b
+		INNER JOIN `tabItem` i ON i.name = b.item_code
+		WHERE b.warehouse IN %s AND IFNULL(i.is_fixed_asset, 0) = 0 AND IFNULL(i.is_stock_item, 0) = 1
+			AND ABS(IFNULL(b.stock_value, 0)) > 0.0001
+		ORDER BY i.item_group, b.item_code
+		""",
+		(warehouses,),
+		as_dict=True,
+	)
+	atoms = []
+	for row in rows:
+		qty = flt(row.actual_qty)
+		amount = flt(row.stock_value)
+		atoms.append(
+			{
+				"group_key": row.item_group or "Stock",
+				"group_label": row.item_group or "Stock",
+				"line_key": row.item_code,
+				"line_label": row.item_name or row.item_code,
+				"qty": qty,
+				"uom": row.stock_uom,
+				"rate": (amount / qty) if qty else 0,
+				"amount": amount,
+				"source_doctype": "Warehouse",
+				"source_document": row.warehouse,
+				"date": None,
+				"remarks": _("Balance stock"),
+				"link": f"/app/warehouse/{row.warehouse}",
+			}
+		)
+	return atoms

@@ -12,6 +12,7 @@ const routes = [
 	{ path: "/terms-templates", name: "terms-templates", component: () => import("@/views/TermsTemplatesView.vue") },
 	{ path: "/lpo-approvals", name: "lpo-approvals", component: () => import("@/views/LpoApprovalsView.vue") },
 	{ path: "/insights", name: "insights", component: () => import("@/views/ProcurementInsightsView.vue") },
+	{ path: "/lifecycle", name: "lifecycle", component: () => import("@/views/MaterialLifecycleTrackerView.vue") },
 	{ path: "/stock-ledger", name: "stock-ledger", component: () => import("@/views/ProcurementStockLedgerView.vue") },
 	{ path: "/stock-balance", name: "stock-balance", component: () => import("@/views/ProcurementStockBalanceView.vue") },
 	{ path: "/receipts", name: "receipts", component: () => import("@/views/DocumentListView.vue"), props: { kind: "receipts" } },

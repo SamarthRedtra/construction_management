@@ -29,6 +29,7 @@ def get_project_soa_data(project: str) -> dict:
 	follow_ups = get_project_soa_follow_ups(project)
 
 	return {
+		"project": project,
 		"services": services,
 		"total_project_value": total_project_value,
 		"boq_source_project": boq_source_project,
@@ -362,26 +363,41 @@ def _build_expenses(project: str) -> list[dict]:
 	labor_cost = flt(gl_breakdown.get("labor", 0.0))
 	subcontractor_cost = flt(gl_breakdown.get("subcontractor", 0.0))
 	commission = flt(gl_breakdown.get("commission", 0.0))
+	fixed_assets = flt(gl_breakdown.get("fixed_assets", 0.0))
+	stock_value = flt(gl_breakdown.get("stock_value", 0.0))
 	other_cost = flt(gl_breakdown.get("other", 0.0)) + flt(gl_breakdown.get("unallocated", 0.0))
-	# Use summary total — unallocated is already included in category rows (e.g. subcontractor)
+	# PDF formula total (Material + Labour + Sub + Commission + Fixed Assets + Other − Stock Value)
 	total_project_cost = flt(gl_breakdown.get("total", 0.0))
+	cost_formula = gl_breakdown.get("cost_formula") or _(
+		"Material + Labour + Subcontractor + Commission + Fixed Assets + Other − Stock Value"
+	)
 
-	def _expense_row(idx, label, cost, category_key):
+	def _expense_row(idx, label, cost, category_key, *, is_credit=False):
 		return {
 			"idx": idx,
 			"category": label,
 			"cost": cost,
 			"category_key": category_key,
 			"expandable": cost > 0,
+			"is_credit": is_credit,
 		}
 
 	return [
 		_expense_row(1, _("Material Cost"), material_cost, "material"),
-		_expense_row(2, _("Labour Cost"), labor_cost, "labor"),
+		_expense_row(2, _("Labour Cost (Skada + MRG)"), labor_cost, "labor"),
 		_expense_row(3, _("Subcontractor Cost"), subcontractor_cost, "subcontractor"),
 		_expense_row(4, _("Commission"), commission, "commission"),
-		_expense_row(5, _("Other/Unallocated Cost"), other_cost, "other"),
-		{"idx": 6, "category": _("Total Project Cost"), "cost": total_project_cost, "is_total": True, "expandable": False},
+		_expense_row(5, _("Fixed Assets"), fixed_assets, "fixed_assets"),
+		_expense_row(6, _("Stock Value (balance)"), stock_value, "stock_value", is_credit=True),
+		_expense_row(7, _("Other / Miscellaneous Cost"), other_cost, "other"),
+		{
+			"idx": 8,
+			"category": _("Total Project Cost"),
+			"cost": total_project_cost,
+			"is_total": True,
+			"expandable": False,
+			"formula": cost_formula,
+		},
 	]
 
 

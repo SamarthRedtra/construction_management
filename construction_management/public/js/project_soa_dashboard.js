@@ -200,20 +200,30 @@ construction_management.project_soa.build_dashboard_html = function (data, optio
 		follow_up_html = `<tr><td colspan="6" class="text-center text-muted">${__('No follow-ups recorded')}</td></tr>`;
 	}
 
+	construction_management.project_soa._current_project = data.project || '';
+
 	let expenses_html = '';
 	data.expenses.forEach(function (row) {
-		const row_class = row.is_total ? 'expenses-total-row font-bold' : '';
+		const row_class = row.is_total ? 'expenses-total-row font-bold' : (row.is_credit ? 'expenses-credit-row' : '');
 		const expandable = row.expandable && row.category_key;
 		const chevron = expandable
 			? `<span class="expense-chevron" data-category="${frappe.utils.escape_html(row.category_key)}">▸</span>`
 			: '<span class="expense-chevron-spacer"></span>';
+		const amount = row.is_credit ? -flt(row.cost) : flt(row.cost);
+		const amount_disp = row.is_credit
+			? `− ${fmt(row.cost, 'Currency')}`
+			: fmt(row.cost, 'Currency');
 		expenses_html += `
 			<tr class="expense-category-row ${row_class}${expandable ? ' expense-expandable' : ''}"
 				data-category="${expandable ? frappe.utils.escape_html(row.category_key) : ''}"
 				data-expandable="${expandable ? '1' : '0'}">
 				<td class="text-center">${row.idx}</td>
-				<td class="expense-category-cell">${chevron}${frappe.utils.escape_html(row.category)}</td>
-				<td class="text-right font-semibold">${fmt(row.cost, 'Currency')}</td>
+				<td class="expense-category-cell">${chevron}${frappe.utils.escape_html(row.category)}${
+					row.is_total && row.formula
+						? `<div class="expense-formula text-muted">${frappe.utils.escape_html(row.formula)}</div>`
+						: ''
+				}</td>
+				<td class="text-right font-semibold" data-amount="${amount}">${amount_disp}</td>
 			</tr>
 		`;
 		if (expandable) {
@@ -473,12 +483,20 @@ construction_management.project_soa.build_expense_breakdown_html = function (dat
 			const line_meta_html = line_meta
 				? `<span class="expense-line-meta">${line_meta}</span>`
 				: '';
+			const project = data.project || construction_management.project_soa._current_project || '';
+			const item_code = line.key || line.label || '';
+			const tracker_href = (data.category === 'material' && project && item_code)
+				? `/procurement/lifecycle?project=${encodeURIComponent(project)}&item_code=${encodeURIComponent(item_code)}`
+				: '';
+			const tracker_link = tracker_href
+				? `<a class="expense-tracker-link" href="${tracker_href}" target="_blank">${__('Lifecycle')}</a>`
+				: '';
 
 			html += `
 				<div class="expense-line-block">
 					<div class="expense-line-row" data-level="line">
 						<span class="expense-tree-chevron">▸</span>
-						<span class="expense-tree-label">${frappe.utils.escape_html(line.label)}</span>
+						<span class="expense-tree-label">${frappe.utils.escape_html(line.label)} ${tracker_link}</span>
 						<span class="expense-tree-meta">${line_meta_html}</span>
 						<span class="expense-tree-amount">${fmt(line.amount, 'Currency')}</span>
 					</div>

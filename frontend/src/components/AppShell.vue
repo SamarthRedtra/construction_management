@@ -30,6 +30,7 @@ const nav = computed(() => {
 		{ to: "/stock-ledger", label: "View Ledger", icon: "ledger", visible: ctx.can_view_stock_ledger },
 		{ to: "/stock-balance", label: "Stock Balance", icon: "ledger", visible: ctx.can_view_stock_ledger },
 		{ to: "/insights", label: "Procurement Insights", icon: "grid", visible: ctx.can_view_insights },
+		{ to: "/lifecycle", label: "Material Lifecycle", icon: "ledger", visible: ctx.can_view_insights },
 	].filter((item) => item.visible)
 })
 
