@@ -29,7 +29,7 @@ def get_report_pdf(html, orientation="Landscape"):
 
 	pdf = get_chrome_pdf(
 		print_format=None,
-		html=inline_file_images(html),
+		html=prepare_report_html_for_chrome(html),
 		options=get_report_pdf_options(orientation=orientation),
 		output=None,
 		pdf_generator="chrome",
@@ -39,14 +39,39 @@ def get_report_pdf(html, orientation="Landscape"):
 	return pdf
 
 
-def inline_file_images(html):
-	"""Embed file-backed images as base64 so the PDF engine does not fetch them over HTTP."""
+def prepare_report_html_for_chrome(html):
+	"""Inline images and flatten wkhtmltopdf header/footer hooks for Chrome.
+
+	SOA templates use #header-html / #footer-html for wkhtmltopdf. Chrome's
+	separate header/footer page merge often fails (KeyError on PDF stream), so
+	keep letterhead/footer in the body instead.
+	"""
 	if not html:
 		return html
 
 	soup = BeautifulSoup(html, "html.parser")
-	changed = False
+	_flatten_print_header_footer(soup)
+	_inline_file_images_in_soup(soup)
+	return str(soup)
 
+
+def _flatten_print_header_footer(soup):
+	for tag in soup.find_all(id="header-html"):
+		classes = [c for c in (tag.get("class") or []) if c != "hidden-pdf"]
+		if "letter-head-block" not in classes:
+			classes.append("letter-head-block")
+		tag["class"] = classes
+		del tag["id"]
+
+	for tag in soup.find_all(id="footer-html"):
+		classes = list(tag.get("class") or [])
+		if "letter-head-footer-block" not in classes:
+			classes.append("letter-head-footer-block")
+		tag["class"] = classes
+		del tag["id"]
+
+
+def _inline_file_images_in_soup(soup):
 	for img in soup.find_all("img"):
 		src = img.get("src")
 		if not src or src.startswith("data:"):
@@ -67,10 +92,17 @@ def inline_file_images(html):
 		try:
 			b64_encoded_image = base64.b64encode(file.get_content()).decode()
 			img["src"] = f"data:{mime_type};base64,{b64_encoded_image}"
-			changed = True
 		except Exception:
 			frappe.logger("pdf").error(
 				"Failed to inline image for PDF: %s", path, exc_info=True
 			)
 
-	return str(soup) if changed else html
+
+def inline_file_images(html):
+	"""Embed file-backed images as base64 so the PDF engine does not fetch them over HTTP."""
+	if not html:
+		return html
+
+	soup = BeautifulSoup(html, "html.parser")
+	_inline_file_images_in_soup(soup)
+	return str(soup)
