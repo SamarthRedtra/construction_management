@@ -268,6 +268,7 @@
   {
    "fieldname": "total_revenue",
    "fieldtype": "Currency",
+   "hidden": 1,
    "label": "Total Profit (Billed)",
    "read_only": 1
   },
@@ -367,17 +368,17 @@
    "fieldtype": "Column Break"
   },
   {
+   "description": "All-time balance of the company Sales ledger for this project. Uses Sales Account when Sales is not defined.",
    "fieldname": "actual_revenue_value",
    "fieldtype": "Currency",
    "label": "Actual Revenue Value",
-   "read_only": 1,
-   "description": "All-time balance of the company Sales ledger for this project. Uses Sales Account when Sales is not defined."
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-11-06 10:02:33.382817",
+ "modified": "2026-11-11 13:36:57.453131",
  "modified_by": "Administrator",
  "module": "Construction Management",
  "name": "Project Closure",

@@ -140,6 +140,12 @@ class TestSOBOQProgressPrint(FrappeTestCase):
 			"construction_management.so_boq_progress_print_context.frappe.get_all",
 			return_value=self._ledger(),
 		), patch(
+			"construction_management.so_boq_progress_print_context._prior_tax_invoice_totals_for_boq_items",
+			return_value={},
+		), patch(
+			"construction_management.so_boq_progress_print_context._prior_tax_invoice_payment_total",
+			return_value=0.0,
+		), patch(
 			"construction_management.so_boq_progress_print_context.frappe.db.has_column",
 			return_value=False,
 		):
@@ -198,9 +204,19 @@ class TestSOBOQProgressPrint(FrappeTestCase):
 				return ledger
 			return []
 
+		prior_from_tax = {
+			"BOQ-ITEM-1": {"prev_qty": 10, "prev_amount": 50000},
+		}
+
 		with patch(
 			"construction_management.so_boq_progress_print_context.frappe.get_all",
 			side_effect=fake_get_all,
+		), patch(
+			"construction_management.so_boq_progress_print_context._prior_tax_invoice_totals_for_boq_items",
+			return_value=prior_from_tax,
+		), patch(
+			"construction_management.so_boq_progress_print_context._prior_tax_invoice_payment_total",
+			return_value=98765.43,
 		), patch(
 			"construction_management.so_boq_progress_print_context.frappe.db.has_column",
 			return_value=False,
@@ -216,7 +232,7 @@ class TestSOBOQProgressPrint(FrappeTestCase):
 		self.assertAlmostEqual(ctx["totals"]["ret_c"], 8000, places=2)
 		self.assertAlmostEqual(ctx["totals"]["adv_c"], 2000, places=2)
 		self.assertAlmostEqual(ctx["totals"]["net_c"], 150000, places=2)
-		self.assertEqual(ctx["totals"]["prev_paid"], 0)
+		self.assertAlmostEqual(ctx["totals"]["prev_paid"], 98765.43, places=2)
 		self.assertEqual(ctx["amount_in_words"], doc.in_words)
 
 	def test_sales_invoice_orphan_ledger_fallback(self):
@@ -245,6 +261,12 @@ class TestSOBOQProgressPrint(FrappeTestCase):
 			"construction_management.so_boq_progress_print_context.frappe.get_all",
 			side_effect=fake_get_all,
 		), patch(
+			"construction_management.so_boq_progress_print_context._prior_tax_invoice_totals_for_boq_items",
+			return_value={"BOQ-ITEM-1": {"prev_qty": 5, "prev_amount": 12000}},
+		), patch(
+			"construction_management.so_boq_progress_print_context._prior_tax_invoice_payment_total",
+			return_value=0.0,
+		), patch(
 			"construction_management.so_boq_progress_print_context.frappe.db.has_column",
 			return_value=False,
 		), patch(
@@ -256,6 +278,83 @@ class TestSOBOQProgressPrint(FrappeTestCase):
 		self.assertAlmostEqual(ctx["rows"][0]["prev_amount"], 12000, places=2)
 		self.assertAlmostEqual(ctx["totals"]["ret_c"], 5000, places=2)
 		self.assertAlmostEqual(ctx["totals"]["net_c"], doc.grand_total, places=2)
+
+	def test_sales_invoice_prev_uses_prior_tax_invoices_not_ledger_proforma(self):
+		"""Print Previous column must follow earlier tax invoices, not proforma ledger prev."""
+		doc = self._doc(
+			doctype="Sales Invoice",
+			name="TINV/PREV/2",
+			transaction_date=None,
+			posting_date=today(),
+			grand_total=200000,
+			in_words=money_in_words(200000, "AED"),
+		)
+		ledger = self._ledger(
+			prev_amount=999999,
+			prev_qty=999,
+			percentage=40,
+			retention_amount=10000,
+		)
+
+		def fake_get_all(doctype, filters=None, fields=None, **kwargs):
+			if filters and filters.get("tax_invoice") == doc.name:
+				return ledger
+			return []
+
+		prior_from_tax = {
+			"BOQ-ITEM-1": {"prev_qty": 12.5, "prev_amount": 25000},
+		}
+
+		with patch(
+			"construction_management.so_boq_progress_print_context.frappe.get_all",
+			side_effect=fake_get_all,
+		), patch(
+			"construction_management.so_boq_progress_print_context._prior_tax_invoice_totals_for_boq_items",
+			return_value=prior_from_tax,
+		), patch(
+			"construction_management.so_boq_progress_print_context._prior_tax_invoice_payment_total",
+			return_value=0.0,
+		), patch(
+			"construction_management.so_boq_progress_print_context.frappe.db.has_column",
+			return_value=False,
+		), patch(
+			"construction_management.so_boq_progress_print_context.frappe.db.get_value",
+			return_value=None,
+		):
+			ctx = build(doc)
+
+		self.assertAlmostEqual(ctx["rows"][0]["prev_amount"], 25000, places=2)
+		self.assertAlmostEqual(ctx["rows"][0]["prev_qty"], 12.5, places=2)
+		self.assertAlmostEqual(ctx["totals"]["gross_p"], 25000, places=2)
+
+	def test_sales_invoice_prev_paid_sums_prior_tax_invoice_grand_totals(self):
+		doc = self._doc(
+			doctype="Sales Invoice",
+			name="TINV/PREV-PAID/1",
+			transaction_date=None,
+			posting_date=today(),
+			grand_total=200000,
+			in_words=money_in_words(200000, "AED"),
+		)
+		with patch(
+			"construction_management.so_boq_progress_print_context.frappe.get_all",
+			return_value=self._ledger(),
+		), patch(
+			"construction_management.so_boq_progress_print_context._prior_tax_invoice_totals_for_boq_items",
+			return_value={},
+		), patch(
+			"construction_management.so_boq_progress_print_context._prior_tax_invoice_payment_total",
+			return_value=125000.0,
+		), patch(
+			"construction_management.so_boq_progress_print_context.frappe.db.has_column",
+			return_value=False,
+		), patch(
+			"construction_management.so_boq_progress_print_context.frappe.db.get_value",
+			return_value=None,
+		):
+			ctx = build(doc)
+
+		self.assertAlmostEqual(ctx["totals"]["prev_paid"], 125000.0, places=2)
 
 	def test_sales_invoice_deduction_lines_drive_retention_and_advance(self):
 		work = frappe._dict(
@@ -303,6 +402,12 @@ class TestSOBOQProgressPrint(FrappeTestCase):
 			"construction_management.so_boq_progress_print_context.frappe.get_all",
 			return_value=self._ledger(retention_amount=999, advance_deduction=999),
 		), patch(
+			"construction_management.so_boq_progress_print_context._prior_tax_invoice_totals_for_boq_items",
+			return_value={},
+		), patch(
+			"construction_management.so_boq_progress_print_context._prior_tax_invoice_payment_total",
+			return_value=0.0,
+		), patch(
 			"construction_management.so_boq_progress_print_context.frappe.db.has_column",
 			return_value=False,
 		), patch(
@@ -345,6 +450,12 @@ class TestSOBOQProgressPrint(FrappeTestCase):
 		with patch(
 			"construction_management.so_boq_progress_print_context.frappe.get_all",
 			return_value=[],
+		), patch(
+			"construction_management.so_boq_progress_print_context._prior_tax_invoice_totals_for_boq_items",
+			return_value={},
+		), patch(
+			"construction_management.so_boq_progress_print_context._prior_tax_invoice_payment_total",
+			return_value=0.0,
 		), patch(
 			"construction_management.so_boq_progress_print_context.frappe.db.has_column",
 			return_value=False,

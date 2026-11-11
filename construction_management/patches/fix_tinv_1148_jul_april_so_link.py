@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Construction Management
 # License: MIT
 
-"""Clear wrong April Sales Order line links on TINV/1148/2026-JUL/1-1."""
+"""Link TINV/1148/2026-JUL/1-1 to July Sales Order SAL-ORD-2026-00334 (Connections)."""
 
 import frappe
 

@@ -42,11 +42,14 @@ def build(doc) -> dict:
 	prev_paid = 0.0
 	idx = 0
 
-	if not is_sales_invoice:
+	if is_sales_invoice:
+		prev_paid = _prior_tax_invoice_payment_total(doc)
+	else:
 		for entry in ledger_map.values():
 			prev_paid += flt(entry.get("tax_invoice_amount"))
 
 	deduction_ret, deduction_adv = _deduction_amounts(doc)
+	prior_tax_by_boq = _prior_tax_invoice_totals_for_boq_items(doc) if is_sales_invoice else {}
 
 	for item in doc.get("items") or []:
 		if flt(item.amount) <= 0:
@@ -55,8 +58,13 @@ def build(doc) -> dict:
 			continue
 		idx += 1
 		ledger = ledger_map.get(item.boq_item) or {}
-		prev_amount = flt(ledger.get("prev_amount"))
-		prev_qty = flt(ledger.get("prev_qty"))
+		if is_sales_invoice:
+			prior = prior_tax_by_boq.get(item.boq_item) or {}
+			prev_amount = flt(prior.get("prev_amount"))
+			prev_qty = flt(prior.get("prev_qty"))
+		else:
+			prev_amount = flt(ledger.get("prev_amount"))
+			prev_qty = flt(ledger.get("prev_qty"))
 		current_amount = flt(item.amount)
 		current_qty = flt(item.qty)
 		total_amount = prev_amount + current_amount
@@ -257,3 +265,94 @@ def _ledger_map(doc) -> dict:
 		)
 
 	return {row.boq_item: row for row in entries if row.boq_item}
+
+
+def _work_boq_items(doc) -> set[str]:
+	return {
+		row.boq_item
+		for row in (doc.get("items") or [])
+		if row.get("boq_item")
+		and row.item_code not in DEDUCTION_ITEM_CODES
+		and flt(row.amount) > 0
+	}
+
+
+def _prior_tax_invoice_query(doc) -> tuple[list[str], dict] | None:
+	"""Shared filters for earlier tax invoices that billed the same BOQ work lines."""
+	name = doc.name if hasattr(doc, "name") else doc.get("name")
+	posting_date = doc.get("posting_date") or doc.get("transaction_date")
+	boq_items = _work_boq_items(doc)
+	if not name or not posting_date or not boq_items:
+		return None
+
+	conditions = [
+		"si.docstatus = 1",
+		"si.name != %(invoice)s",
+		"IFNULL(si.is_return, 0) = 0",
+		"sii.boq_item IN %(boq_items)s",
+		"sii.item_code NOT IN %(deductions)s",
+		"(si.posting_date < %(posting_date)s OR (si.posting_date = %(posting_date)s AND si.name < %(invoice)s))",
+	]
+	if frappe.db.has_column("Sales Invoice", "custom_is_advanced"):
+		conditions.append("IFNULL(si.custom_is_advanced, 0) = 0")
+	if frappe.db.has_column("Sales Invoice", "custom_is_advance_release"):
+		conditions.append("IFNULL(si.custom_is_advance_release, 0) = 0")
+	if frappe.db.has_column("Sales Invoice", "custom_is_proforma"):
+		conditions.append("IFNULL(si.custom_is_proforma, 0) = 0")
+
+	params = {
+		"invoice": name,
+		"posting_date": posting_date,
+		"boq_items": tuple(boq_items),
+		"deductions": DEDUCTION_ITEM_CODES,
+	}
+	return conditions, params
+
+
+def _prior_tax_invoice_totals_for_boq_items(doc) -> dict[str, dict[str, float]]:
+	"""Earlier submitted tax invoice work-line totals per BOQ item (print display only)."""
+	query = _prior_tax_invoice_query(doc)
+	if not query:
+		return {}
+
+	conditions, params = query
+	rows = frappe.db.sql(
+		f"""
+		SELECT
+			sii.boq_item,
+			COALESCE(SUM(sii.qty), 0) AS prev_qty,
+			COALESCE(SUM(sii.amount), 0) AS prev_amount
+		FROM `tabSales Invoice` si
+		INNER JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
+		WHERE {" AND ".join(conditions)}
+		GROUP BY sii.boq_item
+		""",
+		params,
+		as_dict=True,
+	)
+	return {
+		row.boq_item: {"prev_qty": flt(row.prev_qty), "prev_amount": flt(row.prev_amount)}
+		for row in rows
+	}
+
+
+def _prior_tax_invoice_payment_total(doc) -> float:
+	"""Sum grand_total of distinct earlier tax invoices sharing BOQ work lines (print display only)."""
+	query = _prior_tax_invoice_query(doc)
+	if not query:
+		return 0.0
+
+	conditions, params = query
+	result = frappe.db.sql(
+		f"""
+		SELECT COALESCE(SUM(sub.grand_total), 0)
+		FROM (
+			SELECT DISTINCT si.name, si.grand_total
+			FROM `tabSales Invoice` si
+			INNER JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
+			WHERE {" AND ".join(conditions)}
+		) sub
+		""",
+		params,
+	)
+	return flt(result[0][0]) if result else 0.0

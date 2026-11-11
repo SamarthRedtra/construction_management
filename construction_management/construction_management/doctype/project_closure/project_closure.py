@@ -49,12 +49,11 @@ class ProjectClosure(Document):
 			+ flt(self.actual_expense_cost)
 		)
 
-		# Gross profit
-		self.gross_profit = flt(self.total_revenue) - flt(self.total_actual_cost)
-		if flt(self.total_revenue):
-			self.gross_profit_percent = (
-				flt(self.gross_profit) / flt(self.total_revenue) * 100
-			)
+		# Gross profit: actual GL revenue minus consolidated actual cost
+		revenue_base = flt(self.actual_revenue_value)
+		self.gross_profit = revenue_base - flt(self.total_actual_cost)
+		if revenue_base:
+			self.gross_profit_percent = flt(self.gross_profit) / revenue_base * 100
 		else:
 			self.gross_profit_percent = 0
 

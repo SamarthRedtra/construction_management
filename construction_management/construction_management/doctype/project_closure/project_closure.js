@@ -6,6 +6,8 @@ frappe.ui.form.on('Project Closure', {
         if (frm.doc.project && !frm.doc.items?.length && !frm.is_dirty()) {
             // Auto-fetch data if project is set but no items loaded yet
             frm.trigger('project');
+        } else if (frm.doc.actual_revenue_value != null && frm.doc.total_actual_cost != null) {
+            update_gross_profit(frm);
         }
     },
 
@@ -94,6 +96,8 @@ frappe.ui.form.on('Project Closure', {
                     row.margin = item.margin;
                 });
 
+                update_gross_profit(frm);
+
                 frm.refresh_fields();
                 frappe.show_alert({
                     message: __('Project data fetched successfully'),
@@ -113,6 +117,14 @@ frappe.ui.form.on('Project Closure Item', {
         calculate_item_total(frm, cdt, cdn);
     }
 });
+
+function update_gross_profit(frm) {
+    const revenue = flt(frm.doc.actual_revenue_value);
+    const cost = flt(frm.doc.total_actual_cost);
+    const gross_profit = revenue - cost;
+    frm.set_value("gross_profit", gross_profit);
+    frm.set_value("gross_profit_percent", revenue ? (gross_profit / revenue) * 100 : 0);
+}
 
 function calculate_item_total(frm, cdt, cdn) {
     const row = locals[cdt][cdn];
