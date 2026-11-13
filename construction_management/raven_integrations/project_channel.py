@@ -390,15 +390,18 @@ def _ensure_workspace_member(workspace: str | None, raven_user: str) -> None:
 		member.flags.ignore_permissions = True
 		member.insert(ignore_permissions=True)
 		_clear_raven_workspace_members_cache(workspace)
+	except frappe.DuplicateEntryError:
+		pass
 	except Exception:
-		# Duplicate / race is fine
-		if not frappe.db.exists(
+		# Parallel sync may insert between exists() and insert()
+		if frappe.db.exists(
 			"Raven Workspace Member", {"workspace": workspace, "user": raven_user}
 		):
-			frappe.log_error(
-				frappe.get_traceback(),
-				f"Add Raven Workspace Member {raven_user} → {workspace}",
-			)
+			return
+		frappe.log_error(
+			frappe.get_traceback(),
+			f"Add Raven Workspace Member {raven_user} → {workspace}",
+		)
 
 
 def _clear_raven_workspace_members_cache(workspace: str) -> None:
