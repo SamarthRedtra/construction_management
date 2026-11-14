@@ -336,6 +336,34 @@ class TestCombinedSalesInvoiceFromSO(unittest.TestCase):
 		doc["docstatus"] = 1
 		validate_combined_source_sales_orders(doc)
 
+	def test_aggregated_line_over_so_blocked(self):
+		from construction_management.api.boq_invoice import validate_combined_source_sales_orders
+
+		doc = frappe._dict(
+			docstatus=0,
+			custom_source_sales_orders="SO-A, SO-B",
+			items=[
+				frappe._dict(
+					idx=1,
+					item_code="WORK",
+					boq_item="BOQ-1",
+					sales_order="SO-A",
+					so_detail="SOD-A",
+					qty=200,
+					amount=2000,
+				),
+			],
+		)
+		with patch(
+			"construction_management.api.boq_invoice.frappe.db.get_value",
+			return_value={"qty": 100, "amount": 1000},
+		), patch(
+			"construction_management.api.boq_invoice._expected_combined_so_boq_pairs",
+			return_value={("SO-A", "BOQ-1"), ("SO-B", "BOQ-1")},
+		):
+			with self.assertRaises(frappe.ValidationError):
+				validate_combined_source_sales_orders(doc)
+
 	def test_direct_billing_blocked_when_boq_item_has_open_sales_order(self):
 		from construction_management.api.boq_invoice import _block_direct_billing_with_open_sales_orders
 

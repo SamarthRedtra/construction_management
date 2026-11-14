@@ -131,7 +131,12 @@ def apply_boq_service_rates(doc) -> None:
 
 
 @frappe.whitelist()
-def get_project_boq_service_details(project: str, boq_item: str, sales_order: str | None = None) -> dict:
+def get_project_boq_service_details(
+	project: str,
+	boq_item: str,
+	sales_order: str | None = None,
+	link_sales_order: int = 1,
+) -> dict:
 	"""Return a project BOQ service that can be appended to a draft Sales Invoice."""
 	if not project or not boq_item:
 		frappe.throw(_("Project and BOQ service are required"))
@@ -156,7 +161,19 @@ def get_project_boq_service_details(project: str, boq_item: str, sales_order: st
 			frappe.db.get_value("Project BOQ", item.project_boq, "allow_overbilling") or 0
 		)
 		boq_locked = bool(is_boq_locked(item.project_boq))
-	so_line = _open_sales_order_line(item.name, item.linked_item, item.unit or "Nos", sales_order) or {}
+
+	open_orders = sorted(
+		{
+			row.get("sales_order")
+			for row in _open_sales_order_lines([item.name])
+			if row.get("sales_order")
+		}
+	)
+	so_line = {}
+	if cint(link_sales_order):
+		so_line = (
+			_open_sales_order_line(item.name, item.linked_item, item.unit or "Nos", sales_order) or {}
+		)
 
 	return {
 		"sales_order": so_line.get("sales_order"),
@@ -173,6 +190,8 @@ def get_project_boq_service_details(project: str, boq_item: str, sales_order: st
 		"allow_overbilling": allow_overbilling,
 		"boq_locked": boq_locked,
 		"project_boq": item.project_boq,
+		"has_open_sales_order": bool(open_orders),
+		"open_sales_orders": open_orders,
 	}
 
 
@@ -4315,11 +4334,14 @@ def get_billable_sales_orders_for_invoice(project: str) -> list:
 
 def validate_combined_source_sales_orders(doc) -> None:
 	"""Block saving a draft combined invoice whose revenue lines no longer cover every source SO."""
-	if doc.docstatus != 0 or not doc.get("custom_source_sales_orders"):
+	if doc.docstatus not in (0,) or not doc.get("custom_source_sales_orders"):
 		return
 	source_orders = [
 		name.strip() for name in doc.custom_source_sales_orders.split(",") if name.strip()
 	]
+	if len(source_orders) < 2:
+		return
+
 	linked_orders = {
 		item.sales_order
 		for item in doc.get("items") or []
@@ -4334,6 +4356,62 @@ def validate_combined_source_sales_orders(doc) -> None:
 			).format(", ".join(missing)),
 			title=_("Missing Source Sales Order Lines"),
 		)
+
+	for row in doc.get("items") or []:
+		if row.get("item_code") in SO_DEDUCTION_ITEM_CODES or not row.get("boq_item"):
+			continue
+		if not row.get("so_detail") or not row.get("sales_order"):
+			continue
+		so_line = frappe.db.get_value(
+			"Sales Order Item",
+			row.so_detail,
+			["qty", "amount"],
+			as_dict=True,
+		)
+		if so_line and (
+			flt(row.qty) > flt(so_line.qty) * 1.001
+			or flt(row.amount) > flt(so_line.amount) * 1.001
+		):
+			frappe.throw(
+				_(
+					"Line {0} bills more than Sales Order {1} allows for BOQ {2}. "
+					"Use one invoice row per source Sales Order (Combined SO billing)."
+				).format(row.idx, row.sales_order, row.boq_item),
+				title=_("Aggregated combined invoice line"),
+			)
+
+	if len(source_orders) > 1:
+		expected_pairs = _expected_combined_so_boq_pairs(source_orders)
+		actual_pairs = {
+			(row.sales_order, row.boq_item)
+			for row in doc.get("items") or []
+			if row.get("sales_order")
+			and row.get("boq_item")
+			and row.get("item_code") not in SO_DEDUCTION_ITEM_CODES
+		}
+		missing_pairs = sorted(expected_pairs - actual_pairs)
+		if missing_pairs:
+			formatted = ", ".join(f"{so} / {boq}" for so, boq in missing_pairs)
+			frappe.throw(
+				_(
+					"Each source Sales Order needs its own revenue line per BOQ item. Missing: {0}"
+				).format(formatted),
+				title=_("Missing Source Sales Order Lines"),
+			)
+
+
+def _expected_combined_so_boq_pairs(source_orders: list[str]) -> set[tuple[str, str]]:
+	"""Revenue (sales_order, boq_item) pairs that a combined invoice should bill."""
+	pairs: set[tuple[str, str]] = set()
+	for so_name in source_orders:
+		for row in frappe.get_all(
+			"Sales Order Item",
+			filters={"parent": so_name, "item_code": ["not in", list(SO_DEDUCTION_ITEM_CODES)]},
+			fields=["boq_item"],
+		):
+			if row.boq_item:
+				pairs.add((so_name, row.boq_item))
+	return pairs
 
 
 def _validate_combined_sales_orders(project: str, sales_orders: list[str]) -> list:

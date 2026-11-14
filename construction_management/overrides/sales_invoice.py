@@ -478,6 +478,9 @@ class SalesInvoiceOverride(SalesInvoice):
 					item.boq_item = boq_item.name
 
 	def on_submit(self):
+		from construction_management.api.boq_invoice import validate_combined_source_sales_orders
+
+		validate_combined_source_sales_orders(self)
 		super().on_submit()
 		"""Create ledger entries for BOQ items on invoice submit"""
 		
@@ -621,6 +624,19 @@ class SalesInvoiceOverride(SalesInvoice):
 		if self.get("custom_is_advanced") and self.docstatus == 1:
 			sync_boq_advance_payments_from_invoice(self)
 
+	def _is_multi_source_combined(self) -> bool:
+		return bool(self.get("custom_source_sales_orders") and "," in self.custom_source_sales_orders)
+
+	def _deduction_amount_key(self, item) -> str | tuple:
+		if self._is_multi_source_combined() and item.get("boq_item") and item.get("sales_order"):
+			return (item.boq_item, item.sales_order)
+		return item.boq_item
+
+	def _deduction_row_key(self, row) -> str | tuple:
+		if self._is_multi_source_combined() and row.get("boq_item") and row.get("sales_order"):
+			return (row.boq_item, row.sales_order)
+		return row.get("boq_item")
+
 	def apply_automatic_deductions(self):
 		"""Automatically apply/recalculate retention and advance deductions if enabled"""
 		if not self.project:
@@ -701,7 +717,7 @@ class SalesInvoiceOverride(SalesInvoice):
 			boq_amounts = {}
 			for item in self.items:
 				if item.get("boq_item") and item.item_code not in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"):
-					boq_amounts[item.boq_item] = flt(item.amount)
+					boq_amounts[self._deduction_amount_key(item)] = flt(item.amount)
 
 			retention_by_boq = (
 				allocate_retention_after_discount(boq_amounts, retention_pct, discount_amount)
@@ -714,10 +730,13 @@ class SalesInvoiceOverride(SalesInvoice):
 				else {key: 0.0 for key in boq_amounts}
 			)
 
+			def _boq_from_amount_key(key):
+				return key[0] if isinstance(key, tuple) else key
+
 			advance_eligible_amounts = {
 				key: amt
 				for key, amt in boq_amounts.items()
-				if key not in skip_advance_set
+				if _boq_from_amount_key(key) not in skip_advance_set
 			}
 			advance_by_boq = (
 				allocate_retention_after_discount(
@@ -737,10 +756,17 @@ class SalesInvoiceOverride(SalesInvoice):
 			for item in self.items:
 				if not item.get("boq_item"):
 					continue
-				parent_amount = boq_amounts.get(item.boq_item, 0)
+				amount_key = self._deduction_amount_key(item) if item.item_code not in (
+					"RETENTION-DEDUCTION",
+					"ADVANCE-DEDUCTION",
+				) else self._deduction_row_key(item)
+				parent_amount = boq_amounts.get(amount_key, 0)
+				if item.item_code in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"):
+					work_key = self._deduction_row_key(item)
+					parent_amount = boq_amounts.get(work_key, 0)
 
 				if item.item_code == "RETENTION-DEDUCTION" and retention_pct > 0:
-					new_retention = flt(retention_by_boq.get(item.boq_item))
+					new_retention = flt(retention_by_boq.get(self._deduction_row_key(item)))
 					item.rate = -new_retention
 					item.amount = -new_retention
 					item.qty = 1
@@ -757,7 +783,7 @@ class SalesInvoiceOverride(SalesInvoice):
 					if source_ratio is not None:
 						new_advance = flt(parent_amount * source_ratio, 2)
 					elif advance_after_discount:
-						new_advance = flt(advance_by_boq.get(item.boq_item))
+						new_advance = flt(advance_by_boq.get(self._deduction_row_key(item)))
 					else:
 						new_advance = flt(parent_amount * advance_pct / 100, 2)
 					item.rate = -new_advance
@@ -771,26 +797,28 @@ class SalesInvoiceOverride(SalesInvoice):
 
 			# A BOQ service can be added directly to a draft invoice. Create its paired
 			# deduction rows when the invoice already uses the per-BOQ deduction layout.
-			for boq_item, parent_amount in boq_amounts.items():
+			for amount_key, parent_amount in boq_amounts.items():
 				parent = next(
 					(
 						item
 						for item in self.items
-						if item.get("boq_item") == boq_item
+						if self._deduction_amount_key(item) == amount_key
 						and item.item_code not in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION")
 					),
 					None,
 				)
 				if not parent:
 					continue
-
+				deduction_key = self._deduction_row_key(parent)
+				boq_item = parent.boq_item
 				if retention_pct > 0 and not any(
-					item.item_code == "RETENTION-DEDUCTION" and item.get("boq_item") == boq_item
+					item.item_code == "RETENTION-DEDUCTION"
+					and self._deduction_row_key(item) == deduction_key
 					for item in self.items
 				):
 					self._append_boq_deduction_row(
 						"RETENTION-DEDUCTION",
-						flt(retention_by_boq.get(boq_item)),
+						flt(retention_by_boq.get(deduction_key)),
 						f"Retention deduction ({retention_pct}%)",
 						parent,
 					)
@@ -799,13 +827,19 @@ class SalesInvoiceOverride(SalesInvoice):
 					advance_pct > 0
 					and boq_item not in skip_advance_set
 					and not any(
-						item.item_code == "ADVANCE-DEDUCTION" and item.get("boq_item") == boq_item
+						item.item_code == "ADVANCE-DEDUCTION"
+						and self._deduction_row_key(item) == deduction_key
 						for item in self.items
 					)
 				):
 					self._append_boq_deduction_row(
 						"ADVANCE-DEDUCTION",
-						flt(advance_by_boq.get(boq_item) if advance_after_discount else parent_amount * advance_pct / 100, 2),
+						flt(
+							advance_by_boq.get(deduction_key)
+							if advance_after_discount
+							else parent_amount * advance_pct / 100,
+							2,
+						),
 						f"Advance deduction ({advance_pct}%)",
 						parent,
 					)
@@ -913,21 +947,24 @@ class SalesInvoiceOverride(SalesInvoice):
 
 	def _reassign_duplicate_boq_deductions(self, boq_amounts: dict) -> None:
 		"""Move extra deduction rows onto BOQ items that are missing a pair."""
-		parent_boqs = set(boq_amounts)
+		parent_keys = set(boq_amounts)
 		for item_code in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"):
 			claimed = set()
 			extras = []
 			for row in self.items:
 				if row.item_code != item_code or cint(row.get("custom_service_deduction")):
 					continue
-				boq_item = row.get("boq_item")
-				if boq_item in parent_boqs and boq_item not in claimed:
-					claimed.add(boq_item)
+				row_key = self._deduction_row_key(row)
+				if row_key in parent_keys and row_key not in claimed:
+					claimed.add(row_key)
 				else:
 					extras.append(row)
-			missing = [boq_item for boq_item in parent_boqs if boq_item not in claimed]
-			for row, boq_item in zip(extras, missing, strict=False):
-				row.boq_item = boq_item
+			missing = [key for key in parent_keys if key not in claimed]
+			for row, key in zip(extras, missing, strict=False):
+				if isinstance(key, tuple):
+					row.boq_item, row.sales_order = key[0], key[1]
+				else:
+					row.boq_item = key
 
 	def _normalize_deduction_uoms(self) -> None:
 		"""Fill conversion_factor; keep SO UOM when mapped (ERPNext compares uom on so_detail)."""

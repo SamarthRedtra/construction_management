@@ -115,6 +115,7 @@ frappe.ui.form.on('Sales Invoice', {
 	},
 
 	refresh: function (frm) {
+		render_source_sales_orders(frm);
 		if (frm.doc.docstatus === 1 && !cint(frm.doc.is_return) &&
 			flt(frm.doc.outstanding_amount) > 0 && flt(frm.doc.outstanding_amount) <= 0.30) {
 			frm.add_custom_button(__('Write off small balance'), () => {
@@ -141,13 +142,15 @@ frappe.ui.form.on('Sales Invoice', {
 		}
 
 		if (frm.doc.docstatus === 0) {
-			frm.add_custom_button(__('Add BOQ Service'), () => {
-				if (!frm.doc.project) {
-					frappe.msgprint(__('Please select a Project before adding a BOQ service.'));
+			const open_boq_picker = (directBoq) => {
+				if (!_ensure_project_for_boq_service(frm)) {
 					return;
 				}
-				open_boq_service_picker(frm);
-			});
+				open_boq_service_picker(frm, { directBoq: !!directBoq });
+			};
+			const add_boq_menu = __('Add BOQ');
+			frm.add_custom_button(__('Add BOQ Service'), () => open_boq_picker(false), add_boq_menu);
+			frm.add_custom_button(__('Add BOQ Service (without SO)'), () => open_boq_picker(true), add_boq_menu);
 		}
 
 		const skip_advance = cint(frm.doc.custom_skip_advance_deduction);
@@ -292,10 +295,22 @@ function strip_advance_rows_on_form(frm) {
 		construction_management.deduction_summary.render(frm);
 	}
 }
-function open_boq_service_picker(frm) {
+function _ensure_project_for_boq_service(frm) {
+	if (frm.doc.project) {
+		return true;
+	}
+	frappe.msgprint(__('Please select a Project before adding a BOQ service.'));
+	return false;
+}
+
+function open_boq_service_picker(frm, options = {}) {
+	const directBoq = !!options.directBoq;
 	const d = new frappe.ui.Dialog({
-		title: __('Add Project BOQ Service'),
+		title: directBoq
+			? __('Add BOQ Service (without Sales Order)')
+			: __('Add Project BOQ Service'),
 		fields: [
+			{ fieldname: 'billing_hint', fieldtype: 'HTML' },
 			{
 				fieldname: 'boq_item', label: __('BOQ Service'), fieldtype: 'Link',
 				options: 'BOQ Item', reqd: 1,
@@ -317,32 +332,56 @@ function open_boq_service_picker(frm) {
 		},
 	});
 
+	d._direct_boq = directBoq;
+
 	d.set_query('boq_item', () => ({
 		filters: { project: frm.doc.project, linked_item: ['!=', ''] },
 	}));
 
 	const refresh_balance_and_hint = () => _refresh_boq_service_dialog_balance(d);
 
-	d.fields_dict.boq_item.df.onchange = () => {
+	const reload_boq_details = () => {
 		const boqItem = d.get_value('boq_item');
-		if (!boqItem) return;
+		if (!boqItem) {
+			_render_boq_billing_hint(d, null);
+			return;
+		}
 		_load_boq_service_details(frm, d, boqItem).then(() => {
 			const details = d._boq_service_details;
 			if (!details) return;
 			d.set_value('qty', details.balance_qty > 0 ? details.balance_qty : 1).then(refresh_balance_and_hint);
 		});
 	};
+
+	d.fields_dict.boq_item.df.onchange = reload_boq_details;
 	d.fields_dict.boq_total_qty.df.onchange = refresh_balance_and_hint;
 	d.fields_dict.qty.df.onchange = refresh_balance_and_hint;
 
 	d.show();
 	_render_boq_qty_hint(d, null);
+	_render_boq_billing_hint(d, null);
+	if (directBoq) {
+		d.fields_dict.billing_hint.$wrapper.html(`
+			<div class="text-muted small" style="margin:0 0 8px;">
+				${__('This line bills from the project BOQ only and will not link to a Sales Order.')}
+			</div>
+		`);
+	}
+}
+
+function _boq_service_links_sales_order(d) {
+	return !d._direct_boq;
 }
 
 function _load_boq_service_details(frm, d, boqItem) {
 	return frappe.call({
 		method: 'construction_management.api.boq_invoice.get_project_boq_service_details',
-		args: { project: frm.doc.project, boq_item: boqItem, sales_order: frm.doc.custom_sales_order || null },
+		args: {
+			project: frm.doc.project,
+			boq_item: boqItem,
+			sales_order: frm.doc.custom_sales_order || null,
+			link_sales_order: _boq_service_links_sales_order(d) ? 1 : 0,
+		},
 	}).then((r) => {
 		const details = r.message;
 		if (!details) return null;
@@ -363,9 +402,42 @@ function _load_boq_service_details(frm, d, boqItem) {
 			d.set_value('rate', details.rate),
 		]).then(() => {
 			_refresh_boq_service_dialog_balance(d);
+			_render_boq_billing_hint(d, details);
 			return details;
 		});
 	});
+}
+
+function _render_boq_billing_hint(d, details) {
+	const $wrap = d.fields_dict.billing_hint.$wrapper;
+	$wrap.empty();
+	if (!details) {
+		return;
+	}
+	if (d._direct_boq && details.has_open_sales_order) {
+		const orders = (details.open_sales_orders || []).join(', ');
+		$wrap.html(`
+			<div class="alert alert-warning" style="margin:8px 0 0;">
+				${__('Unbilled Sales Order(s) exist for this BOQ: {0}. You will be asked to confirm before adding without a link.', [orders])}
+			</div>
+		`);
+		return;
+	}
+	if (!d._direct_boq && details.sales_order) {
+		$wrap.html(`
+			<div class="text-muted small" style="margin:4px 0 8px;">
+				${__('Will link to Sales Order {0}.', [details.sales_order])}
+			</div>
+		`);
+		return;
+	}
+	if (!d._direct_boq && details.has_open_sales_order) {
+		$wrap.html(`
+			<div class="text-muted small" style="margin:4px 0 8px;">
+				${__('No matching open Sales Order line was found; this row will be added without a Sales Order link.')}
+			</div>
+		`);
+	}
 }
 
 function _refresh_boq_service_dialog_balance(d) {
@@ -457,6 +529,7 @@ function _add_boq_service_from_dialog(frm, d, values) {
 	const qty_changed = Math.abs(boq_total_qty - flt(baseline.total_qty)) > 0.000001;
 	const rate_changed = Math.abs(rate - flt(baseline.rate)) > 0.000001;
 	const needs_boq_update = (qty_changed || rate_changed) && !details.boq_locked;
+	const direct_boq = !!d._direct_boq;
 
 	const append_row = (final_details) => {
 		const billed = flt(final_details.billed_qty);
@@ -471,9 +544,10 @@ function _add_boq_service_from_dialog(frm, d, values) {
 			return;
 		}
 
+		const link_so = !direct_boq;
 		const row = frm.add_child('items');
 		frappe.model.set_value(row.doctype, row.name, 'item_code', final_details.item_code).then(() => {
-			frappe.model.set_value(row.doctype, row.name, {
+			const row_values = {
 				item_name: final_details.description,
 				description: final_details.description,
 				qty: invoice_qty,
@@ -484,9 +558,13 @@ function _add_boq_service_from_dialog(frm, d, values) {
 				project: frm.doc.project,
 				boq_item: final_details.boq_item,
 				bill_no: final_details.bill_no,
-				sales_order: final_details.sales_order || null,
-				so_detail: final_details.so_detail || null,
-			}).then(() => {
+				sales_order: link_so ? (final_details.sales_order || null) : null,
+				so_detail: link_so ? (final_details.so_detail || null) : null,
+			};
+			if (direct_boq && frappe.meta.has_field('Sales Invoice Item', 'custom_direct_boq_billing')) {
+				row_values.custom_direct_boq_billing = 1;
+			}
+			frappe.model.set_value(row.doctype, row.name, row_values).then(() => {
 				// Item Price fetch from item_code can lag; lock the BOQ service rate again.
 				frappe.model.set_value(row.doctype, row.name, {
 					rate: rate,
@@ -500,31 +578,43 @@ function _add_boq_service_from_dialog(frm, d, values) {
 		d.hide();
 	};
 
-	if (!needs_boq_update) {
-		append_row(details);
-		return;
-	}
-
-	const update_args = { boq_item: details.boq_item };
-	if (qty_changed) {
-		update_args.total_qty = boq_total_qty;
-	}
-	if (rate_changed) {
-		update_args.rate = rate;
-	}
-
-	frappe.call({
-		method: 'construction_management.api.boq_tree.update_boq_item_base',
-		args: update_args,
-		freeze: true,
-		freeze_message: __('Updating BOQ Item'),
-	}).then(() => _load_boq_service_details(frm, d, details.boq_item)).then((updated) => {
-		if (!updated) {
-			frappe.msgprint(__('Could not refresh BOQ service details after update.'));
+	const run_append = () => {
+		if (!needs_boq_update) {
+			append_row(details);
 			return;
 		}
-		append_row(updated);
-	});
+
+		const update_args = { boq_item: details.boq_item };
+		if (qty_changed) {
+			update_args.total_qty = boq_total_qty;
+		}
+		if (rate_changed) {
+			update_args.rate = rate;
+		}
+
+		frappe.call({
+			method: 'construction_management.api.boq_tree.update_boq_item_base',
+			args: update_args,
+			freeze: true,
+			freeze_message: __('Updating BOQ Item'),
+		}).then(() => _load_boq_service_details(frm, d, details.boq_item)).then((updated) => {
+			if (!updated) {
+				frappe.msgprint(__('Could not refresh BOQ service details after update.'));
+				return;
+			}
+			append_row(updated);
+		});
+	};
+
+	if (direct_boq && details.has_open_sales_order) {
+		const orders = (details.open_sales_orders || []).join(', ');
+		frappe.confirm(
+			__('Add this BOQ line without linking Sales Order(s) {0}?', [orders]),
+			run_append
+		);
+		return;
+	}
+	run_append();
 }
 
 /**
@@ -1056,4 +1146,26 @@ function sync_deduction_row(frm, itemCode, amount, description, isServiceDeducti
 	});
 	rows.slice(1).forEach(extra => frappe.model.clear_doc(extra.doctype, extra.name));
 	if (rows.length > 1) frm.doc.items = (frm.doc.items || []).filter(row => !rows.slice(1).includes(row));
+}
+
+function render_source_sales_orders(frm) {
+	const raw = (frm.doc.custom_source_sales_orders || '').trim();
+	if (!raw || !frm.fields_dict.custom_source_sales_orders) {
+		return;
+	}
+	const orders = raw.split(',').map((name) => name.trim()).filter(Boolean);
+	if (!orders.length) {
+		return;
+	}
+	const links = orders
+		.map((name) => {
+			const route = frappe.utils.get_form_link('Sales Order', name);
+			return `<a href="${route}">${frappe.utils.escape_html(name)}</a>`;
+		})
+		.join(', ');
+	frm.set_df_property(
+		'custom_source_sales_orders',
+		'description',
+		__('Combined sources (linked on item rows for Connections): {0}', [links]),
+	);
 }
