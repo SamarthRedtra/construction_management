@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
-import { call } from "@/api"
+import { call, request } from "@/api"
 import { toast, toastError } from "@/toast"
 import { DOCTYPES, VAT_LABELS, canPrintOrder, docStatusLabel, formatCurrency, formatDate, formatNumber, isOverdue, session } from "@/utils"
 import ActivityPanel from "@/components/ActivityPanel.vue"
@@ -33,6 +33,7 @@ const printOpen = ref(false)
 const updateOpen = ref(false)
 const confirmOpen = ref(false)
 const paymentOpen = ref(false)
+const writeOffOpen = ref(false)
 const poPdcOpen = ref(false)
 const activity = ref(null)
 const connections = ref(null)
@@ -65,6 +66,8 @@ const canUpdateItems = computed(() => props.kind === "orders" && doc.value?.docs
 const canInvoice = computed(() => ["orders", "receipts"].includes(props.kind) && doc.value?.docstatus === 1 && ctx.value.can_purchase
 	&& (doc.value.per_billed || 0) < 100 && !doc.value.is_return && !["Closed", "On Hold"].includes(doc.value.status))
 const canPay = computed(() => props.kind === "invoices" && doc.value?.docstatus === 1 && Number(doc.value.outstanding_amount) > 0 && ctx.value.can_purchase)
+const canWriteOffSmallBalance = computed(() => props.kind === "invoices" && canPay.value && Boolean(doc.value?.small_balance_write_off?.eligible))
+const writeOffAmount = computed(() => doc.value?.small_balance_write_off?.amount ?? doc.value?.outstanding_amount ?? 0)
 const canCreatePoPdc = computed(() => props.kind === "orders" && doc.value?.docstatus === 1 && !["Closed", "On Hold"].includes(doc.value?.status) && ctx.value.can_purchase && ctx.value.can_create_pdc)
 const canDuplicate = computed(() => props.kind === "orders" && ctx.value.can_purchase && doc.value?.docstatus !== undefined)
 const canPrint = computed(() => props.kind !== "orders" || canPrintOrder(doc.value))
@@ -163,11 +166,37 @@ const details = computed(() => {
 
 const hasTotals = computed(() => props.kind !== "transfers" && doc.value)
 
-function onPaid() {
+async function onPaid() {
 	paymentOpen.value = false
-	load()
+	await load()
+	if (canWriteOffSmallBalance.value) writeOffOpen.value = true
 	activity.value?.load()
 	connections.value?.load()
+}
+
+function openWriteOffFromPayment() {
+	paymentOpen.value = false
+	writeOffOpen.value = true
+}
+
+async function confirmWriteOff() {
+	busy.value = true
+	try {
+		const result = await request(
+			"construction_management.api.sales_invoice_write_off.create_small_balance_purchase_write_off",
+			{ invoice: props.docname },
+			"POST",
+		)
+		writeOffOpen.value = false
+		toast(`Write-off Journal Entry ${result.journal_entry} created`)
+		await load()
+		activity.value?.load()
+		connections.value?.load()
+	} catch (requestError) {
+		toastError(requestError)
+	} finally {
+		busy.value = false
+	}
 }
 
 async function load() {
@@ -295,6 +324,7 @@ onMounted(load)
 				<RouterLink v-if="canReceive" :to="{ path: '/receipts/new', query: { po: doc.name } }" class="cp-btn brand">+ Receive goods</RouterLink>
 				<RouterLink v-if="canInvoice" :to="{ path: '/invoices/new', query: kind === 'orders' ? { po: doc.name } : { pr: doc.name } }" class="cp-btn">+ Create invoice</RouterLink>
 				<button v-if="canUpdateItems" class="cp-btn" @click="updateOpen = true">Update items</button>
+				<button v-if="canWriteOffSmallBalance" class="cp-btn" :disabled="busy" @click="writeOffOpen = true">Write off small balance</button>
 				<button v-if="canPay" class="cp-btn brand" @click="paymentOpen = true">Record payment</button>
 				<button v-if="canCreatePoPdc" class="cp-btn" @click="poPdcOpen = true">+ Post-dated cheque</button>
 				<button v-if="canSubmit && !manualLpo" class="cp-btn brand" :disabled="busy" @click="confirmOpen = true">{{ busy ? "Submitting…" : "Submit" }}</button>
@@ -438,7 +468,23 @@ onMounted(load)
 			</template>
 		</Modal>
 		<UpdateItemsDialog v-if="updateOpen" :doc="doc" @close="updateOpen = false" @updated="updateOpen = false; load(); activity?.load()" />
-		<PaymentDialog v-if="paymentOpen" :invoice="doc.name" @close="paymentOpen = false" @paid="onPaid" />
+		<Modal v-if="writeOffOpen" title="Write off small balance?" @close="writeOffOpen = false">
+			<p>
+				Create and submit a Journal Entry to write off the remaining
+				<strong>{{ formatCurrency(writeOffAmount, doc.currency) }}</strong> on {{ doc.name }}?
+			</p>
+			<template #footer>
+				<button type="button" class="cp-btn" @click="writeOffOpen = false">Cancel</button>
+				<button type="button" class="cp-btn brand" :disabled="busy" @click="confirmWriteOff">{{ busy ? "Creating…" : "Write off" }}</button>
+			</template>
+		</Modal>
+		<PaymentDialog
+			v-if="paymentOpen"
+			:invoice="doc.name"
+			@close="paymentOpen = false"
+			@paid="onPaid"
+			@write-off-instead="openWriteOffFromPayment"
+		/>
 		<PoPdcDialog v-if="poPdcOpen" :purchase-order="doc.name" @close="poPdcOpen = false" @created="poPdcOpen = false; connections?.load(); activity?.load()" />
 		<PrintDialog v-if="printOpen" :doctype="config.doctype" :docname="doc.name" @close="printOpen = false" />
 		<EmailDialog v-if="emailOpen" :doctype="config.doctype" :docname="doc.name" @close="emailOpen = false" @sent="onEmailSent" />

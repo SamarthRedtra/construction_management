@@ -849,6 +849,14 @@ def get_controlled_document(doctype: str, name: str) -> dict:
 		fields=["name", "file_name", "file_url", "creation"], order_by="creation desc",
 	)
 	result["owner_name"] = frappe.utils.get_fullname(doc.owner)
+	if doctype == "Purchase Invoice":
+		from construction_management.api.sales_invoice_write_off import (
+			MAX_WRITE_OFF,
+			purchase_invoice_write_off_eligibility,
+		)
+
+		result["small_balance_write_off"] = purchase_invoice_write_off_eligibility(doc)
+		result["small_balance_write_off"]["max_amount"] = MAX_WRITE_OFF
 	return result
 
 
@@ -2229,6 +2237,9 @@ def get_payment_defaults(invoice: str) -> dict:
 		mode["account"] = frappe.db.get_value("Mode of Payment Account", {"parent": mode.name, "company": doc.company}, "default_account") or (
 			company.default_cash_account if mode.type == "Cash" else company.default_bank_account
 		)
+	from construction_management.api.sales_invoice_write_off import MAX_WRITE_OFF, purchase_invoice_write_off_eligibility
+
+	write_off = purchase_invoice_write_off_eligibility(doc)
 	return {
 		"invoice": doc.name,
 		"supplier": doc.supplier,
@@ -2239,6 +2250,8 @@ def get_payment_defaults(invoice: str) -> dict:
 		"payable_amount": _remaining_payable(doc),
 		"supplier_invoice_no": doc.get("custom_supplier_invoice_no") or "",
 		"modes": modes,
+		"max_write_off": MAX_WRITE_OFF,
+		"small_balance_write_off": write_off,
 	}
 
 

@@ -51,9 +51,51 @@ class TestProcurementExtensions(UnitTestCase):
 	@patch("construction_management.api.sales_invoice_write_off.frappe.db.get_value",
 		return_value=SimpleNamespace(default_currency="AED", write_off_account="Write Off - MRG", cost_center="Main - MRG"))
 	@patch("construction_management.api.sales_invoice_write_off.frappe.get_doc",
-		return_value=SimpleNamespace(docstatus=1, is_return=0, company="MRG", currency="AED", outstanding_amount=0.31))
+		return_value=SimpleNamespace(docstatus=1, is_return=0, company="MRG", currency="AED", outstanding_amount=1.0))
 	@patch("construction_management.api.sales_invoice_write_off.frappe.db.sql")
 	@patch("construction_management.api.sales_invoice_write_off.frappe.has_permission")
 	def test_small_balance_write_off_rejects_more_than_thirty_fils(self, _permission, _lock, _invoice, _company):
-		with self.assertRaisesRegex(Exception, "up to 0.3"):
+		with self.assertRaisesRegex(Exception, "up to 0.99"):
 			sales_invoice_write_off.create_small_balance_write_off("SINV-1")
+
+	@patch("construction_management.api.sales_invoice_write_off.frappe.has_permission", return_value=True)
+	@patch("construction_management.api.sales_invoice_write_off._existing_write_off_je", return_value=None)
+	@patch("construction_management.api.sales_invoice_write_off.frappe.db.get_value")
+	def test_purchase_invoice_write_off_eligibility(self, get_value, _existing, _permission):
+		doc = SimpleNamespace(
+			name="PINV-1",
+			docstatus=1,
+			is_return=0,
+			company="MRG",
+			currency="AED",
+			outstanding_amount=0.04,
+			credit_to="Creditors - MRG",
+		)
+
+		def lookup(doctype, name, field, as_dict=False):
+			if doctype == "Company":
+				return {
+					"default_currency": "AED",
+					"write_off_account": "Write Off - MRG",
+					"cost_center": "Main - MRG",
+				}
+			if doctype == "Account" and name == "Write Off - MRG":
+				return {
+					"company": "MRG",
+					"report_type": "Profit and Loss",
+					"is_group": 0,
+					"account_currency": "AED",
+				}
+			if doctype == "Account" and name == "Creditors - MRG":
+				return {"company": "MRG", "account_type": "Payable", "account_currency": "AED"}
+			return None
+
+		get_value.side_effect = lookup
+		eligible = sales_invoice_write_off.purchase_invoice_write_off_eligibility(doc)
+		self.assertTrue(eligible["eligible"])
+		self.assertEqual(eligible["amount"], 0.04)
+
+		doc.outstanding_amount = 1.0
+		ineligible = sales_invoice_write_off.purchase_invoice_write_off_eligibility(doc)
+		self.assertFalse(ineligible["eligible"])
+		self.assertEqual(ineligible["reason"], "above_limit")

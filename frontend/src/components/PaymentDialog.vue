@@ -7,7 +7,7 @@ import LinkSelect from "@/components/LinkSelect.vue"
 import Modal from "@/components/Modal.vue"
 
 const props = defineProps({ invoice: { type: String, required: true } })
-const emit = defineEmits(["close", "paid"])
+const emit = defineEmits(["close", "paid", "write-off-instead"])
 const info = ref(null)
 const saving = ref(false)
 const form = reactive({ amount: 0, mode_of_payment: "", account: "", reference_no: "", reference_date: today(), posting_date: today(), remarks: "" })
@@ -16,6 +16,10 @@ const mode = computed(() => info.value?.modes.find((row) => row.name === form.mo
 const isCheque = computed(() => /cheque/i.test(form.mode_of_payment))
 const postDated = computed(() => isCheque.value && form.reference_date > today())
 const reserved = computed(() => (info.value ? info.value.outstanding_amount - info.value.payable_amount : 0))
+const canWriteOffInstead = computed(() => Boolean(info.value?.small_balance_write_off?.eligible))
+const maxWriteOff = computed(() => info.value?.max_write_off ?? 0.99)
+const paymentRemainder = computed(() => (info.value ? Math.max(0, info.value.outstanding_amount - Number(form.amount || 0)) : 0))
+const suggestWriteOffAfterPay = computed(() => paymentRemainder.value > 0 && paymentRemainder.value <= maxWriteOff.value + 0.0001)
 
 function onModeChange() {
 	if (mode.value?.account) form.account = mode.value.account
@@ -57,6 +61,15 @@ async function save() {
 				<strong>{{ formatCurrency(info.outstanding_amount, info.currency) }} outstanding</strong>
 			</div>
 			<p v-if="reserved > 0.01" class="cp-hint cp-warn">{{ formatCurrency(reserved, info.currency) }} is already covered by pending post-dated cheques.</p>
+			<p v-if="canWriteOffInstead" class="cp-hint">
+				Outstanding is within {{ formatCurrency(maxWriteOff, info.currency) }}.
+				<button type="button" class="cp-link-btn" @click="emit('write-off-instead')">Write off instead</button>
+				of recording a payment.
+			</p>
+			<p v-else-if="suggestWriteOffAfterPay" class="cp-hint">
+				After this payment, {{ formatCurrency(paymentRemainder, info.currency) }} will remain —
+				you can write it off if it is within {{ formatCurrency(maxWriteOff, info.currency) }}.
+			</p>
 			<div class="cp-grid-2">
 				<label class="cp-field">
 					<span>Amount<i>*</i></span>
@@ -87,3 +100,15 @@ async function save() {
 		</template>
 	</Modal>
 </template>
+
+<style scoped>
+.cp-link-btn {
+	background: none;
+	border: none;
+	padding: 0;
+	color: var(--brand, #1f7a4d);
+	cursor: pointer;
+	text-decoration: underline;
+	font: inherit;
+}
+</style>

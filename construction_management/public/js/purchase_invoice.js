@@ -174,7 +174,7 @@ frappe.ui.form.on('Purchase Invoice', {
 
 	refresh: function (frm) {
 		if (frm.doc.docstatus === 1 && !cint(frm.doc.is_return) &&
-			flt(frm.doc.outstanding_amount) > 0 && flt(frm.doc.outstanding_amount) <= 0.30) {
+			flt(frm.doc.outstanding_amount) > 0 && flt(frm.doc.outstanding_amount) <= 0.99) {
 			frm.add_custom_button(__('Write off small balance'), () => {
 				frappe.confirm(
 					__('Write off the remaining {0} on {1} by creating and submitting a Journal Entry?', [
