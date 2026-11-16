@@ -334,6 +334,7 @@ class SalesInvoiceOverride(SalesInvoice):
 	def validate(self):
 		from construction_management.api.boq_invoice import (
 			apply_boq_service_rates,
+			sync_combined_source_sales_orders_from_items,
 			validate_combined_source_sales_orders,
 		)
 
@@ -351,6 +352,7 @@ class SalesInvoiceOverride(SalesInvoice):
 		# After pricing rules so a shared Item Price cannot stick.
 		apply_boq_service_rates(self)
 		self.calculate_taxes_and_totals()
+		sync_combined_source_sales_orders_from_items(self)
 		validate_combined_source_sales_orders(self)
 		if self.get("custom_is_advance_release"):
 			self.allocate_advances_automatically = 0

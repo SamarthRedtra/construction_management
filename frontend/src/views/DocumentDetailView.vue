@@ -71,6 +71,11 @@ const canPrint = computed(() => props.kind !== "orders" || canPrintOrder(doc.val
 const canEmail = computed(() => props.kind !== "transfers" && doc.value?.docstatus !== 2 && doc.value?.can_email && ctx.value.can_purchase && canPrint.value)
 const partyName = computed(() => doc.value?.supplier_name || doc.value?.supplier || "")
 
+const lpoTypeLabel = computed(() => {
+	if (props.kind !== "orders" || !doc.value) return ""
+	return doc.value.custom_lpo_type || (doc.value.custom_is_provisional_po ? "Open" : "Standard")
+})
+
 const summary = computed(() => {
 	const d = doc.value
 	if (!d) return []
@@ -81,6 +86,13 @@ const summary = computed(() => {
 		cards.push({ label: "To warehouse", value: d.to_warehouse || "—", hint: d.target_project || "General warehouse" })
 	} else cards.push({ label: "Project", value: d.project || "—", hint: [d.bill_no, d.boq_item].filter(Boolean).join(" · ") })
 	if (props.kind === "orders") {
+		const lpoType = d.custom_lpo_type || (d.custom_is_provisional_po ? "Open" : "Standard")
+		cards.push({
+			label: "LPO type",
+			value: lpoType,
+			strong: true,
+			hint: d.custom_lpo_approval_status && d.custom_lpo_approval_status !== "Draft" ? d.custom_lpo_approval_status : "",
+		})
 		cards.push({ label: "Value", value: formatCurrency(d.grand_total, d.currency), strong: true, hint: d.schedule_date ? `Required by ${formatDate(d.schedule_date)}` : "" })
 		cards.push({ label: "Received", value: `${Math.round(d.per_received || 0)}%`, strong: true, hint: `Billed ${Math.round(d.per_billed || 0)}%` })
 	} else if (props.kind === "invoices") {
@@ -262,6 +274,7 @@ onMounted(load)
 		<PageHeader :title="doc.name" :subtitle="[partyName, doc.project].filter(Boolean).join(' · ')" :breadcrumbs="[{ label: 'Procurement', to: '/dashboard' }, { label: config.title, to: config.path }, { label: doc.name }]">
 			<template #actions>
 				<StatusPill v-if="doc.custom_is_provisional_po" status="Open PO" title="Provisional / Open PO — receipts may exceed the ordered qty" />
+				<StatusPill v-if="kind === 'orders' && lpoTypeLabel" :status="`${lpoTypeLabel} LPO`" :title="`LPO type: ${lpoTypeLabel}`" />
 				<StatusPill :status="status" />
 				<RouterLink v-if="canEditDraft" :to="`/purchase-orders/${encodeURIComponent(doc.name)}/edit`" class="cp-btn">Edit draft</RouterLink>
 				<RouterLink v-if="canEditStockDraft" :to="`${config.path}/${encodeURIComponent(doc.name)}/edit`" class="cp-btn">Edit draft</RouterLink>

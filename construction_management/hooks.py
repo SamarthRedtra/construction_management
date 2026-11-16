@@ -129,6 +129,9 @@ doctype_list_js = {
 jinja = {
 	"methods": [
 		"construction_management.so_boq_progress_print_context.get_so_boq_progress_print_context",
+		"construction_management.purchase_order_print_context.get_lpo_print_context",
+		"construction_management.purchase_order_print_context.get_po_item_line_notes",
+		"construction_management.purchase_order_print_context.get_po_item_print_block",
 	],
 }
 
@@ -443,6 +446,7 @@ fixtures = [
 		"filters": [["name", "in", [
 			"BOQ Quotation",
 			"Daily Roster",
+			"LPO MRG Skada",
 			"Payment Certificate Payable",
 			"Project Completion Report",
 			"Sales Order BOQ Progress",

@@ -4332,30 +4332,68 @@ def get_billable_sales_orders_for_invoice(project: str) -> list:
 	return billable
 
 
+def _combined_revenue_rows(doc) -> list:
+	return [
+		row
+		for row in doc.get("items") or []
+		if row.get("sales_order")
+		and row.get("boq_item")
+		and row.get("item_code") not in SO_DEDUCTION_ITEM_CODES
+	]
+
+
+def sync_combined_source_sales_orders_from_items(doc) -> None:
+	"""Align ``custom_source_sales_orders`` with Sales Orders still on revenue item rows."""
+	if doc.docstatus != 0:
+		return
+	raw = (doc.get("custom_source_sales_orders") or "").strip()
+	if not raw or "," not in raw:
+		return
+
+	prior = [name.strip() for name in raw.split(",") if name.strip()]
+	linked: list[str] = []
+	seen: set[str] = set()
+	for row in _combined_revenue_rows(doc):
+		so = (row.sales_order or "").strip()
+		if so and so not in seen:
+			seen.add(so)
+			linked.append(so)
+	if not linked:
+		return
+
+	ordered = [so for so in prior if so in seen]
+	for so in linked:
+		if so not in ordered:
+			ordered.append(so)
+	new_value = ", ".join(ordered)
+	if new_value != raw:
+		doc.custom_source_sales_orders = new_value
+
+
+def _so_has_revenue_boq(so_name: str, boq_item: str) -> bool:
+	return bool(
+		frappe.db.exists(
+			"Sales Order Item",
+			{
+				"parent": so_name,
+				"boq_item": boq_item,
+				"item_code": ["not in", list(SO_DEDUCTION_ITEM_CODES)],
+			},
+		)
+	)
+
+
 def validate_combined_source_sales_orders(doc) -> None:
 	"""Block saving a draft combined invoice whose revenue lines no longer cover every source SO."""
 	if doc.docstatus not in (0,) or not doc.get("custom_source_sales_orders"):
 		return
+
+	sync_combined_source_sales_orders_from_items(doc)
+
 	source_orders = [
 		name.strip() for name in doc.custom_source_sales_orders.split(",") if name.strip()
 	]
-	if len(source_orders) < 2:
-		return
-
-	linked_orders = {
-		item.sales_order
-		for item in doc.get("items") or []
-		if item.get("sales_order") and item.get("item_code") not in SO_DEDUCTION_ITEM_CODES
-	}
-	missing = [name for name in source_orders if name not in linked_orders]
-	if missing:
-		frappe.throw(
-			_(
-				"Sales Order(s) {0} are listed as sources of this combined invoice but have no lines. "
-				"Restore their lines or recreate the invoice from Combined SO billing."
-			).format(", ".join(missing)),
-			title=_("Missing Source Sales Order Lines"),
-		)
+	revenue_rows = _combined_revenue_rows(doc)
 
 	for row in doc.get("items") or []:
 		if row.get("item_code") in SO_DEDUCTION_ITEM_CODES or not row.get("boq_item"):
@@ -4380,24 +4418,39 @@ def validate_combined_source_sales_orders(doc) -> None:
 				title=_("Aggregated combined invoice line"),
 			)
 
-	if len(source_orders) > 1:
-		expected_pairs = _expected_combined_so_boq_pairs(source_orders)
-		actual_pairs = {
-			(row.sales_order, row.boq_item)
-			for row in doc.get("items") or []
-			if row.get("sales_order")
-			and row.get("boq_item")
-			and row.get("item_code") not in SO_DEDUCTION_ITEM_CODES
+	if len(source_orders) < 2:
+		return
+
+	linked_orders = {row.sales_order for row in revenue_rows}
+	missing = [name for name in source_orders if name not in linked_orders]
+	if missing:
+		frappe.throw(
+			_(
+				"Sales Order(s) {0} are listed as sources of this combined invoice but have no lines. "
+				"Restore their lines or recreate the invoice from Combined SO billing."
+			).format(", ".join(missing)),
+			title=_("Missing Source Sales Order Lines"),
+		)
+
+	billed_boqs = {row.boq_item for row in revenue_rows}
+	missing_pairs: list[tuple[str, str]] = []
+	active_sources = linked_orders
+	for boq in sorted(billed_boqs):
+		expected = {
+			(so, boq)
+			for so in source_orders
+			if so in active_sources and _so_has_revenue_boq(so, boq)
 		}
-		missing_pairs = sorted(expected_pairs - actual_pairs)
-		if missing_pairs:
-			formatted = ", ".join(f"{so} / {boq}" for so, boq in missing_pairs)
-			frappe.throw(
-				_(
-					"Each source Sales Order needs its own revenue line per BOQ item. Missing: {0}"
-				).format(formatted),
-				title=_("Missing Source Sales Order Lines"),
-			)
+		actual = {(row.sales_order, row.boq_item) for row in revenue_rows if row.boq_item == boq}
+		missing_pairs.extend(sorted(expected - actual))
+	if missing_pairs:
+		formatted = ", ".join(f"{so} / {boq}" for so, boq in missing_pairs)
+		frappe.throw(
+			_(
+				"Each source Sales Order needs its own revenue line per BOQ item. Missing: {0}"
+			).format(formatted),
+			title=_("Missing Source Sales Order Lines"),
+		)
 
 
 def _expected_combined_so_boq_pairs(source_orders: list[str]) -> set[tuple[str, str]]:

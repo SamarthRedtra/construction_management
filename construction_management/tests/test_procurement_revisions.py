@@ -48,6 +48,72 @@ class TestProcurementRevisions(UnitTestCase):
 		self.assertIn("Stock User", procurement_insights.INSIGHT_ROLES)
 		self.assertIn("Accounts User", procurement_insights.INSIGHT_ROLES)
 
+	@patch("construction_management.api.procurement_insights._warehouse_scope_filters", return_value=("wh.custom_project = %(project)s", {"company": "MRG", "project": "PROJ-1", "site_location": ""}))
+	@patch("construction_management.api.procurement_insights.frappe.get_cached_value", return_value="AED")
+	@patch("construction_management.api.procurement_insights.frappe.get_all", return_value=[])
+	@patch("construction_management.api.procurement_insights.frappe.db.sql", return_value=[])
+	@patch("construction_management.api.procurement_insights._insight_project", return_value=("MRG", "PROJ-1"))
+	def test_procurement_insights_adds_item_names_and_metrics(self, insight_project, sql, get_all, currency, warehouse_scope):
+		sql.side_effect = [
+			[frappe._dict(item_code="ITEM-1", qty=5, amount=250)],
+			[],
+			[],
+		]
+		get_all.return_value = [frappe._dict(name="ITEM-1", item_name="Sample Item")]
+		report = procurement_insights.get_procurement_insights("PROJ-1")
+		self.assertEqual(report["metrics"]["ordered"]["qty_kind"], "qty")
+		self.assertEqual(report["currency"], "AED")
+		self.assertEqual(report["rows"][0]["item_name"], "Sample Item")
+		self.assertEqual(report["rows"][0]["ordered"], 5.0)
+		self.assertEqual(report["rows"][0]["ordered_value"], 250.0)
+		self.assertEqual(report["summary"]["ordered"]["qty"], 5.0)
+		self.assertEqual(report["summary"]["ordered"]["value"], 250.0)
+
+	@patch("construction_management.api.procurement_insights._warehouse_scope_filters", return_value=("wh.custom_project = %(project)s", {"company": "MRG", "project": "PROJ-1", "site_location": ""}))
+	@patch("construction_management.api.procurement_insights.frappe.get_cached_value", return_value="AED")
+	@patch("construction_management.api.procurement_insights.frappe.get_all", return_value=[])
+	@patch("construction_management.api.procurement_insights.frappe.db.sql")
+	@patch("construction_management.api.procurement_insights._insight_project", return_value=("MRG", "PROJ-1"))
+	def test_procurement_insights_movement_values(self, insight_project, sql, get_all, currency, warehouse_scope):
+		sql.side_effect = [
+			[],
+			[frappe._dict(
+				item_code="ITEM-1",
+				voucher_type="Purchase Receipt",
+				purpose=None,
+				inbound=3,
+				outbound=0,
+				inbound_value=120,
+				outbound_value=0,
+			)],
+			[],
+		]
+		report = procurement_insights.get_procurement_insights("PROJ-1")
+		self.assertEqual(report["rows"][0]["received"], 3.0)
+		self.assertEqual(report["rows"][0]["received_value"], 120.0)
+		self.assertEqual(report["summary"]["received"]["value"], 120.0)
+
+	@patch("construction_management.api.procurement_insights._insight_project", return_value=("MRG", "PROJ-1"))
+	def test_insight_breakdown_rejects_invalid_metric(self, insight_project):
+		with self.assertRaisesRegex(frappe.ValidationError, "Invalid insight metric"):
+			procurement_insights.get_procurement_insight_breakdown("PROJ-1", "ITEM-1", "invalid")
+
+	@patch("construction_management.api.procurement_insights._breakdown_row")
+	@patch("construction_management.api.procurement_insights.frappe.db.sql")
+	@patch("construction_management.api.procurement_insights.frappe.db.exists", return_value=True)
+	@patch("construction_management.api.procurement_insights._insight_project", return_value=("MRG", "PROJ-1"))
+	def test_insight_breakdown_ordered_rows(self, insight_project, exists, sql, breakdown_row):
+		sql.return_value = [
+			frappe._dict(name="PO-1", posting_date="2026-01-01", qty=2, amount=100, warehouse="Stores - MRG"),
+		]
+		breakdown_row.return_value = {
+			"doctype": "Purchase Order", "name": "PO-1", "qty": 2, "kind": "orders",
+		}
+		result = procurement_insights.get_procurement_insight_breakdown("PROJ-1", "ITEM-1", "ordered")
+		self.assertEqual(result["metric"], "ordered")
+		self.assertEqual(result["rows"][0]["name"], "PO-1")
+		breakdown_row.assert_called_once_with("Purchase Order", "PO-1", "2026-01-01", 2, 100, "Stores - MRG")
+
 	@patch("construction_management.api.procurement_insights._require")
 	@patch("construction_management.api.procurement_insights._company", return_value="MRG")
 	def test_unrestricted_ledger_keeps_separate_permission(self, company, require):

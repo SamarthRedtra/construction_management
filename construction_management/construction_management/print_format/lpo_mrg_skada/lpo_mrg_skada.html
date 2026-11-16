@@ -1,0 +1,188 @@
+<style>
+  body { font-size: 11px; font-family: Arial, Helvetica, sans-serif; color: #000; }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { padding: 5px; vertical-align: top; }
+  .right { text-align: right; }
+  .center { text-align: center; }
+  .logo { width: 150px; max-width: 150px; height: auto; }
+
+  .doc-title {
+    font-size: 17px;
+    font-weight: bold;
+    border: 2px solid #000;
+    padding: 6px 20px;
+    display: inline-block;
+    background: #f0f0f0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .lpo-type-badge {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 4px 12px;
+    border: 1px solid #000;
+    font-weight: bold;
+    background: #fff;
+    text-transform: uppercase;
+  }
+
+  .meta-box {
+    margin-top: 8px;
+    line-height: 1.7;
+    border: 1px solid #999;
+    padding: 8px 10px;
+    background: #fafafa;
+  }
+
+  .party td { border: none; line-height: 1.6; }
+
+  .items th {
+    background: #d9d9d9;
+    border: 1px solid #000;
+    text-align: center;
+    font-weight: bold;
+  }
+
+  .items td { border: 1px solid #000; }
+  .items .totlabel { background: #d9d9d9; font-weight: bold; text-align: center; }
+  .items .grand { background: #cfcfcf; font-weight: bold; }
+  .noborder { border: none !important; }
+</style>
+
+{% set l = get_lpo_print_context(doc) %}
+
+<table>
+  <tr>
+    <td width="48%" class="logo-cell">
+      {% if l.logo_url %}
+        <img class="logo" src="{{ l.logo_url }}" alt="{{ l.company_name }}">
+      {% elif l.company_name %}
+        <div style="font-weight: bold; font-size: 13px;">{{ l.company_name }}</div>
+      {% endif %}
+    </td>
+    <td width="52%" class="right">
+      <div class="doc-title">Local Purchase Order</div>
+      <div class="lpo-type-badge">{{ l.lpo_type_label }}</div>
+      <div class="meta-box" style="text-align: left;">
+        <b>LPO Ref No.</b> {{ doc.name }}<br>
+        <b>LPO Type:</b> {{ l.lpo_type }}<br>
+        {% if l.lpo_reference %}
+        <b>Reference:</b> {{ l.lpo_reference }}<br>
+        {% endif %}
+        <b>Date:</b> {{ doc.get_formatted("transaction_date") }}<br>
+        {% if doc.schedule_date %}
+        <b>Required by:</b> {{ doc.get_formatted("schedule_date") }}<br>
+        {% endif %}
+        <b>TRN:</b> {{ l.company_trn }}
+        {% if doc.project %}
+        <br><b>Project:</b> {{ doc.project }}
+        {% endif %}
+      </div>
+    </td>
+  </tr>
+</table>
+
+<table class="party" style="margin-top:10px;">
+  <tr>
+    <td width="50%">
+      {% set contact_designation = frappe.db.get_value("Contact", doc.contact_person, "designation") if doc.contact_person else "" %}
+      <b>To:</b> {{ doc.supplier_name or "-" }}<br>
+      {% if doc.contact_display %}
+        <b>Attention:</b> {{ doc.contact_display }}<br>
+      {% endif %}
+      {% if contact_designation %}{{ contact_designation }}<br>{% endif %}
+      {% if doc.contact_mobile %}<b>Mob. No.:</b> {{ doc.contact_mobile }}<br>{% endif %}
+      {% if l.supplier_trn %}<b>TRN:</b> {{ l.supplier_trn }}{% endif %}
+    </td>
+    <td width="50%">
+      <b>From:</b> {{ doc.company }}<br>
+      <b>Contact:</b> Mr. Junaid Khatri<br>
+      Purchase officer<br>
+      <b>Mobile #:</b> 054-523-7786<br>
+      <b>Tel:</b> 04-3413044 &nbsp;&nbsp; <b>Fax:</b> 04-3413045
+    </td>
+  </tr>
+</table>
+
+<table class="items" style="margin-top:10px;">
+  <thead>
+    <tr>
+      <th width="6%">SL NO</th>
+      <th width="18%">Item</th>
+      <th width="42%">Description</th>
+      <th width="8%">Unit</th>
+      <th width="10%">Qty</th>
+      <th width="12%">Unit Price</th>
+      <th width="14%">Amount</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in doc.items %}
+    <tr>
+      <td class="center">{{ loop.index }}</td>
+      <td>{{ item.item_name or item.item_code or "-" }}</td>
+      <td>
+        {% set blk = get_po_item_print_block(item) %}
+        {% if blk.description %}{{ blk.description }}{% endif %}
+        {% if blk.notes %}{% if blk.description %}<br><br>{% endif %}<b>Notes:</b><br>{{ blk.notes }}{% endif %}
+        {% if not blk.has_content %} {{ item.item_name }} <br><br> {% endif %}
+      </td>
+      <td class="center">{{ item.uom or "-" }}</td>
+      <td class="right">{{ "%.2f"|format(item.qty) }}</td>
+      <td class="right">{{ "%.2f"|format(item.rate) }}</td>
+      <td class="right">{{ "%.2f"|format(item.amount) }}</td>
+    </tr>
+    {% endfor %}
+    <tr>
+      <td colspan="4" class="noborder">&nbsp;</td>
+      <td colspan="2" class="totlabel">Subtotal</td>
+      <td class="right">{{ doc.get_formatted("total") }}</td>
+    </tr>
+    {% if doc.discount_amount and doc.discount_amount > 0 %}
+    <tr>
+      <td colspan="4" class="noborder">&nbsp;</td>
+      <td colspan="2" class="totlabel">Discount{% if doc.additional_discount_percentage %} {{ doc.additional_discount_percentage }}%{% endif %}</td>
+      <td class="right">- {{ doc.get_formatted("discount_amount") }}</td>
+    </tr>
+    {% endif %}
+    <tr>
+      <td colspan="4" class="noborder">&nbsp;</td>
+      <td colspan="2" class="totlabel">5% VAT</td>
+      <td class="right">{{ doc.get_formatted("total_taxes_and_charges") }}</td>
+    </tr>
+    <tr>
+      <td colspan="4" class="noborder">&nbsp;</td>
+      <td colspan="2" class="totlabel grand">Total Amount</td>
+      <td class="right grand">{{ doc.get_formatted("grand_total") }}</td>
+    </tr>
+  </tbody>
+</table>
+
+{% if doc.in_words %}
+<div style="margin-top:8px;"><b>Amount in Words:</b> {{ doc.in_words }}</div>
+{% endif %}
+
+<div style="margin-top:12px; line-height:1.8;">
+  <b><u>Terms and Conditions</u></b><br>
+  <b>Payment:</b> {{ doc.payment_terms_template or "-" }}<br>
+  <b>Job Id:</b> {{ doc.set_warehouse or "-" }}<br>
+  {% if l.show_mrg_delivery_contact %}
+    <b>Delivery Contact:</b> Mr. Shayan Azeem<br>
+    <b>Phone Contact:</b> 0566284045<br>
+  {% endif %}
+  {% if doc.shipping_address_display %}
+    <b>Delivery:</b> {{ doc.shipping_address_display | replace("<br>", " ") | replace("<br/>", " ") }}<br>
+  {% endif %}
+  {% if doc.terms %}{{ doc.terms }}{% endif %}
+</div>
+
+<br><br>
+<b>Prepared By:</b> {{ l.prepared_by }}<br>
+{% if l.approval_status and l.approval_status != "Draft" %}
+<b>Approval:</b> {{ l.approval_status }}<br>
+{% endif %}
+
+<div style="margin-top: 35px; padding-top: 10px; border-top: 1px solid #000; font-size: 11px; text-align: center; font-style: italic;">
+  This is a system generated copy and does not require a signature.
+</div>

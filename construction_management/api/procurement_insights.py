@@ -2,6 +2,7 @@
 
 import csv
 from io import StringIO
+from urllib.parse import quote
 
 import frappe
 from frappe import _
@@ -14,6 +15,30 @@ from construction_management.api.controlled_procurement import (
 
 INSIGHT_ROLES = CATALOG_ROLES
 LEDGER_ROLES = ACCOUNT_ROLES | ADMIN_ROLES
+
+INSIGHT_METRICS = (
+	"ordered",
+	"received",
+	"consumed",
+	"transferred_in",
+	"transferred_out",
+	"other",
+	"on_hand",
+)
+
+INSIGHT_METRIC_META = {
+	"ordered": {"label": "Ordered", "kind": "qty", "qty_kind": "qty", "value_kind": "amount"},
+	"received": {"label": "Received", "kind": "qty", "qty_kind": "qty", "value_kind": "amount"},
+	"consumed": {"label": "Consumed", "kind": "qty", "qty_kind": "qty", "value_kind": "amount"},
+	"transferred_in": {"label": "Transfer in", "kind": "qty", "qty_kind": "qty", "value_kind": "amount"},
+	"transferred_out": {"label": "Transfer out", "kind": "qty", "qty_kind": "qty", "value_kind": "amount"},
+	"other": {"label": "Other", "kind": "qty", "qty_kind": "qty", "value_kind": "amount"},
+	"on_hand": {"label": "On hand", "kind": "qty", "qty_kind": "qty", "value_kind": "amount"},
+}
+
+BREAKDOWN_LIMIT = 500
+
+SLE_PROJECT_SCOPE_SQL = "coalesce(nullif(sle.project, ''), nullif(wh.custom_project, '')) = %(project)s"
 
 # Stock Reconciliation rows store actual_qty = 0; their movement is the jump in qty_after_transaction.
 QTY_CHANGE_SQL = """(case when sle.voucher_type = 'Stock Reconciliation'
@@ -35,6 +60,119 @@ def _company() -> str:
 	if not company or company not in _allowed_companies():
 		frappe.throw(_("Select an accessible company."), frappe.PermissionError)
 	return company
+
+
+def _insight_project(project: str) -> tuple[str, str]:
+	"""Shared company/project guard for insights screens."""
+	_require(INSIGHT_ROLES)
+	company = _company()
+	if not project or frappe.db.get_value("Project", project, "company") != company:
+		frappe.throw(_("Choose a project in the active company."), frappe.PermissionError)
+	return company, project
+
+
+def _empty_insight_row(item_code: str) -> dict:
+	row = {"item_code": item_code}
+	for metric in INSIGHT_METRICS:
+		row[metric] = 0
+		row[f"{metric}_value"] = 0
+	return row
+
+
+def _insight_summary(rows: list[dict]) -> dict:
+	summary = {metric: {"qty": 0, "value": 0} for metric in INSIGHT_METRICS}
+	for row in rows:
+		for metric in INSIGHT_METRICS:
+			summary[metric]["qty"] += flt(row.get(metric))
+			summary[metric]["value"] += flt(row.get(f"{metric}_value"))
+	for metric in INSIGHT_METRICS:
+		summary[metric]["qty"] = flt(summary[metric]["qty"])
+		summary[metric]["value"] = flt(summary[metric]["value"])
+	return summary
+
+
+def _apply_movement_metrics(item: dict, voucher_type: str, purpose: str | None, inbound: float, outbound: float, inbound_value: float, outbound_value: float) -> None:
+	item["on_hand"] += inbound + outbound
+	item["on_hand_value"] += inbound_value + outbound_value
+	if voucher_type == "Purchase Receipt":
+		item["received"] += inbound + outbound
+		item["received_value"] += inbound_value + outbound_value
+	elif voucher_type == "Stock Entry" and purpose == "Material Issue":
+		item["consumed"] -= outbound + inbound
+		item["consumed_value"] -= outbound_value + inbound_value
+	elif voucher_type == "Stock Entry" and purpose == "Material Transfer":
+		item["transferred_in"] += inbound
+		item["transferred_out"] -= outbound
+		item["transferred_in_value"] += inbound_value
+		item["transferred_out_value"] -= outbound_value
+	else:
+		item["other"] += inbound + outbound
+		item["other_value"] += inbound_value + outbound_value
+
+
+def _attach_item_names(rows: list[dict]) -> None:
+	if not rows:
+		return
+	item_codes = list({row["item_code"] for row in rows})
+	name_by_code = {
+		row.name: row.item_name for row in frappe.get_all(
+			"Item", filters={"name": ["in", item_codes]}, fields=["name", "item_name"], limit_page_length=0,
+		)
+	}
+	for row in rows:
+		row["item_name"] = name_by_code.get(row["item_code"]) or row["item_code"]
+
+
+def _desk_url(doctype: str, name: str) -> str:
+	if not doctype or not name:
+		return ""
+	return f"/app/{doctype.lower().replace(' ', '-')}/{quote(name)}"
+
+
+def _breakdown_kind(doctype: str, name: str) -> str | None:
+	"""Return CP router kind when the voucher is visible in the Procurement workspace."""
+	if not doctype or not name:
+		return None
+	if doctype == "Purchase Order" and not cint(frappe.db.get_value("Purchase Order", name, "is_subcontracted")):
+		return "orders"
+	if doctype == "Purchase Receipt" and not cint(frappe.db.get_value("Purchase Receipt", name, "is_subcontracted")):
+		return "receipts"
+	if doctype == "Stock Entry" and frappe.db.get_value("Stock Entry", name, "purpose") == "Material Transfer":
+		return "transfers"
+	return None
+
+
+def _breakdown_row(
+	doctype: str,
+	name: str,
+	posting_date,
+	qty,
+	amount=None,
+	warehouse: str = "",
+) -> dict:
+	row = {
+		"doctype": doctype,
+		"name": name,
+		"posting_date": posting_date,
+		"qty": flt(qty),
+		"warehouse": warehouse or "",
+		"kind": _breakdown_kind(doctype, name),
+		"desk_url": _desk_url(doctype, name),
+	}
+	if amount is not None:
+		row["amount"] = flt(amount)
+	return row
+
+
+def _warehouse_scope_filters(company: str, project: str) -> tuple[str, dict]:
+	"""SQL fragment and values limiting warehouses to a project (and optional site location)."""
+	site_location = frappe.db.get_value("Project", project, "site_location") or ""
+	clauses = ["wh.company = %(company)s", "wh.is_group = 0", "wh.disabled = 0"]
+	if site_location:
+		clauses.append("(wh.custom_project = %(project)s or wh.name = %(site_location)s)")
+	else:
+		clauses.append("wh.custom_project = %(project)s")
+	return " and ".join(clauses), {"company": company, "project": project, "site_location": site_location}
 
 
 @frappe.whitelist(methods=["GET"])
@@ -252,11 +390,8 @@ def export_stock_ledger(receipt: str = "", project: str = "", item_code: str = "
 @frappe.whitelist(methods=["GET"])
 def get_procurement_insights(project: str) -> dict:
 	"""BuildSuite-style material status from current PO commitments and stock movements."""
-	_require(INSIGHT_ROLES)
-	company = _company()
-	if not project or frappe.db.get_value("Project", project, "company") != company:
-		frappe.throw(_("Choose a project in the active company."), frappe.PermissionError)
-	ordered = frappe.db.sql("""select poi.item_code, sum(poi.qty) as qty
+	company, project = _insight_project(project)
+	ordered = frappe.db.sql("""select poi.item_code, sum(poi.qty) as qty, sum(poi.amount) as amount
 		from `tabPurchase Order Item` poi join `tabPurchase Order` po on po.name = poi.parent
 		join `tabItem` item on item.name = poi.item_code and item.is_stock_item = 1
 		where po.company = %(company)s and po.docstatus = 1
@@ -264,25 +399,146 @@ def get_procurement_insights(project: str) -> dict:
 		group by poi.item_code""", {"company": company, "project": project}, as_dict=True)
 	movements = frappe.db.sql(f"""select sle.item_code, sle.voucher_type, se.purpose,
 		sum(greatest({QTY_CHANGE_SQL}, 0)) as inbound,
-		sum(least({QTY_CHANGE_SQL}, 0)) as outbound
+		sum(least({QTY_CHANGE_SQL}, 0)) as outbound,
+		sum(case when ({QTY_CHANGE_SQL}) > 0 then sle.stock_value_difference else 0 end) as inbound_value,
+		sum(case when ({QTY_CHANGE_SQL}) < 0 then sle.stock_value_difference else 0 end) as outbound_value
 		from `tabStock Ledger Entry` sle
 		join `tabWarehouse` wh on wh.name = sle.warehouse
 		left join `tabStock Entry` se on se.name = sle.voucher_no and sle.voucher_type = 'Stock Entry'
 		where sle.company = %(company)s and sle.is_cancelled = 0
 		and coalesce(nullif(sle.project, ''), nullif(wh.custom_project, '')) = %(project)s
 		group by sle.item_code, sle.voucher_type, se.purpose""", {"company": company, "project": project}, as_dict=True)
-	items = {row.item_code: {"item_code": row.item_code, "ordered": flt(row.qty), "received": 0, "consumed": 0, "transferred_in": 0, "transferred_out": 0, "other": 0, "on_hand": 0} for row in ordered}
+
+	items: dict[str, dict] = {}
+	for row in ordered:
+		item = _empty_insight_row(row.item_code)
+		item["ordered"] = flt(row.qty)
+		item["ordered_value"] = flt(row.amount)
+		items[row.item_code] = item
+
 	for row in movements:
-		item = items.setdefault(row.item_code, {"item_code": row.item_code, "ordered": 0, "received": 0, "consumed": 0, "transferred_in": 0, "transferred_out": 0, "other": 0, "on_hand": 0})
-		inbound, outbound = flt(row.inbound), flt(row.outbound)
-		item["on_hand"] += inbound + outbound
-		if row.voucher_type == "Purchase Receipt":
-			item["received"] += inbound + outbound
-		elif row.voucher_type == "Stock Entry" and row.purpose == "Material Issue":
-			item["consumed"] -= outbound + inbound
-		elif row.voucher_type == "Stock Entry" and row.purpose == "Material Transfer":
-			item["transferred_in"] += inbound
-			item["transferred_out"] -= outbound
-		else:
-			item["other"] += inbound + outbound
-	return {"company": company, "project": project, "rows": sorted(items.values(), key=lambda row: row["item_code"])}
+		item = items.setdefault(row.item_code, _empty_insight_row(row.item_code))
+		movement_qty = flt(row.inbound), flt(row.outbound)
+		movement_value = flt(row.inbound_value), flt(row.outbound_value)
+		_apply_movement_metrics(item, row.voucher_type, row.purpose, *movement_qty, *movement_value)
+
+	wh_where, wh_params = _warehouse_scope_filters(company, project)
+	for row in frappe.db.sql(
+		f"""select bin.item_code, sum(bin.stock_value) as stock_value
+		from `tabBin` bin
+		join `tabWarehouse` wh on wh.name = bin.warehouse
+		where {wh_where}
+		group by bin.item_code""",
+		wh_params,
+		as_dict=True,
+	):
+		item = items.setdefault(row.item_code, _empty_insight_row(row.item_code))
+		item["on_hand_value"] = flt(row.stock_value)
+
+	rows = sorted(items.values(), key=lambda row: row["item_code"])
+	_attach_item_names(rows)
+	currency = frappe.get_cached_value("Company", company, "default_currency") or ""
+	return {
+		"company": company,
+		"project": project,
+		"currency": currency,
+		"metrics": INSIGHT_METRIC_META,
+		"summary": _insight_summary(rows),
+		"rows": rows,
+	}
+
+
+@frappe.whitelist(methods=["GET"])
+def get_procurement_insight_breakdown(project: str, item_code: str, metric: str) -> dict:
+	"""Line-level vouchers behind a single insights cell."""
+	company, project = _insight_project(project)
+	if metric not in INSIGHT_METRICS:
+		frappe.throw(_("Invalid insight metric."))
+	if not item_code or not frappe.db.exists("Item", item_code):
+		frappe.throw(_("Choose a valid item."))
+
+	meta = INSIGHT_METRIC_META[metric]
+	params = {"company": company, "project": project, "item_code": item_code}
+	rows: list[dict] = []
+
+	if metric == "ordered":
+		for row in frappe.db.sql(
+			"""select po.name, po.transaction_date as posting_date, poi.qty, poi.amount, poi.warehouse
+			from `tabPurchase Order Item` poi
+			join `tabPurchase Order` po on po.name = poi.parent
+			join `tabItem` item on item.name = poi.item_code and item.is_stock_item = 1
+			where po.company = %(company)s and po.docstatus = 1
+			and coalesce(nullif(poi.project, ''), po.project) = %(project)s
+			and poi.item_code = %(item_code)s
+			order by po.transaction_date desc, po.name desc
+			limit %(limit)s""",
+			{**params, "limit": BREAKDOWN_LIMIT},
+			as_dict=True,
+		):
+			rows.append(_breakdown_row("Purchase Order", row.name, row.posting_date, row.qty, row.amount, row.warehouse))
+
+	elif metric == "on_hand":
+		wh_where, wh_params = _warehouse_scope_filters(company, project)
+		for row in frappe.db.sql(
+			f"""select bin.warehouse, bin.actual_qty as qty
+			from `tabBin` bin
+			join `tabWarehouse` wh on wh.name = bin.warehouse
+			where bin.item_code = %(item_code)s and {wh_where}
+			order by bin.warehouse asc
+			limit %(limit)s""",
+			{**params, **wh_params, "limit": BREAKDOWN_LIMIT},
+			as_dict=True,
+		):
+			rows.append({
+				"doctype": "",
+				"name": "",
+				"posting_date": None,
+				"qty": flt(row.qty),
+				"warehouse": row.warehouse,
+				"kind": None,
+				"desk_url": "",
+			})
+
+	else:
+		sle_filters = {
+			"received": "sle.voucher_type = 'Purchase Receipt'",
+			"consumed": "sle.voucher_type = 'Stock Entry' and se.purpose = 'Material Issue'",
+			"transferred_in": "sle.voucher_type = 'Stock Entry' and se.purpose = 'Material Transfer' and ({qty}) > 0".format(qty=QTY_CHANGE_SQL),
+			"transferred_out": "sle.voucher_type = 'Stock Entry' and se.purpose = 'Material Transfer' and ({qty}) < 0".format(qty=QTY_CHANGE_SQL),
+			"other": """not (
+				sle.voucher_type = 'Purchase Receipt'
+				or (sle.voucher_type = 'Stock Entry' and coalesce(se.purpose, '') in ('Material Issue', 'Material Transfer'))
+			)""",
+		}[metric]
+		qty_sql = {
+			"received": QTY_CHANGE_SQL,
+			"consumed": f"-({QTY_CHANGE_SQL})",
+			"transferred_in": QTY_CHANGE_SQL,
+			"transferred_out": f"-({QTY_CHANGE_SQL})",
+			"other": QTY_CHANGE_SQL,
+		}[metric]
+		for row in frappe.db.sql(
+			f"""select sle.voucher_type, sle.voucher_no, sle.posting_date, sle.warehouse,
+				{qty_sql} as qty, sle.stock_value_difference as amount
+			from `tabStock Ledger Entry` sle
+			join `tabWarehouse` wh on wh.name = sle.warehouse
+			left join `tabStock Entry` se on se.name = sle.voucher_no and sle.voucher_type = 'Stock Entry'
+			where sle.company = %(company)s and sle.is_cancelled = 0
+			and sle.item_code = %(item_code)s and {SLE_PROJECT_SCOPE_SQL}
+			and {sle_filters}
+			order by sle.posting_date desc, sle.posting_time desc, sle.creation desc
+			limit %(limit)s""",
+			{**params, "limit": BREAKDOWN_LIMIT},
+			as_dict=True,
+		):
+			doctype = row.voucher_type if row.voucher_type in ("Purchase Order", "Purchase Receipt", "Stock Entry") else row.voucher_type
+			rows.append(_breakdown_row(doctype, row.voucher_no, row.posting_date, row.qty, row.amount, row.warehouse))
+
+	return {
+		"company": company,
+		"project": project,
+		"item_code": item_code,
+		"metric": metric,
+		"metric_meta": meta,
+		"rows": rows,
+	}

@@ -322,19 +322,29 @@ class TestCombinedSalesInvoiceFromSO(unittest.TestCase):
 			docstatus=0,
 			custom_source_sales_orders="SO-SEP, SO-JUN",
 			items=[
-				frappe._dict(item_code="WORK", sales_order="SO-SEP"),
+				frappe._dict(item_code="WORK", boq_item="BOQ-1", sales_order="SO-SEP"),
 				frappe._dict(item_code="RETENTION-DEDUCTION", sales_order="SO-JUN"),
 			],
 		)
-		with self.assertRaises(frappe.ValidationError):
+		with patch(
+			"construction_management.api.boq_invoice._so_has_revenue_boq",
+			return_value=True,
+		), patch(
+			"construction_management.api.boq_invoice.frappe.db.get_value",
+			return_value=None,
+		):
+			validate_combined_source_sales_orders(doc)
+			self.assertEqual(doc.custom_source_sales_orders, "SO-SEP")
+
+			doc.custom_source_sales_orders = "SO-SEP, SO-JUN"
+			doc["items"].append(
+				frappe._dict(item_code="WORK", boq_item="BOQ-1", sales_order="SO-JUN")
+			)
 			validate_combined_source_sales_orders(doc)
 
-		doc["items"].append(frappe._dict(item_code="WORK", sales_order="SO-JUN"))
-		validate_combined_source_sales_orders(doc)
-
-		doc["items"] = doc["items"][:1]
-		doc["docstatus"] = 1
-		validate_combined_source_sales_orders(doc)
+			doc["items"] = doc["items"][:1]
+			doc["docstatus"] = 1
+			validate_combined_source_sales_orders(doc)
 
 	def test_aggregated_line_over_so_blocked(self):
 		from construction_management.api.boq_invoice import validate_combined_source_sales_orders
@@ -354,12 +364,15 @@ class TestCombinedSalesInvoiceFromSO(unittest.TestCase):
 				),
 			],
 		)
+		def _has_boq(so_name, boq_item):
+			return so_name in ("SO-A", "SO-B") and boq_item == "BOQ-1"
+
 		with patch(
 			"construction_management.api.boq_invoice.frappe.db.get_value",
-			return_value={"qty": 100, "amount": 1000},
+			return_value=frappe._dict(qty=100, amount=1000),
 		), patch(
-			"construction_management.api.boq_invoice._expected_combined_so_boq_pairs",
-			return_value={("SO-A", "BOQ-1"), ("SO-B", "BOQ-1")},
+			"construction_management.api.boq_invoice._so_has_revenue_boq",
+			side_effect=_has_boq,
 		):
 			with self.assertRaises(frappe.ValidationError):
 				validate_combined_source_sales_orders(doc)
@@ -396,7 +409,7 @@ class TestCombinedSalesInvoiceFromSO(unittest.TestCase):
 			_block_direct_billing_with_open_sales_orders([None, ""])
 			sql.assert_not_called()
 
-	def test_saving_combined_invoice_without_a_source_order_line_fails(self):
+	def test_saving_combined_invoice_drops_removed_source_from_header(self):
 		if not self.customer:
 			self.skipTest("No customer available")
 		if not frappe.db.has_column("Sales Invoice", "custom_source_sales_orders"):
@@ -407,8 +420,71 @@ class TestCombinedSalesInvoiceFromSO(unittest.TestCase):
 		si = frappe.get_doc("Sales Invoice", result["sales_invoice"])
 
 		si.set("items", [row for row in si.items if row.sales_order != so1])
-		with self.assertRaises(frappe.ValidationError):
-			si.save()
+		si.flags.ignore_deduction_recalc = True
+		si.save()
+		self.assertEqual(si.custom_source_sales_orders.strip(), so2)
+
+	def test_removing_one_boq_line_from_combined_draft_succeeds(self):
+		from construction_management.api.boq_invoice import validate_combined_source_sales_orders
+
+		doc = frappe._dict(
+			docstatus=0,
+			custom_source_sales_orders="SO-A, SO-B",
+			items=[
+				frappe._dict(item_code="WORK", boq_item="BOQ-1", sales_order="SO-A"),
+				frappe._dict(item_code="WORK", boq_item="BOQ-1", sales_order="SO-B"),
+				frappe._dict(item_code="WORK", boq_item="BOQ-2", sales_order="SO-A"),
+				frappe._dict(item_code="WORK", boq_item="BOQ-2", sales_order="SO-B"),
+			],
+		)
+		with patch(
+			"construction_management.api.boq_invoice._so_has_revenue_boq",
+			return_value=True,
+		), patch(
+			"construction_management.api.boq_invoice.frappe.db.get_value",
+			return_value=None,
+		):
+			doc["items"] = [row for row in doc["items"] if not (row.boq_item == "BOQ-2")]
+			validate_combined_source_sales_orders(doc)
+
+	def test_billed_boq_still_requires_all_sources(self):
+		from construction_management.api.boq_invoice import validate_combined_source_sales_orders
+
+		doc = frappe._dict(
+			docstatus=0,
+			custom_source_sales_orders="SO-A, SO-B",
+			items=[
+				frappe._dict(
+					item_code="WORK",
+					boq_item="BOQ-1",
+					sales_order="SO-A",
+					so_detail="SOD-A",
+					qty=10,
+					amount=100,
+				),
+				frappe._dict(
+					item_code="WORK",
+					boq_item="BOQ-2",
+					sales_order="SO-B",
+					so_detail="SOD-B",
+					qty=5,
+					amount=50,
+				),
+			],
+		)
+
+		def _has_boq(so_name, boq_item):
+			return so_name in ("SO-A", "SO-B") and boq_item == "BOQ-1"
+
+		with patch(
+			"construction_management.api.boq_invoice.frappe.db.get_value",
+			return_value=frappe._dict(qty=100, amount=1000),
+		), patch(
+			"construction_management.api.boq_invoice._so_has_revenue_boq",
+			side_effect=_has_boq,
+		):
+			with self.assertRaises(frappe.ValidationError):
+				validate_combined_source_sales_orders(doc)
 
 	def test_rejects_sales_order_without_pending_lines(self):
 		if not self.customer:
