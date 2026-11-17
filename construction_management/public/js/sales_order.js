@@ -32,17 +32,25 @@ frappe.ui.form.on('Sales Order', {
 			return;
 		}
 		if (!frm.is_new() && frm.doc.project && (frm.doc.items || []).some((r) => r.boq_item)) {
-			frappe.call({
-				method: 'construction_management.api.boq_invoice.recalculate_sales_order_boq_deductions',
-				args: { sales_order: frm.doc.name },
-				freeze: true,
-				freeze_message: __('Updating deduction lines...'),
-				callback: function (r) {
-					if (!r.exc) {
-						frm.reload_doc();
-					}
-				},
+			frm_so_recalculate_deductions(frm);
+		}
+	},
+
+	custom_skip_retention_deduction: function (frm) {
+		if (frm.doc.docstatus !== 0) {
+			return;
+		}
+		if (cint(frm.doc.custom_skip_retention_deduction)) {
+			frm_so_strip_retention_rows(frm);
+			frappe.show_alert({
+				message: __('Retention deduction skipped for this sales order'),
+				indicator: 'blue',
 			});
+			frm.refresh();
+			return;
+		}
+		if (!frm.is_new() && frm.doc.project && (frm.doc.items || []).some((r) => r.boq_item)) {
+			frm_so_recalculate_deductions(frm);
 		}
 	},
 
@@ -145,6 +153,30 @@ frappe.ui.form.on('Sales Order', {
 		}
 	}
 });
+
+function frm_so_strip_retention_rows(frm) {
+	const rows = (frm.doc.items || []).filter((row) => row.item_code === 'RETENTION-DEDUCTION');
+	rows.forEach((row) => frappe.model.clear_doc(row.doctype, row.name));
+	frm.doc.items = (frm.doc.items || []).filter((row) => row.item_code !== 'RETENTION-DEDUCTION');
+	frm.refresh_field('items');
+	if (construction_management.deduction_summary) {
+		construction_management.deduction_summary.render(frm);
+	}
+}
+
+function frm_so_recalculate_deductions(frm) {
+	frappe.call({
+		method: 'construction_management.api.boq_invoice.recalculate_sales_order_boq_deductions',
+		args: { sales_order: frm.doc.name },
+		freeze: true,
+		freeze_message: __('Updating deduction lines...'),
+		callback: function (r) {
+			if (!r.exc) {
+				frm.reload_doc();
+			}
+		},
+	});
+}
 
 /**
  * Renders a summary card of all Unearned Revenue Journal Entries linked to this Sales Order

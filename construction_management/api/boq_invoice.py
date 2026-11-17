@@ -1810,10 +1810,32 @@ def doc_skips_advance_deduction(doc) -> bool:
 	return bool(cint(doc.get("custom_skip_advance_deduction")))
 
 
+def doc_skips_retention_deduction(doc) -> bool:
+	"""True when Sales Invoice / Sales Order opts out of retention withholding."""
+	if doc.doctype not in ("Sales Invoice", "Sales Order"):
+		return False
+	return bool(cint(doc.get("custom_skip_retention_deduction")))
+
+
+def sales_order_skips_retention(sales_order: str | None) -> bool:
+	if not sales_order:
+		return False
+	if not frappe.db.has_column("Sales Order", "custom_skip_retention_deduction"):
+		return False
+	return bool(cint(frappe.db.get_value("Sales Order", sales_order, "custom_skip_retention_deduction")))
+
+
 def strip_advance_deduction_rows(doc):
 	"""Remove every ADVANCE-DEDUCTION child row from the document."""
 	for row in list(doc.get("items") or []):
 		if row.item_code == "ADVANCE-DEDUCTION":
+			doc.remove(row)
+
+
+def strip_retention_deduction_rows(doc):
+	"""Remove every RETENTION-DEDUCTION child row from the document."""
+	for row in list(doc.get("items") or []):
+		if row.item_code == "RETENTION-DEDUCTION":
 			doc.remove(row)
 
 
@@ -1836,6 +1858,7 @@ def recalculate_sales_order_boq_deductions(sales_order: str) -> dict:
 		else None
 	)
 	variance_item = getattr(boq_settings, "varience_item", None) if boq_settings else None
+	skip_retention = doc_skips_retention_deduction(doc)
 
 	deduction_item_codes = {"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"}
 	for row in list(doc.items):
@@ -1877,7 +1900,11 @@ def recalculate_sales_order_boq_deductions(sales_order: str) -> dict:
 				"amount": amt,
 			})
 
-		if project_doc.retention_percentage and flt(project_doc.retention_percentage) > 0:
+		if (
+			not skip_retention
+			and project_doc.retention_percentage
+			and flt(project_doc.retention_percentage) > 0
+		):
 			retention_amount = flt(amt * flt(project_doc.retention_percentage) / 100, 2)
 			if retention_amount > 0:
 				retention_item_code = get_or_create_retention_item()
@@ -1976,6 +2003,9 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 	)
 	variance_item = getattr(boq_settings, "varience_item", None) if boq_settings else None
 
+	skip_retention = doc_skips_retention_deduction(doc)
+	skip_advance = doc_skips_advance_deduction(doc)
+
 	deduction_item_codes = {"RETENTION-DEDUCTION", "ADVANCE-DEDUCTION"}
 	for row in list(doc.items):
 		if row.item_code in deduction_item_codes:
@@ -2033,7 +2063,11 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 				}
 			)
 
-		if project_doc.retention_percentage and flt(project_doc.retention_percentage) > 0:
+		if (
+			not skip_retention
+			and project_doc.retention_percentage
+			and flt(project_doc.retention_percentage) > 0
+		):
 			# Initial amount; if Retention After Discount is on, adjusted after the loop.
 			retention_amount = flt(amt * flt(project_doc.retention_percentage) / 100, 2)
 			if retention_amount > 0:
@@ -2059,7 +2093,11 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 				)
 
 	# Recompute per-BOQ retention after discount once all revenue lines are known.
-	if cint(doc.get("custom_retention_after_discount")) and flt(project_doc.retention_percentage) > 0:
+	if (
+		not skip_retention
+		and cint(doc.get("custom_retention_after_discount"))
+		and flt(project_doc.retention_percentage) > 0
+	):
 		boq_amounts = {}
 		for row in doc.items:
 			if (
@@ -2081,7 +2119,6 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 			row.rate = -retention_amount
 			row.amount = -retention_amount
 
-	skip_advance = doc_skips_advance_deduction(doc)
 	if skip_advance:
 		advance_base_items = []
 
@@ -2175,7 +2212,7 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 			)
 			suggested_retention = flt(deduction_details.get("suggested_retention"))
 			suggested_advance = flt(deduction_details.get("suggested_advance"))
-			if suggested_retention > 0:
+			if not skip_retention and suggested_retention > 0:
 				doc.append(
 					"items",
 					{
@@ -2217,6 +2254,7 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 				deduction_details,
 				flt(project_doc.retention_percentage),
 				skip_advance=skip_advance,
+				skip_retention=skip_retention,
 			)
 
 	doc.flags.ignore_deduction_recalc = True
@@ -2236,7 +2274,7 @@ def recalculate_sales_invoice_boq_deductions(sales_invoice: str) -> dict:
 
 
 def _append_additional_service_deductions_on_invoice(
-	doc, details, retention_pct, skip_advance: bool = False
+	doc, details, retention_pct, skip_advance: bool = False, skip_retention: bool = False
 ):
 	"""Mirror SalesInvoiceOverride._apply_additional_service_deductions for rebuild API."""
 	from frappe.utils import cint
@@ -2250,7 +2288,9 @@ def _append_additional_service_deductions_on_invoice(
 		and item.item_code not in ("RETENTION-DEDUCTION", "ADVANCE-DEDUCTION")
 	)
 	service_total = max(0.0, service_total)
-	retention_amount = flt(service_total * retention_pct / 100, 2)
+	retention_amount = (
+		0.0 if skip_retention else flt(service_total * retention_pct / 100, 2)
+	)
 	boq_advance_amount = sum(
 		abs(flt(item.amount))
 		for item in doc.items
@@ -2409,7 +2449,10 @@ def create_sales_order_from_selected_items(
 				})
 			
 			# Calculate and add Retention Deduction
-			if project_doc.retention_percentage:
+			if (
+				not doc_skips_retention_deduction(order)
+				and project_doc.retention_percentage
+			):
 				retention_amount = flt(amount * flt(project_doc.retention_percentage) / 100, 2)
 				if retention_amount > 0:
 					retention_item_code = get_or_create_retention_item()
@@ -4180,6 +4223,16 @@ def append_per_item_revenue_and_deductions(
 	get_or_create_retention_item()
 	get_or_create_advance_item()
 
+	so_skip_retention_cache: dict[str, bool] = {}
+
+	def _line_skips_retention(row) -> bool:
+		so_name = row.get("sales_order")
+		if not so_name:
+			return False
+		if so_name not in so_skip_retention_cache:
+			so_skip_retention_cache[so_name] = sales_order_skips_retention(so_name)
+		return so_skip_retention_cache[so_name]
+
 	for row in line_items:
 		invoice_item = {
 			"item_code": row.get("item_code") or "Service",
@@ -4228,7 +4281,12 @@ def append_per_item_revenue_and_deductions(
 					},
 				)
 
-		if suggested_retention > 0 and total_proforma > 0:
+		if (
+			suggested_retention > 0
+			and total_proforma > 0
+			and not _line_skips_retention(row)
+			and not doc_skips_retention_deduction(invoice)
+		):
 			share = flt(row.get("amount")) / total_proforma
 			item_retention = flt(suggested_retention * share, 2)
 			if item_retention > 0:
@@ -4580,6 +4638,11 @@ def make_combined_sales_invoice_from_sales_orders(project: str, sales_orders) ->
 		invoice.custom_source_sales_orders = ", ".join(sales_order_names)
 	if frappe.db.has_column("Sales Invoice", "custom_is_proforma"):
 		invoice.custom_is_proforma = 0
+
+	if len(sales_order_names) == 1 and doc_skips_retention_deduction(first_so):
+		invoice.custom_skip_retention_deduction = 1
+	elif all(doc_skips_retention_deduction(so) for so in so_docs):
+		invoice.custom_skip_retention_deduction = 1
 
 	deduction_details = get_deduction_details(
 		project,

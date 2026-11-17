@@ -72,6 +72,24 @@ frappe.ui.form.on('Sales Invoice', {
 		}
 	},
 
+	custom_skip_retention_deduction: function (frm) {
+		if (frm.doc.docstatus !== 0) {
+			return;
+		}
+		if (cint(frm.doc.custom_skip_retention_deduction)) {
+			strip_retention_rows_on_form(frm);
+			frappe.show_alert({
+				message: __('Retention deduction skipped for this invoice'),
+				indicator: 'blue',
+			});
+			frm.refresh();
+			return;
+		}
+		if (!frm.is_new() && frm.doc.project) {
+			recalculate_si_deductions(frm);
+		}
+	},
+
 	custom_retention_after_discount: function (frm) {
 		// Client-only recalc. Do not call recalculate_si_deductions here —
 		// that reloads from DB and clears this unsaved checkbox.
@@ -290,6 +308,18 @@ function strip_advance_rows_on_form(frm) {
 		frappe.model.clear_doc(row.doctype, row.name);
 	});
 	frm.doc.items = (frm.doc.items || []).filter((row) => row.item_code !== 'ADVANCE-DEDUCTION');
+	frm.refresh_field('items');
+	if (construction_management.deduction_summary) {
+		construction_management.deduction_summary.render(frm);
+	}
+}
+
+function strip_retention_rows_on_form(frm) {
+	const rows = (frm.doc.items || []).filter((row) => row.item_code === 'RETENTION-DEDUCTION');
+	rows.forEach((row) => {
+		frappe.model.clear_doc(row.doctype, row.name);
+	});
+	frm.doc.items = (frm.doc.items || []).filter((row) => row.item_code !== 'RETENTION-DEDUCTION');
 	frm.refresh_field('items');
 	if (construction_management.deduction_summary) {
 		construction_management.deduction_summary.render(frm);
@@ -862,6 +892,9 @@ function recalculate_deductions(frm) {
 	if (cint(frm.doc.custom_skip_advance_deduction)) {
 		strip_advance_rows_on_form(frm);
 	}
+	if (cint(frm.doc.custom_skip_retention_deduction)) {
+		strip_retention_rows_on_form(frm);
+	}
 
 	// Check if any deduction items exist (per-item deductions)
 	const has_deductions = (frm.doc.items || []).some(
@@ -894,7 +927,8 @@ function recalculate_deductions(frm) {
 				return;
 			}
 
-			const retention_pct = flt(r.message.retention_percentage);
+			const skip_doc_retention = cint(frm.doc.custom_skip_retention_deduction);
+			const retention_pct = skip_doc_retention ? 0 : flt(r.message.retention_percentage);
 			const skip_doc_advance = cint(frm.doc.custom_skip_advance_deduction);
 			const advance_pct = skip_doc_advance ? 0 : flt(r.message.advance_percentage);
 			const skipAdvanceSet = new Set(r.message.skip_advance_boq_items || []);
@@ -1093,7 +1127,9 @@ function sync_additional_service_deductions(frm, details) {
 			advanceServiceBase = Math.max(0, advanceServiceBase - serviceShare);
 		}
 	}
-	const retention = Math.max(0, flt(serviceTotal) * flt(details.retention_percentage) / 100);
+	const retention = cint(frm.doc.custom_skip_retention_deduction)
+		? 0
+		: Math.max(0, flt(serviceTotal) * flt(details.retention_percentage) / 100);
 	const boqAdvance = (frm.doc.items || []).reduce((total, item) =>
 		total + (item.item_code === 'ADVANCE-DEDUCTION' && item.boq_item && !item.custom_service_deduction
 			? Math.abs(flt(item.amount)) : 0), 0);
@@ -1114,8 +1150,13 @@ function sync_additional_service_deductions(frm, details) {
 }
 
 function sync_global_deductions(frm, details) {
-	sync_deduction_row(frm, 'RETENTION-DEDUCTION', flt(details.suggested_retention),
-		__('Retention deduction ({0}%)', [details.retention_percentage]), false);
+	sync_deduction_row(
+		frm,
+		'RETENTION-DEDUCTION',
+		cint(frm.doc.custom_skip_retention_deduction) ? 0 : flt(details.suggested_retention),
+		__('Retention deduction ({0}%)', [details.retention_percentage]),
+		false
+	);
 	sync_deduction_row(
 		frm,
 		'ADVANCE-DEDUCTION',

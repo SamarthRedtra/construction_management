@@ -653,17 +653,23 @@ class SalesInvoiceOverride(SalesInvoice):
 			allocate_discount_by_share,
 			allocate_retention_after_discount,
 			doc_skips_advance_deduction,
+			doc_skips_retention_deduction,
 			get_deduction_details,
 			get_retention_discount_amount,
 			get_source_advance_deduction_ratios,
 			get_or_create_retention_item,
 			get_or_create_advance_item,
 			strip_advance_deduction_rows,
+			strip_retention_deduction_rows,
 		)
 
 		skip_advance = doc_skips_advance_deduction(self)
 		if skip_advance:
 			strip_advance_deduction_rows(self)
+
+		skip_retention = doc_skips_retention_deduction(self)
+		if skip_retention:
+			strip_retention_deduction_rows(self)
 
 		after_discount = cint(self.get("custom_retention_after_discount"))
 		advance_after_discount = cint(self.get("custom_advance_after_discount"))
@@ -681,7 +687,7 @@ class SalesInvoiceOverride(SalesInvoice):
 		if not details.get("enable_progressive_boq"):
 			return
 
-		retention_pct = flt(details.get("retention_percentage"))
+		retention_pct = 0 if skip_retention else flt(details.get("retention_percentage"))
 		advance_pct = 0 if skip_advance else flt(details.get("advance_percentage"))
 		skip_advance_set = set(details.get("skip_advance_boq_items") or [])
 		available_advance = 0 if skip_advance else flt(details.get("available_advance"))
@@ -699,18 +705,21 @@ class SalesInvoiceOverride(SalesInvoice):
 				deduction_boq_items.add(item.boq_item)
 
 		if has_per_item_deductions:
-			if skip_advance or skip_advance_set:
+			if skip_advance or skip_advance_set or skip_retention:
 				self.set(
 					"items",
 					[
 						item
 						for item in self.items
 						if not (
-							item.item_code == "ADVANCE-DEDUCTION"
-							and (
-								skip_advance
-								or item.get("boq_item") in skip_advance_set
+							(
+								item.item_code == "ADVANCE-DEDUCTION"
+								and (
+									skip_advance
+									or item.get("boq_item") in skip_advance_set
+								)
 							)
+							or (skip_retention and item.item_code == "RETENTION-DEDUCTION")
 						)
 					],
 				)
@@ -861,14 +870,16 @@ class SalesInvoiceOverride(SalesInvoice):
 				row.rate = -amount
 				row.amount = -amount
 
-			self._apply_additional_service_deductions(details, retention_pct, skip_advance=skip_advance)
+			self._apply_additional_service_deductions(
+				details, retention_pct, skip_advance=skip_advance, skip_retention=skip_retention
+			)
 		else:
 			# Global deduction mode (single row for whole invoice)
 			default_income_account = frappe.db.get_value("Company", self.company, "default_income_account")
 			default_cost_center = self.cost_center or frappe.db.get_value("Company", self.company, "cost_center")
 			
 			retention_item = "RETENTION-DEDUCTION"
-			if details.get("suggested_retention") > 0:
+			if not skip_retention and details.get("suggested_retention") > 0:
 				get_or_create_retention_item()
 				found = False
 				for item in self.items:
@@ -1017,7 +1028,9 @@ class SalesInvoiceOverride(SalesInvoice):
 			},
 		)
 
-	def _apply_additional_service_deductions(self, details, retention_pct, skip_advance=False):
+	def _apply_additional_service_deductions(
+		self, details, retention_pct, skip_advance=False, skip_retention=False
+	):
 		"""Add deduction rows for non-BOQ service additions without changing BOQ ledger rows."""
 		from construction_management.api.boq_invoice import (
 			allocate_discount_by_share,
@@ -1060,7 +1073,11 @@ class SalesInvoiceOverride(SalesInvoice):
 
 		# Advance is capped by the remaining project advance pool after BOQ-specific
 		# advance rows are recalculated.
-		retention_amount = flt(service_total * retention_pct / 100, 2)
+		retention_amount = (
+			0.0
+			if skip_retention
+			else flt(service_total * retention_pct / 100, 2)
+		)
 		boq_advance_amount = sum(
 			abs(flt(item.amount))
 			for item in self.items

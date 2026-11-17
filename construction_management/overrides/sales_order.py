@@ -213,12 +213,19 @@ def calculate_retention_and_net_amount(doc):
 	"""
 	Calculate retention amount and net amount based on project settings.
 	"""
+	from frappe.utils import cint
+
+	total_amount = sum(flt(item.base_amount) for item in doc.items)
+
+	if cint(doc.get("custom_skip_retention_deduction")):
+		doc.custom_retention_amount = 0
+		doc.custom_net_amount = flt(total_amount)
+		return
+
 	retention_pct = 0
 	if doc.project:
 		retention_pct = flt(frappe.db.get_value("Project", doc.project, "retention_percentage"))
-	
-	total_amount = sum(flt(item.base_amount) for item in doc.items)
-	
+
 	doc.custom_retention_amount = flt(total_amount * (retention_pct / 100))
 	doc.custom_net_amount = flt(total_amount - doc.custom_retention_amount)
 
