@@ -97,9 +97,13 @@ class TestProcurementOrderCreation(UnitTestCase):
 		po.supplier = "SUP-1"
 		po.controlled_procurement = 1
 		po.taxes_and_charges = None
+		po.discount_amount = 20
+		po.additional_discount_percentage = 0
+		po.apply_discount_on = "Net Total"
 		po.items = [po_row]
 		po.get = MagicMock(side_effect=lambda key, default=None: {
 			"project": "PRJ-1", "bill_no": None, "boq_item": None,
+			"apply_discount_on": "Net Total", "additional_discount_percentage": 0, "discount_amount": 20,
 		}.get(key, default))
 		controlled_doc.return_value = po
 
@@ -121,6 +125,8 @@ class TestProcurementOrderCreation(UnitTestCase):
 
 		self.assertEqual(captured["posting_date"], "2026-09-15")
 		self.assertEqual(captured["set_posting_time"], 1)
+		self.assertEqual(doc.discount_amount, 20)
+		self.assertEqual(doc.apply_discount_on, "Net Total")
 		doc.insert.assert_called_once()
 		self.assertEqual(result["name"], "GRN-1")
 

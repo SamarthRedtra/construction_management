@@ -6,7 +6,7 @@ from urllib.parse import quote
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt
+from frappe.utils import cint, flt, getdate, today
 
 from construction_management.api.controlled_procurement import (
 	ACCOUNT_ROLES, ADMIN_ROLES, CATALOG_ROLES, _active_company, _allowed_companies, _controlled_doc, _require,
@@ -91,9 +91,56 @@ def _insight_summary(rows: list[dict]) -> dict:
 	return summary
 
 
-def _apply_movement_metrics(item: dict, voucher_type: str, purpose: str | None, inbound: float, outbound: float, inbound_value: float, outbound_value: float) -> None:
-	item["on_hand"] += inbound + outbound
-	item["on_hand_value"] += inbound_value + outbound_value
+def _insight_dates(from_date: str = "", to_date: str = "") -> tuple[str, str, bool]:
+	"""Normalize insight date filters; empty both means all-time report semantics."""
+	start = str(getdate(from_date)) if from_date else ""
+	end = str(getdate(to_date)) if to_date else ""
+	if start and end and getdate(start) > getdate(end):
+		frappe.throw(_("From date must be on or before To date."))
+	filtered = bool(start or end)
+	if filtered and not end:
+		end = str(today())
+	return start, end, filtered
+
+
+def _transaction_date_clause(alias: str, from_date: str, to_date: str) -> tuple[str, dict]:
+	clauses = []
+	params = {}
+	if from_date:
+		clauses.append(f"{alias}.transaction_date >= %(from_date)s")
+		params["from_date"] = from_date
+	if to_date:
+		clauses.append(f"{alias}.transaction_date <= %(to_date)s")
+		params["to_date"] = to_date
+	return (" and ".join(clauses), params) if clauses else ("", {})
+
+
+def _posting_date_clause(alias: str, from_date: str, to_date: str) -> tuple[str, dict]:
+	clauses = []
+	params = {}
+	if from_date:
+		clauses.append(f"{alias}.posting_date >= %(from_date)s")
+		params["from_date"] = from_date
+	if to_date:
+		clauses.append(f"{alias}.posting_date <= %(to_date)s")
+		params["to_date"] = to_date
+	return (" and ".join(clauses), params) if clauses else ("", {})
+
+
+def _apply_movement_metrics(
+	item: dict,
+	voucher_type: str,
+	purpose: str | None,
+	inbound: float,
+	outbound: float,
+	inbound_value: float,
+	outbound_value: float,
+	*,
+	update_on_hand: bool = True,
+) -> None:
+	if update_on_hand:
+		item["on_hand"] += inbound + outbound
+		item["on_hand_value"] += inbound_value + outbound_value
 	if voucher_type == "Purchase Receipt":
 		item["received"] += inbound + outbound
 		item["received_value"] += inbound_value + outbound_value
@@ -388,15 +435,23 @@ def export_stock_ledger(receipt: str = "", project: str = "", item_code: str = "
 
 
 @frappe.whitelist(methods=["GET"])
-def get_procurement_insights(project: str) -> dict:
+def get_procurement_insights(project: str, from_date: str = "", to_date: str = "") -> dict:
 	"""BuildSuite-style material status from current PO commitments and stock movements."""
 	company, project = _insight_project(project)
-	ordered = frappe.db.sql("""select poi.item_code, sum(poi.qty) as qty, sum(poi.amount) as amount
+	start, end, filtered = _insight_dates(from_date, to_date)
+	po_date_clause, po_date_params = _transaction_date_clause("po", start, end if filtered else "")
+	sle_period_clause, sle_period_params = _posting_date_clause("sle", start, end if filtered else "")
+
+	ordered = frappe.db.sql(f"""select poi.item_code, sum(poi.qty) as qty, sum(poi.amount) as amount
 		from `tabPurchase Order Item` poi join `tabPurchase Order` po on po.name = poi.parent
 		join `tabItem` item on item.name = poi.item_code and item.is_stock_item = 1
 		where po.company = %(company)s and po.docstatus = 1
 		and coalesce(nullif(poi.project, ''), po.project) = %(project)s
-		group by poi.item_code""", {"company": company, "project": project}, as_dict=True)
+		{"and " + po_date_clause if po_date_clause else ""}
+		group by poi.item_code""", {"company": company, "project": project, **po_date_params}, as_dict=True)
+	sle_where = f"sle.company = %(company)s and sle.is_cancelled = 0 and {SLE_PROJECT_SCOPE_SQL}"
+	if sle_period_clause:
+		sle_where += f" and {sle_period_clause}"
 	movements = frappe.db.sql(f"""select sle.item_code, sle.voucher_type, se.purpose,
 		sum(greatest({QTY_CHANGE_SQL}, 0)) as inbound,
 		sum(least({QTY_CHANGE_SQL}, 0)) as outbound,
@@ -405,9 +460,8 @@ def get_procurement_insights(project: str) -> dict:
 		from `tabStock Ledger Entry` sle
 		join `tabWarehouse` wh on wh.name = sle.warehouse
 		left join `tabStock Entry` se on se.name = sle.voucher_no and sle.voucher_type = 'Stock Entry'
-		where sle.company = %(company)s and sle.is_cancelled = 0
-		and coalesce(nullif(sle.project, ''), nullif(wh.custom_project, '')) = %(project)s
-		group by sle.item_code, sle.voucher_type, se.purpose""", {"company": company, "project": project}, as_dict=True)
+		where {sle_where}
+		group by sle.item_code, sle.voucher_type, se.purpose""", {"company": company, "project": project, **sle_period_params}, as_dict=True)
 
 	items: dict[str, dict] = {}
 	for row in ordered:
@@ -420,20 +474,43 @@ def get_procurement_insights(project: str) -> dict:
 		item = items.setdefault(row.item_code, _empty_insight_row(row.item_code))
 		movement_qty = flt(row.inbound), flt(row.outbound)
 		movement_value = flt(row.inbound_value), flt(row.outbound_value)
-		_apply_movement_metrics(item, row.voucher_type, row.purpose, *movement_qty, *movement_value)
+		_apply_movement_metrics(
+			item, row.voucher_type, row.purpose, *movement_qty, *movement_value,
+			update_on_hand=not filtered,
+		)
 
-	wh_where, wh_params = _warehouse_scope_filters(company, project)
-	for row in frappe.db.sql(
-		f"""select bin.item_code, sum(bin.stock_value) as stock_value
-		from `tabBin` bin
-		join `tabWarehouse` wh on wh.name = bin.warehouse
-		where {wh_where}
-		group by bin.item_code""",
-		wh_params,
-		as_dict=True,
-	):
-		item = items.setdefault(row.item_code, _empty_insight_row(row.item_code))
-		item["on_hand_value"] = flt(row.stock_value)
+	if filtered:
+		as_at = end or str(today())
+		sle_as_at_clause, sle_as_at_params = _posting_date_clause("sle", "", as_at)
+		for row in frappe.db.sql(
+			f"""select sle.item_code,
+				sum({QTY_CHANGE_SQL}) as qty,
+				sum(sle.stock_value_difference) as value
+			from `tabStock Ledger Entry` sle
+			join `tabWarehouse` wh on wh.name = sle.warehouse
+			where sle.company = %(company)s and sle.is_cancelled = 0
+			and {SLE_PROJECT_SCOPE_SQL}
+			and {sle_as_at_clause}
+			group by sle.item_code""",
+			{"company": company, "project": project, **sle_as_at_params},
+			as_dict=True,
+		):
+			item = items.setdefault(row.item_code, _empty_insight_row(row.item_code))
+			item["on_hand"] = flt(row.qty)
+			item["on_hand_value"] = flt(row.value)
+	else:
+		wh_where, wh_params = _warehouse_scope_filters(company, project)
+		for row in frappe.db.sql(
+			f"""select bin.item_code, sum(bin.stock_value) as stock_value
+			from `tabBin` bin
+			join `tabWarehouse` wh on wh.name = bin.warehouse
+			where {wh_where}
+			group by bin.item_code""",
+			wh_params,
+			as_dict=True,
+		):
+			item = items.setdefault(row.item_code, _empty_insight_row(row.item_code))
+			item["on_hand_value"] = flt(row.stock_value)
 
 	rows = sorted(items.values(), key=lambda row: row["item_code"])
 	_attach_item_names(rows)
@@ -441,6 +518,9 @@ def get_procurement_insights(project: str) -> dict:
 	return {
 		"company": company,
 		"project": project,
+		"from_date": start or None,
+		"to_date": end if filtered else None,
+		"filtered": filtered,
 		"currency": currency,
 		"metrics": INSIGHT_METRIC_META,
 		"summary": _insight_summary(rows),
@@ -449,7 +529,9 @@ def get_procurement_insights(project: str) -> dict:
 
 
 @frappe.whitelist(methods=["GET"])
-def get_procurement_insight_breakdown(project: str, item_code: str, metric: str) -> dict:
+def get_procurement_insight_breakdown(
+	project: str, item_code: str, metric: str, from_date: str = "", to_date: str = "",
+) -> dict:
 	"""Line-level vouchers behind a single insights cell."""
 	company, project = _insight_project(project)
 	if metric not in INSIGHT_METRICS:
@@ -457,47 +539,79 @@ def get_procurement_insight_breakdown(project: str, item_code: str, metric: str)
 	if not item_code or not frappe.db.exists("Item", item_code):
 		frappe.throw(_("Choose a valid item."))
 
+	start, end, filtered = _insight_dates(from_date, to_date)
+	po_date_clause, po_date_params = _transaction_date_clause("po", start, end if filtered else "")
+	sle_period_clause, sle_period_params = _posting_date_clause("sle", start, end if filtered else "")
+
 	meta = INSIGHT_METRIC_META[metric]
 	params = {"company": company, "project": project, "item_code": item_code}
 	rows: list[dict] = []
 
 	if metric == "ordered":
 		for row in frappe.db.sql(
-			"""select po.name, po.transaction_date as posting_date, poi.qty, poi.amount, poi.warehouse
+			f"""select po.name, po.transaction_date as posting_date, poi.qty, poi.amount, poi.warehouse
 			from `tabPurchase Order Item` poi
 			join `tabPurchase Order` po on po.name = poi.parent
 			join `tabItem` item on item.name = poi.item_code and item.is_stock_item = 1
 			where po.company = %(company)s and po.docstatus = 1
 			and coalesce(nullif(poi.project, ''), po.project) = %(project)s
 			and poi.item_code = %(item_code)s
+			{"and " + po_date_clause if po_date_clause else ""}
 			order by po.transaction_date desc, po.name desc
 			limit %(limit)s""",
-			{**params, "limit": BREAKDOWN_LIMIT},
+			{**params, **po_date_params, "limit": BREAKDOWN_LIMIT},
 			as_dict=True,
 		):
 			rows.append(_breakdown_row("Purchase Order", row.name, row.posting_date, row.qty, row.amount, row.warehouse))
 
 	elif metric == "on_hand":
-		wh_where, wh_params = _warehouse_scope_filters(company, project)
-		for row in frappe.db.sql(
-			f"""select bin.warehouse, bin.actual_qty as qty
-			from `tabBin` bin
-			join `tabWarehouse` wh on wh.name = bin.warehouse
-			where bin.item_code = %(item_code)s and {wh_where}
-			order by bin.warehouse asc
-			limit %(limit)s""",
-			{**params, **wh_params, "limit": BREAKDOWN_LIMIT},
-			as_dict=True,
-		):
-			rows.append({
-				"doctype": "",
-				"name": "",
-				"posting_date": None,
-				"qty": flt(row.qty),
-				"warehouse": row.warehouse,
-				"kind": None,
-				"desk_url": "",
-			})
+		if filtered:
+			as_at = end or str(today())
+			sle_as_at_clause, sle_as_at_params = _posting_date_clause("sle", "", as_at)
+			for row in frappe.db.sql(
+				f"""select sle.warehouse, sum({QTY_CHANGE_SQL}) as qty
+				from `tabStock Ledger Entry` sle
+				join `tabWarehouse` wh on wh.name = sle.warehouse
+				where sle.company = %(company)s and sle.is_cancelled = 0
+				and sle.item_code = %(item_code)s and {SLE_PROJECT_SCOPE_SQL}
+				and {sle_as_at_clause}
+				group by sle.warehouse
+				having abs(sum({QTY_CHANGE_SQL})) > 0.000001
+				order by sle.warehouse asc
+				limit %(limit)s""",
+				{**params, **sle_as_at_params, "limit": BREAKDOWN_LIMIT},
+				as_dict=True,
+			):
+				rows.append({
+					"doctype": "",
+					"name": "",
+					"posting_date": as_at,
+					"qty": flt(row.qty),
+					"warehouse": row.warehouse,
+					"kind": None,
+					"desk_url": "",
+				})
+		else:
+			wh_where, wh_params = _warehouse_scope_filters(company, project)
+			for row in frappe.db.sql(
+				f"""select bin.warehouse, bin.actual_qty as qty
+				from `tabBin` bin
+				join `tabWarehouse` wh on wh.name = bin.warehouse
+				where bin.item_code = %(item_code)s and {wh_where}
+				order by bin.warehouse asc
+				limit %(limit)s""",
+				{**params, **wh_params, "limit": BREAKDOWN_LIMIT},
+				as_dict=True,
+			):
+				rows.append({
+					"doctype": "",
+					"name": "",
+					"posting_date": None,
+					"qty": flt(row.qty),
+					"warehouse": row.warehouse,
+					"kind": None,
+					"desk_url": "",
+				})
 
 	else:
 		sle_filters = {
@@ -526,9 +640,10 @@ def get_procurement_insight_breakdown(project: str, item_code: str, metric: str)
 			where sle.company = %(company)s and sle.is_cancelled = 0
 			and sle.item_code = %(item_code)s and {SLE_PROJECT_SCOPE_SQL}
 			and {sle_filters}
+			{"and " + sle_period_clause if sle_period_clause else ""}
 			order by sle.posting_date desc, sle.posting_time desc, sle.creation desc
 			limit %(limit)s""",
-			{**params, "limit": BREAKDOWN_LIMIT},
+			{**params, **sle_period_params, "limit": BREAKDOWN_LIMIT},
 			as_dict=True,
 		):
 			doctype = row.voucher_type if row.voucher_type in ("Purchase Order", "Purchase Receipt", "Stock Entry") else row.voucher_type
@@ -537,6 +652,8 @@ def get_procurement_insight_breakdown(project: str, item_code: str, metric: str)
 	return {
 		"company": company,
 		"project": project,
+		"from_date": start or None,
+		"to_date": end if filtered else None,
 		"item_code": item_code,
 		"metric": metric,
 		"metric_meta": meta,

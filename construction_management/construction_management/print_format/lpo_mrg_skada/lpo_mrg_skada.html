@@ -108,8 +108,8 @@
 <table class="items" style="margin-top:10px;">
   <thead>
     <tr>
-      <th width="6%">SL NO</th>
-      <th width="18%">Item</th>
+      <th width="6%">S.no</th>
+      <th width="18%">Item Group</th>
       <th width="42%">Description</th>
       <th width="8%">Unit</th>
       <th width="10%">Qty</th>
@@ -121,7 +121,11 @@
     {% for item in doc.items %}
     <tr>
       <td class="center">{{ loop.index }}</td>
-      <td>{{ item.item_name or item.item_code or "-" }}</td>
+      <td>
+        {{ item.item_name or item.item_code or "-" }}
+        {% set item_group = item.item_group or (item.item_code and frappe.db.get_value("Item", item.item_code, "item_group")) or "" %}
+        {% if item_group %}<br><span style="font-size:10px;color:#444;">{{ item_group }}</span>{% endif %}
+      </td>
       <td>
         {% set blk = get_po_item_print_block(item) %}
         {% if blk.description %}{{ blk.description }}{% endif %}

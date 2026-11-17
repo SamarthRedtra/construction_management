@@ -74,6 +74,24 @@ class TestProcurementRevisions(UnitTestCase):
 	@patch("construction_management.api.procurement_insights.frappe.get_all", return_value=[])
 	@patch("construction_management.api.procurement_insights.frappe.db.sql")
 	@patch("construction_management.api.procurement_insights._insight_project", return_value=("MRG", "PROJ-1"))
+	def test_procurement_insights_respects_date_filters(self, insight_project, sql, get_all, currency, warehouse_scope):
+		sql.side_effect = [[], [], []]
+		report = procurement_insights.get_procurement_insights("PROJ-1", "2026-01-01", "2026-01-31")
+		self.assertTrue(report["filtered"])
+		self.assertEqual(report["from_date"], "2026-01-01")
+		self.assertEqual(report["to_date"], "2026-01-31")
+		po_sql = sql.call_args_list[0].args[0]
+		self.assertIn("transaction_date", po_sql)
+		self.assertEqual(sql.call_args_list[0].args[1]["from_date"], "2026-01-01")
+		sle_sql = sql.call_args_list[1].args[0]
+		self.assertIn("posting_date", sle_sql)
+		self.assertEqual(sql.call_args_list[1].args[1]["to_date"], "2026-01-31")
+
+	@patch("construction_management.api.procurement_insights._warehouse_scope_filters", return_value=("wh.custom_project = %(project)s", {"company": "MRG", "project": "PROJ-1", "site_location": ""}))
+	@patch("construction_management.api.procurement_insights.frappe.get_cached_value", return_value="AED")
+	@patch("construction_management.api.procurement_insights.frappe.get_all", return_value=[])
+	@patch("construction_management.api.procurement_insights.frappe.db.sql")
+	@patch("construction_management.api.procurement_insights._insight_project", return_value=("MRG", "PROJ-1"))
 	def test_procurement_insights_movement_values(self, insight_project, sql, get_all, currency, warehouse_scope):
 		sql.side_effect = [
 			[],

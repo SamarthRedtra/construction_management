@@ -60,12 +60,24 @@ class TestLpoWorkflow(UnitTestCase):
 		row = frappe._dict(name="ROW-1", item_code="ITEM-1", item_name="Item", qty=11, received_qty=11,
 			rate=10, project="P-1", bill_no="", boq_item="", controlled_item_type="Asset",
 			item_tax_template="", uom="Nos", warehouse="Stores", closed=0, delivered_by_supplier=0)
-		po = frappe._dict(docstatus=1, status="Completed", per_received=100, company="MRG",
-			taxes_and_charges="", controlled_procurement=1, items=[row])
+		po = MagicMock()
+		po.docstatus = 1
+		po.status = "Completed"
+		po.per_received = 100
+		po.company = "MRG"
+		po.taxes_and_charges = ""
+		po.controlled_procurement = 1
+		po.currency = "AED"
+		po.grand_total = 110
+		po.apply_discount_on = "Net Total"
+		po.additional_discount_percentage = 0
+		po.discount_amount = 0
+		po.items = [row]
+		po.get = MagicMock(side_effect=lambda key, default=None: getattr(po, key, default))
 		controlled_doc.return_value = po
 		result = controlled_procurement.get_purchase_order_items("PO-1")
-		self.assertEqual(result[0]["remaining_qty"], 0)
-		self.assertTrue(result[0]["is_open_lpo"])
+		self.assertEqual(result["lines"][0]["remaining_qty"], 0)
+		self.assertTrue(result["lines"][0]["is_open_lpo"])
 
 	def test_legacy_open_lpo_is_classified_from_existing_flag(self):
 		doc = frappe._dict(custom_lpo_type="", custom_is_provisional_po=1)

@@ -24,6 +24,7 @@ const poOpen = ref(false)
 const loadingLines = ref(false)
 const saving = ref(false)
 const hydrating = ref(false)
+const poDiscount = ref(null)
 
 // app-created POs need catalog items and a full BOQ allocation; Desk POs only need a project
 const isControlledOrder = computed(() => form.items.length ? Boolean(form.items[0].controlled) : true)
@@ -51,7 +52,15 @@ async function loadLines() {
 	if (!form.purchase_order) return
 	loadingLines.value = true
 	try {
-		const rows = await call("get_purchase_order_items", { purchase_order: form.purchase_order })
+		const payload = await call("get_purchase_order_items", { purchase_order: form.purchase_order })
+		const rows = payload.lines || payload
+		poDiscount.value = payload.lines ? {
+			apply_discount_on: payload.apply_discount_on,
+			additional_discount_percentage: payload.additional_discount_percentage,
+			discount_amount: payload.discount_amount,
+			currency: payload.currency,
+			grand_total: payload.grand_total,
+		} : null
 		availableLines.value = rows
 		form.items = rows.map((row) => ({ ...row, client_key: window.crypto.randomUUID(), qty: row.remaining_qty, po_warehouse: row.warehouse, warehouse: "", use_override: false }))
 		// Desk POs already say where each line goes; start the receive note there
@@ -229,7 +238,15 @@ onMounted(async () => {
 			poQuery.value = po
 			const result = await call("get_open_lpos", { search: po, page_length: 20 })
 			openOrders.value = result.rows
-			const remaining = await call("get_purchase_order_items", { purchase_order: po })
+			const remainingPayload = await call("get_purchase_order_items", { purchase_order: po })
+			const remaining = remainingPayload.lines || remainingPayload
+			poDiscount.value = remainingPayload.lines ? {
+				apply_discount_on: remainingPayload.apply_discount_on,
+				additional_discount_percentage: remainingPayload.additional_discount_percentage,
+				discount_amount: remainingPayload.discount_amount,
+				currency: remainingPayload.currency,
+				grand_total: remainingPayload.grand_total,
+			} : null
 			availableLines.value = remaining
 			Object.assign(form, { supplier_delivery_note: doc.supplier_delivery_note || "", warehouse: doc.items?.[0]?.warehouse || "",
 				received_on: String(doc.posting_date).slice(0, 10), project: doc.project || "", bill_no: doc.bill_no || "",
@@ -268,6 +285,11 @@ onMounted(async () => {
 						<span v-if="!poSearching && !openOrders.length" class="cp-hint">No receivable POs found</span>
 					</div>
 					<small v-if="selectedOrder" class="cp-hint">{{ [selectedOrder.project, `due ${formatDate(selectedOrder.schedule_date)}`].filter(Boolean).join(" · ") }}</small>
+					<p v-if="poDiscount && Number(poDiscount.discount_amount)" class="cp-hint">
+						LPO discount (applied on receive note):
+						{{ formatCurrency(poDiscount.discount_amount, poDiscount.currency) }}
+						on {{ poDiscount.apply_discount_on }} · PO total {{ formatCurrency(poDiscount.grand_total, poDiscount.currency) }}
+					</p>
 				</div>
 				<div>
 					<LinkSelect v-model="form.warehouse" doctype="Warehouse" label="Receiving warehouse" :required="true" :filters="companyFilters({ is_group: 0 })" />

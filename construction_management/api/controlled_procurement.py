@@ -150,6 +150,17 @@ def _payment_terms_template(value: str | None) -> str | None:
 	return value or None
 
 
+def _copy_purchase_order_discount(receipt, po) -> None:
+	"""Carry LPO header discount onto Receive Notes (ERPNext mapper does this for Desk receives)."""
+	percentage = flt(po.get("additional_discount_percentage"))
+	amount = flt(po.get("discount_amount"))
+	if not percentage and not amount:
+		return
+	receipt.apply_discount_on = po.get("apply_discount_on") or "Net Total"
+	receipt.additional_discount_percentage = percentage
+	receipt.discount_amount = amount
+
+
 def _order_discount(data: dict) -> dict:
 	percentage = flt(data.get("additional_discount_percentage"))
 	amount = flt(data.get("discount_amount"))
@@ -1290,7 +1301,7 @@ def get_procurement_projects(search: str = "", selected: str = "", company: str 
 
 
 @frappe.whitelist(methods=["GET"])
-def get_purchase_order_items(purchase_order: str) -> list[dict]:
+def get_purchase_order_items(purchase_order: str) -> dict:
 	"""Return receivable PO lines; Open LPO lines remain available after full receipt."""
 	_require(PURCHASE_ROLES)
 	po = _controlled_doc("Purchase Order", purchase_order)
@@ -1298,7 +1309,7 @@ def get_purchase_order_items(purchase_order: str) -> list[dict]:
 		frappe.throw(_("Select a submitted Purchase Order."))
 	open_lpo = _is_open_lpo(po)
 	_validate_receivable_po(po, open_lpo)
-	return [
+	lines = [
 		{
 			"purchase_order_item": row.name,
 			"item_code": row.item_code,
@@ -1321,6 +1332,14 @@ def get_purchase_order_items(purchase_order: str) -> list[dict]:
 		if not cint(row.get("closed")) and not cint(row.get("delivered_by_supplier"))
 		and (open_lpo or flt(row.qty) > flt(row.received_qty))
 	]
+	return {
+		"lines": lines,
+		"apply_discount_on": po.get("apply_discount_on") or "Net Total",
+		"additional_discount_percentage": flt(po.get("additional_discount_percentage")),
+		"discount_amount": flt(po.get("discount_amount")),
+		"currency": po.currency,
+		"grand_total": flt(po.grand_total),
+	}
 
 
 def _receipt_items_by_po_line(po, items: list[dict], open_lpo: bool) -> dict[str, list[dict]]:
@@ -1655,6 +1674,7 @@ def create_purchase_receipt(data: str | dict) -> dict:
 			allow_blank=multi_site,
 		)
 		_set_row_type(row, item)
+	_copy_purchase_order_discount(doc, po)
 	# VAT follows the order unless the receiver changes it
 	taxes_and_charges = data.get("taxes_and_charges") if "taxes_and_charges" in data else po.taxes_and_charges
 	_apply_taxes(doc, taxes_and_charges, [
@@ -1916,6 +1936,8 @@ def update_purchase_receipt(name: str, data: str | dict) -> dict:
 			_validate_allocation({**allocation, "project": project}, doc.company, mode="project_only")
 			for field in ("bill_no", "boq_item"):
 				row.set(field, allocation.get(field) or None)
+	if cint(doc.controlled_procurement):
+		_copy_purchase_order_discount(doc, po)
 	_apply_taxes(doc, data.get("taxes_and_charges"), [row.get("vat") for row in items])
 	doc.flags.controlled_procurement_api = True
 	doc.save()

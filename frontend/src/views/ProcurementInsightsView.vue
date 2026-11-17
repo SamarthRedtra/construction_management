@@ -9,6 +9,8 @@ import PageHeader from "@/components/PageHeader.vue"
 const METRIC_KEYS = ["ordered", "received", "consumed", "transferred_in", "transferred_out", "other", "on_hand"]
 
 const project = ref("")
+const fromDate = ref("")
+const toDate = ref("")
 const projects = ref([])
 const report = ref(null)
 const loading = ref(false)
@@ -18,6 +20,13 @@ const detailRows = ref([])
 const detailMeta = ref(null)
 
 const summary = computed(() => report.value?.summary || {})
+
+const periodHint = computed(() => {
+	if (!report.value?.filtered) return ""
+	const from = report.value.from_date ? formatDate(report.value.from_date) : "start"
+	const to = report.value.to_date ? formatDate(report.value.to_date) : "today"
+	return `Period ${from} – ${to}. On hand as at ${to}.`
+})
 
 function reportCurrency() {
 	return report.value?.currency || session.context?.currency
@@ -54,7 +63,13 @@ async function openBreakdown(itemRow, metric) {
 	try {
 		const payload = await request(
 			"construction_management.api.procurement_insights.get_procurement_insight_breakdown",
-			{ project: project.value, item_code: itemRow.item_code, metric },
+			{
+				project: project.value,
+				item_code: itemRow.item_code,
+				metric,
+				from_date: fromDate.value,
+				to_date: toDate.value,
+			},
 			"GET",
 		)
 		detailRows.value = payload.rows || []
@@ -70,7 +85,11 @@ async function load() {
 	if (!project.value) return
 	loading.value = true
 	try {
-		report.value = await request("construction_management.api.procurement_insights.get_procurement_insights", { project: project.value }, "GET")
+		report.value = await request("construction_management.api.procurement_insights.get_procurement_insights", {
+			project: project.value,
+			from_date: fromDate.value,
+			to_date: toDate.value,
+		}, "GET")
 	} catch (error) {
 		toastError(error)
 	} finally {
@@ -89,7 +108,14 @@ onMounted(async () => {
 
 <template>
 	<PageHeader title="Procurement Insights" subtitle="Project material status, site stock, and consumption" :breadcrumbs="[{ label: 'Procurement', to: '/dashboard' }, { label: 'Procurement Insights' }]"><template #actions><RouterLink v-if="session.context.can_view_stock_ledger" :to="{ path: '/stock-ledger', query: project ? { project } : {} }" class="cp-btn">View stock ledger</RouterLink></template></PageHeader>
-	<section class="cp-section"><div class="cp-grid-3"><label class="cp-field"><span>Project</span><select v-model="project" class="cp-input"><option value="">Select project</option><option v-for="row in projects" :key="row.name" :value="row.name">{{ row.name }} · {{ row.project_name }}</option></select></label><button class="cp-btn brand" :disabled="loading || !project" @click="load">Show report</button></div></section>
+	<section class="cp-section">
+		<div class="cp-grid-3">
+			<label class="cp-field"><span>Project</span><select v-model="project" class="cp-input"><option value="">Select project</option><option v-for="row in projects" :key="row.name" :value="row.name">{{ row.name }} · {{ row.project_name }}</option></select></label>
+			<label class="cp-field"><span>From date</span><input v-model="fromDate" type="date" class="cp-input" /></label>
+			<label class="cp-field"><span>To date</span><input v-model="toDate" type="date" class="cp-input" /></label>
+			<button class="cp-btn brand" :disabled="loading || !project" @click="load">Show report</button>
+		</div>
+	</section>
 	<div v-if="report" class="cp-stats">
 		<div v-for="key in METRIC_KEYS" :key="key" class="cp-stat static">
 			<small>{{ metricLabel(key) }}</small>
@@ -97,7 +123,10 @@ onMounted(async () => {
 			<span>Qty {{ formatNumber(summary[key]?.qty ?? 0) }}</span>
 		</div>
 	</div>
-	<p v-if="report" class="cp-muted cp-stats-hint">Card totals are project value ({{ reportCurrency() }}); table cells are quantities per item.</p>
+	<p v-if="report" class="cp-muted cp-stats-hint">
+		Card totals are project value ({{ reportCurrency() }}); table cells are quantities per item.
+		<template v-if="periodHint"> {{ periodHint }}</template>
+	</p>
 	<section v-if="report" class="cp-card"><header class="cp-card-head"><h3>Material status · {{ report.project }}</h3></header><table class="cp-table">
 		<thead><tr><th>Item</th><th v-for="key in METRIC_KEYS" :key="key" class="num">{{ metricLabel(key) }}</th></tr></thead>
 		<tbody>
