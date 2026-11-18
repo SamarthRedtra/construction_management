@@ -9,7 +9,11 @@ from __future__ import annotations
 import frappe
 from frappe.utils import cint, flt
 
-from construction_management.api.boq_invoice import SO_DEDUCTION_ITEM_CODES
+from construction_management.api.boq_invoice import (
+	SO_DEDUCTION_ITEM_CODES,
+	_so_line_billing_cap,
+	invoice_row_exceeds_so_cap,
+)
 from construction_management.api.relink_si_sales_orders import _named_orders
 
 DEDUCTIONS = tuple(SO_DEDUCTION_ITEM_CODES)
@@ -77,27 +81,20 @@ def _analyse_invoice(name: str) -> dict:
 	for row in revenue_rows:
 		if not row.get("sales_order"):
 			continue
-		so_line = frappe.db.get_value(
-			"Sales Order Item",
-			row.so_detail,
-			["qty", "amount"],
-			as_dict=True,
+		if not row.get("so_detail") or not invoice_row_exceeds_so_cap(row):
+			continue
+		so_line = _so_line_billing_cap(row.so_detail) or {}
+		aggregated.append(
+			{
+				"idx": row.idx,
+				"boq_item": row.boq_item,
+				"sales_order": row.sales_order,
+				"qty": row.qty,
+				"amount": row.amount,
+				"so_qty": so_line.get("qty"),
+				"so_amount": so_line.get("amount"),
+			}
 		)
-		if so_line and (
-			flt(row.qty) > flt(so_line.qty) * 1.001
-			or flt(row.amount) > flt(so_line.amount) * 1.001
-		):
-			aggregated.append(
-				{
-					"idx": row.idx,
-					"boq_item": row.boq_item,
-					"sales_order": row.sales_order,
-					"qty": row.qty,
-					"amount": row.amount,
-					"so_qty": so_line.qty,
-					"so_amount": so_line.amount,
-				}
-			)
 
 	is_broken = bool(missing or aggregated or extra_linked)
 	suggestion = "ok"

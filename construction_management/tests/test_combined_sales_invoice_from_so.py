@@ -532,3 +532,65 @@ class TestCombinedSalesInvoiceFromSO(unittest.TestCase):
 		):
 			with self.assertRaises(frappe.ValidationError):
 				_validate_combined_sales_orders(self.project, ["SO-A", "SO-B"])
+
+
+class TestCombinedSOBoqRateGuard(unittest.TestCase):
+	def test_apply_boq_service_rates_skips_so_linked_rows(self):
+		from construction_management.api.boq_invoice import (
+			apply_boq_service_rates,
+			validate_combined_source_sales_orders,
+		)
+
+		row = frappe._dict(
+			idx=1,
+			item_code="WORK",
+			boq_item="BOQ-1",
+			sales_order="SO-A",
+			so_detail="SOD-A",
+			qty=100,
+			rate=10,
+			amount=1000,
+			meta=frappe._dict(has_field=lambda _field: False),
+		)
+		doc = frappe._dict(
+			docstatus=0,
+			custom_source_sales_orders="SO-A",
+			items=[row],
+		)
+
+		with patch(
+			"construction_management.api.boq_invoice.frappe.db.get_value",
+			side_effect=lambda doctype, name, *args, **kwargs: (
+				frappe._dict(qty=100, amount=1000)
+				if doctype == "Sales Order Item"
+				else 12
+			),
+		), patch(
+			"construction_management.api.boq_invoice._so_has_revenue_boq",
+			return_value=False,
+		):
+			apply_boq_service_rates(doc)
+			self.assertEqual(flt(row.rate), 10)
+			self.assertEqual(flt(row.amount), 1000)
+			validate_combined_source_sales_orders(doc)
+
+	def test_apply_boq_service_rates_updates_direct_boq_row(self):
+		from construction_management.api.boq_invoice import apply_boq_service_rates
+
+		row = frappe._dict(
+			item_code="WORK",
+			boq_item="BOQ-1",
+			qty=10,
+			rate=5,
+			amount=50,
+			meta=frappe._dict(has_field=lambda _field: False),
+		)
+		doc = frappe._dict(items=[row])
+
+		with patch(
+			"construction_management.api.boq_invoice.frappe.db.get_value",
+			return_value=15,
+		):
+			apply_boq_service_rates(doc)
+			self.assertEqual(flt(row.rate), 15)
+			self.assertEqual(flt(row.amount), 150)

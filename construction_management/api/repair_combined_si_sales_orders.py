@@ -419,19 +419,9 @@ def _stamp_so_ledger_for_work_line(si, row) -> None:
 
 
 def _row_over_billed(row) -> bool:
-	if not row.get("so_detail"):
-		return False
-	so_line = frappe.db.get_value(
-		"Sales Order Item",
-		row.so_detail,
-		["qty", "amount"],
-		as_dict=True,
-	)
-	if not so_line:
-		return False
-	so_qty = so_line.get("qty") if isinstance(so_line, dict) else so_line.qty
-	so_amount = so_line.get("amount") if isinstance(so_line, dict) else so_line.amount
-	return flt(row.qty) > flt(so_qty) * 1.001 or flt(row.amount) > flt(so_amount) * 1.001
+	from construction_management.api.boq_invoice import invoice_row_exceeds_so_cap
+
+	return invoice_row_exceeds_so_cap(row)
 
 
 def _print_report(report: list[dict]) -> None:

@@ -114,6 +114,46 @@ _BOQ_RATE_SKIP_ITEM_CODES = frozenset(
 )
 
 
+def _row_uses_sales_order_pricing(doc, row) -> bool:
+	"""Combined / SO-mapped invoice lines must keep Sales Order qty rate and amount."""
+	if row.get("so_detail"):
+		return True
+	if not (doc.get("custom_source_sales_orders") or "").strip():
+		return False
+	return bool(row.get("sales_order") and row.get("boq_item"))
+
+
+def _so_line_billing_cap(so_detail: str | None) -> dict | None:
+	"""Return Sales Order Item caps used by combined invoice validation."""
+	if not so_detail:
+		return None
+	return frappe.db.get_value(
+		"Sales Order Item",
+		so_detail,
+		["qty", "amount"],
+		as_dict=True,
+	)
+
+
+def _cap_field(cap, fieldname: str):
+	if isinstance(cap, dict):
+		return cap.get(fieldname)
+	return getattr(cap, fieldname, None)
+
+
+def invoice_row_exceeds_so_cap(row, *, tolerance: float = 1.001) -> bool:
+	"""True when a revenue row bills above its linked Sales Order Item."""
+	cap = _so_line_billing_cap(row.get("so_detail"))
+	if not cap:
+		return False
+	cap_qty = _cap_field(cap, "qty")
+	cap_amount = _cap_field(cap, "amount")
+	return (
+		flt(row.qty) > flt(cap_qty) * tolerance
+		or flt(row.amount) > flt(cap_amount) * tolerance
+	)
+
+
 def apply_boq_service_rates(doc) -> None:
 	"""Force revenue lines with a BOQ service to use that service's project rate.
 
@@ -122,6 +162,8 @@ def apply_boq_service_rates(doc) -> None:
 	"""
 	for row in doc.get("items") or []:
 		if not row.get("boq_item") or row.item_code in _BOQ_RATE_SKIP_ITEM_CODES:
+			continue
+		if _row_uses_sales_order_pricing(doc, row):
 			continue
 		boq_rate = flt(frappe.db.get_value("BOQ Item", row.boq_item, "rate"))
 		row.rate = boq_rate
@@ -4458,16 +4500,7 @@ def validate_combined_source_sales_orders(doc) -> None:
 			continue
 		if not row.get("so_detail") or not row.get("sales_order"):
 			continue
-		so_line = frappe.db.get_value(
-			"Sales Order Item",
-			row.so_detail,
-			["qty", "amount"],
-			as_dict=True,
-		)
-		if so_line and (
-			flt(row.qty) > flt(so_line.qty) * 1.001
-			or flt(row.amount) > flt(so_line.amount) * 1.001
-		):
+		if invoice_row_exceeds_so_cap(row):
 			frappe.throw(
 				_(
 					"Line {0} bills more than Sales Order {1} allows for BOQ {2}. "
