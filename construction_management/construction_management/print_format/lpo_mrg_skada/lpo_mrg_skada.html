@@ -122,9 +122,8 @@
     <tr>
       <td class="center">{{ loop.index }}</td>
       <td>
-        {{ item.item_name or item.item_code or "-" }}
         {% set item_group = item.item_group or (item.item_code and frappe.db.get_value("Item", item.item_code, "item_group")) or "" %}
-        {% if item_group %}<br><span style="font-size:10px;color:#444;">{{ item_group }}</span>{% endif %}
+        {{ item_group or "-" }}
       </td>
       <td>
         {% set blk = get_po_item_print_block(item) %}
